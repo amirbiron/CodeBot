@@ -86,19 +86,16 @@ EXPOSE ${PORT:-8000}
 
 # בדיקת תקינות - מותאם לRender
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "
-import sys
-try:
-    from config import config
-    from database import db
-    # בדיקה בסיסית שהקונפיגורציה נטענת
-    assert config.BOT_TOKEN, 'BOT_TOKEN missing'
-    print('Health check passed')
-    sys.exit(0)
-except Exception as e:
-    print(f'Health check failed: {e}')
-    sys.exit(1)
-"
+    CMD python -c "import sys; \
+try: \
+    from config import config; \
+    from database import db; \
+    assert config.BOT_TOKEN, 'BOT_TOKEN missing'; \
+    print('Health check passed'); \
+    sys.exit(0); \
+except Exception as e: \
+    print(f'Health check failed: {e}'); \
+    sys.exit(1);"
 
 # פקודת הפעלה - Render compatible
 CMD ["sh", "-c", "python main.py"]
