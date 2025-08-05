@@ -81,10 +81,10 @@ COPY --chown=botuser:botuser . .
 # הגדרת timezone
 ENV TZ=UTC
 
-# פורטים (אם נדרש לwebhooks)
-EXPOSE 8000
+# פורטים (Render auto-assigns PORT)
+EXPOSE ${PORT:-8000}
 
-# בדיקת תקינות
+# בדיקת תקינות - מותאם לRender
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "
 import sys
@@ -100,8 +100,8 @@ except Exception as e:
     sys.exit(1)
 "
 
-# פקודת הפעלה
-CMD ["python", "main.py"]
+# פקודת הפעלה - Render compatible
+CMD ["sh", "-c", "python main.py"]
 
 # ===================================
 # Multi-stage build עם development
