@@ -251,65 +251,85 @@ jobs:
           sarif_file: 'trivy-results.sarif'
 
   # ===================================
-  # שלב 4: פריסה ל-Staging
+  # שלב 4: פריסה ל-Render Staging
   # ===================================
   deploy-staging:
-    name: 🚀 Deploy to Staging
+    name: 🚀 Deploy to Render Staging
     runs-on: ubuntu-latest
     needs: build-docker
     if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'staging'
     
     environment:
       name: staging
-      url: https://staging.codekeeper.bot
+      url: https://code-keeper-bot-staging.onrender.com
     
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
       
-      - name: 🚀 Deploy to Staging Server
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USER }}
-          key: ${{ secrets.STAGING_SSH_KEY }}
-          script: |
-            cd /opt/code-keeper-bot
-            git pull origin develop
-            
-            # עדכון משתני סביבה
-            cp .env.staging .env
-            
-            # עדכון Docker images
-            docker-compose pull
-            docker-compose up -d --remove-orphans
-            
-            # בדיקת תקינות
-            sleep 30
-            docker-compose exec -T code-keeper-bot python -c "
-            from config import config
-            from database import db
-            print('✅ Staging deployment successful')
-            "
-      
-      - name: 🧪 Run Integration Tests
+      - name: 🚀 Trigger Render Deploy (Staging)
         run: |
-          # כאן נוסיף בדיקות אינטגרציה
+          curl -X POST "${{ secrets.RENDER_STAGING_DEPLOY_HOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "branch": "develop",
+              "commit": "${{ github.sha }}"
+            }'
+      
+      - name: ⏳ Wait for Deployment
+        run: |
+          echo "⏳ Waiting for Render deployment to complete..."
+          sleep 120  # ממתין 2 דקות לפריסה
+      
+      - name: 🧪 Health Check
+        run: |
+          echo "🏥 Checking staging health..."
+          for i in {1..10}; do
+            if curl -f "https://code-keeper-bot-staging.onrender.com/health" 2>/dev/null; then
+              echo "✅ Staging is healthy!"
+              exit 0
+            fi
+            echo "⏳ Attempt $i/10 failed, waiting 30s..."
+            sleep 30
+          done
+          echo "❌ Staging health check failed"
+          exit 1
+      
+      - name: 🧪 Integration Tests
+        run: |
           echo "🧪 Running integration tests against staging..."
-          # curl -f http://staging.codekeeper.bot/health || exit 1
+          # כאן נוסיף בדיקות אינטגרציה ספציפיות
+          python -c "
+          import requests
+          import os
+          
+          # בדיקה שהבוט מגיב
+          staging_url = 'https://code-keeper-bot-staging.onrender.com'
+          
+          try:
+              response = requests.get(f'{staging_url}/health', timeout=10)
+              assert response.status_code == 200
+              print('✅ Staging API is responding')
+              
+              # בדיקות נוספות כאן...
+              
+          except Exception as e:
+              print(f'❌ Integration test failed: {e}')
+              exit(1)
+          "
 
   # ===================================
-  # שלב 5: פריסה לייצור
+  # שלב 5: פריסה ל-Render Production
   # ===================================
   deploy-production:
-    name: 🏭 Deploy to Production
+    name: 🏭 Deploy to Render Production
     runs-on: ubuntu-latest
     needs: [build-docker, deploy-staging]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
     
     environment:
       name: production
-      url: https://codekeeper.bot
+      url: https://code-keeper-bot.onrender.com
     
     steps:
       - name: 📥 Checkout Code
@@ -339,51 +359,94 @@ jobs:
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
             ```
             
+            ### 🌐 Live on Render
+            The bot is deployed and running at: https://code-keeper-bot.onrender.com
+            
             ### 🔗 Full Changelog
             https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.ref_name }}
           draft: false
           prerelease: false
       
-      - name: 🚀 Deploy to Production Servers
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.PRODUCTION_HOST }}
-          username: ${{ secrets.PRODUCTION_USER }}
-          key: ${{ secrets.PRODUCTION_SSH_KEY }}
-          script: |
-            cd /opt/code-keeper-bot
-            
-            # גיבוי לפני עדכון
-            docker-compose exec -T mongodb mongodump --authenticationDatabase admin -u $MONGO_USERNAME -p $MONGO_PASSWORD --out /backup/pre-deploy-$(date +%Y%m%d-%H%M%S)
-            
-            # עדכון קוד
-            git fetch --all
-            git checkout main
-            git pull origin main
-            
-            # עדכון משתני סביבה
-            cp .env.production .env
-            
-            # עדכון Docker images
-            docker-compose pull
-            docker-compose up -d --remove-orphans
-            
-            # בדיקת תקינות
-            sleep 60
-            docker-compose exec -T code-keeper-bot python -c "
-            from config import config
-            from database import db
-            print('✅ Production deployment successful')
-            "
-            
-            # ניקוי images ישנים
-            docker image prune -f
-      
-      - name: 📊 Health Check
+      - name: 🚀 Trigger Render Deploy (Production)
         run: |
-          echo "🏥 Running production health checks..."
-          # כאן נוסיף בדיקות תקינות מפורטות
-          # curl -f https://codekeeper.bot/health || exit 1
+          echo "🚀 Deploying to Render Production..."
+          
+          # קריאה ל-Render Deploy Hook
+          response=$(curl -s -w "%{http_code}" -X POST "${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"branch\": \"main\",
+              \"commit\": \"${{ github.sha }}\",
+              \"message\": \"Automated deployment from GitHub Actions\"
+            }")
+          
+          http_code="${response: -3}"
+          
+          if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+            echo "✅ Render deployment triggered successfully"
+          else
+            echo "❌ Failed to trigger Render deployment (HTTP: $http_code)"
+            exit 1
+          fi
+      
+      - name: ⏳ Wait for Production Deployment
+        run: |
+          echo "⏳ Waiting for Render production deployment..."
+          
+          # המתנה מותאמת לגודל הפרויקט
+          echo "⏳ Build and deployment typically takes 3-5 minutes on Render..."
+          sleep 180  # 3 דקות
+          
+          # בדיקה שהשירות עלה
+          for i in {1..20}; do
+            if curl -f "https://code-keeper-bot.onrender.com/health" 2>/dev/null; then
+              echo "✅ Production deployment successful!"
+              break
+            fi
+            
+            if [ $i -eq 20 ]; then
+              echo "❌ Production deployment timeout"
+              exit 1
+            fi
+            
+            echo "⏳ Deployment check $i/20, waiting 30s..."
+            sleep 30
+          done
+      
+      - name: 📊 Production Health Check
+        run: |
+          echo "🏥 Running comprehensive production health checks..."
+          
+          production_url="https://code-keeper-bot.onrender.com"
+          
+          # בדיקות בסיסיות
+          echo "🔍 Testing basic connectivity..."
+          curl -f "$production_url/health" || exit 1
+          
+          # בדיקת response time
+          echo "⚡ Testing response time..."
+          response_time=$(curl -w "%{time_total}" -s -o /dev/null "$production_url/health")
+          
+          if (( $(echo "$response_time > 5.0" | bc -l) )); then
+            echo "⚠️ Warning: Slow response time ($response_time seconds)"
+          else
+            echo "✅ Good response time: $response_time seconds"
+          fi
+          
+          echo "✅ All production health checks passed!"
+      
+      - name: 🔄 Rollback on Failure
+        if: failure()
+        run: |
+          echo "❌ Production deployment failed, attempting rollback..."
+          
+          # אם יש deploy hook לגרסה קודמת, נשתמש בו
+          if [ -n "${{ secrets.RENDER_ROLLBACK_HOOK }}" ]; then
+            curl -X POST "${{ secrets.RENDER_ROLLBACK_HOOK }}"
+            echo "🔄 Rollback triggered"
+          else
+            echo "⚠️ No rollback hook configured"
+          fi
 
   # ===================================
   # שלב 6: התראות
@@ -516,32 +579,64 @@ jobs:
           # k6 run performance/load-test.js
 
 # ===================================
-# הוראות שימוש
+# הוראות הגדרה ב-GitHub + Render
 # ===================================
 
-# Secrets נדרשים ב-GitHub:
+# Secrets נדרשים ב-GitHub Repository Settings → Secrets:
+
+# עבור בדיקות:
 # - TEST_BOT_TOKEN: טוקן בוט לבדיקות
-# - TEST_GITHUB_TOKEN: טוקן GitHub לבדיקות
+# - TEST_GITHUB_TOKEN: טוקן GitHub לבדיקות  
 # - TEST_PASTEBIN_KEY: מפתח Pastebin לבדיקות
-# - STAGING_HOST: כתובת שרת staging
-# - STAGING_USER: משתמש SSH לstaging
-# - STAGING_SSH_KEY: מפתח SSH לstaging
-# - PRODUCTION_HOST: כתובת שרת ייצור
-# - PRODUCTION_USER: משתמש SSH לייצור
-# - PRODUCTION_SSH_KEY: מפתח SSH לייצור
+
+# עבור Render deployment:
+# - RENDER_STAGING_DEPLOY_HOOK: Render deploy hook URL לstaging
+# - RENDER_PRODUCTION_DEPLOY_HOOK: Render deploy hook URL לproduction
+# - RENDER_ROLLBACK_HOOK: Render rollback hook (אופציונלי)
+
+# עבור התראות:
 # - TELEGRAM_CHAT_ID: ID צ'אט להתראות
 # - TELEGRAM_BOT_TOKEN: טוקן בוט להתראות
 # - NOTIFICATION_EMAIL: אימייל להתראות
 # - SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD: הגדרות SMTP
 
-# Environment Variables ב-GitHub Environments:
-# staging:
-#   - MONGODB_URL
-#   - REDIS_URL
-#   - BOT_TOKEN
-# production:
-#   - MONGODB_URL
-#   - REDIS_URL
-#   - BOT_TOKEN
-#   - GITHUB_TOKEN
-#   - PASTEBIN_API_KEY
+# ===================================
+# הגדרת Deploy Hooks ב-Render:
+# ===================================
+
+# 1. עבור לRender Dashboard
+# 2. בחר את השירות שלך
+# 3. עבור ל-Settings → Deploy Hooks
+# 4. צור deploy hook חדש
+# 5. העתק את ה-URL
+# 6. הוסף כSecret ב-GitHub
+
+# ===================================
+# Environment Variables ב-Render:
+# ===================================
+
+# ב-Render Service Settings → Environment:
+# BOT_TOKEN=your_telegram_bot_token
+# MONGODB_URL=mongodb+srv://user:pass@cluster.mongodb.net/dbname
+# GITHUB_TOKEN=your_github_token (אופציונלי)
+# PASTEBIN_API_KEY=your_pastebin_key (אופציונלי)
+# LOG_LEVEL=INFO
+# SENTRY_DSN=your_sentry_dsn (אופציונלי)
+
+# ===================================
+# MongoDB Atlas Setup:
+# ===================================
+
+# 1. עבור ל-https://cloud.mongodb.com
+# 2. צור חשבון ו-cluster חינמי
+# 3. הגדר Network Access → Allow Access From Anywhere
+# 4. צור DB User עם read/write permissions
+# 5. קבל connection string ושים ב-MONGODB_URL
+
+# ===================================
+# Render Auto-Deploy Setup:
+# ===================================
+
+# Render יפרוס אוטומטית כל push ל-main
+# לא צריך SSH keys או server management!
+# פשוט push ל-GitHub והכל יקרה אוטומטית 🚀
