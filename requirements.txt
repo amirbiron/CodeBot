@@ -68,8 +68,16 @@ alembic==1.13.1
 # Environment
 gunicorn==21.2.0
 uvicorn==0.24.0
+python-dotenv==1.0.0
+
+# Cloud Deployment
+# עבור Render.com, Heroku וכדומה
+whitenoise==6.6.0
 
 # File Format Support
+openpyxl==3.1.2
+pandas==2.1.4
+xlsxwriter==3.1.9
 openpyxl==3.1.2
 pandas==2.1.4
 xlsxwriter==3.1.9
