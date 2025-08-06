@@ -51,29 +51,35 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
         else:
-            # יצירת כפתורים עבור כל קובץ (בקבוצות של 5)
+            # יצירת כפתורים עבור כל קובץ
             keyboard = []
             
             for i, file in enumerate(files):
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
-                file_id = str(file.get('_id', ''))
+                
+                # שימוש באינדקס במקום file_id כדי לחסוך מקום
+                # שמירת המידע ב-context לשימוש מאוחר יותר
+                if 'files_cache' not in context.user_data:
+                    context.user_data['files_cache'] = {}
+                context.user_data['files_cache'][str(i)] = file
                 
                 # כפתור לכל קובץ עם אמוג'י לפי סוג הקובץ
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
                 
+                # callback_data קצר יותר - רק האינדקס
                 keyboard.append([InlineKeyboardButton(
                     button_text, 
-                    callback_data=f"file_menu_{file_id}_{file_name}"
+                    callback_data=f"file_{i}"
                 )])
                 
-                # הגבלה ל-10 קבצים בפעם אחת כדי לא להעמיס על התצוגה
+                # הגבלה ל-10 קבצים בפעם אחת
                 if i >= 9:
                     break
             
             # הוספת כפתור חזרה
-            keyboard.append([InlineKeyboardButton("🔙 חזרה לתפריט הראשי", callback_data="back_to_main")])
+            keyboard.append([InlineKeyboardButton("🔙 תפריט ראשי", callback_data="main")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -255,30 +261,30 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
     
     try:
-        # פירוק המידע מה-callback_data
-        parts = query.data.split('_')
-        if len(parts) >= 4:
-            file_id = parts[2]
-            file_name = '_'.join(parts[3:])  # במקרה שיש _ בשם הקובץ
-        else:
+        # קבלת האינדקס מה-callback_data
+        file_index = query.data.split('_')[1]
+        
+        # קבלת המידע מה-cache
+        files_cache = context.user_data.get('files_cache', {})
+        file_data = files_cache.get(file_index)
+        
+        if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         
-        # יצירת כפתורי פעולה
+        file_name = file_data.get('file_name', 'קובץ ללא שם')
+        
+        # יצירת כפתורי פעולה עם callback_data קצר
         keyboard = [
             [
-                InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_id}"),
-                InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_{file_id}")
+                InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
+                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}")
             ],
             [
-                InlineKeyboardButton("📥 הורד קובץ", callback_data=f"download_{file_id}"),
-                InlineKeyboardButton("📊 מידע נוסף", callback_data=f"info_{file_id}")
+                InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}"),
+                InlineKeyboardButton("📊 מידע", callback_data=f"info_{file_index}")
             ],
-            [
-                InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_{file_id}"),
-                InlineKeyboardButton("📤 שתף", callback_data=f"share_{file_id}")
-            ],
-            [InlineKeyboardButton("🔙 חזרה לרשימת קבצים", callback_data="back_to_files")]
+            [InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="files")]
         ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -302,10 +308,11 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
     
     try:
-        file_id = query.data.split('_')[1]
-        from database import db
+        file_index = query.data.split('_')[1]
         
-        file_data = db.get_file_by_id(file_id)
+        # קבלת המידע מה-cache
+        files_cache = context.user_data.get('files_cache', {})
+        file_data = files_cache.get(file_index)
         
         if not file_data:
             await query.edit_message_text("⚠️ הקובץ לא נמצא")
@@ -315,15 +322,15 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         
-        # חיתוך הקוד אם הוא ארוך מדי (טלגרם מגביל ל-4096 תווים)
+        # חיתוך הקוד אם הוא ארוך מדי
         max_length = 3500
         if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [קוד חתוך - יותר מדי תווים]"
+            code_preview = code[:max_length] + "\n\n... [קוד חתוך - השתמש בהורדה לקובץ המלא]"
         else:
             code_preview = code
         
         # כפתור חזרה
-        keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_menu_{file_id}_{file_name}")]]
+        keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
@@ -344,22 +351,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     
     try:
-        if query.data.startswith("file_menu_"):
+        data = query.data
+        
+        if data.startswith("file_") and not data.startswith("files"):
             return await handle_file_menu(update, context)
-        elif query.data.startswith("view_"):
+        elif data.startswith("view_"):
             return await handle_view_file(update, context)
-        elif query.data == "back_to_files":
+        elif data == "files":
             return await show_all_files_callback(update, context)
-        elif query.data == "back_to_main":
-            await query.edit_message_text(
-                "חוזר לתפריט הראשי:",
+        elif data == "main":
+            await query.edit_message_text("חוזר לתפריט הראשי:")
+            await query.message.reply_text(
+                "בחר פעולה:",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
-        # כאן תוכל להוסיף עוד פעולות כמו edit, delete, download וכו'
+        # תוכל להוסיף עוד פעולות כמו del_, dl_, info_
         
     except telegram.error.BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
+    except Exception as e:
+        logger.error(f"Error in handle_callback_query: {e}")
     
     return ConversationHandler.END
 
@@ -381,29 +393,35 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
         else:
-            # יצירת כפתורים עבור כל קובץ (בקבוצות של 5)
+            # יצירת כפתורים עבור כל קובץ
             keyboard = []
             
             for i, file in enumerate(files):
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
-                file_id = str(file.get('_id', ''))
+                
+                # שימוש באינדקס במקום file_id כדי לחסוך מקום
+                # שמירת המידע ב-context לשימוש מאוחר יותר
+                if 'files_cache' not in context.user_data:
+                    context.user_data['files_cache'] = {}
+                context.user_data['files_cache'][str(i)] = file
                 
                 # כפתור לכל קובץ עם אמוג'י לפי סוג הקובץ
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
                 
+                # callback_data קצר יותר - רק האינדקס
                 keyboard.append([InlineKeyboardButton(
                     button_text, 
-                    callback_data=f"file_menu_{file_id}_{file_name}"
+                    callback_data=f"file_{i}"
                 )])
                 
-                # הגבלה ל-10 קבצים בפעם אחת כדי לא להעמיס על התצוגה
+                # הגבלה ל-10 קבצים בפעם אחת
                 if i >= 9:
                     break
             
             # הוספת כפתור חזרה
-            keyboard.append([InlineKeyboardButton("🔙 חזרה לתפריט הראשי", callback_data="back_to_main")])
+            keyboard.append([InlineKeyboardButton("🔙 תפריט ראשי", callback_data="main")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
