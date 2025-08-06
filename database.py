@@ -16,7 +16,7 @@ class CodeSnippet:
     user_id: int
     file_name: str
     code: str
-    language: str
+    programming_language: str  # שם השדה שונה כדי למנוע קונפליקט
     description: str = ""
     tags: List[str] = None
     version: int = 1
@@ -62,7 +62,7 @@ class DatabaseManager:
         indexes = [
             IndexModel([("user_id", ASCENDING)]),
             IndexModel([("file_name", ASCENDING)]),
-            IndexModel([("language", ASCENDING)]),
+            IndexModel([("programming_language", ASCENDING)]),  # עודכן כאן
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
@@ -143,7 +143,7 @@ class DatabaseManager:
             logger.error(f"שגיאה בקבלת קבצי משתמש: {e}")
             return []
     
-    def search_code(self, user_id: int, query: str, language: str = None, 
+    def search_code(self, user_id: int, query: str, programming_language: str = None, 
                    tags: List[str] = None, limit: int = 20) -> List[Dict]:
         """חיפוש מתקדם בקטעי קוד"""
         try:
@@ -154,8 +154,8 @@ class DatabaseManager:
                 search_filter["$text"] = {"$search": query}
             
             # סינון לפי שפה
-            if language:
-                search_filter["language"] = language
+            if programming_language:
+                search_filter["programming_language"] = programming_language
             
             # סינון לפי תגיות
             if tags:
@@ -206,14 +206,14 @@ class DatabaseManager:
                 {"$group": {
                     "_id": "$file_name",
                     "versions": {"$sum": 1},
-                    "language": {"$first": "$language"},
+                    "programming_language": {"$first": "$programming_language"},
                     "latest_update": {"$max": "$updated_at"}
                 }},
                 {"$group": {
                     "_id": None,
                     "total_files": {"$sum": 1},
                     "total_versions": {"$sum": "$versions"},
-                    "languages": {"$addToSet": "$language"},
+                    "languages": {"$addToSet": "$programming_language"},
                     "latest_activity": {"$max": "$latest_update"}
                 }}
             ]
