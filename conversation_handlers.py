@@ -13,6 +13,7 @@ from telegram.ext import (
     filters,
 )
 from database import DatabaseManager
+from activity_reporter import create_reporter
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -22,6 +23,12 @@ GET_CODE, GET_FILENAME = range(2)
 
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"]]
+
+reporter = create_reporter(
+    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+    service_id="srv-d29d72adbo4c73bcuep0",
+    service_name="CodeBot"
+)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """טיפול בפקודת /start - מציג את התפריט הראשי"""
@@ -36,6 +43,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -101,6 +109,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 def get_file_emoji(language: str) -> str:
@@ -130,6 +139,7 @@ async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "כדי לבטל את התהליך בכל שלב, פשוט שלח /cancel.",
         reply_markup=ReplyKeyboardRemove(), # מסיר את המקלדת הראשית בזמן התהליך
     )
+    reporter.report_activity(update.effective_user.id)
     return GET_CODE
 
 async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -139,6 +149,7 @@ async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "✅ הקוד נקלט בהצלחה! עכשיו תן לי שם לקובץ (למשל: `my_script.py`).\n\n"
         "💡 שם הקובץ יעזור לי לזהות את שפת התכנות אוטומטית!"
     )
+    reporter.report_activity(update.effective_user.id)
     return GET_FILENAME
 
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -256,6 +267,8 @@ async def handle_duplicate_callback(update: Update, context: ContextTypes.DEFAUL
             pass  # התעלם מהשגיאה הזו
         else:
             raise
+    reporter.report_activity(update.effective_user.id)
+    return ConversationHandler.END
 
 async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג תפריט אפשרויות לקובץ ספציפי"""
@@ -302,6 +315,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"Error in handle_file_menu: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת תפריט הקובץ")
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -346,6 +360,7 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"Error in handle_view_file: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת הקובץ")
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -382,6 +397,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error in handle_callback_query: {e}")
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -419,6 +435,7 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error in handle_download_file: {e}")
         await query.answer("❌ שגיאה בהורדת הקובץ", show_alert=True)
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -461,6 +478,7 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         logger.error(f"Error in handle_delete_confirmation: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת אישור המחיקה")
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -505,6 +523,7 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error in handle_delete_file: {e}")
         await query.edit_message_text("❌ שגיאה במחיקת הקובץ")
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_file_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -572,6 +591,7 @@ async def handle_file_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"Error in handle_file_info: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת מידע הקובץ")
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -635,6 +655,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         else:
             await update.message.reply_text(error_text)
     
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -644,6 +665,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
     )
     context.user_data.clear()
+    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:

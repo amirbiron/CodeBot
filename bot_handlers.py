@@ -20,8 +20,15 @@ from code_processor import code_processor
 from config import config
 from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
+from activity_reporter import create_reporter
 
 logger = logging.getLogger(__name__)
+
+reporter = create_reporter(
+    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+    service_id="srv-d29d72adbo4c73bcuep0",
+    service_name="CodeBot"
+)
 
 class AdvancedBotHandlers:
     """פקודות מתקדמות של הבוט"""
@@ -65,6 +72,7 @@ class AdvancedBotHandlers:
     
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -121,6 +129,7 @@ class AdvancedBotHandlers:
     
     async def edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """עריכת קטע קוד קיים"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -158,6 +167,7 @@ class AdvancedBotHandlers:
     
     async def delete_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מחיקת קטע קוד"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -197,6 +207,7 @@ class AdvancedBotHandlers:
     
     async def versions_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת כל גרסאות הקובץ"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -256,6 +267,7 @@ class AdvancedBotHandlers:
     
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """ניתוח מתקדם של קטע קוד"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -335,6 +347,7 @@ class AdvancedBotHandlers:
     
     async def validate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """בדיקת תחביר של קוד"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -384,6 +397,7 @@ class AdvancedBotHandlers:
     
     async def share_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """שיתוף קטע קוד ב-Gist או Pastebin"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -428,6 +442,7 @@ class AdvancedBotHandlers:
     
     async def download_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הורדת קובץ"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -464,6 +479,7 @@ class AdvancedBotHandlers:
     
     async def tags_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת כל התגיות של המשתמש"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         files = db.get_user_files(user_id, limit=1000)
@@ -500,6 +516,7 @@ class AdvancedBotHandlers:
     
     async def recent_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת הקבצים שעודכנו לאחרונה"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         # כמה ימים אחורה לחפש
@@ -538,6 +555,7 @@ class AdvancedBotHandlers:
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בלחיצות על כפתורים"""
+        reporter.report_activity(update.effective_user.id)
         query = update.callback_query
         await query.answer()
         

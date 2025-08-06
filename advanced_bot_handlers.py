@@ -4,8 +4,15 @@ from io import BytesIO
 
 from telegram import Update, InputFile
 from telegram.ext import Application, ContextTypes, CallbackQueryHandler
+from activity_reporter import create_reporter
 
 logger = logging.getLogger(__name__)
+
+reporter = create_reporter(
+    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+    service_id="srv-d29d72adbo4c73bcuep0",
+    service_name="CodeBot"
+)
 
 
 class AdvancedBotHandlers:
@@ -17,6 +24,7 @@ class AdvancedBotHandlers:
         """
         Handles the 'Delete' button. Deletes the file from the DB and updates the message.
         """
+        reporter.report_activity(update.effective_user.id)
         query = update.callback_query
         await query.answer()
 
@@ -37,6 +45,7 @@ class AdvancedBotHandlers:
         """
         Handles the 'Download' button. Sends the code as a text file.
         """
+        reporter.report_activity(update.effective_user.id)
         query = update.callback_query
         await query.answer()
 
@@ -66,6 +75,7 @@ class AdvancedBotHandlers:
         """
         Handles the 'Share' button. Currently a placeholder.
         """
+        reporter.report_activity(update.effective_user.id)
         query = update.callback_query
         # מציג התראה קופצת למשתמש
         await query.answer("פיצ'ר השיתוף עדיין בפיתוח!", show_alert=True)
