@@ -271,5 +271,9 @@ class DatabaseManager:
             self.client.close()
             logger.info("חיבור למסד הנתונים נסגר")
 
+    def close_connection(self):
+        """Alias for close() kept for backward compatibility."""
+        self.close()
+
 # יצירת אינסטנס גלובלי
 db = DatabaseManager()
