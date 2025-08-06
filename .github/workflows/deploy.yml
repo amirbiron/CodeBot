@@ -456,54 +456,54 @@ jobs:
   # ===================================
   # שלב 6: התראות
   # ===================================
-  notify:
-    name: 📢 Notifications
-    runs-on: ubuntu-latest
-    needs: [deploy-staging, deploy-production]
-    if: always()
-    
-    steps:
-      - name: 📱 Telegram Notification
-        if: always()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: |
-            🤖 **Code Keeper Bot Deployment**
-            
-            📋 **Workflow:** ${{ github.workflow }}
-            🌿 **Branch:** ${{ github.ref_name }}
-            👤 **Actor:** ${{ github.actor }}
-            💾 **Commit:** ${{ github.sha }}
-            
-            📊 **Results:**
-            • Code Quality: ${{ needs.code-quality.result }}
-            • Unit Tests: ${{ needs.unit-tests.result }}
-            • Docker Build: ${{ needs.build-docker.result }}
-            • Staging: ${{ needs.deploy-staging.result }}
-            • Production: ${{ needs.deploy-production.result }}
-            
-            🔗 **Details:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      
-      - name: 📧 Email Notification
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USER }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "❌ Code Keeper Bot Deployment Failed"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: "CI/CD <noreply@codekeeper.bot>"
-          html_body: |
-            <h2>❌ Deployment Failed</h2>
-            <p><strong>Repository:</strong> ${{ github.repository }}</p>
-            <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
-            <p><strong>Commit:</strong> ${{ github.sha }}</p>
-            <p><strong>Actor:</strong> ${{ github.actor }}</p>
-            <p><a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Details</a></p>
+#  notify:
+#    name: 📢 Notifications
+#    runs-on: ubuntu-latest
+#    needs: [deploy-staging, deploy-production]
+#    if: always()
+#    
+#    steps:
+#      - name: 📱 Telegram Notification
+#        if: always()
+#        uses: appleboy/telegram-action@master
+#        with:
+#          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+#          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+#          message: |
+#            🤖 **Code Keeper Bot Deployment**
+#            
+#            📋 **Workflow:** ${{ github.workflow }}
+#            🌿 **Branch:** ${{ github.ref_name }}
+#            👤 **Actor:** ${{ github.actor }}
+#            💾 **Commit:** ${{ github.sha }}
+#            
+#            📊 **Results:**
+#            • Code Quality: ${{ needs.code-quality.result }}
+#            • Unit Tests: ${{ needs.unit-tests.result }}
+#            • Docker Build: ${{ needs.build-docker.result }}
+#            • Staging: ${{ needs.deploy-staging.result }}
+#            • Production: ${{ needs.deploy-production.result }}
+#            
+#            🔗 **Details:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#      
+#      - name: 📧 Email Notification
+#        if: failure()
+#        uses: dawidd6/action-send-mail@v3
+#        with:
+#          server_address: ${{ secrets.SMTP_HOST }}
+#          server_port: ${{ secrets.SMTP_PORT }}
+#          username: ${{ secrets.SMTP_USER }}
+#          password: ${{ secrets.SMTP_PASSWORD }}
+#          subject: "❌ Code Keeper Bot Deployment Failed"
+#          to: ${{ secrets.NOTIFICATION_EMAIL }}
+#          from: "CI/CD <noreply@codekeeper.bot>"
+#          html_body: |
+#            <h2>❌ Deployment Failed</h2>
+#            <p><strong>Repository:</strong> ${{ github.repository }}</p>
+#            <p><strong>Branch:</strong> ${{ github.ref_name }}</p>
+#            <p><strong>Commit:</strong> ${{ github.sha }}</p>
+#            <p><strong>Actor:</strong> ${{ github.actor }}</p>
+#            <p><a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Details</a></p>
 
   # ===================================
   # שלב 7: ניקוי
@@ -511,7 +511,7 @@ jobs:
   cleanup:
     name: 🧹 Cleanup
     runs-on: ubuntu-latest
-    needs: [notify]
+    # needs: [notify]
     if: always()
     
     steps:
