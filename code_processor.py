@@ -556,9 +556,10 @@ class CodeProcessor:
                 if char in '([{':
                     brackets_balance[char] += 1
                 elif char in ')]}':
-                    corresponding = {')', ']', '}'}[ord(char) - ord('(')]
-                    if brackets_balance[corresponding] > 0:
-                        brackets_balance[corresponding] -= 1
+                    opening_map = {')': '(', ']': '[', '}': '{'}
+                    opening_bracket = opening_map.get(char)
+                    if opening_bracket and brackets_balance[opening_bracket] > 0:
+                        brackets_balance[opening_bracket] -= 1
                     else:
                         result['warnings'].append({
                             'line': i,

@@ -35,8 +35,8 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("show", self.show_command))
         self.application.add_handler(CommandHandler("edit", self.edit_command))
         self.application.add_handler(CommandHandler("delete", self.delete_command))
-        self.application.add_handler(CommandHandler("rename", self.rename_command))
-        self.application.add_handler(CommandHandler("copy", self.copy_command))
+        # self.application.add_handler(CommandHandler("rename", self.rename_command))
+        # self.application.add_handler(CommandHandler("copy", self.copy_command))
         
         # פקודות גרסאות
         self.application.add_handler(CommandHandler("versions", self.versions_command))
