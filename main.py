@@ -83,7 +83,7 @@ class CodeKeeperBot:
         
         await update.message.reply_text(
             welcome_text,
-            parse_mode=ParseMode.MARKDOWN_V2
+            parse_mode=ParseMode.HTML
         )
         
         logger.info(f"משתמש חדש התחיל: {user.id} ({user.username})")
