@@ -43,17 +43,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# MONGODB LOCK MANAGEMENT (CORRECTED AND STABLE VERSION)
+# MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
 # =============================================================================
 
 LOCK_ID = "code_keeper_bot_lock"
 LOCK_COLLECTION = "locks"
 LOCK_TIMEOUT_MINUTES = 5
 
+def get_lock_collection():
+    """
+    Safely gets the lock collection without assuming DatabaseManager structure.
+    """
+    db_name = os.getenv("MONGO_DB_NAME")
+    if not db_name:
+        logger.critical("MONGO_DB_NAME environment variable is not set! Cannot manage lock.")
+        sys.exit(1)
+    # Access collection directly via the client, the most basic pymongo operation
+    return db.client[db_name][LOCK_COLLECTION]
+
 def cleanup_mongo_lock():
     """Runs on script exit to remove the lock document."""
     try:
-        lock_collection = db.get_collection(LOCK_COLLECTION)
+        lock_collection = get_lock_collection()
         pid = os.getpid()
         result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
         if result.deleted_count > 0:
@@ -67,8 +78,7 @@ def manage_mongo_lock():
     If the lock is active, it exits to prevent conflict.
     """
     try:
-        lock_collection = db.get_collection(LOCK_COLLECTION)
-        # This is not strictly necessary if get_collection handles it, but safe to have
+        lock_collection = get_lock_collection()
         lock_collection.create_index("_id", unique=True)
         
         pid = os.getpid()
@@ -80,8 +90,7 @@ def manage_mongo_lock():
             lock_time = existing_lock.get("timestamp", now)
             if now - lock_time > timedelta(minutes=LOCK_TIMEOUT_MINUTES):
                 logger.warning(
-                    f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. "
-                    f"Taking over lock for new process PID: {pid}."
+                    f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. Taking over."
                 )
                 lock_collection.update_one(
                     {"_id": LOCK_ID},
@@ -89,17 +98,12 @@ def manage_mongo_lock():
                 )
             else:
                 logger.warning(
-                    f"Lock '{LOCK_ID}' is actively held by PID {existing_lock.get('pid', 'N/A')}. "
-                    f"This instance (PID: {pid}) will exit."
+                    f"Lock is actively held by PID {existing_lock.get('pid', 'N/A')}. This instance will exit."
                 )
                 sys.exit(0)
         else:
             try:
-                lock_collection.insert_one({
-                    "_id": LOCK_ID,
-                    "pid": pid,
-                    "timestamp": now
-                })
+                lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "timestamp": now})
             except DuplicateKeyError:
                 logger.warning(f"Could not acquire lock, another process was faster. Exiting.")
                 sys.exit(0)
@@ -108,9 +112,8 @@ def manage_mongo_lock():
         atexit.register(cleanup_mongo_lock)
 
     except Exception as e:
-        # Catching any other potential error during lock acquisition
         logger.critical(f"A critical error occurred in manage_mongo_lock: {e}", exc_info=True)
-        sys.exit(1) # Exit with an error code
+        sys.exit(1)
 
 # =============================================================================
 
