@@ -456,7 +456,7 @@ def main() -> None:
     bot = CodeKeeperBot()
 
     # מוסיף את ה-ConversationHandler עבור הכפתורים החדשים
-    conv_handler = get_save_conversation_handler()
+    conv_handler = get_save_conversation_handler(db)
     bot.application.add_handler(conv_handler)
 
     # מפעיל את הבוט
