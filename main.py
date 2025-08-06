@@ -43,19 +43,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# MONGODB LOCK MANAGEMENT (SELF-HEALING & STABLE VERSION)
+# MONGODB LOCK MANAGEMENT (CORRECTED AND STABLE VERSION)
 # =============================================================================
 
 LOCK_ID = "code_keeper_bot_lock"
 LOCK_COLLECTION = "locks"
-LOCK_TIMEOUT_MINUTES = 5  # משך הזמן שאחריו נחשיב נעילה כ"תקועה"
+LOCK_TIMEOUT_MINUTES = 5
 
 def cleanup_mongo_lock():
     """Runs on script exit to remove the lock document."""
     try:
-        lock_collection = db.client[db.db_name][LOCK_COLLECTION]
+        lock_collection = db.get_collection(LOCK_COLLECTION)
         pid = os.getpid()
-        # מחק את הנעילה רק אם ה-PID שלנו הוא זה שמחזיק אותה
         result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
         if result.deleted_count > 0:
             logger.info(f"Lock '{LOCK_ID}' released successfully by PID: {pid}.")
@@ -64,52 +63,54 @@ def cleanup_mongo_lock():
 
 def manage_mongo_lock():
     """
-    Acquires a lock. If the lock is stale (older than TIMEOUT), it takes over.
+    Acquires a lock. If the lock is stale, it takes over.
     If the lock is active, it exits to prevent conflict.
     """
-    lock_collection = db.client[db.db_name][LOCK_COLLECTION]
-    lock_collection.create_index("_id", unique=True)
-    
-    pid = os.getpid()
-    now = datetime.now(timezone.utc)
-    
-    # בדוק אם קיימת נעילה
-    existing_lock = lock_collection.find_one({"_id": LOCK_ID})
-    
-    if existing_lock:
-        lock_time = existing_lock.get("timestamp", now)
-        if now - lock_time > timedelta(minutes=LOCK_TIMEOUT_MINUTES):
-            # הנעילה ישנה, כנראה תהליך קודם קרס. השתלט עליה.
-            logger.warning(
-                f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. "
-                f"Taking over lock for new process PID: {pid}."
-            )
-            lock_collection.update_one(
-                {"_id": LOCK_ID},
-                {"$set": {"pid": pid, "timestamp": now}}
-            )
+    try:
+        lock_collection = db.get_collection(LOCK_COLLECTION)
+        # This is not strictly necessary if get_collection handles it, but safe to have
+        lock_collection.create_index("_id", unique=True)
+        
+        pid = os.getpid()
+        now = datetime.now(timezone.utc)
+        
+        existing_lock = lock_collection.find_one({"_id": LOCK_ID})
+        
+        if existing_lock:
+            lock_time = existing_lock.get("timestamp", now)
+            if now - lock_time > timedelta(minutes=LOCK_TIMEOUT_MINUTES):
+                logger.warning(
+                    f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. "
+                    f"Taking over lock for new process PID: {pid}."
+                )
+                lock_collection.update_one(
+                    {"_id": LOCK_ID},
+                    {"$set": {"pid": pid, "timestamp": now}}
+                )
+            else:
+                logger.warning(
+                    f"Lock '{LOCK_ID}' is actively held by PID {existing_lock.get('pid', 'N/A')}. "
+                    f"This instance (PID: {pid}) will exit."
+                )
+                sys.exit(0)
         else:
-            # הנעילה פעילה. צא מהתהליך הנוכחי.
-            logger.warning(
-                f"Lock '{LOCK_ID}' is actively held by PID {existing_lock.get('pid', 'N/A')}. "
-                f"This instance (PID: {pid}) will exit."
-            )
-            sys.exit(0)
-    else:
-        # אין נעילה, נסה לרכוש אותה
-        try:
-            lock_collection.insert_one({
-                "_id": LOCK_ID,
-                "pid": pid,
-                "timestamp": now
-            })
-        except DuplicateKeyError:
-            logger.warning(f"Could not acquire lock, another process was faster. Exiting.")
-            sys.exit(0)
+            try:
+                lock_collection.insert_one({
+                    "_id": LOCK_ID,
+                    "pid": pid,
+                    "timestamp": now
+                })
+            except DuplicateKeyError:
+                logger.warning(f"Could not acquire lock, another process was faster. Exiting.")
+                sys.exit(0)
 
-    # אם הגענו לכאן, הנעילה שלנו. רשום את פונקציית הניקוי
-    logger.info(f"Lock '{LOCK_ID}' acquired successfully by PID: {pid}.")
-    atexit.register(cleanup_mongo_lock)
+        logger.info(f"Lock '{LOCK_ID}' acquired successfully by PID: {pid}.")
+        atexit.register(cleanup_mongo_lock)
+
+    except Exception as e:
+        # Catching any other potential error during lock acquisition
+        logger.critical(f"A critical error occurred in manage_mongo_lock: {e}", exc_info=True)
+        sys.exit(1) # Exit with an error code
 
 # =============================================================================
 
