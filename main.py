@@ -28,44 +28,7 @@ from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 
-LOCK_COLLECTION = "locks"
-BOT_LOCK_ID = "codebot_instance_lock"
-
-
-def manage_mongo_lock(db_manager):
-    """
-    Acquires a lock in MongoDB, with a retry mechanism for deployment scenarios.
-    """
-    max_retries = 3
-    retry_delay = 5  # שניות
-    lock_doc = {
-        "_id": BOT_LOCK_ID,
-        "timestamp": datetime.utcnow(),
-        "pid": os.getpid()
-    }
-
-    for attempt in range(max_retries):
-        try:
-            # נסה להכניס את מסמך הנעילה
-            db_manager.db[LOCK_COLLECTION].insert_one(lock_doc)
-            logger.info(f"Bot instance lock acquired successfully on attempt {attempt + 1}.")
-            return  # הצלחנו לתפוס את הנעילה, צא מהפונקציה והמשך כרגיל
-
-        except pymongo.errors.DuplicateKeyError:
-            if attempt < max_retries - 1:
-                logger.warning(
-                    f"Lock is taken. Retrying in {retry_delay} seconds... "
-                    f"({attempt + 1}/{max_retries})"
-                )
-                time.sleep(retry_delay)  # המתן לפני הניסיון הבא
-            else:
-                logger.error("Could not acquire lock after all retries. Another instance is likely running. Exiting.")
-                sys.exit(0) # צא מהסקריפט רק אחרי שכל הניסיוות נכשלו
-        
-        except Exception as e:
-            logger.critical(f"A database error occurred while trying to acquire lock: {e}")
-            sys.exit(1)
-
+# (Lock mechanism constants removed)
 
 # הגדרת לוגים
 logging.basicConfig(
@@ -480,48 +443,32 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 
 
 # ---------------------------------------------------------------------------
-# New asynchronous entry-point that relies on PTB shutdown hooks.
+# New lock-free main
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    """Starts the bot and handles graceful shutdown using try...finally."""
+    """Starts the bot (without any locking mechanism)."""
     
     db_manager = DatabaseManager()
     
-    # שלב 1: נסה לתפוס את הנעילה. הפונקציה תצא אם היא נכשלת.
-    manage_mongo_lock(db_manager)
+    # הרשמה פשוטה של סגירת החיבור ל-DB ביציאה מהתוכנית
+    atexit.register(db_manager.close_connection)
+
+    bot_token = os.getenv("BOT_TOKEN")  # ודא שהשם תואם להגדרות שלך
+    if not bot_token:
+        logger.critical("BOT_TOKEN is not set. The bot cannot start.")
+        return
+
+    application = Application.builder().token(bot_token).build()
     
-    try:
-        # שלב 2: בנה את האפליקציה (בלי שום hooks של כיבוי)
-        bot_token = os.getenv("BOT_TOKEN")  # ודא שהשם כאן תואם ל-Render
-        if not bot_token:
-            logger.critical("BOT_TOKEN is not set.")
-            return  # הפונקציה תסתיים, וה-finally ירוץ וישחרר את הנעילה
+    application.bot_data["db"] = db_manager
 
-        application = Application.builder().token(bot_token).build()
-        
-        application.bot_data["db"] = db_manager
-
-        # רישום כל המטפלים (Handlers)
-        setup_handlers(application, db_manager)
-        setup_advanced_handlers(application, db_manager)
-        # אם הוספת conversation handlers, רשום אותם גם כן
-        
-        # שלב 3: הפעל את הבוט
-        logger.info("Starting bot polling...")
-        await application.run_polling()
-
-    finally:
-        # שלב 4: הבלוק הזה ירוץ תמיד בסוף, לא משנה מה קרה.
-        logger.info("Finally block: Releasing lock and closing connection...")
-        try:
-            # שחרר את הנעילה
-            db_manager.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
-            logger.info("Bot instance lock released successfully.")
-        except Exception as e:
-            logger.error(f"Could not release bot instance lock in finally block: {e}")
-        
-        # סגור את החיבור למסד הנתונים
-        db_manager.close_connection()
+    # רישום כל המטפלים (Handlers)
+    setup_handlers(application, db_manager)
+    setup_advanced_handlers(application, db_manager)
+    # הוסף כאן רישום של conversation handlers אם הוספת אותם
+    
+    logger.info("Starting bot polling...")
+    await application.run_polling()
 
 
 # A minimal post_init stub to comply with the PTB builder chain
