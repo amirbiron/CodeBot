@@ -84,57 +84,88 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """ניהול נעילת MongoDB עם תמיכה בפורמטי זמן מעורבים"""
+    """ניהול נעילה חכמה באמצעות MongoDB"""
     try:
-        import time
-        now_timestamp = time.time()  # זמן נוכחי כ-Unix timestamp
+        from datetime import timezone
+        import os
         
-        # בדיקה אם הנעילה קיימת
-        lock = db.db.locks.find_one({"name": "mongo_connection"})
+        # מזהה ייחודי לתהליך הנוכחי
+        instance_id = os.getenv("RENDER_INSTANCE_ID", f"local_{os.getpid()}")
+        now = datetime.now(timezone.utc)
         
-        if lock:
-            lock_timestamp = lock.get("timestamp", 0)
-            
-            # בדיקה איזה סוג זמן יש ברשומה הקיימת
-            if isinstance(lock_timestamp, datetime):
-                # הרשומה הישנה היא datetime - המר ל-Unix timestamp
-                if lock_timestamp.tzinfo is None:
-                    # אם אין timezone, נחשב שזה UTC
-                    lock_timestamp = lock_timestamp.replace(tzinfo=timezone.utc)
-                lock_timestamp = lock_timestamp.timestamp()
-                logger.info("Converted datetime lock to timestamp")
-            
-            # עכשיו שני הזמנים הם Unix timestamps - השוואה בטוחה
-            if now_timestamp - lock_timestamp > (LOCK_TIMEOUT_MINUTES * 60):
-                # הנעילה פגה, נמחק אותה
-                db.db.locks.delete_one({"name": "mongo_connection"})
-                logger.info("Expired MongoDB lock removed")
-            else:
-                logger.warning(f"MongoDB is locked by another instance (lock age: {int(now_timestamp - lock_timestamp)} seconds)")
-                return False
-        
-        # יצירת נעילה חדשה עם Unix timestamp
-        db.db.locks.replace_one(
-            {"name": "mongo_connection"}, 
-            {
-                "name": "mongo_connection", 
-                "timestamp": now_timestamp,
-                "instance_id": os.getenv("RENDER_INSTANCE_ID", "local"),
-                "created_at": datetime.now(timezone.utc).isoformat()  # לקריאות בלבד
-            },
-            upsert=True
-        )
-        logger.info("MongoDB lock acquired")
-        return True
-        
-    except Exception as e:
-        logger.critical(f"A critical error occurred in manage_mongo_lock: {e}")
-        # במקרה של שגיאה חמורה, נמחק את כל הנעילות ונתחיל מחדש
+        # ניסיון ליצור נעילה ייחודית
         try:
-            db.db.locks.delete_many({"name": "mongo_connection"})
-            logger.info("Cleared all locks due to error - fresh start")
-        except:
-            pass
+            result = db.db.locks.insert_one({
+                "name": "bot_main_lock",
+                "instance_id": instance_id,
+                "timestamp": now,
+                "status": "active"
+            })
+            
+            logger.info(f"✅ נעילה נתפסה בהצלחה. Instance ID: {instance_id}")
+            
+            # רישום פונקציית ניקוי לסיום התהליך
+            def cleanup_lock():
+                try:
+                    db.db.locks.delete_one({"name": "bot_main_lock", "instance_id": instance_id})
+                    logger.info(f"🧹 נעילה שוחררה בהצלחה. Instance ID: {instance_id}")
+                except Exception as e:
+                    logger.error(f"שגיאה בשחרור נעילה: {e}")
+            
+            atexit.register(cleanup_lock)
+            return True
+            
+        except Exception as insert_error:
+            # אם ההוספה נכשלת - בדיקה אם יש נעילה קיימת
+            existing_lock = db.db.locks.find_one({"name": "bot_main_lock"})
+            
+            if existing_lock:
+                existing_time = existing_lock.get("timestamp", now)
+                existing_instance = existing_lock.get("instance_id", "unknown")
+                
+                # בדיקה אם הנעילה הקיימת לא פגה (יותר מ-5 דקות)
+                if existing_time.tzinfo is None:
+                    existing_time = existing_time.replace(tzinfo=timezone.utc)
+                
+                time_diff = (now - existing_time).total_seconds()
+                
+                if time_diff > 300:  # 5 דקות
+                    logger.warning(f"נעילה ישנה נמצאה ({time_diff:.0f} שניות), מוחק אותה...")
+                    db.db.locks.delete_one({"name": "bot_main_lock"})
+                    
+                    # ניסיון חוזר ליצור נעילה
+                    try:
+                        db.db.locks.insert_one({
+                            "name": "bot_main_lock",
+                            "instance_id": instance_id,
+                            "timestamp": now,
+                            "status": "active"
+                        })
+                        logger.info(f"✅ נעילה נתפסה בהצלחה אחרי ניקוי. Instance ID: {instance_id}")
+                        
+                        def cleanup_lock():
+                            try:
+                                db.db.locks.delete_one({"name": "bot_main_lock", "instance_id": instance_id})
+                                logger.info(f"🧹 נעילה שוחררה בהצלחה. Instance ID: {instance_id}")
+                            except Exception as e:
+                                logger.error(f"שגיאה בשחרור נעילה: {e}")
+                        
+                        atexit.register(cleanup_lock)
+                        return True
+                        
+                    except Exception:
+                        logger.error(f"❌ לא הצלחתי ליצור נעילה גם אחרי ניקוי.")
+                        return False
+                else:
+                    logger.warning(f"❌ תהליך אחר כבר פועל (Instance: {existing_instance}, זמן: {time_diff:.0f} שניות)")
+                    logger.warning("🛑 יוצא מהתהליך כדי למנוע קונפליקט")
+                    return False
+            else:
+                logger.error(f"שגיאה לא צפויה בניהול נעילה: {insert_error}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"שגיאה קריטית בניהול נעילה: {e}")
         return False
 
 # =============================================================================
@@ -154,6 +185,11 @@ class CodeKeeperBot:
         # זה יטפל בפקודת /start ובלחיצות על הכפתורים הראשיים.
         conv_handler = get_save_conversation_handler(db)
         self.application.add_handler(conv_handler, group=-1)  # group=-1 נותן עדיפות גבוהה
+
+        # --- שלב 1.5: הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים ---
+        from conversation_handlers import handle_callback_query
+        from telegram.ext import CallbackQueryHandler
+        self.application.add_handler(CallbackQueryHandler(handle_callback_query))
 
         # --- שלב 2: רישום שאר הפקודות ---
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
@@ -540,19 +576,32 @@ def main() -> None:
     """
     Initializes and runs the bot after acquiring a lock.
     """
-    # --- שלב הנעילה ---
-    manage_mongo_lock()
-    
-    # --- המשך הקוד הקיים שלך ---
-    logger.info("Lock acquired. Initializing CodeKeeperBot...")
-    
-    bot = CodeKeeperBot()
-    
-    logger.info("Bot is starting to poll...")
-    bot.application.run_polling(drop_pending_updates=True)
-    
-    logger.info("Bot polling stopped. Closing database connection.")
-    db.close_connection()
+    try:
+        # Initialize database first
+        global db
+        db = DatabaseManager()
+        
+        # MongoDB connection and lock management
+        if not manage_mongo_lock():
+            logger.warning("Another bot instance is already running. Exiting gracefully.")
+            # יציאה נקייה ללא שגיאה
+            sys.exit(0)
+
+        # --- המשך הקוד הקיים שלך ---
+        logger.info("Lock acquired. Initializing CodeKeeperBot...")
+        
+        bot = CodeKeeperBot()
+        
+        logger.info("Bot is starting to poll...")
+        bot.application.run_polling(drop_pending_updates=True)
+        
+    except Exception as e:
+        logger.error(f"שגיאה: {e}")
+        raise
+    finally:
+        logger.info("Bot polling stopped. Closing database connection.")
+        if 'db' in globals():
+            db.close_connection()
 
 
 # A minimal post_init stub to comply with the PTB builder chain

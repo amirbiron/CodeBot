@@ -471,4 +471,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             CommandHandler("cancel", cancel),
             CallbackQueryHandler(handle_callback_query)  # הוסף את זה!
         ],
+        # הוסף allow_reentry=True כדי לאפשר חזרה לשיחה
+        allow_reentry=True,
+        per_message=False
     )
