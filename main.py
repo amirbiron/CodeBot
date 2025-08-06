@@ -19,50 +19,36 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults)
 
 from config import config
-from database import CodeSnippet, db
+from database import CodeSnippet, DatabaseManager, db
 from code_processor import code_processor
-from bot_handlers import AdvancedBotHandlers
+from bot_handlers import AdvancedBotHandlers  # still used by legacy code
+# New import for advanced handler setup helper
+from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 
 LOCK_COLLECTION = "locks"
 BOT_LOCK_ID = "codebot_instance_lock"
 
 
-def cleanup_mongo_lock():
-    """
-    Runs on exit to remove the lock document from MongoDB, allowing a new instance to start.
-    """
-    try:
-        db.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
-        print("INFO: Bot instance lock released successfully.")
-    except Exception as e:
-        print(f"ERROR: Could not release bot instance lock on exit: {e}")
-
-
-def manage_mongo_lock():
+def manage_mongo_lock(db_manager):  # type: ignore[valid-type]
     """
     Acquires a lock in MongoDB. If the lock is already taken, exits the script.
-    This prevents multiple instances of the bot from running concurrently.
     """
     lock_doc = {
         "_id": BOT_LOCK_ID,
         "timestamp": datetime.utcnow(),
-        "pid": os.getpid()
+        "pid": os.getpid(),
     }
+
     try:
-        # Attempt to insert the lock document. This is an atomic operation.
-        # If a document with this _id already exists, it will raise DuplicateKeyError.
-        db.db[LOCK_COLLECTION].insert_one(lock_doc)
-        print("INFO: Bot instance lock acquired successfully.")
-        # Register the cleanup function to run when the script exits gracefully.
-        atexit.register(cleanup_mongo_lock)
+        db_manager.db[LOCK_COLLECTION].insert_one(lock_doc)
+        logger.info("Bot instance lock acquired successfully.")
     except pymongo.errors.DuplicateKeyError:
-        # This means another instance is already running.
-        print("INFO: Another bot instance is already running. This instance will now exit.")
-        sys.exit(0)  # Exit gracefully without an error.
+        logger.info("Another bot instance is already running. This instance will now exit.")
+        sys.exit(0)
     except Exception as e:
-        print(f"CRITICAL: A database error occurred while trying to acquire lock: {e}")
-        sys.exit(1)  # Exit with an error because we can't verify lock status.
+        logger.critical(f"A database error occurred while trying to acquire lock: {e}")
+        sys.exit(1)
 
 
 # הגדרת לוגים
@@ -458,37 +444,89 @@ def signal_handler(signum, frame):
     logger.info(f"התקבל סיגנל {signum}, עוצר את הבוט...")
     sys.exit(0)
 
-async def main():
-    """הפונקציה הראשית"""
-    # Acquire a MongoDB-based lock to ensure a single running instance
-    manage_mongo_lock()
-    try:
-        # הגדרת טיפול בסיגנלים
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
-        # יצירת והפעלת הבוט
-        bot = CodeKeeperBot()
+# ---------------------------------------------------------------------------
+# Helper to register the basic command handlers with the Application instance.
+# ---------------------------------------------------------------------------
 
-        # --- הוספת מנהל השיחה החדש ושיתוף מסד הנתונים ---
-        bot.application.bot_data["db"] = db
-        save_handler = get_save_conversation_handler(db)
-        bot.application.add_handler(save_handler)
-        # ---------------------------------------------------
 
-        await bot.start()
-        
-        # המתנה אינסופית
-        while True:
-            await asyncio.sleep(1)
-            
-    except KeyboardInterrupt:
-        logger.info("עצירה על ידי המשתמש")
-    except Exception as e:
-        logger.error(f"שגיאה קריטית: {e}")
-    finally:
-        if 'bot' in locals():
-            await bot.stop()
+def setup_handlers(application: Application, db_manager):  # noqa: D401
+    """Register basic command handlers required for the bot to operate."""
+
+    async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
+        reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        await update.message.reply_text("👋 שלום! הבוט מוכן לשימוש.", reply_markup=reply_markup)
+
+    async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
+        await update.message.reply_text("ℹ️ השתמש ב/start כדי להתחיל.")
+
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+
+
+# ---------------------------------------------------------------------------
+# New asynchronous entry-point that relies on PTB shutdown hooks.
+# ---------------------------------------------------------------------------
+async def main() -> None:  # noqa: D401
+    """Start the bot and handle graceful shutdown."""
+
+    # --- שלב 1: אתחול ---
+    db_manager = DatabaseManager()
+
+    # קריאה לפונקציית הנעילה עם אובייקט ה-DB
+    manage_mongo_lock(db_manager)
+
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN") or getattr(config, "BOT_TOKEN", None)
+    if not bot_token:
+        logger.critical("TELEGRAM_BOT_TOKEN is not set.")
+        # שחרור הנעילה לפני יציאה במקרה של שגיאה קריטית
+        db_manager.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
+        return
+
+    # --- שלב 2: הגדרת הוקים לכיבוי ---
+
+    async def release_lock_on_shutdown(app: Application):  # noqa: D401
+        """Function to be called before shutdown to release the lock."""
+        logger.info("Releasing bot instance lock…")
+        try:
+            db_manager.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
+            logger.info("Bot instance lock released successfully.")
+        except Exception as exc:  # pragma: no cover
+            logger.error(f"Could not release bot instance lock on exit: {exc}")
+
+    async def close_db_connection(app: Application):  # noqa: D401
+        """Function to be called last to close the DB connection."""
+        logger.info("Closing database connection…")
+        db_manager.close()
+
+    # --- שלב 3: בניית האפליקציה ---
+    application = (
+        Application.builder()
+        .token(bot_token)
+        .post_init(setup_bot_data)
+        .pre_shutdown(release_lock_on_shutdown)
+        .post_shutdown(close_db_connection)
+        .build()
+    )
+
+    # העבר את אובייקט ה-DB לקונטקסט הכללי
+    application.bot_data["db"] = db_manager
+
+    # רישום כל המטפלים (Handlers)
+    setup_handlers(application, db_manager)
+    setup_advanced_handlers(application, db_manager)
+    save_handler = get_save_conversation_handler(db_manager)
+    application.add_handler(save_handler)
+
+    # --- שלב 4: הפעלת הבוט ---
+    logger.info("Starting bot polling…")
+    await application.run_polling()
+
+
+# A minimal post_init stub to comply with the PTB builder chain
+async def setup_bot_data(application: Application) -> None:  # noqa: D401
+    """A post_init function to setup application-wide data."""
+    # ניתן להוסיף לוגיקה נוספת כאן בעתיד
+    pass
 
 if __name__ == "__main__":
     asyncio.run(main())
