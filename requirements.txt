@@ -1,6 +1,8 @@
 # בוט שומר קבצי קוד - תלויות
 # Code Keeper Bot Dependencies
 
+wheel
+
 # Core Telegram Bot
 python-telegram-bot==20.7
 
