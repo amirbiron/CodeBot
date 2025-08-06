@@ -84,49 +84,58 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """ניהול נעילת MongoDB לטיפול בחיבורים מרובים - גרסה מפושטת"""
+    """ניהול נעילת MongoDB עם תמיכה בפורמטי זמן מעורבים"""
     try:
         import time
-        now_timestamp = time.time()  # משתמש בUnix timestamp במקום datetime
-        
-        lock_collection = get_lock_collection()
-        pid = os.getpid()
+        now_timestamp = time.time()  # זמן נוכחי כ-Unix timestamp
         
         # בדיקה אם הנעילה קיימת
-        existing_lock = lock_collection.find_one({"_id": LOCK_ID})
+        lock = db.db.locks.find_one({"name": "mongo_connection"})
         
-        if existing_lock:
-            lock_timestamp = existing_lock.get("timestamp", 0)
+        if lock:
+            lock_timestamp = lock.get("timestamp", 0)
             
-            # בדיקה אם עברו יותר מ-LOCK_TIMEOUT_MINUTES דקות
+            # בדיקה איזה סוג זמן יש ברשומה הקיימת
+            if isinstance(lock_timestamp, datetime):
+                # הרשומה הישנה היא datetime - המר ל-Unix timestamp
+                if lock_timestamp.tzinfo is None:
+                    # אם אין timezone, נחשב שזה UTC
+                    lock_timestamp = lock_timestamp.replace(tzinfo=timezone.utc)
+                lock_timestamp = lock_timestamp.timestamp()
+                logger.info("Converted datetime lock to timestamp")
+            
+            # עכשיו שני הזמנים הם Unix timestamps - השוואה בטוחה
             if now_timestamp - lock_timestamp > (LOCK_TIMEOUT_MINUTES * 60):
                 # הנעילה פגה, נמחק אותה
-                logger.warning(
-                    f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. Taking over."
-                )
-                lock_collection.update_one(
-                    {"_id": LOCK_ID},
-                    {"$set": {"pid": pid, "timestamp": now_timestamp}}
-                )
+                db.db.locks.delete_one({"name": "mongo_connection"})
                 logger.info("Expired MongoDB lock removed")
             else:
-                logger.warning(
-                    f"Lock is actively held by PID {existing_lock.get('pid', 'N/A')}. This instance will exit."
-                )
-                sys.exit(0)
-        else:
-            try:
-                lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "timestamp": now_timestamp})
-            except DuplicateKeyError:
-                logger.warning(f"Could not acquire lock, another process was faster. Exiting.")
-                sys.exit(0)
-
-        logger.info(f"Lock '{LOCK_ID}' acquired successfully by PID: {pid}.")
-        atexit.register(cleanup_mongo_lock)
-
+                logger.warning(f"MongoDB is locked by another instance (lock age: {int(now_timestamp - lock_timestamp)} seconds)")
+                return False
+        
+        # יצירת נעילה חדשה עם Unix timestamp
+        db.db.locks.replace_one(
+            {"name": "mongo_connection"}, 
+            {
+                "name": "mongo_connection", 
+                "timestamp": now_timestamp,
+                "instance_id": os.getenv("RENDER_INSTANCE_ID", "local"),
+                "created_at": datetime.now(timezone.utc).isoformat()  # לקריאות בלבד
+            },
+            upsert=True
+        )
+        logger.info("MongoDB lock acquired")
+        return True
+        
     except Exception as e:
-        logger.critical(f"A critical error occurred in manage_mongo_lock: {e}", exc_info=True)
-        sys.exit(1)
+        logger.critical(f"A critical error occurred in manage_mongo_lock: {e}")
+        # במקרה של שגיאה חמורה, נמחק את כל הנעילות ונתחיל מחדש
+        try:
+            db.db.locks.delete_many({"name": "mongo_connection"})
+            logger.info("Cleared all locks due to error - fresh start")
+        except:
+            pass
+        return False
 
 # =============================================================================
 
