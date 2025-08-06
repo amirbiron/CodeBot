@@ -53,7 +53,7 @@ structlog==23.2.0
 sentry-sdk==1.39.2
 
 # Security
-cryptography==41.0.8
+cryptography
 bcrypt==4.1.2
 
 # Optional: Code Execution (Sandbox)
