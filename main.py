@@ -8,6 +8,8 @@ import asyncio
 import logging
 import signal
 import sys
+import time
+import pymongo
 from datetime import datetime
 import atexit
 import os
@@ -30,25 +32,39 @@ LOCK_COLLECTION = "locks"
 BOT_LOCK_ID = "codebot_instance_lock"
 
 
-def manage_mongo_lock(db_manager):  # type: ignore[valid-type]
+def manage_mongo_lock(db_manager):
     """
-    Acquires a lock in MongoDB. If the lock is already taken, exits the script.
+    Acquires a lock in MongoDB, with a retry mechanism for deployment scenarios.
     """
+    max_retries = 3
+    retry_delay = 5  # שניות
     lock_doc = {
         "_id": BOT_LOCK_ID,
         "timestamp": datetime.utcnow(),
-        "pid": os.getpid(),
+        "pid": os.getpid()
     }
 
-    try:
-        db_manager.db[LOCK_COLLECTION].insert_one(lock_doc)
-        logger.info("Bot instance lock acquired successfully.")
-    except pymongo.errors.DuplicateKeyError:
-        logger.info("Another bot instance is already running. This instance will now exit.")
-        sys.exit(0)
-    except Exception as e:
-        logger.critical(f"A database error occurred while trying to acquire lock: {e}")
-        sys.exit(1)
+    for attempt in range(max_retries):
+        try:
+            # נסה להכניס את מסמך הנעילה
+            db_manager.db[LOCK_COLLECTION].insert_one(lock_doc)
+            logger.info(f"Bot instance lock acquired successfully on attempt {attempt + 1}.")
+            return  # הצלחנו לתפוס את הנעילה, צא מהפונקציה והמשך כרגיל
+
+        except pymongo.errors.DuplicateKeyError:
+            if attempt < max_retries - 1:
+                logger.warning(
+                    f"Lock is taken. Retrying in {retry_delay} seconds... "
+                    f"({attempt + 1}/{max_retries})"
+                )
+                time.sleep(retry_delay)  # המתן לפני הניסיון הבא
+            else:
+                logger.error("Could not acquire lock after all retries. Another instance is likely running. Exiting.")
+                sys.exit(0) # צא מהסקריפט רק אחרי שכל הניסיוות נכשלו
+        
+        except Exception as e:
+            logger.critical(f"A database error occurred while trying to acquire lock: {e}")
+            sys.exit(1)
 
 
 # הגדרת לוגים
