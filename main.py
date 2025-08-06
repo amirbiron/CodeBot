@@ -447,32 +447,25 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 # ---------------------------------------------------------------------------
 def main() -> None:
     """
-    Initializes and runs the bot using a synchronous main function.
-    This lets run_polling() manage the asyncio event loop exclusively.
+    Initializes and runs the bot by creating an instance of the CodeKeeperBot class.
+    This ensures all handlers defined in the class are used.
     """
-    # --- שלב 1: אתחול משאבים (נשאר כרגיל) ---
-    db_manager = DatabaseManager()
+    logger.info("Initializing CodeKeeperBot...")
 
-    # --- שלב 2: הגדרת האפליקציה (כמו קודם, אבל בלי await) ---
-    bot_token = os.getenv("BOT_TOKEN")
-    if not bot_token:
-        logger.critical("BOT_TOKEN environment variable is not set. Exiting.")
-        return
+    # יוצר את הבוט מהמחלקה הגדולה שלך, שמכילה את כל הלוגיקה
+    bot = CodeKeeperBot()
 
-    application = Application.builder().token(bot_token).build()
-    application.bot_data["db"] = db_manager
+    # מוסיף את ה-ConversationHandler עבור הכפתורים החדשים
+    conv_handler = get_save_conversation_handler()
+    bot.application.add_handler(conv_handler)
 
-    # הנחה היא שפונקציות אלו קיימות בקובץ שלך
-    setup_handlers(application, db_manager)
-    setup_advanced_handlers(application, db_manager)
-
-    # --- שלב 3: הפעלת הבוט (זו הפקודה שחוסמת ומנהלת הכל) ---
+    # מפעיל את הבוט
     logger.info("Bot is starting to poll...")
-    application.run_polling()
+    bot.application.run_polling()
 
-    # --- שלב 4: ניקוי (יקרה רק כשהבוט ייסגר) ---
+    # ניקוי בסגירה
     logger.info("Bot polling stopped. Closing database connection.")
-    db_manager.close_connection()
+    db.close_connection()
 
 
 # A minimal post_init stub to comply with the PTB builder chain
