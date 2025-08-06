@@ -3,7 +3,6 @@
 
 # Core Telegram Bot
 python-telegram-bot==20.7
-telegram==0.0.1
 
 # Database
 pymongo==4.6.1
