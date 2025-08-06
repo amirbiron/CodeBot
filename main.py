@@ -148,7 +148,7 @@ class CodeKeeperBot:
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
-        self.application.add_handler(CommandHandler("list", self.list_command))
+        # self.application.add_handler(CommandHandler("list", self.list_command))  # מחוק - מטופל על ידי הכפתור "📚 הצג את כל הקבצים שלי"
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         
