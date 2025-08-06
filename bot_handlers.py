@@ -84,6 +84,18 @@ class AdvancedBotHandlers:
             )
             return
         
+        # קריאה נכונה לפונקציית ההדגשה עם שם השדה המעודכן
+        highlighted_code = code_processor.highlight_code(
+            file_data['code'],
+            file_data['programming_language'], 
+            'html'
+        )
+
+        # בניית התגובה עם הימלטות (escape) לשם הקובץ למניעת שגיאות
+        response_text = f"""<b>File:</b> <code>{html.escape(file_data['file_name'])}</code>
+{highlighted_code}
+"""
+        
         # יצירת כפתורי פעולה
         keyboard = [
             [
@@ -101,37 +113,7 @@ class AdvancedBotHandlers:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # הכנת המידע
-        code = file_data['code']
-        tags_str = ", ".join(file_data.get('tags', [])) if file_data.get('tags') else "ללא"
-
-        # Escape content to ensure valid HTML entities
-        escaped_code = html.escape(code)
-        escaped_file_name = html.escape(file_name)
-        escaped_tags = html.escape(tags_str)
-
-        response = (
-            f"<b>File:</b> <code>{escaped_file_name}</code>\n"
-            f"<b>Language:</b> {file_data['programming_language']}\n"
-            f"<b>Tags:</b> {escaped_tags}\n"
-            f"<b>Updated:</b> {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}\n"
-            f"<b>Version:</b> {file_data['version']}\n"
-            f"<b>Size:</b> {len(code)} chars\n\n"
-            f"<pre><code class=\"language-{file_data['programming_language']}\">{escaped_code}</code></pre>"
-        )
-
-        if file_data.get('description'):
-            response = response.replace(
-                "<pre>",
-                f"<b>Description:</b> {html.escape(file_data['description'])}\n\n<pre>",
-                1
-            )
-
-        await update.message.reply_text(
-            response,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text(response_text, parse_mode='HTML', reply_markup=reply_markup)
     
     async def edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """עריכת קטע קוד קיים"""
