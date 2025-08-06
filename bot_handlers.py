@@ -101,22 +101,20 @@ class AdvancedBotHandlers:
 <pre><code>{escaped_code}</code></pre>
 """
         
-        # יצירת כפתורי פעולה
-        keyboard = [
+        # --- מבנה הכפתורים החדש והנקי ---
+        file_id = str(file_data.get('_id', file_name))
+        buttons = [
             [
-                InlineKeyboardButton("🎨 הדגשה צבעונית", callback_data=f"highlight_{file_name}"),
-                InlineKeyboardButton("📊 ניתוח", callback_data=f"analyze_{file_name}")
+                InlineKeyboardButton("🗑️ מחיקה", callback_data=f"delete_{file_id}"),
+                InlineKeyboardButton("✏️ עריכה", callback_data=f"edit_{file_id}")
             ],
             [
-                InlineKeyboardButton("✏️ עריכה", callback_data=f"edit_{file_name}"),
-                InlineKeyboardButton("🌐 שיתוף", callback_data=f"share_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("📋 העתקה", callback_data=f"copy_{file_name}"),
-                InlineKeyboardButton("📥 הורדה", callback_data=f"download_{file_name}")
+                InlineKeyboardButton("💾 הורדה", callback_data=f"download_{file_id}"),
+                InlineKeyboardButton("🌐 שיתוף", callback_data=f"share_{file_id}")
             ]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = InlineKeyboardMarkup(buttons)
+        # ---------------------------------
         
         await update.message.reply_text(response_text, parse_mode='HTML', reply_markup=reply_markup)
     
