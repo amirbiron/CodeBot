@@ -1,11 +1,13 @@
 import logging
 import re
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+import telegram.error
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 from database import DatabaseManager
@@ -37,7 +39,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג את כל הקבצים השמורים של המשתמש"""
     user_id = update.effective_user.id
-    db: DatabaseManager = context.bot_data['db']
+    from database import db  # ייבוא הגלובלי
     
     try:
         files = db.get_user_files(user_id)
@@ -82,8 +84,9 @@ async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return GET_FILENAME
 
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """שמירת שם הקובץ וזיהוי אוטומטי של שפת התכנות"""
+    """שמירת שם הקובץ, בדיקת כפילויות וזיהוי אוטומטי של שפת התכנות"""
     filename = update.message.text.strip()
+    user_id = update.message.from_user.id
     
     # בדיקה בסיסית של שם קובץ תקין
     if not re.match(r'^[\w\.\-]+\.[a-zA-Z0-9]+$', filename):
@@ -92,28 +95,43 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return GET_FILENAME # נשארים באותו שלב
 
+    # בדיקת כפילות - האם הקובץ כבר קיים
+    from database import db
+    existing_file = db.get_latest_version(user_id, filename)
+    
+    if existing_file:
+        await update.message.reply_text(
+            f"⚠️ הקובץ `{filename}` כבר קיים!\n\n"
+            "בחר פעולה:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 החלף את הקובץ הקיים", callback_data=f"replace_{filename}")],
+                [InlineKeyboardButton("📝 שנה שם קובץ", callback_data="rename_file")],
+                [InlineKeyboardButton("❌ בטל", callback_data="cancel_save")]
+            ])
+        )
+        return GET_FILENAME  # נשאר באותו שלב לטיפול בתשובה
+
     # שמירת שם הקובץ
     context.user_data['filename_to_save'] = filename
     
     # זיהוי אוטומטי של השפה
     code = context.user_data.get('code_to_save')
     
-    # ייבוא מעבד הקוד לזיהוי השפה
-    from code_processor import code_processor
-    detected_language = code_processor.detect_language(code, filename)
-    
-    # שמירה ישירה במסד הנתונים
-    user_id = update.message.from_user.id
-    db: DatabaseManager = context.bot_data['db']
-
     try:
+        # ייבוא מעבד הקוד לזיהוי השפה
+        from code_processor import code_processor
+        detected_language = code_processor.detect_language(code, filename)
+        
+        # שמירה במסד הנתונים
         db.save_file(user_id, filename, code, detected_language)
+        
         await update.message.reply_text(
             f"✅ הקובץ `{filename}` נשמר בהצלחה!\n"
             f"🔍 זוהתה שפת תכנות: **{detected_language}**",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             parse_mode='Markdown'
         )
+        
     except Exception as e:
         logger.error(f"Failed to save file for user {user_id}: {e}")
         await update.message.reply_text(
@@ -125,7 +143,61 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     context.user_data.clear()
     return ConversationHandler.END
 
-
+async def handle_duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """טיפול בלחיצות על כפתורי כפילות"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        if query.data.startswith("replace_"):
+            filename = query.data.replace("replace_", "")
+            context.user_data['filename_to_save'] = filename
+            
+            # החלפת הקובץ הקיים
+            user_id = query.from_user.id
+            code = context.user_data.get('code_to_save')
+            
+            from code_processor import code_processor
+            from database import db
+            
+            detected_language = code_processor.detect_language(code, filename)
+            db.save_file(user_id, filename, code, detected_language)
+            
+            await query.edit_message_text(
+                f"✅ הקובץ `{filename}` הוחלף בהצלחה!\n"
+                f"🔍 זוהתה שפת תכנות: **{detected_language}**",
+                parse_mode='Markdown'
+            )
+            
+            # חזרה לתפריט הראשי
+            await query.message.reply_text(
+                "בחר פעולה:",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            
+        elif query.data == "rename_file":
+            await query.edit_message_text(
+                "💭 הזן שם קובץ חדש:"
+            )
+            return GET_FILENAME  # חזרה לשלב קבלת שם קובץ
+            
+        elif query.data == "cancel_save":
+            await query.edit_message_text(
+                "❌ השמירה בוטלה."
+            )
+            await query.message.reply_text(
+                "חוזרים לתפריט הראשי:",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            
+        context.user_data.clear()
+        return ConversationHandler.END
+        
+    except telegram.error.BadRequest as e:
+        if "Message is not modified" in str(e):
+            pass  # התעלם מהשגיאה הזו
+        else:
+            raise
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
@@ -146,8 +218,10 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         ],
         states={
             GET_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_code)],
-            GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
-            # הסרנו את GET_LANGUAGE כי הזיהוי אוטומטי
+            GET_FILENAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename),
+                CallbackQueryHandler(handle_duplicate_callback)
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
