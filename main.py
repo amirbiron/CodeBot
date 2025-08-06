@@ -13,7 +13,7 @@ import atexit
 import os
 import pymongo.errors
 
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults)
@@ -22,6 +22,7 @@ from config import config
 from database import CodeSnippet, db
 from code_processor import code_processor
 from bot_handlers import AdvancedBotHandlers
+from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 
 LOCK_COLLECTION = "locks"
 BOT_LOCK_ID = "codebot_instance_lock"
@@ -105,28 +106,16 @@ class CodeKeeperBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת התחלה"""
         user = update.effective_user
-        user_name = update.effective_user.first_name
-        response = f"""
-👋 שלום {user_name}, ברוך הבא ל-Code Keeper Bot!
 
-אני כאן כדי לעזור לך לשמור, לנהל ולנתח את כל קטעי הקוד שלך.
+        welcome_message = (
+            f"היי {user.first_name}! ברוך הבא לבוט ניהול הקוד שלך.\n"
+            "השתמש בכפתורים למטה כדי להתחיל."
+        )
 
-איך להתחיל?
-1.  שלח לי קטע קוד ואני אזהה את השפה ואשמור אותו.
-2.  כדי לתת שם לקובץ, שלח הודעה בפורמט:
-    `file: my_script.py`
-    `# כאן מתחיל הקוד שלך...`
+        reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 
-מה אני יודע לעשות?
-🧠 זיהוי שפה אוטומטי והדגשת תחביר.
-📂 ניהול קבצים: <code>/list</code>, <code>/show</code>, <code>/delete</code>, <code>/rename</code>.
-🔢 ניהול גרסאות: <code>/versions</code>, <code>/restore</code>.
-📊 ניתוח קוד: <code>/analyze</code> כדי לקבל סטטיסטיקות.
+        await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
-לרשימת הפקודות המלאה, הקלד <code>/help</code>.
-"""
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
-        
         logger.info(f"משתמש חדש התחיל: {user.id} ({user.username})")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -480,6 +469,13 @@ async def main():
         
         # יצירת והפעלת הבוט
         bot = CodeKeeperBot()
+
+        # --- הוספת מנהל השיחה החדש ושיתוף מסד הנתונים ---
+        bot.application.bot_data["db"] = db
+        save_handler = get_save_conversation_handler(db)
+        bot.application.add_handler(save_handler)
+        # ---------------------------------------------------
+
         await bot.start()
         
         # המתנה אינסופית

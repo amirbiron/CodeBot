@@ -100,6 +100,16 @@ class DatabaseManager:
             logger.error(f"שגיאה בשמירת קטע קוד: {e}")
             return False
     
+    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str) -> bool:
+        """A convenience wrapper that builds a CodeSnippet and delegates to save_code_snippet."""
+        snippet = CodeSnippet(
+            user_id=user_id,
+            file_name=file_name,
+            code=code,
+            programming_language=programming_language,
+        )
+        return self.save_code_snippet(snippet)
+    
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         """מחזיר את הגרסה האחרונה של קטע קוד"""
         try:
