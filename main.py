@@ -17,6 +17,8 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
 
 from config import config
 from database import CodeSnippet, db
+from code_processor import code_processor
+from bot_handlers import AdvancedBotHandlers
 
 # הגדרת לוגים
 logging.basicConfig(
@@ -35,6 +37,7 @@ class CodeKeeperBot:
     def __init__(self):
         self.application = Application.builder().token(config.BOT_TOKEN).defaults(Defaults(parse_mode=ParseMode.HTML)).build()
         self.setup_handlers()
+        self.advanced_handlers = AdvancedBotHandlers(self.application)
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט"""
@@ -58,68 +61,59 @@ class CodeKeeperBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת התחלה"""
         user = update.effective_user
-        welcome_text = f"""
-👋 שלום {user.first_name}!
+        user_name = update.effective_user.first_name
+        response = f"""
+👋 שלום {user_name}, ברוך הבא ל-Code Keeper Bot!
 
-🤖 אני בוט שומר קבצי קוד - הפתרון המושלם לשמירה וניהול קטעי הקוד שלך!
+אני כאן כדי לעזור לך לשמור, לנהל ולנתח את כל קטעי הקוד שלך.
 
-✨ מה אני יכול לעשות:
-• 💾 שמירת קטעי קוד עם זיהוי שפה אוטומטי
-• 🏷️ תיוג ותיאור קטעים
-• 🔍 חיפוש מתקדם לפי שפה, תגיות או תוכן
-• 📝 ניהול גרסאות לכל קטע קוד
-• 📊 הדגשת תחביר צבעונית
-• 🌐 שיתוף קטעים ב-Gist/Pastebin
+איך להתחיל?
+1.  שלח לי קטע קוד ואני אזהה את השפה ואשמור אותו.
+2.  כדי לתת שם לקובץ, שלח הודעה בפורמט:
+    `file: my_script.py`
+    `# כאן מתחיל הקוד שלך...`
 
-📋 פקודות זמינות:
-/save - שמירת קטע קוד
-/list - צפייה בכל הקטעים שלך
-/search - חיפוש קטעי קוד
-/stats - סטטיסטיקות האחסון שלך
-/help - עזרה מפורטת
+מה אני יודע לעשות?
+🧠 זיהוי שפה אוטומטי והדגשת תחביר.
+📂 ניהול קבצים: <code>/list</code>, <code>/show</code>, <code>/delete</code>, <code>/rename</code>.
+🔢 ניהול גרסאות: <code>/versions</code>, <code>/restore</code>.
+📊 ניתוח קוד: <code>/analyze</code> כדי לקבל סטטיסטיקות.
 
-🚀 התחל בשליחת קטע קוד או השתמש ב/save!
-        """
-        
-        await update.message.reply_text(
-            welcome_text,
-            parse_mode=ParseMode.HTML
-        )
+לרשימת הפקודות המלאה, הקלד <code>/help</code>.
+"""
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
         
         logger.info(f"משתמש חדש התחיל: {user.id} ({user.username})")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
-        help_text = """
-📖 **מדריך שימוש מפורט**
+        response = """
+📚 <b>רשימת הפקודות המלאה:</b>
 
-**שמירת קוד:**
-• `/save שם_קובץ` - לאחר מכן שלח את הקוד
-• שלח קוד ישירות - אזהה אוטומטי ואציע שמירה
-• הוסף תגיות: `/save script.py #python #api #automation`
+<b>שמירה וניהול:</b>
+• <code>/save &lt;filename&gt;</code> - התחלת שמירה של קובץ חדש.
+• <code>/list</code> - הצגת כל הקבצים שלך.
+• <code>/show &lt;filename&gt;</code> - הצגת קובץ עם הדגשת תחביר וכפתורי פעולה.
+• <code>/edit &lt;filename&gt;</code> - עריכת קוד של קובץ קיים.
+• <code>/delete &lt;filename&gt;</code> - מחיקת קובץ וכל הגרסאות שלו.
 
-**חיפוש וצפייה:**
-• `/list` - כל הקטעים שלך
-• `/search מילת_חיפוש` - חיפוש חופשי
-• `/search python` - לפי שפת תכנות
-• `/search #api` - לפי תגית
+<b>גרסאות וניתוח:</b>
+• <code>/versions &lt;filename&gt;</code> - הצגת כל הגרסאות של קובץ.
+• <code>/restore &lt;filename&gt; &lt;version&gt;</code> - שחזור גרסה ישנה.
+• <code>/analyze &lt;filename&gt;</code> - ניתוח סטטיסטי של קוד.
+• <code>/validate &lt;filename&gt;</code> - בדיקת תחביר בסיסית.
 
-**פקודות נוספות:**
-• `/stats` - סטטיסטיקות האחסון שלך
-• `/version שם_קובץ` - כל הגרסאות
-• `/delete שם_קובץ` - מחיקת קובץ
-• `/share שם_קובץ` - שיתוף ב-Gist
-
-**טיפים:**
-🔸 השתמש בשמות קבצים ברורים
-🔸 הוסף תיאור לכל קטע קוד
-🔸 השתמש בתגיות למיון טוב יותר
-🔸 הבוט תומך ב-20+ שפות תכנות
-
-💡 אם אתה לא בטוח בשפה, שלח את הקוד ואני אזהה אוטומטי!
-        """
-        
-        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+<b>שיתוף וארגון:</b>
+• <code>/share &lt;filename&gt;</code> - קבלת אפשרויות שיתוף.
+• <code>/download &lt;filename&gt;</code> - הורדת הקובץ למחשב שלך.
+• <code>/tags &lt;filename&gt; &lt;tag1&gt;,&lt;tag2&gt;</code> - הוספת תגיות לקובץ.
+• <code>/search &lt;query&gt;</code> - חיפוש טקסטואלי בקוד שלך.
+    
+<b>מידע כללי:</b>
+• <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
+• <code>/help</code> - הצגת הודעה זו.
+"""
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
@@ -316,15 +310,16 @@ class CodeKeeperBot:
             )
             return
         
-        # זיהוי שפת התכנות (זה ייעשה בcode_processor.py בעתיד)
-        language = self._detect_language(saving_data['file_name'], code)
+        # זיהוי שפת התכנות באמצעות CodeProcessor
+        detected_language = code_processor.detect_language(code, saving_data['file_name'])
+        logger.info(f"זוהתה שפה: {detected_language} עבור הקובץ {saving_data['file_name']}")
         
         # יצירת אובייקט קטע קוד
         snippet = CodeSnippet(
             user_id=saving_data['user_id'],
             file_name=saving_data['file_name'],
             code=code,
-            programming_language=language,
+            programming_language=detected_language,
             tags=saving_data['tags']
         )
         
@@ -333,7 +328,7 @@ class CodeKeeperBot:
             await update.message.reply_text(
                 f"✅ נשמר בהצלחה!\n\n"
                 f"📁 **{saving_data['file_name']}**\n"
-                f"🔤 שפה: {language}\n"
+                f"🔤 שפה: {detected_language}\n"
                 f"🏷️ תגיות: {', '.join(saving_data['tags']) if saving_data['tags'] else 'ללא'}\n"
                 f"📊 גודל: {len(code)} תווים",
                 parse_mode=ParseMode.HTML

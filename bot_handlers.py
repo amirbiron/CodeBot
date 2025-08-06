@@ -107,14 +107,14 @@ class AdvancedBotHandlers:
         response = f"""
 📄 **{file_name}**
 
-🔤 **שפה:** {file_data['language']}
+🔤 **שפה:** {file_data['programming_language']}
 🏷️ **תגיות:** {tags_str}
 📅 **עודכן:** {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}
 🔢 **גרסה:** {file_data['version']}
 📏 **גודל:** {len(code)} תווים
 
 **קוד:**
-```{file_data['language']}
+```{file_data['programming_language']}
 {code[:1000]}{'...' if len(code) > 1000 else ''}
 ```
         """
@@ -160,7 +160,7 @@ class AdvancedBotHandlers:
         await update.message.reply_text(
             f"✏️ **עריכת קובץ:** `{file_name}`\n\n"
             f"**קוד נוכחי:**\n"
-            f"```{file_data['language']}\n{file_data['code']}\n```\n\n"
+            f"```{file_data['programming_language']}\n{file_data['code']}\n```\n\n"
             "🔄 אנא שלח את הקוד החדש:",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -286,7 +286,7 @@ class AdvancedBotHandlers:
             return
         
         code = file_data['code']
-        language = file_data['language']
+        language = file_data['programming_language']
         
         # ניתוח הקוד
         stats = code_processor.get_code_stats(code)
@@ -365,7 +365,7 @@ class AdvancedBotHandlers:
             return
         
         # בדיקת תחביר
-        validation = code_processor.validate_syntax(file_data['code'], file_data['language'])
+        validation = code_processor.validate_syntax(file_data['code'], file_data['programming_language'])
         
         if validation['is_valid']:
             response = f"✅ **תחביר תקין עבור:** `{file_name}`\n\n"
@@ -428,7 +428,7 @@ class AdvancedBotHandlers:
         
         await update.message.reply_text(
             f"🌐 **שיתוף קובץ:** `{file_name}`\n\n"
-            f"🔤 שפה: {file_data['language']}\n"
+            f"🔤 שפה: {file_data['programming_language']}\n"
             f"📏 גודל: {len(file_data['code'])} תווים\n\n"
             f"בחר אופן שיתוף:",
             parse_mode=ParseMode.MARKDOWN,
@@ -466,7 +466,7 @@ class AdvancedBotHandlers:
         await update.message.reply_document(
             document=InputFile(file_obj, filename=file_name),
             caption=f"📥 **הורדת קובץ:** `{file_name}`\n"
-                   f"🔤 שפה: {file_data['language']}\n"
+                   f"🔤 שפה: {file_data['programming_language']}\n"
                    f"📅 עודכן: {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}",
             parse_mode=ParseMode.MARKDOWN
         )
@@ -538,7 +538,7 @@ class AdvancedBotHandlers:
             time_str = f"היום" if days_ago == 0 else f"לפני {days_ago} ימים"
             
             response += f"📄 **{file_data['file_name']}**\n"
-            response += f"   🔤 {file_data['language']} | 📅 {time_str}\n\n"
+            response += f"   🔤 {file_data['programming_language']} | 📅 {time_str}\n\n"
         
         if len(recent_files) > 15:
             response += f"📄 ועוד {len(recent_files) - 15} קבצים..."
@@ -597,7 +597,7 @@ class AdvancedBotHandlers:
         # יצירת קוד מודגש
         highlighted = code_processor.highlight_code(
             file_data['code'], 
-            file_data['language'], 
+            file_data['programming_language'], 
             'html'
         )
         
@@ -628,7 +628,7 @@ class AdvancedBotHandlers:
             # שליחה כהודעה
             await query.edit_message_text(
                 f"🎨 **קוד מודגש עבור:** `{file_name}`\n\n"
-                f"```{file_data['language']}\n{file_data['code']}\n```",
+                f"```{file_data['programming_language']}\n{file_data['code']}\n```",
                 parse_mode=ParseMode.MARKDOWN
             )
     
