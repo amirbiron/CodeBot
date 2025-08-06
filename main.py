@@ -483,59 +483,45 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 # New asynchronous entry-point that relies on PTB shutdown hooks.
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    """Starts the bot and handles graceful shutdown correctly."""
-
-    # --- שלב 1: אתחול ---
+    """Starts the bot and handles graceful shutdown using try...finally."""
+    
     db_manager = DatabaseManager()
-
-    # קריאה לפונקציית הנעילה. היא תצא מהסקריפט אם הבוט כבר נעול.
+    
+    # שלב 1: נסה לתפוס את הנעילה. הפונקציה תצא אם היא נכשלת.
     manage_mongo_lock(db_manager)
+    
+    try:
+        # שלב 2: בנה את האפליקציה (בלי שום hooks של כיבוי)
+        bot_token = os.getenv("BOT_TOKEN")  # ודא שהשם כאן תואם ל-Render
+        if not bot_token:
+            logger.critical("BOT_TOKEN is not set.")
+            return  # הפונקציה תסתיים, וה-finally ירוץ וישחרר את הנעילה
 
-    bot_token = os.getenv("BOT_TOKEN")
-    if not bot_token:
-        logger.critical("BOT_TOKEN is not set.")
-        # במקרה כזה, הנעילה כבר נתפסה. נשחרר אותה לפני יציאה.
-        try:
-            db_manager.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
-        except Exception as e:
-            logger.error(f"Could not release lock during critical error exit: {e}")
-        return
+        application = Application.builder().token(bot_token).build()
+        
+        application.bot_data["db"] = db_manager
 
-    # --- שלב 2: הגדרת פונקציות לכיבוי ---
-    async def release_lock_on_stop(app: Application):
-        """Runs BEFORE the application stops. Releases the DB lock."""
-        logger.info("pre_stop hook: Releasing bot instance lock...")
+        # רישום כל המטפלים (Handlers)
+        setup_handlers(application, db_manager)
+        setup_advanced_handlers(application, db_manager)
+        # אם הוספת conversation handlers, רשום אותם גם כן
+        
+        # שלב 3: הפעל את הבוט
+        logger.info("Starting bot polling...")
+        await application.run_polling()
+
+    finally:
+        # שלב 4: הבלוק הזה ירוץ תמיד בסוף, לא משנה מה קרה.
+        logger.info("Finally block: Releasing lock and closing connection...")
         try:
+            # שחרר את הנעילה
             db_manager.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
             logger.info("Bot instance lock released successfully.")
         except Exception as e:
-            logger.error(f"Could not release bot instance lock on exit: {e}")
-
-    async def close_db_connection(app: Application):
-        """Runs AFTER the application has stopped. Closes the DB connection."""
-        logger.info("post_stop hook: Closing database connection...")
-        if db_manager:
-            db_manager.close_connection()
-
-    # --- שלב 3: בניית האפליקציה עם ה-Hooks הנכונים ---
-    application = (
-        Application.builder()
-        .token(bot_token)
-        .pre_stop(release_lock_on_stop)      # <-- המתודה הנכונה: רצה לפני הכיבוי
-        .post_stop(close_db_connection)     # <-- המתודה הנכונה: רצה אחרי הכיבוי
-        .build()
-    )
-
-    # העברת אובייקט ה-DB לקונטקסט הכללי
-    application.bot_data["db"] = db_manager
-
-    # רישום כל המטפלים (Handlers)
-    setup_handlers(application, db_manager)
-    setup_advanced_handlers(application, db_manager)
-
-    # --- שלב 4: הפעלת הבוט ---
-    logger.info("Starting bot polling...")
-    await application.run_polling()
+            logger.error(f"Could not release bot instance lock in finally block: {e}")
+        
+        # סגור את החיבור למסד הנתונים
+        db_manager.close_connection()
 
 
 # A minimal post_init stub to comply with the PTB builder chain
