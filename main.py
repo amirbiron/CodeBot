@@ -491,9 +491,9 @@ async def main() -> None:
     # קריאה לפונקציית הנעילה. היא תצא מהסקריפט אם הבוט כבר נעול.
     manage_mongo_lock(db_manager)
 
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    bot_token = os.getenv("BOT_TOKEN")
     if not bot_token:
-        logger.critical("TELEGRAM_BOT_TOKEN is not set.")
+        logger.critical("BOT_TOKEN is not set.")
         # במקרה כזה, הנעילה כבר נתפסה. נשחרר אותה לפני יציאה.
         try:
             db_manager.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
