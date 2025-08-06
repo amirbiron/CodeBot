@@ -90,7 +90,6 @@ def manage_mongo_lock():
     """
     try:
         lock_collection = get_lock_collection()
-        lock_collection.create_index("_id", unique=True)
         
         pid = os.getpid()
         now = datetime.now(timezone.utc)
