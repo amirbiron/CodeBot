@@ -325,41 +325,8 @@ class CodeProcessor:
         return 'text'
     
     def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
-        """הדגשת תחביר של קוד"""
-        
-        try:
-            # קבלת הלקסר המתאים
-            if programming_language == 'text':
-                lexer = get_lexer_by_name('text', stripnl=False)
-            else:
-                try:
-                    lexer = get_lexer_by_name(programming_language, stripnl=False)
-                except ClassNotFound:
-                    lexer = get_lexer_by_name('text', stripnl=False)
-            
-            # בחירת פורמטר
-            if output_format == 'html':
-                formatter = HtmlFormatter(
-                    style=config.HIGHLIGHT_THEME,
-                    linenos=True,
-                    cssclass="highlight",
-                    noclasses=True,
-                    nowrap=True
-                )
-            elif output_format == 'terminal':
-                formatter = TerminalFormatter()
-            else:
-                formatter = HtmlFormatter(style=config.HIGHLIGHT_THEME, nowrap=True)
-            
-            # יצירת הקוד המודגש
-            highlighted = highlight(code, lexer, formatter)
-            
-            logger.info(f"הודגש קוד בשפה {programming_language} בפורמט {output_format}")
-            return highlighted
-            
-        except Exception as e:
-            logger.error(f"שגיאה בהדגשת קוד: {e}")
-            return f"<pre><code>{code}</code></pre>"
+        """Placeholder function. No longer performs highlighting to avoid Telegram API errors. Returns the original code unchanged."""
+        return code
     
     def create_code_image(self, code: str, programming_language: str, 
                          width: int = 800, font_size: int = 12) -> bytes:
