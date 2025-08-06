@@ -376,33 +376,50 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     return ConversationHandler.END
 
 async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """התחלת עריכת קוד"""
+    """התחלת עריכת קוד - תומך בגישה ישירה וגישה דרך cache"""
     query = update.callback_query
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[2]  # edit_code_X
+        # זיהוי סוג הקריאה
+        if query.data.startswith("edit_code_direct_"):
+            file_name = query.data.replace("edit_code_direct_", "")
+            user_id = query.from_user.id
+            
+            # קבלה מהמסד
+            from database import db
+            file_data = db.get_latest_version(user_id, file_name)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
         
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ לא נמצא")
-            return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'קובץ')
+        else:  # edit_code_X - גישה דרך cache
+            file_index = query.data.split('_')[2]
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name', 'קובץ')
         
         # שמירת המידע לעריכה
         context.user_data['editing_file'] = {
-            'file_index': file_index,
             'file_data': file_data,
-            'edit_type': 'code'
+            'edit_type': 'code',
+            'file_name': file_name
         }
+        
+        # כפתור ביטול במקום פקודה
+        keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="cancel_edit")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
             f"✏️ *עריכת קוד - {file_name}*\n\n"
-            "שלח את הקוד החדש.\n"
-            "לביטול שלח `/cancel`",
+            "📝 שלח את הקוד החדש:",
+            reply_markup=reply_markup,
             parse_mode='Markdown'
         )
         
@@ -420,29 +437,46 @@ async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[2]  # edit_name_X
+        # זיהוי סוג הקריאה
+        if query.data.startswith("edit_name_direct_"):
+            file_name = query.data.replace("edit_name_direct_", "")
+            user_id = query.from_user.id
+            
+            # קבלה מהמסד
+            from database import db
+            file_data = db.get_latest_version(user_id, file_name)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
         
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ לא נמצא")
-            return ConversationHandler.END
-        
-        current_name = file_data.get('file_name', 'קובץ')
+        else:  # edit_name_X - גישה דרך cache
+            file_index = query.data.split('_')[2]
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name', 'קובץ')
         
         # שמירת המידע לעריכה
         context.user_data['editing_file'] = {
-            'file_index': file_index,
             'file_data': file_data,
-            'edit_type': 'name'
+            'edit_type': 'name',
+            'file_name': file_name
         }
+        
+        # כפתור ביטול
+        keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="cancel_edit")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
-            f"שם נוכחי: `{current_name}`\n\n"
-            "שלח את השם החדש.\n"
-            "לביטול שלח `/cancel`",
+            f"שם נוכחי: `{file_name}`\n\n"
+            "📝 שלח את השם החדש:",
+            reply_markup=reply_markup,
             parse_mode='Markdown'
         )
         
@@ -454,13 +488,37 @@ async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     return ConversationHandler.END
 
+async def handle_cancel_edit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """ביטול עריכה"""
+    query = update.callback_query
+    await query.answer()
+    
+    editing_info = context.user_data.get('editing_file', {})
+    file_name = editing_info.get('file_name', 'קובץ')
+    
+    # ניקוי
+    context.user_data.clear()
+    
+    await query.edit_message_text(
+        f"❌ עריכת `{file_name}` בוטלה.",
+        parse_mode='Markdown'
+    )
+    
+    # חזרה לתפריט הראשי
+    await asyncio.sleep(1)
+    await query.message.reply_text(
+        "בחר פעולה:",
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )
+    
+    return ConversationHandler.END
+
 async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת קוד חדש לעריכה"""
     new_code = update.message.text
     editing_info = context.user_data.get('editing_file', {})
     file_data = editing_info.get('file_data', {})
     
-    # תמיכה בשני מצבים: index-based ו-file name-based
     file_name = editing_info.get('file_name') or file_data.get('file_name', 'קובץ')
     old_code = file_data.get('code', '')
     user_id = update.effective_user.id
@@ -476,17 +534,27 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         from code_processor import code_processor
         detected_language = code_processor.detect_language(new_code, file_name)
         
-        # שמירת הגרסה החדשה (זה ישמור גם את הגרסה הקודמת)
+        # שמירת הגרסה החדשה
         success = db.save_file(user_id, file_name, new_code, detected_language)
         
         if success:
             # חישוב שינויים
             changes_summary = version_manager._generate_changes_summary(old_code, new_code)
             
+            # כפתורים מלאים אחרי שמירה
             keyboard = [
-                [InlineKeyboardButton("👁️ הצג גרסה חדשה", callback_data=f"view_updated_{file_name}")],
-                [InlineKeyboardButton("📚 היסטוריית גרסאות", callback_data=f"versions_file_{file_name}")],
-                [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
+                [
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_updated_{file_name}"),
+                    InlineKeyboardButton("✏️ ערוך שוב", callback_data=f"edit_code_direct_{file_name}")
+                ],
+                [
+                    InlineKeyboardButton("📚 גרסאות קודמות", callback_data=f"versions_file_{file_name}"),
+                    InlineKeyboardButton("🗑️ מחק קובץ", callback_data=f"delete_direct_{file_name}")
+                ],
+                [
+                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"),
+                    InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -656,43 +724,48 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 async def handle_view_updated_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """הצגת קובץ מעודכן לפי שם"""
+    """הצגת קובץ מעודכן אחרי עריכה"""
     query = update.callback_query
     await query.answer()
     
     try:
+        # חילוץ שם הקובץ מה-callback_data
         file_name = query.data.replace("view_updated_", "")
         user_id = query.from_user.id
         
+        # קבלת הקובץ מהמסד
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
         
         if not file_data:
-            await query.edit_message_text(f"⚠️ הקובץ {file_name} לא נמצא")
+            await query.edit_message_text("⚠️ הקובץ לא נמצא")
             return ConversationHandler.END
         
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
         
-        # חיתוך הקוד אם הוא ארוך מדי
+        # חיתוך הקוד אם נדרש
         max_length = 3500
         if len(code) > max_length:
             code_preview = code[:max_length] + "\n\n... [קוד חתוך - השתמש בהורדה לקובץ המלא]"
         else:
             code_preview = code
         
-        # כפתורים
+        # כפתורים מלאים
         keyboard = [
             [
-                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_file_{file_name}"),
-                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_file_{file_name}")
+                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
+                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
             ],
             [
                 InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}"),
-                InlineKeyboardButton("📥 הורד", callback_data=f"dl_file_{file_name}")
+                InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}")
             ],
-            [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
+            [
+                InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{file_name}"),
+                InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")
+            ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -891,31 +964,26 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if data.startswith("file_") and not data.startswith("files"):
             return await handle_file_menu(update, context)
         elif data.startswith("view_"):
-            return await handle_view_file(update, context)
+            if data.startswith("view_updated_"):
+                return await handle_view_updated_file(update, context)
+            else:
+                return await handle_view_file(update, context)
         elif data.startswith("edit_code_"):
             return await handle_edit_code(update, context)
         elif data.startswith("edit_name_"):
             return await handle_edit_name(update, context)
         elif data.startswith("versions_"):
             return await handle_versions_history(update, context)
-        elif data.startswith("view_updated_"):
-            return await handle_view_updated_file(update, context)
-        elif data.startswith("compare_"):
-            return await handle_compare_versions(update, context)
-        elif data.startswith("edit_code_file_"):
-            return await handle_edit_code_file(update, context)
-        elif data.startswith("edit_name_file_"):
-            return await handle_edit_name_file(update, context)
-        elif data.startswith("dl_file_"):
-            return await handle_download_file_by_name(update, context)
-        elif data.startswith("dl_"):
+        elif data.startswith("dl_") or data.startswith("download_direct_"):
             return await handle_download_file(update, context)
-        elif data.startswith("del_"):
+        elif data.startswith("del_") or data.startswith("delete_direct_"):
             return await handle_delete_confirmation(update, context)
         elif data.startswith("confirm_del_"):
             return await handle_delete_file(update, context)
         elif data.startswith("info_"):
             return await handle_file_info(update, context)
+        elif data == "cancel_edit":
+            return await handle_cancel_edit(update, context)
         elif data == "files":
             return await show_all_files_callback(update, context)
         elif data == "main":
@@ -935,22 +1003,37 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """הורדת קובץ"""
+    """הורדת קובץ - תומך בגישה ישירה וגישה דרך cache"""
     query = update.callback_query
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[1]
+        # זיהוי סוג הקריאה
+        if query.data.startswith("download_direct_"):
+            file_name = query.data.replace("download_direct_", "")
+            user_id = query.from_user.id
+            
+            # קבלה מהמסד
+            from database import db
+            file_data = db.get_latest_version(user_id, file_name)
+            
+            if not file_data:
+                await query.answer("⚠️ הקובץ לא נמצא", show_alert=True)
+                return ConversationHandler.END
+            
+            code_content = file_data.get('code', '')
         
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ לא נמצא")
-            return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'file.txt')
-        code_content = file_data.get('code', '')
+        else:  # dl_X - גישה דרך cache
+            file_index = query.data.split('_')[1]
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.answer("⚠️ הקובץ לא נמצא", show_alert=True)
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name', 'file.txt')
+            code_content = file_data.get('code', '')
         
         # יצירת קובץ בזיכרון
         file_in_memory = BytesIO(code_content.encode('utf-8'))
@@ -969,33 +1052,53 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error in handle_download_file: {e}")
         await query.answer("❌ שגיאה בהורדת הקובץ", show_alert=True)
     
-    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """מציג אישור מחיקה"""
+    """מציג אישור מחיקה - תומך בגישה ישירה וגישה דרך cache"""
     query = update.callback_query
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[1]
-        
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ לא נמצא")
-            return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'קובץ ללא שם')
-        
-        # כפתורי אישור
-        keyboard = [
-            [
-                InlineKeyboardButton("🗑️ כן, מחק", callback_data=f"confirm_del_{file_index}"),
-                InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}")
+        # זיהוי סוג הקריאה
+        if query.data.startswith("delete_direct_"):
+            file_name = query.data.replace("delete_direct_", "")
+            user_id = query.from_user.id
+            
+            # בדיקה שהקובץ קיים
+            from database import db
+            file_data = db.get_latest_version(user_id, file_name)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
+            
+            # כפתורי אישור לגישה ישירה
+            keyboard = [
+                [
+                    InlineKeyboardButton("🗑️ כן, מחק", callback_data=f"confirm_del_direct_{file_name}"),
+                    InlineKeyboardButton("❌ לא, בטל", callback_data=f"view_updated_{file_name}")
+                ]
             ]
-        ]
+        
+        else:  # del_X - גישה דרך cache
+            file_index = query.data.split('_')[1]
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name', 'קובץ ללא שם')
+            
+            # כפתורי אישור לגישה דרך cache
+            keyboard = [
+                [
+                    InlineKeyboardButton("🗑️ כן, מחק", callback_data=f"confirm_del_{file_index}"),
+                    InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}")
+                ]
+            ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1012,35 +1115,41 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         logger.error(f"Error in handle_delete_confirmation: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת אישור המחיקה")
     
-    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """מחיקת קובץ אחרי אישור"""
+    """מחיקת קובץ אחרי אישור - תומך בגישה ישירה וגישה דרך cache"""
     query = update.callback_query
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[2]  # confirm_del_X
+        # זיהוי סוג הקריאה
+        if query.data.startswith("confirm_del_direct_"):
+            file_name = query.data.replace("confirm_del_direct_", "")
+            user_id = query.from_user.id
         
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ לא נמצא")
-            return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'קובץ ללא שם')
-        user_id = query.from_user.id
+        else:  # confirm_del_X - גישה דרך cache
+            file_index = query.data.split('_')[2]  # confirm_del_X
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name', 'קובץ ללא שם')
+            user_id = query.from_user.id
         
         # מחיקה מהמסד
         from database import db
         success = db.delete_file(user_id, file_name)
         
         if success:
-            # הסרה מהcache
-            if file_index in context.user_data.get('files_cache', {}):
-                del context.user_data['files_cache'][file_index]
+            # הסרה מהcache אם זו גישה דרך cache
+            if not query.data.startswith("confirm_del_direct_"):
+                file_index = query.data.split('_')[2]
+                if file_index in context.user_data.get('files_cache', {}):
+                    del context.user_data['files_cache'][file_index]
             
             await query.edit_message_text(
                 f"✅ הקובץ `{file_name}` נמחק בהצלחה!",
@@ -1057,7 +1166,6 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error in handle_delete_file: {e}")
         await query.edit_message_text("❌ שגיאה במחיקת הקובץ")
     
-    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def handle_file_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1193,13 +1301,13 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels and ends the conversation."""
-    await update.message.reply_text(
-        "התהליך בוטל. חוזרים לתפריט הראשי.",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-    )
+    """ביטול התהליך הנוכחי"""
     context.user_data.clear()
-    reporter.report_activity(update.effective_user.id)
+    
+    await update.message.reply_text(
+        "❌ התהליך בוטל.",
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )
     return ConversationHandler.END
 
 def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
