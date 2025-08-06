@@ -150,7 +150,8 @@ RUN apk add --no-cache \
     fontconfig \
     ttf-dejavu \
     tzdata \
-    curl
+    curl \
+    linux-headers
 
 # יצירת משתמש
 RUN addgroup -g 1000 botuser && \
