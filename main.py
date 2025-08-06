@@ -446,29 +446,31 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 # New lock-free main
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    """Starts the bot (without any locking mechanism)."""
-    
+    """
+    Initializes and runs the bot, ensuring cleanup with a finally block.
+    """
     db_manager = DatabaseManager()
-    
-    # הרשמה פשוטה של סגירת החיבור ל-DB ביציאה מהתוכנית
-    atexit.register(db_manager.close_connection)
 
-    bot_token = os.getenv("BOT_TOKEN")  # ודא שהשם תואם להגדרות שלך
-    if not bot_token:
-        logger.critical("BOT_TOKEN is not set. The bot cannot start.")
-        return
+    try:
+        bot_token = os.getenv("BOT_TOKEN")
+        if not bot_token:
+            logger.critical("BOT_TOKEN environment variable is not set. Exiting.")
+            return
 
-    application = Application.builder().token(bot_token).build()
-    
-    application.bot_data["db"] = db_manager
+        application = Application.builder().token(bot_token).build()
+        application.bot_data["db"] = db_manager
 
-    # רישום כל המטפלים (Handlers)
-    setup_handlers(application, db_manager)
-    setup_advanced_handlers(application, db_manager)
-    # הוסף כאן רישום של conversation handlers אם הוספת אותם
-    
-    logger.info("Starting bot polling...")
-    await application.run_polling()
+        # הנחה היא שפונקציות אלו קיימות בקובץ שלך
+        setup_handlers(application, db_manager)
+        setup_advanced_handlers(application, db_manager)
+
+        logger.info("Bot is starting to poll...")
+        await application.run_polling()
+
+    finally:
+        # בלוק זה ירוץ תמיד, ויבטיח שהחיבור ל-DB ייסגר
+        logger.info("Cleanup: Closing database connection.")
+        db_manager.close_connection()
 
 
 # A minimal post_init stub to comply with the PTB builder chain
