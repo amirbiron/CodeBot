@@ -28,6 +28,7 @@ from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 # New import for advanced handler setup helper
 from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
+from activity_reporter import create_reporter
 
 # (Lock mechanism constants removed)
 
@@ -41,6 +42,12 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+reporter = create_reporter(
+    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+    service_id="srv-d29d72adbo4c73bcuep0",
+    service_name="CodeBot"
+)
 
 # =============================================================================
 # MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
@@ -223,6 +230,7 @@ class CodeKeeperBot:
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
+        reporter.report_activity(update.effective_user.id)
         response = """
 📚 <b>רשימת הפקודות המלאה:</b>
 
@@ -253,6 +261,7 @@ class CodeKeeperBot:
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -294,6 +303,7 @@ class CodeKeeperBot:
     
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת רשימת הקטעים של המשתמש"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         files = db.get_user_files(user_id, limit=20)
@@ -331,6 +341,7 @@ class CodeKeeperBot:
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -385,6 +396,7 @@ class CodeKeeperBot:
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         stats = db.get_user_stats(user_id)
@@ -420,6 +432,7 @@ class CodeKeeperBot:
     
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בהודעות טקסט (קוד פוטנציאלי)"""
+        reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         text = update.message.text
         
@@ -438,6 +451,7 @@ class CodeKeeperBot:
     
     async def _save_code_snippet(self, update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
         """שמירה בפועל של קטע קוד"""
+        reporter.report_activity(update.effective_user.id)
         saving_data = context.user_data.pop('saving_file')
         
         if len(code) > config.MAX_CODE_SIZE:
@@ -570,10 +584,12 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
     """Register basic command handlers required for the bot to operate."""
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
+        reporter.report_activity(update.effective_user.id)
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text("👋 שלום! הבוט מוכן לשימוש.", reply_markup=reply_markup)
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
+        reporter.report_activity(update.effective_user.id)
         await update.message.reply_text("ℹ️ השתמש ב/start כדי להתחיל.")
 
     application.add_handler(CommandHandler("start", start_command))
