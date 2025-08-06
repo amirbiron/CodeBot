@@ -3,19 +3,19 @@
 External Integrations - GitHub Gist, Pastebin, and more
 """
 
-import requests
-import json
-from typing import Dict, Optional, Any, List
-from datetime import datetime
-import logging
+import asyncio
 import base64
 import hashlib
+import json
+import logging
 import secrets
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
+import aiohttp
+import requests
 from github import Github
 from github.GithubException import GithubException
-import aiohttp
-import asyncio
 
 from config import config
 

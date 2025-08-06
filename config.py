@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+
 @dataclass
 class BotConfig:
     """קונפיגורציה עיקרית של הבוט"""

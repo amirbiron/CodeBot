@@ -3,27 +3,27 @@
 Code Processor - Language detection, syntax highlighting and processing
 """
 
-import re
-import io
 import base64
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+import io
 import logging
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-# Syntax highlighting
-from pygments import highlight
-from pygments.lexers import get_lexer_by_name, guess_lexer, get_lexer_for_filename
-from pygments.formatters import HtmlFormatter, TerminalFormatter, ImageFormatter
-from pygments.styles import get_style_by_name
-from pygments.util import ClassNotFound
-
+import cairosvg
+import textstat
+# Language detection
+from langdetect import DetectorFactory, detect
 # Image processing
 from PIL import Image, ImageDraw, ImageFont
-import cairosvg
-
-# Language detection
-from langdetect import detect, DetectorFactory
-import textstat
+# Syntax highlighting
+from pygments import highlight
+from pygments.formatters import (HtmlFormatter, ImageFormatter,
+                                 TerminalFormatter)
+from pygments.lexers import (get_lexer_by_name, get_lexer_for_filename,
+                             guess_lexer)
+from pygments.styles import get_style_by_name
+from pygments.util import ClassNotFound
 
 from config import config
 

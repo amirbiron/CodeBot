@@ -1,10 +1,12 @@
-from datetime import datetime
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, asdict
-import pymongo
-from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
-from config import config
 import logging
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import pymongo
+from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel, MongoClient
+
+from config import config
 
 logger = logging.getLogger(__name__)
 

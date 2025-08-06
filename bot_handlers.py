@@ -5,18 +5,19 @@ Advanced Bot Handlers for Code Keeper Bot
 
 import asyncio
 import io
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
 import logging
 import re
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
-from telegram.ext import ContextTypes, CallbackQueryHandler
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
+                      Update)
 from telegram.constants import ParseMode
+from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
-from database import db, CodeSnippet
 from code_processor import code_processor
 from config import config
+from database import CodeSnippet, db
 
 logger = logging.getLogger(__name__)
 

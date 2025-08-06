@@ -3,24 +3,25 @@
 Advanced File Management - Versioning, Backups, Archive and more
 """
 
+import asyncio
+import difflib
+import hashlib
+import json
+import logging
 import os
 import shutil
-import zipfile
 import tarfile
 import tempfile
-import hashlib
+import zipfile
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, BinaryIO
+from io import BytesIO
 from pathlib import Path
-import logging
-import json
-import asyncio
-from dataclasses import dataclass, asdict
-import difflib
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 
-from database import db, CodeSnippet
 from code_processor import code_processor
 from config import config
+from database import CodeSnippet, db
 
 logger = logging.getLogger(__name__)
 
