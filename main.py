@@ -53,21 +53,24 @@ class CodeKeeperBot:
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
         # --- שלב 1: רישום ה-ConversationHandler בעדיפות ראשונה ---
+        # זה יטפל בפקודת /start ובלחיצות על הכפתורים הראשיים.
         conv_handler = get_save_conversation_handler(db)
-        self.application.add_handler(conv_handler)
+        self.application.add_handler(conv_handler, group=-1)  # group=-1 נותן עדיפות גבוהה
 
         # --- שלב 2: רישום שאר הפקודות ---
+        # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
         self.application.add_handler(CommandHandler("list", self.list_command))
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
-
+        
         # --- שלב 3: רישום המטפל הכללי בסוף ---
+        # הוא יפעל רק אם אף אחד מהמטפלים הספציפיים יותר לא תפס את ההודעה.
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message)
         )
-
+        
         # --- שלב 4: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
     
@@ -438,35 +441,14 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 def main() -> None:
     """
     Initializes and runs the bot by creating an instance of the CodeKeeperBot class.
-    This version registers handlers in the correct order to ensure functionality.
     """
-    logger.info("Initializing CodeKeeperBot instance...")
+    logger.info("Initializing CodeKeeperBot...")
 
-    # יוצר את הבוט מהמחלקה הגדולה שלך, שמכילה את כל הלוגיקה
     bot = CodeKeeperBot()
 
-    # --- סדר רישום ה-Handlers ---
-    # 1. קודם כל, רושמים את ה-ConversationHandler כדי שהוא יתפוס את הכפתורים.
-    #    הוא מטפל ב /start ובלחיצות על הכפתורים הראשיים.
-    logger.info("Registering ConversationHandler...")
-    conv_handler = get_save_conversation_handler(db)
-    bot.application.add_handler(conv_handler)
-
-    # 2. לאחר מכן, רושמים את שאר הפקודות מהמחלקה.
-    #    המתודה setup_handlers() של המחלקה שלך עושה זאת.
-    #    היא תרשום את /help, /list וכו', ואת ה-MessageHandler הכללי בסוף.
-    logger.info("Registering other command and message handlers from the CodeKeeperBot class...")
-    bot.setup_handlers()  # הפעלה של פונקציית הרישום הקיימת שלך
-
-    # 3. רושמים את המטפלים המתקדמים (לכפתורי מחיקה/הורדה)
-    logger.info("Registering advanced callback handlers...")
-    setup_advanced_handlers(bot.application, db)
-
-    # מפעיל את הבוט
     logger.info("Bot is starting to poll...")
     bot.application.run_polling()
 
-    # ניקוי בסגירה
     logger.info("Bot polling stopped. Closing database connection.")
     db.close_connection()
 
