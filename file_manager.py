@@ -364,7 +364,7 @@ class BackupManager:
                             user_id=user_id,
                             file_name=file_name,
                             code=content,
-                            language=language,
+                            programming_language=language,
                             description="שוחזר מגיבוי"
                         )
                         
@@ -511,7 +511,7 @@ class FileExporter:
                 if options.get('include_metadata', False):
                     metadata = {
                         "file_name": file_name,
-                        "language": file_data['language'],
+                        "programming_language": file_data['programming_language'],
                         "created_at": file_data['created_at'].isoformat(),
                         "updated_at": file_data['updated_at'].isoformat(),
                         "version": file_data['version'],
@@ -541,7 +541,7 @@ class FileExporter:
             file_export = {
                 "file_name": file_data['file_name'],
                 "code": file_data['code'],
-                "language": file_data['language'],
+                "programming_language": file_data['programming_language'],
                 "created_at": file_data['created_at'].isoformat(),
                 "updated_at": file_data['updated_at'].isoformat(),
                 "version": file_data['version'],
@@ -599,7 +599,7 @@ class FileExporter:
             code_content = file_data['code']
             if options.get('syntax_highlighting', True):
                 highlighted = code_processor.highlight_code(
-                    code_content, file_data['language'], 'html'
+                    code_content, file_data['programming_language'], 'html'
                 )
                 code_html = highlighted
             else:
@@ -617,7 +617,7 @@ class FileExporter:
                 <div class="file-header">
                     <div class="file-name">{file_data['file_name']}</div>
                     <div class="file-meta">
-                        שפה: {file_data['language']} | 
+                        שפה: {file_data['programming_language']} | 
                         גרסה: {file_data['version']} | 
                         עודכן: {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')} |
                         גודל: {len(code_content)} תווים

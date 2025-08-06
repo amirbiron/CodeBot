@@ -449,7 +449,7 @@ class ValidationUtils:
         return True
     
     @staticmethod
-    def is_safe_code(code: str, language: str) -> Tuple[bool, List[str]]:
+    def is_safe_code(code: str, programming_language: str) -> Tuple[bool, List[str]]:
         """בדיקה בסיסית של בטיחות קוד"""
         
         warnings = []
@@ -481,8 +481,8 @@ class ValidationUtils:
             ]
         }
         
-        if language in dangerous_patterns:
-            for pattern in dangerous_patterns[language]:
+        if programming_language in dangerous_patterns:
+            for pattern in dangerous_patterns[programming_language]:
                 if re.search(pattern, code, re.IGNORECASE):
                     warnings.append(f"דפוס מסוכן אפשרי: {pattern}")
         
