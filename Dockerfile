@@ -141,6 +141,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # התקנת תלויות Alpine
 RUN apk add --no-cache \
+    gcc \
+    python3-dev \
+    musl-dev \
     cairo \
     pango \
     gdk-pixbuf \
