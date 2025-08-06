@@ -445,32 +445,34 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 # ---------------------------------------------------------------------------
 # New lock-free main
 # ---------------------------------------------------------------------------
-async def main() -> None:
+def main() -> None:
     """
-    Initializes and runs the bot, ensuring cleanup with a finally block.
+    Initializes and runs the bot using a synchronous main function.
+    This lets run_polling() manage the asyncio event loop exclusively.
     """
+    # --- שלב 1: אתחול משאבים (נשאר כרגיל) ---
     db_manager = DatabaseManager()
 
-    try:
-        bot_token = os.getenv("BOT_TOKEN")
-        if not bot_token:
-            logger.critical("BOT_TOKEN environment variable is not set. Exiting.")
-            return
+    # --- שלב 2: הגדרת האפליקציה (כמו קודם, אבל בלי await) ---
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        logger.critical("BOT_TOKEN environment variable is not set. Exiting.")
+        return
 
-        application = Application.builder().token(bot_token).build()
-        application.bot_data["db"] = db_manager
+    application = Application.builder().token(bot_token).build()
+    application.bot_data["db"] = db_manager
 
-        # הנחה היא שפונקציות אלו קיימות בקובץ שלך
-        setup_handlers(application, db_manager)
-        setup_advanced_handlers(application, db_manager)
+    # הנחה היא שפונקציות אלו קיימות בקובץ שלך
+    setup_handlers(application, db_manager)
+    setup_advanced_handlers(application, db_manager)
 
-        logger.info("Bot is starting to poll...")
-        await application.run_polling()
+    # --- שלב 3: הפעלת הבוט (זו הפקודה שחוסמת ומנהלת הכל) ---
+    logger.info("Bot is starting to poll...")
+    application.run_polling()
 
-    finally:
-        # בלוק זה ירוץ תמיד, ויבטיח שהחיבור ל-DB ייסגר
-        logger.info("Cleanup: Closing database connection.")
-        db_manager.close_connection()
+    # --- שלב 4: ניקוי (יקרה רק כשהבוט ייסגר) ---
+    logger.info("Bot polling stopped. Closing database connection.")
+    db_manager.close_connection()
 
 
 # A minimal post_init stub to comply with the PTB builder chain
@@ -480,4 +482,4 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     pass
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
