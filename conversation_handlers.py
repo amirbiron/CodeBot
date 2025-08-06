@@ -13,8 +13,8 @@ from database import DatabaseManager
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
 
-# הגדרת שלבי השיחה
-GET_CODE, GET_FILENAME, GET_LANGUAGE = range(3)
+# הגדרת שלבי השיחה - הסר את GET_LANGUAGE
+GET_CODE, GET_FILENAME = range(2)
 
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"]]
@@ -82,8 +82,9 @@ async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return GET_FILENAME
 
 async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Saves the filename and asks for the programming language."""
+    """שמירת שם הקובץ וזיהוי אוטומטי של שפת התכנות"""
     filename = update.message.text.strip()
+    
     # בדיקה בסיסית של שם קובץ תקין
     if not re.match(r'^[\w\.\-]+\.[a-zA-Z0-9]+$', filename):
         await update.message.reply_text(
@@ -91,29 +92,27 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return GET_FILENAME # נשארים באותו שלב
 
+    # שמירת שם הקובץ
     context.user_data['filename_to_save'] = filename
-    await update.message.reply_text(
-        "שם קובץ מצוין. באיזו שפת תכנות מדובר? (למשל, `python`, `javascript`, `html`)"
-    )
-    return GET_LANGUAGE
-
-async def get_language_and_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Saves the language, saves everything to the database, and ends the conversation."""
-    language = update.message.text.strip().lower()
     
-    # שליפת המידע שנשמר
+    # זיהוי אוטומטי של השפה
     code = context.user_data.get('code_to_save')
-    filename = context.user_data.get('filename_to_save')
+    
+    # ייבוא מעבד הקוד לזיהוי השפה
+    from code_processor import code_processor
+    detected_language = code_processor.detect_language(code, filename)
+    
+    # שמירה ישירה במסד הנתונים
     user_id = update.message.from_user.id
-
-    # גישה למסד הנתונים מהקונטקסט
     db: DatabaseManager = context.bot_data['db']
 
     try:
-        db.save_file(user_id, filename, code, language)
+        db.save_file(user_id, filename, code, detected_language)
         await update.message.reply_text(
-            f"✅ הקובץ `{filename}` נשמר בהצלחה!",
+            f"✅ הקובץ `{filename}` נשמר בהצלחה!\n"
+            f"🔍 זוהתה שפת תכנות: **{detected_language}**",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode='Markdown'
         )
     except Exception as e:
         logger.error(f"Failed to save file for user {user_id}: {e}")
@@ -125,6 +124,8 @@ async def get_language_and_save(update: Update, context: ContextTypes.DEFAULT_TY
     # ניקוי המידע הזמני וסיום השיחה
     context.user_data.clear()
     return ConversationHandler.END
+
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
@@ -146,7 +147,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         states={
             GET_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_code)],
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
-            GET_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_language_and_save)],
+            # הסרנו את GET_LANGUAGE כי הזיהוי אוטומטי
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
