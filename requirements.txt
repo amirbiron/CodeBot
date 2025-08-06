@@ -32,7 +32,6 @@ PyGithub==2.1.1
 # File Processing
 python-dotenv==1.0.0
 pathlib2==2.3.7
-mimetypes-extended==1.0.0
 
 # Image Processing (for syntax highlighting images)
 Pillow==10.1.0
