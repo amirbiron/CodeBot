@@ -84,29 +84,31 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """
-    Acquires a lock. If the lock is stale, it takes over.
-    If the lock is active, it exits to prevent conflict.
-    """
+    """ניהול נעילת MongoDB לטיפול בחיבורים מרובים - גרסה מפושטת"""
     try:
+        import time
+        now_timestamp = time.time()  # משתמש בUnix timestamp במקום datetime
+        
         lock_collection = get_lock_collection()
-        
-        
         pid = os.getpid()
-        now = datetime.now(timezone.utc)
         
+        # בדיקה אם הנעילה קיימת
         existing_lock = lock_collection.find_one({"_id": LOCK_ID})
         
         if existing_lock:
-            lock_time = existing_lock.get("timestamp", now)
-            if now - lock_time > timedelta(minutes=LOCK_TIMEOUT_MINUTES):
+            lock_timestamp = existing_lock.get("timestamp", 0)
+            
+            # בדיקה אם עברו יותר מ-LOCK_TIMEOUT_MINUTES דקות
+            if now_timestamp - lock_timestamp > (LOCK_TIMEOUT_MINUTES * 60):
+                # הנעילה פגה, נמחק אותה
                 logger.warning(
                     f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. Taking over."
                 )
                 lock_collection.update_one(
                     {"_id": LOCK_ID},
-                    {"$set": {"pid": pid, "timestamp": now}}
+                    {"$set": {"pid": pid, "timestamp": now_timestamp}}
                 )
+                logger.info("Expired MongoDB lock removed")
             else:
                 logger.warning(
                     f"Lock is actively held by PID {existing_lock.get('pid', 'N/A')}. This instance will exit."
@@ -114,7 +116,7 @@ def manage_mongo_lock():
                 sys.exit(0)
         else:
             try:
-                lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "timestamp": now})
+                lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "timestamp": now_timestamp})
             except DuplicateKeyError:
                 logger.warning(f"Could not acquire lock, another process was faster. Exiting.")
                 sys.exit(0)
