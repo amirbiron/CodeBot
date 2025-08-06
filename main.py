@@ -4,18 +4,19 @@
 נקודת הכניסה הראשית לבוט
 """
 
-import logging
 import asyncio
+import logging
 import signal
 import sys
 from datetime import datetime
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
+from telegram.ext import (Application, CommandHandler, ContextTypes,
+                          MessageHandler, filters)
 
 from config import config
-from database import db, CodeSnippet
+from database import CodeSnippet, db
 
 # הגדרת לוגים
 logging.basicConfig(
