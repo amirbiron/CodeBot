@@ -59,7 +59,7 @@ def get_lock_collection():
         # בקש מה-client את מסד הנתונים הדיפולטיבי שהוגדר בחיבור
         default_db = db.client.get_default_database()
         
-        if not default_db:
+        if default_db is None:
             logger.critical("Could not determine default database from MongoDB connection!")
             sys.exit(1)
             
