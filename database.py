@@ -198,6 +198,25 @@ class DatabaseManager:
             logger.error(f"שגיאה במחיקת קובץ: {e}")
             return False
     
+    def delete_file_by_id(self, file_id: str) -> int:
+        """Delete a file document by its MongoDB _id. Returns the number of deleted documents."""
+        try:
+            from bson import ObjectId
+            result = self.collection.delete_one({"_id": ObjectId(file_id)})
+            return result.deleted_count  # type: ignore[attr-defined]
+        except Exception as e:
+            logger.error(f"שגיאה במחיקת קובץ לפי _id: {e}")
+            return 0
+
+    def get_file_by_id(self, file_id: str) -> Optional[Dict]:
+        """Fetch a single file document by its MongoDB _id"""
+        try:
+            from bson import ObjectId
+            return self.collection.find_one({"_id": ObjectId(file_id)})
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת קובץ לפי _id: {e}")
+            return None
+    
     def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         """מחזיר סטטיסטיקות של משתמש"""
         try:
