@@ -13,7 +13,7 @@ from datetime import datetime
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
-                          MessageHandler, filters)
+                          MessageHandler, filters, Defaults)
 
 from config import config
 from database import CodeSnippet, db
@@ -33,7 +33,7 @@ class CodeKeeperBot:
     """המחלקה הראשית של הבוט"""
     
     def __init__(self):
-        self.application = Application.builder().token(config.BOT_TOKEN).build()
+        self.application = Application.builder().token(config.BOT_TOKEN).defaults(Defaults(parse_mode=ParseMode.HTML)).build()
         self.setup_handlers()
     
     def setup_handlers(self):
@@ -119,7 +119,7 @@ class CodeKeeperBot:
 💡 אם אתה לא בטוח בשפה, שלח את הקוד ואני אזהה אוטומטי!
         """
         
-        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
@@ -156,10 +156,10 @@ class CodeKeeperBot:
         }
         
         await update.message.reply_text(
-            f"📝 מוכן לשמור את `{file_name}`\n"
+            f"📝 מוכן לשמור את <code>{file_name}</code>\n"
             f"🏷️ תגיות: {', '.join(tags) if tags else 'ללא'}\n\n"
             "אנא שלח את קטע הקוד:",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.HTML
         )
     
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -197,7 +197,7 @@ class CodeKeeperBot:
         if len(files) == 20:
             response += "\n📄 מוצגים 20 הקטעים האחרונים. השתמש בחיפוש לעוד..."
         
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
@@ -230,13 +230,13 @@ class CodeKeeperBot:
         
         if not results:
             await update.message.reply_text(
-                f"🔍 לא נמצאו תוצאות עבור: `{' '.join(context.args)}`",
-                parse_mode=ParseMode.MARKDOWN
+                f"🔍 לא נמצאו תוצאות עבור: <code>{' '.join(context.args)}</code>",
+                parse_mode=ParseMode.HTML
             )
             return
         
         # הצגת תוצאות
-        response = f"🔍 **תוצאות חיפוש עבור:** `{' '.join(context.args)}`\n\n"
+        response = f"🔍 **תוצאות חיפוש עבור:** <code>{' '.join(context.args)}</code>\n\n"
         
         for i, file_data in enumerate(results[:10], 1):
             response += f"**{i}. {file_data['file_name']}**\n"
@@ -251,7 +251,7 @@ class CodeKeeperBot:
         if len(results) > 10:
             response += f"\n📄 מוצגות 10 מתוך {len(results)} תוצאות"
         
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש"""
@@ -286,7 +286,7 @@ class CodeKeeperBot:
 💡 **טיפ:** השתמש בתגיות לארגון טוב יותר!
         """
         
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בהודעות טקסט (קוד פוטנציאלי)"""
@@ -336,7 +336,7 @@ class CodeKeeperBot:
                 f"🔤 שפה: {language}\n"
                 f"🏷️ תגיות: {', '.join(saving_data['tags']) if saving_data['tags'] else 'ללא'}\n"
                 f"📊 גודל: {len(code)} תווים",
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode=ParseMode.HTML
             )
         else:
             await update.message.reply_text(
