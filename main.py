@@ -9,6 +9,9 @@ import logging
 import signal
 import sys
 from datetime import datetime
+import atexit
+import os
+import pymongo.errors
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -19,6 +22,47 @@ from config import config
 from database import CodeSnippet, db
 from code_processor import code_processor
 from bot_handlers import AdvancedBotHandlers
+
+LOCK_COLLECTION = "locks"
+BOT_LOCK_ID = "codebot_instance_lock"
+
+
+def cleanup_mongo_lock():
+    """
+    Runs on exit to remove the lock document from MongoDB, allowing a new instance to start.
+    """
+    try:
+        db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
+        print("INFO: Bot instance lock released successfully.")
+    except Exception as e:
+        print(f"ERROR: Could not release bot instance lock on exit: {e}")
+
+
+def manage_mongo_lock():
+    """
+    Acquires a lock in MongoDB. If the lock is already taken, exits the script.
+    This prevents multiple instances of the bot from running concurrently.
+    """
+    lock_doc = {
+        "_id": BOT_LOCK_ID,
+        "timestamp": datetime.utcnow(),
+        "pid": os.getpid()
+    }
+    try:
+        # Attempt to insert the lock document. This is an atomic operation.
+        # If a document with this _id already exists, it will raise DuplicateKeyError.
+        db[LOCK_COLLECTION].insert_one(lock_doc)
+        print("INFO: Bot instance lock acquired successfully.")
+        # Register the cleanup function to run when the script exits gracefully.
+        atexit.register(cleanup_mongo_lock)
+    except pymongo.errors.DuplicateKeyError:
+        # This means another instance is already running.
+        print("INFO: Another bot instance is already running. This instance will now exit.")
+        sys.exit(0)  # Exit gracefully without an error.
+    except Exception as e:
+        print(f"CRITICAL: A database error occurred while trying to acquire lock: {e}")
+        sys.exit(1)  # Exit with an error because we can't verify lock status.
+
 
 # הגדרת לוגים
 logging.basicConfig(
@@ -427,6 +471,8 @@ def signal_handler(signum, frame):
 
 async def main():
     """הפונקציה הראשית"""
+    # Acquire a MongoDB-based lock to ensure a single running instance
+    manage_mongo_lock()
     try:
         # הגדרת טיפול בסיגנלים
         signal.signal(signal.SIGINT, signal_handler)
