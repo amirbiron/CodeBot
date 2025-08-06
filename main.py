@@ -183,7 +183,7 @@ class CodeKeeperBot:
             description = file_data.get('description', '')
             
             response += f"**{i}. {file_data['file_name']}**\n"
-            response += f"🔤 שפה: {file_data['language']}\n"
+            response += f"🔤 שפה: {file_data['programming_language']}\n"
             
             if description:
                 response += f"📝 תיאור: {description}\n"
