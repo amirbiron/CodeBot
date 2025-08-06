@@ -32,7 +32,7 @@ def cleanup_mongo_lock():
     Runs on exit to remove the lock document from MongoDB, allowing a new instance to start.
     """
     try:
-        db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
+        db.db[LOCK_COLLECTION].delete_one({"_id": BOT_LOCK_ID})
         print("INFO: Bot instance lock released successfully.")
     except Exception as e:
         print(f"ERROR: Could not release bot instance lock on exit: {e}")
@@ -51,7 +51,7 @@ def manage_mongo_lock():
     try:
         # Attempt to insert the lock document. This is an atomic operation.
         # If a document with this _id already exists, it will raise DuplicateKeyError.
-        db[LOCK_COLLECTION].insert_one(lock_doc)
+        db.db[LOCK_COLLECTION].insert_one(lock_doc)
         print("INFO: Bot instance lock acquired successfully.")
         # Register the cleanup function to run when the script exits gracefully.
         atexit.register(cleanup_mongo_lock)
