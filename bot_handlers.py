@@ -40,22 +40,22 @@ class AdvancedBotHandlers:
         
         # פקודות גרסאות
         self.application.add_handler(CommandHandler("versions", self.versions_command))
-        self.application.add_handler(CommandHandler("restore", self.restore_command))
-        self.application.add_handler(CommandHandler("diff", self.diff_command))
+        # self.application.add_handler(CommandHandler("restore", self.restore_command))
+        # self.application.add_handler(CommandHandler("diff", self.diff_command))
         
         # פקודות שיתוף
         self.application.add_handler(CommandHandler("share", self.share_command))
-        self.application.add_handler(CommandHandler("export", self.export_command))
+        # self.application.add_handler(CommandHandler("export", self.export_command))
         self.application.add_handler(CommandHandler("download", self.download_command))
         
         # פקודות ניתוח
         self.application.add_handler(CommandHandler("analyze", self.analyze_command))
         self.application.add_handler(CommandHandler("validate", self.validate_command))
-        self.application.add_handler(CommandHandler("minify", self.minify_command))
+        # self.application.add_handler(CommandHandler("minify", self.minify_command))
         
         # פקודות ארגון
         self.application.add_handler(CommandHandler("tags", self.tags_command))
-        self.application.add_handler(CommandHandler("languages", self.languages_command))
+        # self.application.add_handler(CommandHandler("languages", self.languages_command))
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         
         # Callback handlers לכפתורים
