@@ -57,7 +57,7 @@ class SearchResult:
     """תוצאת חיפוש"""
     file_name: str
     content: str
-    language: str
+    programming_language: str
     tags: List[str]
     created_at: datetime
     updated_at: datetime
@@ -103,13 +103,13 @@ class SearchIndex:
             
             # אינדקס פונקציות
             functions = code_processor.extract_functions(
-                file_data['code'], file_data['language']
+                file_data['code'], file_data['programming_language']
             )
             for func in functions:
                 self.function_index[func['name'].lower()].add(file_key)
             
             # אינדקס שפות
-            self.language_index[file_data['language']].add(file_key)
+            self.language_index[file_data['programming_language']].add(file_key)
             
             # אינדקס תגיות
             for tag in file_data.get('tags', []):
@@ -359,7 +359,7 @@ class AdvancedSearchEngine:
         
         for result in results:
             # מסנן שפות
-            if filters.languages and result.language not in filters.languages:
+            if filters.languages and result.programming_language not in filters.languages:
                 continue
             
             # מסנן תגיות
@@ -385,7 +385,7 @@ class AdvancedSearchEngine:
             
             # מסנן פונקציות
             if filters.has_functions is not None:
-                functions = code_processor.extract_functions(result.content, result.language)
+                functions = code_processor.extract_functions(result.content, result.programming_language)
                 has_functions = len(functions) > 0
                 
                 if filters.has_functions != has_functions:
@@ -439,7 +439,7 @@ class AdvancedSearchEngine:
         return SearchResult(
             file_name=file_data['file_name'],
             content=file_data['code'],
-            language=file_data['language'],
+            programming_language=file_data['programming_language'],
             tags=file_data.get('tags', []),
             created_at=file_data['created_at'],
             updated_at=file_data['updated_at'],

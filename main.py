@@ -217,7 +217,7 @@ class CodeKeeperBot:
             query = ""
         elif query in config.SUPPORTED_LANGUAGES:
             # חיפוש לפי שפה
-            results = db.search_code(user_id, "", language=query)
+            results = db.search_code(user_id, "", programming_language=query)
         else:
             # חיפוש חופשי
             results = db.search_code(user_id, query, tags=tags)
@@ -234,7 +234,7 @@ class CodeKeeperBot:
         
         for i, file_data in enumerate(results[:10], 1):
             response += f"**{i}. {file_data['file_name']}**\n"
-            response += f"🔤 {file_data['language']} | "
+            response += f"🔤 {file_data['programming_language']} | "
             response += f"📅 {file_data['updated_at'].strftime('%d/%m')}\n"
             
             if file_data.get('description'):

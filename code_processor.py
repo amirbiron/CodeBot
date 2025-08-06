@@ -324,16 +324,16 @@ class CodeProcessor:
         
         return 'text'
     
-    def highlight_code(self, code: str, language: str, output_format: str = 'html') -> str:
+    def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
         """הדגשת תחביר של קוד"""
         
         try:
             # קבלת הלקסר המתאים
-            if language == 'text':
+            if programming_language == 'text':
                 lexer = get_lexer_by_name('text', stripnl=False)
             else:
                 try:
-                    lexer = get_lexer_by_name(language, stripnl=False)
+                    lexer = get_lexer_by_name(programming_language, stripnl=False)
                 except ClassNotFound:
                     lexer = get_lexer_by_name('text', stripnl=False)
             
@@ -353,20 +353,20 @@ class CodeProcessor:
             # יצירת הקוד המודגש
             highlighted = highlight(code, lexer, formatter)
             
-            logger.info(f"הודגש קוד בשפה {language} בפורמט {output_format}")
+            logger.info(f"הודגש קוד בשפה {programming_language} בפורמט {output_format}")
             return highlighted
             
         except Exception as e:
             logger.error(f"שגיאה בהדגשת קוד: {e}")
             return f"<pre><code>{code}</code></pre>"
     
-    def create_code_image(self, code: str, language: str, 
+    def create_code_image(self, code: str, programming_language: str, 
                          width: int = 800, font_size: int = 12) -> bytes:
         """יצירת תמונה של קוד עם הדגשת תחביר"""
         
         try:
             # הדגשת הקוד
-            highlighted_html = self.highlight_code(code, language, 'html')
+            highlighted_html = self.highlight_code(code, programming_language, 'html')
             
             # יצירת HTML מלא
             full_html = f"""
@@ -478,7 +478,7 @@ class CodeProcessor:
         logger.info(f"חושבו סטטיסטיקות לקוד: {stats['total_lines']} שורות, {stats['characters']} תווים")
         return stats
     
-    def extract_functions(self, code: str, language: str) -> List[Dict[str, str]]:
+    def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, str]]:
         """חילוץ רשימת פונקציות מהקוד"""
         
         functions = []
@@ -492,8 +492,8 @@ class CodeProcessor:
             'php': r'function\s+(\w+)\s*\([^)]*\)\s*{'
         }
         
-        if language in patterns:
-            matches = re.finditer(patterns[language], code, re.MULTILINE)
+        if programming_language in patterns:
+            matches = re.finditer(patterns[programming_language], code, re.MULTILINE)
             
             for match in matches:
                 func_name = match.group(1)
@@ -512,7 +512,7 @@ class CodeProcessor:
         logger.info(f"נמצאו {len(functions)} פונקציות בקוד")
         return functions
     
-    def validate_syntax(self, code: str, language: str) -> Dict[str, Any]:
+    def validate_syntax(self, code: str, programming_language: str) -> Dict[str, Any]:
         """בדיקת תחביר של הקוד"""
         
         result = {
@@ -523,7 +523,7 @@ class CodeProcessor:
         }
         
         # בדיקות בסיסיות לפי שפה
-        if language == 'python':
+        if programming_language == 'python':
             try:
                 compile(code, '<string>', 'exec')
             except SyntaxError as e:
@@ -534,7 +534,7 @@ class CodeProcessor:
                     'type': 'SyntaxError'
                 })
         
-        elif language == 'json':
+        elif programming_language == 'json':
             try:
                 import json
                 json.loads(code)
@@ -576,7 +576,7 @@ class CodeProcessor:
                 })
         
         # הצעות לשיפור
-        if language == 'python':
+        if programming_language == 'python':
             # בדיקת import לא בשימוש
             imports = re.findall(r'import\s+(\w+)', code)
             for imp in imports:
@@ -586,13 +586,13 @@ class CodeProcessor:
                         'type': 'UnusedImport'
                     })
         
-        logger.info(f"נבדק תחביר עבור {language}: {'תקין' if result['is_valid'] else 'לא תקין'}")
+        logger.info(f"נבדק תחביר עבור {programming_language}: {'תקין' if result['is_valid'] else 'לא תקין'}")
         return result
     
-    def minify_code(self, code: str, language: str) -> str:
+    def minify_code(self, code: str, programming_language: str) -> str:
         """דחיסת קוד (הסרת רווחים מיותרים והערות)"""
         
-        if language == 'javascript':
+        if programming_language == 'javascript':
             # הסרת הערות חד-שורתיות
             code = re.sub(r'//.*$', '', code, flags=re.MULTILINE)
             # הסרת הערות רב-שורתיות
@@ -600,7 +600,7 @@ class CodeProcessor:
             # הסרת רווחים מיותרים
             code = re.sub(r'\s+', ' ', code)
             
-        elif language == 'python':
+        elif programming_language == 'python':
             lines = code.split('\n')
             minified_lines = []
             
@@ -615,7 +615,7 @@ class CodeProcessor:
             
             code = '\n'.join(minified_lines)
         
-        elif language == 'css':
+        elif programming_language == 'css':
             # הסרת הערות
             code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
             # הסרת רווחים מיותרים
@@ -623,7 +623,7 @@ class CodeProcessor:
             # הסרת רווחים סביב סימנים
             code = re.sub(r'\s*([{}:;,])\s*', r'\1', code)
         
-        logger.info(f"דחוס קוד בשפה {language}")
+        logger.info(f"דחוס קוד בשפה {programming_language}")
         return code.strip()
 
 # יצירת אינסטנס גלובלי
