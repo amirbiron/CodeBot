@@ -84,16 +84,21 @@ class AdvancedBotHandlers:
             )
             return
         
-        # קריאה נכונה לפונקציית ההדגשה עם שם השדה המעודכן
-        highlighted_code = code_processor.highlight_code(
+        # קבל את הקוד המקורי (הפונקציה highlight_code תחזיר אותו כפי שהוא)
+        original_code = code_processor.highlight_code(
             file_data['code'],
-            file_data['programming_language'], 
+            file_data['programming_language'],
             'html'
         )
 
-        # בניית התגובה עם הימלטות (escape) לשם הקובץ למניעת שגיאות
+        # בצע הימלטות לתוכן הקוד כדי למנוע שגיאות
+        escaped_code = html.escape(original_code)
+
+        # עטוף את הקוד הנקי בתגיות <pre><code> שטלגרם תומך בהן
         response_text = f"""<b>File:</b> <code>{html.escape(file_data['file_name'])}</code>
-{highlighted_code}
+<b>Language:</b> {file_data['programming_language']}
+
+<pre><code>{escaped_code}</code></pre>
 """
         
         # יצירת כפתורי פעולה
