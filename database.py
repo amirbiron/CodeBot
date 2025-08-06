@@ -120,6 +120,17 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"שגיאה בקבלת גרסה אחרונה: {e}")
             return None
+
+    def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
+        """מחזיר קובץ ספציפי של משתמש"""
+        try:
+            return self.collection.find_one(
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                sort=[("version", DESCENDING)]
+            )
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת קובץ: {e}")
+            return None
     
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict]:
         """מחזיר את כל הגרסאות של קטע קוד"""

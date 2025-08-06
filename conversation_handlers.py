@@ -39,7 +39,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג את כל הקבצים השמורים של המשתמש"""
     user_id = update.effective_user.id
-    from database import db  # ייבוא הגלובלי
+    from database import db
     
     try:
         files = db.get_user_files(user_id)
@@ -51,10 +51,27 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
         else:
-            files_list = "\n".join([f"📄 {file['filename']}" for file in files])
+            # תיקון: השדה נקרא file_name לא filename
+            files_list = []
+            for file in files:
+                file_name = file.get('file_name', 'קובץ ללא שם')
+                language = file.get('programming_language', 'לא זוהתה')
+                created_at = file.get('created_at', 'לא ידוע')
+                
+                # פורמט יפה יותר
+                if isinstance(created_at, str):
+                    date_str = created_at[:10]  # רק התאריך
+                else:
+                    date_str = str(created_at)[:10] if created_at else 'לא ידוע'
+                
+                files_list.append(f"📄 `{file_name}` ({language}) - {date_str}")
+            
+            files_text = "\n".join(files_list)
             await update.message.reply_text(
-                f"📚 הקבצים השמורים שלך ({len(files)} קבצים):\n\n{files_list}",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                f"📚 הקבצים השמורים שלך ({len(files)} קבצים):\n\n{files_text}\n\n"
+                f"💡 כדי לראות קובץ ספציפי, שלח: `/show filename.py`",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                parse_mode='Markdown'
             )
             
     except Exception as e:
@@ -79,7 +96,8 @@ async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Saves the user's code and asks for a filename."""
     context.user_data['code_to_save'] = update.message.text
     await update.message.reply_text(
-        "מעולה, הקוד נשמר זמנית. עכשיו, תן לי שם לקובץ (למשל, `my_script.py`)."
+        "✅ הקוד נקלט בהצלחה! עכשיו תן לי שם לקובץ (למשל: `my_script.py`).\n\n"
+        "💡 שם הקובץ יעזור לי לזהות את שפת התכנות אוטומטית!"
     )
     return GET_FILENAME
 
