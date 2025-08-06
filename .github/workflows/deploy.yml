@@ -239,6 +239,9 @@ jobs:
           cache-to: type=gha,mode=max
           target: production
       
+      - name: ⏳ Wait for image to be available in registry
+        run: sleep 15
+      
       - name: 🛡️ Run Security Scan
         uses: aquasecurity/trivy-action@master
         with:
