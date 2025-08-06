@@ -19,6 +19,51 @@ GET_CODE, GET_FILENAME, GET_LANGUAGE = range(3)
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"]]
 
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """טיפול בפקודת /start - מציג את התפריט הראשי"""
+    user_name = update.effective_user.first_name
+    welcome_text = (
+        f"🤖 שלום {user_name}! ברוך הבא לבוט שומר הקוד!\n\n"
+        "🔹 שמור קטעי קוד בקלות\n"
+        "🔹 חפש והצג את הקבצים שלך\n"
+        "🔹 נהל את הקודים שלך במקום אחד\n\n"
+        "בחר פעולה מהכפתורים למטה:"
+    )
+    
+    keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    await update.message.reply_text(welcome_text, reply_markup=keyboard)
+    return ConversationHandler.END
+
+async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """מציג את כל הקבצים השמורים של המשתמש"""
+    user_id = update.effective_user.id
+    db: DatabaseManager = context.bot_data['db']
+    
+    try:
+        files = db.get_user_files(user_id)
+        
+        if not files:
+            await update.message.reply_text(
+                "📂 אין לך קבצים שמורים עדיין.\n"
+                "לחץ על '➕ הוסף קוד חדש' כדי להתחיל!",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        else:
+            files_list = "\n".join([f"📄 {file['filename']}" for file in files])
+            await update.message.reply_text(
+                f"📚 הקבצים השמורים שלך ({len(files)} קבצים):\n\n{files_list}",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            
+    except Exception as e:
+        logger.error(f"Failed to get files for user {user_id}: {e}")
+        await update.message.reply_text(
+            "❌ שגיאה בהצגת הקבצים. נסה שוב מאוחר יותר.",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    
+    return ConversationHandler.END
+
 async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the conversation to save a new file."""
     await update.message.reply_text(
@@ -93,7 +138,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
     """Creates and returns the ConversationHandler for saving files."""
     return ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^➕ הוסף קוד חדש$"), start_save_flow)],
+        entry_points=[
+            CommandHandler("start", start_command),
+            MessageHandler(filters.Regex("^➕ הוסף קוד חדש$"), start_save_flow),
+            MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
+        ],
         states={
             GET_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_code)],
             GET_FILENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename)],
