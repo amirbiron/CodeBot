@@ -343,12 +343,13 @@ class CodeProcessor:
                     style=config.HIGHLIGHT_THEME,
                     linenos=True,
                     cssclass="highlight",
-                    noclasses=True
+                    noclasses=True,
+                    nowrap=True
                 )
             elif output_format == 'terminal':
                 formatter = TerminalFormatter()
             else:
-                formatter = HtmlFormatter(style=config.HIGHLIGHT_THEME)
+                formatter = HtmlFormatter(style=config.HIGHLIGHT_THEME, nowrap=True)
             
             # יצירת הקוד המודגש
             highlighted = highlight(code, lexer, formatter)
