@@ -26,7 +26,7 @@ from code_processor import code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 # New import for advanced handler setup helper
 from advanced_bot_handlers import setup_advanced_handlers
-from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
+from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler, CHOOSING
 
 # (Lock mechanism constants removed)
 
@@ -50,38 +50,28 @@ class CodeKeeperBot:
         self.advanced_handlers = AdvancedBotHandlers(self.application)
     
     def setup_handlers(self):
-        """הגדרת כל ה-handlers של הבוט"""
-        
-        # פקודות עיקריות
-        self.application.add_handler(CommandHandler("start", self.start_command))
+        """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
+
+        # --- שלב 1: רישום ה-ConversationHandler בעדיפות ראשונה ---
+        conv_handler = get_save_conversation_handler(db)
+        self.application.add_handler(conv_handler)
+
+        # --- שלב 2: רישום שאר הפקודות ---
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
         self.application.add_handler(CommandHandler("list", self.list_command))
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
-        
-        # הודעות טקסט (לזיהוי קוד אוטומטי)
+
+        # --- שלב 3: רישום המטפל הכללי בסוף ---
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message)
         )
-        
-        # טיפול בשגיאות
+
+        # --- שלב 4: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
     
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """פקודת התחלה"""
-        user = update.effective_user
-
-        welcome_message = (
-            f"היי {user.first_name}! ברוך הבא לבוט ניהול הקוד שלך.\n"
-            "השתמש בכפתורים למטה כדי להתחיל."
-        )
-
-        reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-
-        await update.message.reply_text(welcome_message, reply_markup=reply_markup)
-
-        logger.info(f"משתמש חדש התחיל: {user.id} ({user.username})")
+    # start_command הוסר - ConversationHandler מטפל בפקודת /start
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
@@ -448,22 +438,14 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 def main() -> None:
     """
     Initializes and runs the bot by creating an instance of the CodeKeeperBot class.
-    This ensures all handlers defined in the class are used.
     """
     logger.info("Initializing CodeKeeperBot...")
 
-    # יוצר את הבוט מהמחלקה הגדולה שלך, שמכילה את כל הלוגיקה
     bot = CodeKeeperBot()
 
-    # מוסיף את ה-ConversationHandler עבור הכפתורים החדשים
-    conv_handler = get_save_conversation_handler(db)
-    bot.application.add_handler(conv_handler)
-
-    # מפעיל את הבוט
     logger.info("Bot is starting to poll...")
     bot.application.run_polling()
 
-    # ניקוי בסגירה
     logger.info("Bot polling stopped. Closing database connection.")
     db.close_connection()
 
