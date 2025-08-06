@@ -10,10 +10,11 @@ import signal
 import sys
 import time
 import pymongo
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import atexit
 import os
 import pymongo.errors
+from pymongo.errors import DuplicateKeyError
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -40,6 +41,77 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# MONGODB LOCK MANAGEMENT (SELF-HEALING & STABLE VERSION)
+# =============================================================================
+
+LOCK_ID = "code_keeper_bot_lock"
+LOCK_COLLECTION = "locks"
+LOCK_TIMEOUT_MINUTES = 5  # משך הזמן שאחריו נחשיב נעילה כ"תקועה"
+
+def cleanup_mongo_lock():
+    """Runs on script exit to remove the lock document."""
+    try:
+        lock_collection = db.client[db.db_name][LOCK_COLLECTION]
+        pid = os.getpid()
+        # מחק את הנעילה רק אם ה-PID שלנו הוא זה שמחזיק אותה
+        result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
+        if result.deleted_count > 0:
+            logger.info(f"Lock '{LOCK_ID}' released successfully by PID: {pid}.")
+    except Exception as e:
+        logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
+
+def manage_mongo_lock():
+    """
+    Acquires a lock. If the lock is stale (older than TIMEOUT), it takes over.
+    If the lock is active, it exits to prevent conflict.
+    """
+    lock_collection = db.client[db.db_name][LOCK_COLLECTION]
+    lock_collection.create_index("_id", unique=True)
+    
+    pid = os.getpid()
+    now = datetime.now(timezone.utc)
+    
+    # בדוק אם קיימת נעילה
+    existing_lock = lock_collection.find_one({"_id": LOCK_ID})
+    
+    if existing_lock:
+        lock_time = existing_lock.get("timestamp", now)
+        if now - lock_time > timedelta(minutes=LOCK_TIMEOUT_MINUTES):
+            # הנעילה ישנה, כנראה תהליך קודם קרס. השתלט עליה.
+            logger.warning(
+                f"Found stale lock from PID {existing_lock.get('pid', 'N/A')}. "
+                f"Taking over lock for new process PID: {pid}."
+            )
+            lock_collection.update_one(
+                {"_id": LOCK_ID},
+                {"$set": {"pid": pid, "timestamp": now}}
+            )
+        else:
+            # הנעילה פעילה. צא מהתהליך הנוכחי.
+            logger.warning(
+                f"Lock '{LOCK_ID}' is actively held by PID {existing_lock.get('pid', 'N/A')}. "
+                f"This instance (PID: {pid}) will exit."
+            )
+            sys.exit(0)
+    else:
+        # אין נעילה, נסה לרכוש אותה
+        try:
+            lock_collection.insert_one({
+                "_id": LOCK_ID,
+                "pid": pid,
+                "timestamp": now
+            })
+        except DuplicateKeyError:
+            logger.warning(f"Could not acquire lock, another process was faster. Exiting.")
+            sys.exit(0)
+
+    # אם הגענו לכאן, הנעילה שלנו. רשום את פונקציית הניקוי
+    logger.info(f"Lock '{LOCK_ID}' acquired successfully by PID: {pid}.")
+    atexit.register(cleanup_mongo_lock)
+
+# =============================================================================
 
 class CodeKeeperBot:
     """המחלקה הראשית של הבוט"""
@@ -440,15 +512,19 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 # ---------------------------------------------------------------------------
 def main() -> None:
     """
-    Initializes and runs the bot by creating an instance of the CodeKeeperBot class.
+    Initializes and runs the bot after acquiring a lock.
     """
-    logger.info("Initializing CodeKeeperBot...")
-
+    # --- שלב הנעילה ---
+    manage_mongo_lock()
+    
+    # --- המשך הקוד הקיים שלך ---
+    logger.info("Lock acquired. Initializing CodeKeeperBot...")
+    
     bot = CodeKeeperBot()
-
+    
     logger.info("Bot is starting to poll...")
-    bot.application.run_polling()
-
+    bot.application.run_polling(drop_pending_updates=True)
+    
     logger.info("Bot polling stopped. Closing database connection.")
     db.close_connection()
 
