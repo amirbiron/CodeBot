@@ -10,6 +10,7 @@ import signal
 import sys
 import time
 import pymongo
+import pymongo.uri_parser
 from datetime import datetime, timezone, timedelta
 import atexit
 import os
@@ -52,14 +53,27 @@ LOCK_TIMEOUT_MINUTES = 5
 
 def get_lock_collection():
     """
-    Safely gets the lock collection without assuming DatabaseManager structure.
+    Safely gets the lock collection by parsing the DB name from MONGODB_URL.
     """
-    db_name = os.getenv("MONGO_DB_NAME")
-    if not db_name:
-        logger.critical("MONGO_DB_NAME environment variable is not set! Cannot manage lock.")
+    mongo_url = os.getenv("MONGODB_URL")
+    if not mongo_url:
+        logger.critical("MONGODB_URL environment variable is not set! Cannot manage lock.")
         sys.exit(1)
-    # Access collection directly via the client, the most basic pymongo operation
-    return db.client[db_name][LOCK_COLLECTION]
+    
+    try:
+        # שימוש בספרייה של pymongo כדי לחלץ את שם מסד הנתונים מה-URL
+        uri_dict = pymongo.uri_parser.parse_uri(mongo_url)
+        db_name = uri_dict.get('database')
+        
+        if not db_name:
+            logger.critical("Database name not found in MONGODB_URL! Cannot manage lock.")
+            sys.exit(1)
+            
+        return db.client[db_name][LOCK_COLLECTION]
+        
+    except Exception as e:
+        logger.critical(f"Failed to parse MONGODB_URL or get collection: {e}", exc_info=True)
+        sys.exit(1)
 
 def cleanup_mongo_lock():
     """Runs on script exit to remove the lock document."""
