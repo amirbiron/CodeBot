@@ -7,6 +7,7 @@ import asyncio
 import io
 import logging
 import re
+import html
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -103,28 +104,32 @@ class AdvancedBotHandlers:
         # הכנת המידע
         code = file_data['code']
         tags_str = ", ".join(file_data.get('tags', [])) if file_data.get('tags') else "ללא"
-        
-        response = f"""
-📄 **{file_name}**
 
-🔤 **שפה:** {file_data['programming_language']}
-🏷️ **תגיות:** {tags_str}
-📅 **עודכן:** {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}
-🔢 **גרסה:** {file_data['version']}
-📏 **גודל:** {len(code)} תווים
+        # Escape content to ensure valid HTML entities
+        escaped_code = html.escape(code)
+        escaped_file_name = html.escape(file_name)
+        escaped_tags = html.escape(tags_str)
 
-**קוד:**
-```{file_data['programming_language']}
-{code[:1000]}{'...' if len(code) > 1000 else ''}
-```
-        """
-        
+        response = (
+            f"<b>File:</b> <code>{escaped_file_name}</code>\n"
+            f"<b>Language:</b> {file_data['programming_language']}\n"
+            f"<b>Tags:</b> {escaped_tags}\n"
+            f"<b>Updated:</b> {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}\n"
+            f"<b>Version:</b> {file_data['version']}\n"
+            f"<b>Size:</b> {len(code)} chars\n\n"
+            f"<pre><code class=\"language-{file_data['programming_language']}\">{escaped_code}</code></pre>"
+        )
+
         if file_data.get('description'):
-            response = response.replace("**קוד:**", f"📝 **תיאור:** {file_data['description']}\n\n**קוד:**")
-        
+            response = response.replace(
+                "<pre>",
+                f"<b>Description:</b> {html.escape(file_data['description'])}\n\n<pre>",
+                1
+            )
+
         await update.message.reply_text(
             response,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             reply_markup=reply_markup
         )
     
