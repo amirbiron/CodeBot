@@ -556,6 +556,8 @@ async def handle_cancel_edit(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת קוד חדש לעריכה"""
+    print(f"🔥🔥🔥 receive_new_code נקרא! User: {update.effective_user.id}")
+    logger.critical(f"🔥🔥🔥 receive_new_code נקרא! User: {update.effective_user.id}")
     logger.info(f"=== receive_new_code התחיל - User ID: {update.effective_user.id}")
     
     new_code = update.message.text
