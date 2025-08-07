@@ -568,13 +568,21 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         is_valid, cleaned_code, error_message = code_processor.validate_code_input(new_code, file_name, user_id)
         
         if not is_valid:
+            # יצירת כפתורים לנסות שוב או לבטל
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 נסה שוב", callback_data=f"edit_code_direct_{file_name}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="files")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await update.message.reply_text(
                 f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
-                f"💡 אנא וודא שהקוד תקין ונסה שוב.\n"
-                f"🚫 לביטול: `/cancel`",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                f"💡 אנא וודא שהקוד תקין ונסה שוב.",
+                reply_markup=reply_markup
             )
-            return EDIT_CODE  # חזרה למצב עריכה
+            return ConversationHandler.END  # סיום השיחה כדי לאפשר לחיצה על הכפתורים
         
         # זיהוי שפה עם הקוד המנוקה
         detected_language = code_processor.detect_language(cleaned_code, file_name)
@@ -609,10 +617,26 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-        else:
+            
+            # שליחת המקלדת הראשית בהודעה נפרדת
             await update.message.reply_text(
-                "❌ שגיאה בעדכון הקוד",
+                "🏠 בחר פעולה נוספת:",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        else:
+            # במקרה של כישלון, נשלח כפתורים מובנים
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 נסה שוב", callback_data=f"edit_code_direct_{file_name}"),
+                    InlineKeyboardButton("🔙 לרשימה", callback_data="files")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                "❌ שגיאה בעדכון הקוד\n\n"
+                "🔄 לחץ על 'נסה שוב' כדי לנסות שנית",
+                reply_markup=reply_markup
             )
     
     except Exception as e:
@@ -629,7 +653,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except:
             pass
         
-        # הודעת שגיאה מפורטת למשתמש
+        # הודעת שגיאה מפורטת למשתמש עם כפתורים מובנים
         error_details = "פרטי השגיאה לא זמינים"
         if "validation" in str(e).lower():
             error_details = "שגיאה באימות הקוד"
@@ -638,12 +662,20 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         elif "language" in str(e).lower():
             error_details = "שגיאה בזיהוי שפת התכנות"
         
+        # כפתורים לטיפול בשגיאה
+        keyboard = [
+            [
+                InlineKeyboardButton("🔄 נסה שוב", callback_data=f"edit_code_direct_{file_name if 'file_name' in locals() else ''}"),
+                InlineKeyboardButton("🔙 לרשימה", callback_data="files")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
             f"❌ שגיאה בעדכון הקוד\n\n"
             f"📝 **פרטים:** {error_details}\n"
-            f"🔄 אנא נסה שוב או פנה לתמיכה\n"
-            f"🏠 חזרה לתפריט הראשי",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            f"🔄 אנא נסה שוב או פנה לתמיכה",
+            reply_markup=reply_markup,
             parse_mode='Markdown'
         )
     
@@ -1175,6 +1207,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return ConversationHandler.END
 
+async def conversation_timeout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """טיפול ב-timeout של השיחה"""
+    context.user_data.clear()
+    
+    # שליחת הודעה למשתמש
+    await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text="⏱️ השיחה הסתיימה עקב חוסר פעילות.\n"
+             "🏠 אתה יכול להתחיל שיחה חדשה בכל עת.",
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )
+    return ConversationHandler.END
+
 def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
     """יוצר ConversationHandler מתקדם וחכם"""
     logger.info("יוצר מערכת שיחה מתקדמת...")
@@ -1194,10 +1239,12 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
                 CallbackQueryHandler(handle_duplicate_callback)
             ],
             EDIT_CODE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code),
+                CallbackQueryHandler(handle_callback_query)  # מאפשר לחיצה על כפתורים במצב עריכה
             ],
             EDIT_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_name)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_name),
+                CallbackQueryHandler(handle_callback_query)  # מאפשר לחיצה על כפתורים במצב עריכה
             ],
         },
         fallbacks=[
@@ -1205,5 +1252,6 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             CallbackQueryHandler(handle_callback_query)
         ],
         allow_reentry=True,
-        per_message=False
+        per_message=False,
+        conversation_timeout=300  # timeout של 5 דקות
     )

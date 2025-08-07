@@ -478,13 +478,53 @@ class CodeKeeperBot:
         return 'text'  # ברירת מחדל
     
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
-        """טיפול בשגיאות"""
+        """טיפול בשגיאות משופר"""
         logger.error(f"שגיאה: {context.error}", exc_info=context.error)
         
-        if isinstance(update, Update) and update.effective_message:
-            await update.effective_message.reply_text(
-                "❌ אירעה שגיאה. אנא נסה שוב מאוחר יותר."
-            )
+        # טיפול בשגיאות ספציפיות
+        error_message = "❌ אירעה שגיאה. אנא נסה שוב מאוחר יותר."
+        
+        if isinstance(context.error, telegram.error.NetworkError):
+            error_message = "❌ בעיית רשת. אנא בדוק את החיבור שלך ונסה שוב."
+        elif isinstance(context.error, telegram.error.TimedOut):
+            error_message = "⏱️ הבקשה לקחה יותר מדי זמן. אנא נסה שוב."
+        elif isinstance(context.error, telegram.error.BadRequest):
+            error_message = "❌ בקשה לא תקינה. אנא ודא שהפעולה תקינה."
+        elif isinstance(context.error, telegram.error.Forbidden):
+            error_message = "🚫 אין הרשאה לבצע פעולה זו."
+        
+        # ניקוי context.user_data במקרה של שגיאה
+        if hasattr(context, 'user_data') and context.user_data:
+            context.user_data.clear()
+        
+        # שליחת הודעה למשתמש אם אפשר
+        if isinstance(update, Update):
+            try:
+                if update.effective_message:
+                    await update.effective_message.reply_text(
+                        error_message,
+                        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                    )
+                elif update.callback_query:
+                    await update.callback_query.answer(
+                        "❌ שגיאה בביצוע הפעולה",
+                        show_alert=True
+                    )
+            except Exception as e:
+                logger.error(f"לא הצלחתי לשלוח הודעת שגיאה: {e}")
+        
+        # דיווח לאדמין במקרה של שגיאה קריטית
+        if isinstance(context.error, Exception) and not isinstance(context.error, telegram.error.TelegramError):
+            try:
+                admin_id = os.getenv('ADMIN_TELEGRAM_ID')
+                if admin_id:
+                    error_details = f"🚨 שגיאה קריטית:\n{type(context.error).__name__}: {str(context.error)}"
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=error_details[:4096]  # הגבלת אורך ההודעה
+                    )
+            except:
+                pass
     
     async def start(self):
         """הפעלת הבוט"""
