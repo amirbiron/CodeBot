@@ -40,6 +40,128 @@ class CodeProcessor:
         self.common_extensions = self._init_extensions()
         self.style = get_style_by_name(config.HIGHLIGHT_THEME)
         
+        # הגדרת לוגר ייעודי לטיפול בשגיאות קוד
+        self.code_logger = logging.getLogger('code_handler')
+        if not self.code_logger.handlers:
+            handler = logging.FileHandler('code_errors.log')
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            self.code_logger.addHandler(handler)
+            self.code_logger.setLevel(logging.INFO)
+    
+    def sanitize_code_blocks(self, text: str) -> str:
+        """
+        מנקה וטיפול בקטעי קוד עם סימוני markdown (```)
+        מוודא שהקוד מפורמט כראוי ונקי משגיאות
+        """
+        try:
+            if not text or not isinstance(text, str):
+                self.code_logger.warning("קלט לא תקין לסניטציה")
+                return text or ""
+            
+            # בדיקה אם יש בלוקי קוד עם סימוני ```
+            if '```' in text:
+                self.code_logger.info("מזוהים בלוקי קוד עם סימוני ```")
+                
+                # טיפול בבלוקי קוד עם שפה מוגדרת (```python, ```javascript וכו')
+                pattern = r'```(\w+)?\s*([\s\S]*?)```'
+                
+                def replace_code_block(match):
+                    language_hint = match.group(1) or ""
+                    code_content = match.group(2) or ""
+                    
+                    # ניקוי הקוד מרווחים מיותרים
+                    cleaned_code = code_content.strip()
+                    
+                    # רישום הפעולה
+                    self.code_logger.info(f"מעבד בלוק קוד: {language_hint}, אורך: {len(cleaned_code)}")
+                    
+                    # החזרת הקוד הנקי בלבד (ללא סימוני ```)
+                    return cleaned_code
+                
+                # החלפת כל בלוקי הקוד
+                processed_text = re.sub(pattern, replace_code_block, text, flags=re.DOTALL)
+                
+                # אם לא נמצאו התאמות עם שפה, נסה בלי שפה
+                if processed_text == text:
+                    simple_pattern = r'```([\s\S]*?)```'
+                    processed_text = re.sub(simple_pattern, lambda m: m.group(1).strip(), text, flags=re.DOTALL)
+                
+                self.code_logger.info("סניטציית קוד הושלמה בהצלחה")
+                return processed_text
+            
+            # אם אין בלוקי קוד, החזר את הטקסט כמו שהוא
+            return text
+            
+        except Exception as e:
+            self.code_logger.error(f"שגיאה בסניטציית קוד: {str(e)}")
+            # במקרה של שגיאה, החזר את הטקסט המקורי
+            return text
+    
+    def validate_code_input(self, code: str, filename: str = None, user_id: int = None) -> Tuple[bool, str, str]:
+        """
+        מאמת קלט קוד ומחזיר תוקף, קוד מנוקה והודעת שגיאה אם יש
+        """
+        try:
+            if not code or not isinstance(code, str):
+                if user_id:
+                    from utils import code_error_logger
+                    code_error_logger.log_validation_failure(user_id, 0, "קלט קוד לא תקין או ריק")
+                return False, "", "קלט קוד לא תקין או ריק"
+            
+            original_length = len(code)
+            
+            # סניטציה ראשונית
+            cleaned_code = self.sanitize_code_blocks(code)
+            cleaned_length = len(cleaned_code)
+            
+            # רישום הצלחת סניטציה
+            if user_id and original_length != cleaned_length:
+                from utils import code_error_logger
+                code_error_logger.log_sanitization_success(user_id, original_length, cleaned_length)
+            
+            # בדיקות נוספות
+            if len(cleaned_code.strip()) == 0:
+                if user_id:
+                    from utils import code_error_logger
+                    code_error_logger.log_validation_failure(user_id, original_length, "הקוד ריק לאחר עיבוד")
+                return False, "", "הקוד ריק לאחר עיבוד"
+            
+            # בדיקה אם הקוד ארוך מדי
+            if len(cleaned_code) > 50000:  # 50KB limit
+                if user_id:
+                    from utils import code_error_logger
+                    code_error_logger.log_validation_failure(user_id, cleaned_length, "הקוד ארוך מדי (מעל 50KB)")
+                return False, "", "הקוד ארוך מדי (מעל 50KB)"
+            
+            # בדיקה לתווים לא חוקיים
+            try:
+                cleaned_code.encode('utf-8')
+            except UnicodeEncodeError:
+                if user_id:
+                    from utils import code_error_logger
+                    code_error_logger.log_validation_failure(user_id, cleaned_length, "הקוד מכיל תווים לא חוקיים")
+                return False, "", "הקוד מכיל תווים לא חוקיים"
+            
+            # רישום הצלחה
+            self.code_logger.info(f"אימות קוד הצליח, אורך: {len(cleaned_code)}")
+            if user_id:
+                from utils import code_error_logger
+                code_error_logger.log_code_activity(user_id, "validation_success", {
+                    "original_length": original_length,
+                    "cleaned_length": cleaned_length,
+                    "filename": filename
+                })
+            
+            return True, cleaned_code, ""
+            
+        except Exception as e:
+            error_msg = f"שגיאה באימות קוד: {str(e)}"
+            self.code_logger.error(error_msg)
+            if user_id:
+                from utils import code_error_logger
+                code_error_logger.log_code_processing_error(user_id, "validation_exception", str(e))
+            return False, "", error_msg
+        
     def _init_language_patterns(self) -> Dict[str, List[str]]:
         """אתחול דפוסי זיהוי שפות תכנות"""
         return {
@@ -231,6 +353,14 @@ class CodeProcessor:
     def detect_language(self, code: str, filename: str = None) -> str:
         """זיהוי שפת התכנות של הקוד"""
         
+        # סניטציה ראשונית של הקוד
+        try:
+            sanitized_code = self.sanitize_code_blocks(code)
+            self.code_logger.info(f"קוד סונטז לזיהוי שפה, אורך מקורי: {len(code)}, אורך מנוקה: {len(sanitized_code)}")
+        except Exception as e:
+            self.code_logger.error(f"שגיאה בסניטציה לזיהוי שפה: {e}")
+            sanitized_code = code
+        
         # בדיקה ראשונה - לפי סיומת הקובץ
         if filename:
             ext = Path(filename).suffix.lower()
@@ -245,7 +375,7 @@ class CodeProcessor:
         for language, patterns in self.language_patterns.items():
             score = 0
             for pattern in patterns:
-                matches = re.findall(pattern, code, re.MULTILINE | re.IGNORECASE)
+                matches = re.findall(pattern, sanitized_code, re.MULTILINE | re.IGNORECASE)
                 score += len(matches)
             
             if score > 0:
@@ -258,7 +388,7 @@ class CodeProcessor:
         
         # בדיקה שלישית - באמצעות Pygments
         try:
-            lexer = guess_lexer(code)
+            lexer = guess_lexer(sanitized_code)
             detected = lexer.name.lower()
             
             # נרמול שמות שפות
@@ -284,7 +414,7 @@ class CodeProcessor:
             logger.warning("לא הצלחתי לזהות שפה באמצעות Pygments")
         
         # בדיקה רביעית - ניתוח כללי של הטקסט
-        detected = self._analyze_code_structure(code)
+        detected = self._analyze_code_structure(sanitized_code)
         if detected != 'text':
             logger.info(f"זוהתה שפה לפי מבנה: {detected}")
             return detected

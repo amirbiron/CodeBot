@@ -528,8 +528,23 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return EDIT_CODE
         
     except Exception as e:
+        # לוגים מפורטים לשגיאות עריכה
         logger.error(f"Error in handle_edit_code: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכה")
+        logger.error(f"User ID: {update.effective_user.id}")
+        logger.error(f"Query data: {query.data if query else 'No query'}")
+        
+        # רישום בלוגר הייעודי
+        try:
+            from code_processor import code_processor
+            code_processor.code_logger.error(f"שגיאה בהתחלת עריכת קוד עבור משתמש {update.effective_user.id}: {str(e)}")
+        except:
+            pass
+        
+        await query.edit_message_text(
+            "❌ שגיאה בהתחלת עריכה\n\n"
+            "🔄 אנא נסה שוב או חזור לתפריט הראשי\n"
+            "📞 אם הבעיה נמשכת, פנה לתמיכה"
+        )
     
     return ConversationHandler.END
 
@@ -548,10 +563,24 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         file_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
         
         from code_processor import code_processor
-        detected_language = code_processor.detect_language(new_code, file_name)
+        
+        # אימות וסניטציה של הקוד הנכנס
+        is_valid, cleaned_code, error_message = code_processor.validate_code_input(new_code, file_name, user_id)
+        
+        if not is_valid:
+            await update.message.reply_text(
+                f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
+                f"💡 אנא וודא שהקוד תקין ונסה שוב.\n"
+                f"🚫 לביטול: `/cancel`",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return EDIT_CODE  # חזרה למצב עריכה
+        
+        # זיהוי שפה עם הקוד המנוקה
+        detected_language = code_processor.detect_language(cleaned_code, file_name)
         
         from database import db
-        success = db.save_file(user_id, file_name, new_code, detected_language)
+        success = db.save_file(user_id, file_name, cleaned_code, detected_language)
         
         if success:
             keyboard = [
@@ -587,10 +616,35 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
     
     except Exception as e:
+        # לוגים מפורטים לאיתור בעיות
         logger.error(f"Error updating code: {e}")
+        logger.error(f"User ID: {update.effective_user.id}")
+        logger.error(f"Original code length: {len(new_code) if new_code else 0}")
+        logger.error(f"File name: {file_name if 'file_name' in locals() else 'Unknown'}")
+        
+        # רישום בלוגר הייעודי לקוד
+        try:
+            from code_processor import code_processor
+            code_processor.code_logger.error(f"שגיאה בעדכון קוד עבור משתמש {update.effective_user.id}: {str(e)}")
+        except:
+            pass
+        
+        # הודעת שגיאה מפורטת למשתמש
+        error_details = "פרטי השגיאה לא זמינים"
+        if "validation" in str(e).lower():
+            error_details = "שגיאה באימות הקוד"
+        elif "database" in str(e).lower():
+            error_details = "שגיאה בשמירת הקוד במסד הנתונים"
+        elif "language" in str(e).lower():
+            error_details = "שגיאה בזיהוי שפת התכנות"
+        
         await update.message.reply_text(
-            "❌ שגיאה בעדכון הקוד",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            f"❌ שגיאה בעדכון הקוד\n\n"
+            f"📝 **פרטים:** {error_details}\n"
+            f"🔄 אנא נסה שוב או פנה לתמיכה\n"
+            f"🏠 חזרה לתפריט הראשי",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode='Markdown'
         )
     
     context.user_data.clear()
