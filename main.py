@@ -43,6 +43,10 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# הפחתת רעש בלוגים
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
+
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
     service_id="srv-d29d72adbo4c73bcuep0",
@@ -91,9 +95,9 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """ניהול נעילה מתקדם עם מנגנון זיהוי והמתנה"""
-    max_retries = 3
-    retry_delay = 5  # שניות
+    """מנגנון נעילה משופר עם כיבוי התהליך הישן"""
+    max_retries = 5
+    retry_delay = 3
     
     for attempt in range(max_retries):
         try:
@@ -104,58 +108,60 @@ def manage_mongo_lock():
             instance_id = os.getenv("RENDER_INSTANCE_ID", f"local_{os.getpid()}_{int(time.time())}")
             now = datetime.now(timezone.utc)
             
-            # בדיקה ראשונה - האם יש נעילה קיימת
-            existing_lock = db.db.locks.find_one({"name": "bot_main_lock"})
-            
-            if existing_lock:
-                existing_time = existing_lock.get("timestamp", now)
-                existing_instance = existing_lock.get("instance_id", "unknown")
-                
-                # תיקון timezone אם צריך
-                if existing_time.tzinfo is None:
-                    existing_time = existing_time.replace(tzinfo=timezone.utc)
-                
-                time_diff = (now - existing_time).total_seconds()
-                
-                if time_diff > 180:  # 3 דקות במקום 5
-                    logger.warning(f"🧹 נעילה ישנה נמצאה ({time_diff:.0f}s), מוחק...")
-                    result = db.db.locks.delete_one({"name": "bot_main_lock"})
-                    if result.deleted_count > 0:
-                        logger.info("✅ נעילה ישנה נמחקה")
-                    else:
-                        logger.warning("⚠️ לא הצלחתי למחוק נעילה ישנה")
-                else:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"⏳ תהליך אחר פועל (Instance: {existing_instance}, {time_diff:.0f}s). מנסה שוב בעוד {retry_delay}s...")
-                        time.sleep(retry_delay)
-                        continue
-                    else:
-                        logger.error(f"❌ תהליך אחר עדיין פועל אחרי {max_retries} ניסיונות")
-                        return False
-            
-            # ניסיון ליצור נעילה
+            # בדיקה ראשונה - מחיקה חכמה של נעילות ישנות
             try:
+                # מחיקה של כל הנעילות הישנות (מעל דקה)
+                cutoff_time = now - timedelta(minutes=1)
+                result = db.db.locks.delete_many({
+                    "name": "bot_main_lock",
+                    "timestamp": {"$lt": cutoff_time}
+                })
+                
+                if result.deleted_count > 0:
+                    logger.info(f"🧹 נמחקו {result.deleted_count} נעילות ישנות")
+                
+                # מחיקה של נעילות ללא timestamp
+                result2 = db.db.locks.delete_many({
+                    "name": "bot_main_lock",
+                    "timestamp": {"$exists": False}
+                })
+                
+                if result2.deleted_count > 0:
+                    logger.info(f"🧹 נמחקו {result2.deleted_count} נעילות פגומות")
+                    
+            except Exception as cleanup_error:
+                logger.warning(f"שגיאה בניקוי נעילות: {cleanup_error}")
+            
+            # ניסיון ליצור נעילה חדשה
+            try:
+                # יצירת אינדקס ייחודי אם לא קיים
+                try:
+                    db.db.locks.create_index("name", unique=True)
+                except Exception:
+                    pass  # האינדקס כבר קיים
+                
                 result = db.db.locks.insert_one({
                     "name": "bot_main_lock",
                     "instance_id": instance_id,
                     "timestamp": now,
                     "status": "active",
+                    "pid": os.getpid(),
                     "attempt": attempt + 1
                 })
                 
                 logger.info(f"✅ נעילה נתפסה! Instance: {instance_id} (ניסיון {attempt + 1})")
                 
-                # פונקציית ניקוי
+                # פונקציית ניקוי משופרת
                 def cleanup_lock():
                     try:
-                        result = db.db.locks.delete_one({
-                            "name": "bot_main_lock", 
-                            "instance_id": instance_id
+                        result = db.db.locks.delete_many({
+                            "$or": [
+                                {"name": "bot_main_lock", "instance_id": instance_id},
+                                {"name": "bot_main_lock", "pid": os.getpid()}
+                            ]
                         })
                         if result.deleted_count > 0:
-                            logger.info(f"🧹 נעילה שוחררה. Instance: {instance_id}")
-                        else:
-                            logger.warning(f"⚠️ לא מצאתי נעילה לשחרור. Instance: {instance_id}")
+                            logger.info(f"🧹 נעילה שוחררה ({result.deleted_count} מסמכים). Instance: {instance_id}")
                     except Exception as e:
                         logger.error(f"שגיאה בשחרור נעילה: {e}")
                 
@@ -165,12 +171,41 @@ def manage_mongo_lock():
             except Exception as insert_error:
                 if "duplicate key" in str(insert_error).lower() or "E11000" in str(insert_error):
                     if attempt < max_retries - 1:
-                        logger.warning(f"🔄 נעילה נתפסה בזמן הניסיון. מנסה שוב בעוד {retry_delay}s...")
+                        logger.warning(f"🔄 נעילה קיימת. ניסיון {attempt + 1}/{max_retries}. מחכה {retry_delay}s...")
                         time.sleep(retry_delay)
                         continue
                     else:
-                        logger.error(f"❌ לא הצלחתי לתפוס נעילה אחרי {max_retries} ניסיונות")
-                        return False
+                        logger.error(f"❌ נכשל אחרי {max_retries} ניסיונות - נעילה עדיין תפוסה")
+                        
+                        # ניסיון אחרון - מחיקה כפויה ויצירה מחדש
+                        try:
+                            logger.warning("🚨 מנסה מחיקה כפויה של כל הנעילות...")
+                            db.db.locks.delete_many({"name": "bot_main_lock"})
+                            
+                            # ניסיון אחרון
+                            db.db.locks.insert_one({
+                                "name": "bot_main_lock",
+                                "instance_id": instance_id,
+                                "timestamp": now,
+                                "status": "forced",
+                                "pid": os.getpid()
+                            })
+                            
+                            logger.warning("⚠️ נעילה נתפסה בכוח!")
+                            
+                            def cleanup_lock():
+                                try:
+                                    db.db.locks.delete_many({"name": "bot_main_lock"})
+                                    logger.info("🧹 נעילה כפויה שוחררה")
+                                except Exception as e:
+                                    logger.error(f"שגיאה בשחרור נעילה כפויה: {e}")
+                            
+                            atexit.register(cleanup_lock)
+                            return True
+                            
+                        except Exception as force_error:
+                            logger.error(f"❌ גם מחיקה כפויה נכשלה: {force_error}")
+                            return False
                 else:
                     logger.error(f"שגיאה לא צפויה ביצירת נעילה: {insert_error}")
                     return False

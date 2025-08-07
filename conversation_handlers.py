@@ -193,14 +193,39 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         detected_language = code_processor.detect_language(code, filename)
         
         # שמירה במסד הנתונים
-        db.save_file(user_id, filename, code, detected_language)
+        success = db.save_file(user_id, filename, code, detected_language)
         
-        await update.message.reply_text(
-            f"✅ הקובץ `{filename}` נשמר בהצלחה!\n"
-            f"🔍 זוהתה שפת תכנות: **{detected_language}**",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode='Markdown'
-        )
+        if success:
+            # כפתורים מלאים מיד אחרי שמירה ראשונית
+            keyboard = [
+                [
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_updated_{filename}"),
+                    InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{filename}")
+                ],
+                [
+                    InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{filename}"),
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}")
+                ],
+                [
+                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
+                    InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}")
+                ],
+                [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ הקובץ `{filename}` נשמר בהצלחה!\n"
+                f"🔍 זוהתה שפת תכנות: **{detected_language}**\n\n"
+                f"בחר פעולה:",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                "❌ אופס, משהו השתבש. לא הצלחתי לשמור את הקובץ. נסה שוב מאוחר יותר.",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            )
         
     except Exception as e:
         logger.error(f"Failed to save file for user {user_id}: {e}")
@@ -523,6 +548,9 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     old_code = file_data.get('code', '')
     user_id = update.effective_user.id
     
+    # תגובה מיידית שהקוד התקבל
+    processing_msg = await update.message.reply_text("⏳ מעבד ושומר את הקוד החדש...")
+    
     try:
         # יצירת גרסה חדשה במסד הנתונים
         from file_manager import VersionManager
@@ -539,24 +567,34 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         if success:
             # חישוב שינויים
-            changes_summary = version_manager._generate_changes_summary(old_code, new_code)
+            try:
+                changes_summary = version_manager._generate_changes_summary(old_code, new_code)
+            except Exception:
+                changes_summary = "שינויים זוהו"
             
             # כפתורים מלאים אחרי שמירה
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_updated_{file_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=f"view_updated_{file_name}"),
                     InlineKeyboardButton("✏️ ערוך שוב", callback_data=f"edit_code_direct_{file_name}")
                 ],
                 [
                     InlineKeyboardButton("📚 גרסאות קודמות", callback_data=f"versions_file_{file_name}"),
-                    InlineKeyboardButton("🗑️ מחק קובץ", callback_data=f"delete_direct_{file_name}")
+                    InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
                 ],
                 [
                     InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"),
-                    InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")
-                ]
+                    InlineKeyboardButton("🗑️ מחק קובץ", callback_data=f"delete_direct_{file_name}")
+                ],
+                [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # מחיקת הודעת העיבוד
+            try:
+                await processing_msg.delete()
+            except:
+                pass
             
             await update.message.reply_text(
                 f"✅ *הקוד עודכן בהצלחה!*\n\n"
@@ -568,6 +606,12 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 parse_mode='Markdown'
             )
         else:
+            # מחיקת הודעת העיבוד
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+                
             await update.message.reply_text(
                 "❌ שגיאה בשמירת הקוד החדש. נסה שוב.",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
@@ -575,8 +619,15 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     except Exception as e:
         logger.error(f"Error updating code: {e}")
+        
+        # מחיקת הודעת העיבוד
+        try:
+            await processing_msg.delete()
+        except:
+            pass
+            
         await update.message.reply_text(
-            "❌ שגיאה בעדכון הקוד.",
+            f"❌ שגיאה בעדכון הקוד: {str(e)[:100]}...",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
     
