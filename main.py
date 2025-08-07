@@ -96,146 +96,9 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """מנגנון נעילה משופר עם כיבוי התהליך הישן"""
-    max_retries = 5
-    retry_delay = 3
-    
-    for attempt in range(max_retries):
-        try:
-            from datetime import timezone
-            import os
-            import time
-            
-            instance_id = os.getenv("RENDER_INSTANCE_ID", f"local_{os.getpid()}_{int(time.time())}")
-            now = datetime.now(timezone.utc)
-            
-            # בדיקה ראשונה - מחיקה חכמה של נעילות ישנות
-            try:
-                # מחיקה של כל הנעילות הישנות (מעל דקה)
-                cutoff_time = now - timedelta(minutes=1)
-                result = db.db.locks.delete_many({
-                    "name": "bot_main_lock",
-                    "timestamp": {"$lt": cutoff_time}
-                })
-                
-                if result.deleted_count > 0:
-                    logger.info(f"🧹 נמחקו {result.deleted_count} נעילות ישנות")
-                
-                # מחיקה של נעילות ללא timestamp
-                result2 = db.db.locks.delete_many({
-                    "name": "bot_main_lock",
-                    "timestamp": {"$exists": False}
-                })
-                
-                if result2.deleted_count > 0:
-                    logger.info(f"🧹 נמחקו {result2.deleted_count} נעילות פגומות")
-                    
-            except Exception as cleanup_error:
-                logger.warning(f"שגיאה בניקוי נעילות: {cleanup_error}")
-            
-            # ניסיון ליצור נעילה חדשה
-            try:
-                # יצירת אינדקס ייחודי אם לא קיים
-                try:
-                    db.db.locks.create_index("name", unique=True)
-                except Exception:
-                    pass  # האינדקס כבר קיים
-                
-                result = db.db.locks.insert_one({
-                    "name": "bot_main_lock",
-                    "instance_id": instance_id,
-                    "timestamp": now,
-                    "status": "active",
-                    "pid": os.getpid(),
-                    "attempt": attempt + 1
-                })
-                
-                logger.info(f"✅ נעילה נתפסה! Instance: {instance_id} (ניסיון {attempt + 1})")
-                
-                # פונקציית ניקוי בטוחה לחלוטין
-                def cleanup_lock():
-                    try:
-                        # רק אם המערכת עדיין פעילה
-                        if hasattr(db, 'client') and db.client and not getattr(db.client, '_closed', True):
-                            try:
-                                # בדיקה מהירה ושקטה
-                                db.client.admin.command('ping', maxTimeMS=1000)
-                                
-                                # אם הגענו עד הנה - החיבור חי
-                                result = db.db.locks.delete_many({
-                                    "$or": [
-                                        {"name": "bot_main_lock", "instance_id": instance_id},
-                                        {"name": "bot_main_lock", "pid": os.getpid()}
-                                    ]
-                                })
-                                if result.deleted_count > 0:
-                                    logger.info(f"🧹 נעילה שוחררה בהצלחה")
-                                
-                            except (Exception, ConnectionError, OSError):
-                                # כל שגיאה = החיבור נסגר = זה בסדר
-                                pass
-                        
-                        # תמיד נצליח - אין צורך בשגיאות
-                        
-                    except Exception:
-                        # שקט מוחלט - לא נדפיס כלום
-                        pass
-                
-                atexit.register(cleanup_lock)
-                return True
-                
-            except Exception as insert_error:
-                if "duplicate key" in str(insert_error).lower() or "E11000" in str(insert_error):
-                    if attempt < max_retries - 1:
-                        logger.warning(f"🔄 נעילה קיימת. ניסיון {attempt + 1}/{max_retries}. מחכה {retry_delay}s...")
-                        time.sleep(retry_delay)
-                        continue
-                    else:
-                        logger.error(f"❌ נכשל אחרי {max_retries} ניסיונות - נעילה עדיין תפוסה")
-                        
-                        # ניסיון אחרון - מחיקה כפויה ויצירה מחדש
-                        try:
-                            logger.warning("🚨 מנסה מחיקה כפויה של כל הנעילות...")
-                            db.db.locks.delete_many({"name": "bot_main_lock"})
-                            
-                            # ניסיון אחרון
-                            db.db.locks.insert_one({
-                                "name": "bot_main_lock",
-                                "instance_id": instance_id,
-                                "timestamp": now,
-                                "status": "forced",
-                                "pid": os.getpid()
-                            })
-                            
-                            logger.warning("⚠️ נעילה נתפסה בכוח!")
-                            
-                            def cleanup_lock():
-                                try:
-                                    db.db.locks.delete_many({"name": "bot_main_lock"})
-                                    logger.info("🧹 נעילה כפויה שוחררה")
-                                except Exception as e:
-                                    logger.error(f"שגיאה בשחרור נעילה כפויה: {e}")
-                            
-                            atexit.register(cleanup_lock)
-                            return True
-                            
-                        except Exception as force_error:
-                            logger.error(f"❌ גם מחיקה כפויה נכשלה: {force_error}")
-                            return False
-                else:
-                    logger.error(f"שגיאה לא צפויה ביצירת נעילה: {insert_error}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"שגיאה קריטית בניסיון {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                continue
-            else:
-                return False
-    
-    logger.error(f"❌ נכשל בכל {max_retries} הניסיונות")
-    return False
+    """מושבת זמנית"""
+    logger.info("🚫 מנגנון נעילה מושבת")
+    return True
 
 # =============================================================================
 
@@ -250,16 +113,32 @@ class CodeKeeperBot:
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
+        # ספור את ה-handlers
+        handler_count = len(self.application.handlers)
+        logger.info(f"🔍 כמות handlers לפני: {handler_count}")
+
         # Add conversation handler
         conversation_handler = get_save_conversation_handler(db)
         self.application.add_handler(conversation_handler)
         logger.info("ConversationHandler נוסף")
-        
+
+        # ספור שוב
+        handler_count_after = len(self.application.handlers)
+        logger.info(f"🔍 כמות handlers אחרי: {handler_count_after}")
+
         # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
         from conversation_handlers import handle_callback_query
         from telegram.ext import CallbackQueryHandler
         self.application.add_handler(CallbackQueryHandler(handle_callback_query))
         logger.info("CallbackQueryHandler גלובלי נוסף")
+
+        # ספור סופי
+        final_handler_count = len(self.application.handlers)
+        logger.info(f"🔍 כמות handlers סופית: {final_handler_count}")
+
+        # הדפס את כל ה-handlers
+        for i, handler in enumerate(self.application.handlers):
+            logger.info(f"Handler {i}: {type(handler).__name__}")
 
         # --- שלב 2: רישום שאר הפקודות ---
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
