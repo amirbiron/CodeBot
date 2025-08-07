@@ -20,6 +20,7 @@ import pymongo.errors
 from pymongo.errors import DuplicateKeyError
 
 from telegram import Update, ReplyKeyboardMarkup
+import telegram
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults)
