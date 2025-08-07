@@ -120,14 +120,81 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     
-    # יצירת update מזויף עבור show_all_files
-    fake_update = Update(
-        update_id=update.update_id,
-        message=query.message
-    )
-    fake_update.effective_user = update.effective_user
+    # Instead of creating a fake update, adapt show_all_files logic for callback queries
+    user_id = update.effective_user.id
+    from database import db
     
-    return await show_all_files(fake_update, context)
+    try:
+        files = db.get_user_files(user_id)
+        
+        if not files:
+            await query.edit_message_text(
+                "📂 אין לך קבצים שמורים עדיין.\n"
+                "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
+            )
+            # Add main menu keyboard
+            keyboard = [
+                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                "🎮 בחר פעולה מתקדמת:",
+                reply_markup=reply_markup
+            )
+        else:
+            # יצירת כפתורים מתקדמים עבור כל קובץ
+            keyboard = []
+            
+            for i, file in enumerate(files):
+                file_name = file.get('file_name', 'קובץ ללא שם')
+                language = file.get('programming_language', 'text')
+                
+                # שמירת המידע ב-context למידע מהיר
+                if 'files_cache' not in context.user_data:
+                    context.user_data['files_cache'] = {}
+                context.user_data['files_cache'][str(i)] = file
+                
+                # כפתור מעוצב עם אמוג'י חכם
+                emoji = get_file_emoji(language)
+                button_text = f"{emoji} {file_name}"
+                
+                keyboard.append([InlineKeyboardButton(
+                    button_text, 
+                    callback_data=f"file_{i}"
+                )])
+                
+                if i >= 9:  # הגבלה אסתטית
+                    break
+            
+            # כפתורי ניווט מתקדמים
+            nav_buttons = [
+                [InlineKeyboardButton("🔄 רענן רשימה", callback_data="refresh_files")],
+                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
+            ]
+            keyboard.extend(nav_buttons)
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            files_count_text = f"({len(files)} קבצים)" if len(files) <= 10 else f"({len(files)} קבצים - מציג 10 הטובים ביותר)"
+            
+            header_text = (
+                f"📚 **הקבצים השמורים שלך** {files_count_text}\n\n"
+                "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
+            )
+            
+            await query.edit_message_text(
+                header_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+            
+        reporter.report_activity(user_id)
+        
+    except Exception as e:
+        logger.error(f"Error in show_all_files_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
+    
+    return ConversationHandler.END
 
 def get_file_emoji(language: str) -> str:
     """מחזיר אמוג'י מתקדם לסוג הקובץ"""
@@ -499,11 +566,17 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # Get the new version number to display
+            from database import db
+            updated_file = db.get_latest_version(user_id, file_name)
+            version_num = updated_file.get('version', 1) if updated_file else 1
+            
             await update.message.reply_text(
-                f"✅ *הקוד עודכן בהצלחה!*\n\n"
+                f"✅ *הקובץ עודכן בהצלחה!*\n\n"
                 f"📄 **קובץ:** `{file_name}`\n"
                 f"🧠 **שפה:** {detected_language}\n"
-                f"🎉 **גרסה חדשה נוצרה!**",
+                f"📝 **גרסה:** {version_num} (עודכן מהגרסה הקודמת)\n"
+                f"💾 **הקובץ הקיים עודכן עם השינויים החדשים!**",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
