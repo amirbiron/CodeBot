@@ -729,8 +729,25 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
         from database import db
         versions = db.get_all_versions(user_id, file_name)
         
-        if not versions:
-            await query.edit_message_text(f"❌ לא נמצאו גרסאות עבור `{file_name}`")
+        if not versions or len(versions) == 0:
+            # אין גרסאות - הצג הודעה ידידותית עם כפתורים
+            keyboard = [
+                [InlineKeyboardButton("👁️ הצג קובץ", callback_data=f"view_updated_{file_name}")],
+                [
+                    InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
+                    InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
+                ],
+                [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"📚 *היסטוריית גרסאות - {file_name}*\n\n"
+                f"📄 זהו קובץ חדש - יש רק גרסה אחת (נוכחית)\n\n"
+                f"💡 גרסאות נוספות ייווצרו כאשר תערוך את הקובץ",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
             return ConversationHandler.END
         
         # יצירת רשימת גרסאות
@@ -757,8 +774,12 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
         
         # כפתורים
         keyboard = [
-            [InlineKeyboardButton("🔄 השווה גרסאות", callback_data=f"compare_{file_name}")],
-            [InlineKeyboardButton("🔙 חזרה לקובץ", callback_data=f"view_updated_{file_name}")]
+            [InlineKeyboardButton("👁️ הצג קובץ נוכחי", callback_data=f"view_updated_{file_name}")],
+            [
+                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
+                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
+            ],
+            [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -770,7 +791,19 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
         
     except Exception as e:
         logger.error(f"Error in handle_versions_history: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת היסטוריה")
+        
+        # שגיאה - תמיד נציג כפתורים כדי לא לקלקל את הממשק
+        keyboard = [
+            [InlineKeyboardButton("👁️ הצג קובץ", callback_data=f"view_updated_{file_name if 'file_name' in locals() else 'unknown'}")],
+            [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "❌ שגיאה בהצגת היסטוריה\n\n"
+            "נסה שוב או חזור לרשימת הקבצים",
+            reply_markup=reply_markup
+        )
     
     return ConversationHandler.END
 
@@ -789,7 +822,19 @@ async def handle_view_updated_file(update: Update, context: ContextTypes.DEFAULT
         file_data = db.get_latest_version(user_id, file_name)
         
         if not file_data:
-            await query.edit_message_text("⚠️ הקובץ לא נמצא")
+            # הקובץ לא נמצא - תמיד נציג כפתורים כדי לא לקלקל
+            keyboard = [
+                [InlineKeyboardButton("📚 רשימת קבצים", callback_data="files")],
+                [InlineKeyboardButton("➕ הוסף קוד חדש", callback_data="add_new_code")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"⚠️ הקובץ `{file_name}` לא נמצא\n\n"
+                "ייתכן שנמחק או שונה שמו",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
             return ConversationHandler.END
         
         code = file_data.get('code', '')
@@ -803,7 +848,7 @@ async def handle_view_updated_file(update: Update, context: ContextTypes.DEFAULT
         else:
             code_preview = code
         
-        # כפתורים מלאים
+        # כפתורים מלאים - תמיד
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
@@ -829,7 +874,19 @@ async def handle_view_updated_file(update: Update, context: ContextTypes.DEFAULT
         
     except Exception as e:
         logger.error(f"Error in handle_view_updated_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקובץ")
+        
+        # גם בשגיאה - תמיד כפתורים
+        keyboard = [
+            [InlineKeyboardButton("📚 רשימת קבצים", callback_data="files")],
+            [InlineKeyboardButton("🔄 נסה שוב", callback_data=f"view_updated_{file_name if 'file_name' in locals() else 'unknown'}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "❌ שגיאה בהצגת הקובץ\n\n"
+            "נסה שוב או חזור לרשימת הקבצים",
+            reply_markup=reply_markup
+        )
     
     return ConversationHandler.END
 
@@ -1037,6 +1094,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_cancel_edit(update, context)
         elif data == "files":
             return await show_all_files_callback(update, context)
+        elif data == "add_new_code":
+            await query.edit_message_text("בחר פעולה:")
+            await query.message.reply_text(
+                "➕ לחץ על 'הוסף קוד חדש' כדי להתחיל",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
         elif data == "main":
             await query.edit_message_text("חוזר לתפריט הראשי:")
             await query.message.reply_text(

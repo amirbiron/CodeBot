@@ -44,8 +44,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # הפחתת רעש בלוגים
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("telegram.ext.Updater").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.ERROR)  # רק שגיאות קריטיות
+logging.getLogger("telegram.ext.Updater").setLevel(logging.ERROR)
+logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
 
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
@@ -151,19 +152,31 @@ def manage_mongo_lock():
                 
                 logger.info(f"✅ נעילה נתפסה! Instance: {instance_id} (ניסיון {attempt + 1})")
                 
-                # פונקציית ניקוי משופרת
+                # פונקציית ניקוי משופרת - עם בדיקת חיבור
                 def cleanup_lock():
                     try:
-                        result = db.db.locks.delete_many({
-                            "$or": [
-                                {"name": "bot_main_lock", "instance_id": instance_id},
-                                {"name": "bot_main_lock", "pid": os.getpid()}
-                            ]
-                        })
-                        if result.deleted_count > 0:
-                            logger.info(f"🧹 נעילה שוחררה ({result.deleted_count} מסמכים). Instance: {instance_id}")
+                        # בדיקה אם החיבור עדיין פעיל
+                        if hasattr(db, 'client') and db.client:
+                            try:
+                                # בדיקה מהירה של החיבור
+                                db.client.admin.command('ping')
+                                
+                                result = db.db.locks.delete_many({
+                                    "$or": [
+                                        {"name": "bot_main_lock", "instance_id": instance_id},
+                                        {"name": "bot_main_lock", "pid": os.getpid()}
+                                    ]
+                                })
+                                if result.deleted_count > 0:
+                                    logger.info(f"🧹 נעילה שוחררה ({result.deleted_count} מסמכים). Instance: {instance_id}")
+                            except Exception as ping_error:
+                                # החיבור כבר נסגר - זה בסדר
+                                logger.info(f"חיבור נסגר לפני שחרור נעילה - זה בסדר. Instance: {instance_id}")
+                        else:
+                            logger.info(f"מסד נתונים כבר נסגר - זה בסדר. Instance: {instance_id}")
                     except Exception as e:
-                        logger.error(f"שגיאה בשחרור נעילה: {e}")
+                        # לא נדפיס שגיאה - זה תקין בסגירה
+                        logger.debug(f"שחרור נעילה דילג: {e}")
                 
                 atexit.register(cleanup_lock)
                 return True
