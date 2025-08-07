@@ -30,6 +30,86 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+class CodeErrorLogger:
+    """מערכת לוגים ייעודית לשגיאות עיבוד קוד"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger('code_error_system')
+        self._setup_logger()
+    
+    def _setup_logger(self):
+        """הגדרת הלוגר עם קבצי יומן נפרדים"""
+        if not self.logger.handlers:
+            # לוגר לשגיאות כלליות
+            error_handler = logging.FileHandler('code_errors.log', encoding='utf-8')
+            error_handler.setLevel(logging.ERROR)
+            error_formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            error_handler.setFormatter(error_formatter)
+            
+            # לוגר לסטטיסטיקות ופעילות
+            activity_handler = logging.FileHandler('code_activity.log', encoding='utf-8')
+            activity_handler.setLevel(logging.INFO)
+            activity_formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            )
+            activity_handler.setFormatter(activity_formatter)
+            
+            self.logger.addHandler(error_handler)
+            self.logger.addHandler(activity_handler)
+            self.logger.setLevel(logging.INFO)
+    
+    def log_code_processing_error(self, user_id: int, error_type: str, error_message: str, 
+                                context: Dict[str, Any] = None):
+        """רישום שגיאות עיבוד קוד"""
+        context = context or {}
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id,
+            "error_type": error_type,
+            "message": error_message,
+            "context": context
+        }
+        
+        self.logger.error(f"CODE_ERROR: {json.dumps(log_entry, ensure_ascii=False)}")
+    
+    def log_code_activity(self, user_id: int, activity_type: str, details: Dict[str, Any] = None):
+        """רישום פעילות עיבוד קוד"""
+        details = details or {}
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "user_id": user_id,
+            "activity": activity_type,
+            "details": details
+        }
+        
+        self.logger.info(f"CODE_ACTIVITY: {json.dumps(log_entry, ensure_ascii=False)}")
+    
+    def log_validation_failure(self, user_id: int, code_length: int, error_reason: str):
+        """רישום כשל באימות קוד"""
+        self.log_code_processing_error(
+            user_id, 
+            "validation_failure", 
+            error_reason,
+            {"code_length": code_length}
+        )
+    
+    def log_sanitization_success(self, user_id: int, original_length: int, cleaned_length: int):
+        """רישום הצלחה בסניטציה"""
+        self.log_code_activity(
+            user_id,
+            "code_sanitized",
+            {
+                "original_length": original_length,
+                "cleaned_length": cleaned_length,
+                "reduction": original_length - cleaned_length
+            }
+        )
+
+# יצירת אינסטנס גלובלי של הלוגר
+code_error_logger = CodeErrorLogger()
+
 class TimeUtils:
     """כלים לעבודה עם זמן ותאריכים"""
     
