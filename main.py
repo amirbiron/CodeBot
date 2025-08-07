@@ -152,15 +152,16 @@ def manage_mongo_lock():
                 
                 logger.info(f"✅ נעילה נתפסה! Instance: {instance_id} (ניסיון {attempt + 1})")
                 
-                # פונקציית ניקוי משופרת - עם בדיקת חיבור
+                # פונקציית ניקוי בטוחה לחלוטין
                 def cleanup_lock():
                     try:
-                        # בדיקה אם החיבור עדיין פעיל
-                        if hasattr(db, 'client') and db.client:
+                        # רק אם המערכת עדיין פעילה
+                        if hasattr(db, 'client') and db.client and not getattr(db.client, '_closed', True):
                             try:
-                                # בדיקה מהירה של החיבור
-                                db.client.admin.command('ping')
+                                # בדיקה מהירה ושקטה
+                                db.client.admin.command('ping', maxTimeMS=1000)
                                 
+                                # אם הגענו עד הנה - החיבור חי
                                 result = db.db.locks.delete_many({
                                     "$or": [
                                         {"name": "bot_main_lock", "instance_id": instance_id},
@@ -168,15 +169,17 @@ def manage_mongo_lock():
                                     ]
                                 })
                                 if result.deleted_count > 0:
-                                    logger.info(f"🧹 נעילה שוחררה ({result.deleted_count} מסמכים). Instance: {instance_id}")
-                            except Exception as ping_error:
-                                # החיבור כבר נסגר - זה בסדר
-                                logger.info(f"חיבור נסגר לפני שחרור נעילה - זה בסדר. Instance: {instance_id}")
-                        else:
-                            logger.info(f"מסד נתונים כבר נסגר - זה בסדר. Instance: {instance_id}")
-                    except Exception as e:
-                        # לא נדפיס שגיאה - זה תקין בסגירה
-                        logger.debug(f"שחרור נעילה דילג: {e}")
+                                    logger.info(f"🧹 נעילה שוחררה בהצלחה")
+                                
+                            except (Exception, ConnectionError, OSError):
+                                # כל שגיאה = החיבור נסגר = זה בסדר
+                                pass
+                        
+                        # תמיד נצליח - אין צורך בשגיאות
+                        
+                    except Exception:
+                        # שקט מוחלט - לא נדפיס כלום
+                        pass
                 
                 atexit.register(cleanup_lock)
                 return True
@@ -247,15 +250,16 @@ class CodeKeeperBot:
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
-        # --- שלב 1: רישום ה-ConversationHandler בעדיפות ראשונה ---
-        # זה יטפל בפקודת /start ובלחיצות על הכפתורים הראשיים.
-        conv_handler = get_save_conversation_handler(db)
-        self.application.add_handler(conv_handler, group=-1)  # group=-1 נותן עדיפות גבוהה
-
-        # --- שלב 1.5: הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים ---
+        # Add conversation handler
+        conversation_handler = get_save_conversation_handler(db)
+        self.application.add_handler(conversation_handler)
+        logger.info("ConversationHandler נוסף")
+        
+        # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
         from conversation_handlers import handle_callback_query
         from telegram.ext import CallbackQueryHandler
         self.application.add_handler(CallbackQueryHandler(handle_callback_query))
+        logger.info("CallbackQueryHandler גלובלי נוסף")
 
         # --- שלב 2: רישום שאר הפקודות ---
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.

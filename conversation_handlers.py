@@ -402,8 +402,12 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """התחלת עריכת קוד - תומך בגישה ישירה וגישה דרך cache"""
+    logger.info(f"=== handle_edit_code התחיל - User ID: {update.effective_user.id}")
+    
     query = update.callback_query
     await query.answer()
+    
+    logger.info(f"callback_data: {query.data}")
     
     try:
         # זיהוי סוג הקריאה
@@ -411,24 +415,33 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             file_name = query.data.replace("edit_code_direct_", "")
             user_id = query.from_user.id
             
+            logger.info(f"עריכה ישירה: {file_name}")
+            
             # קבלה מהמסד
             from database import db
             file_data = db.get_latest_version(user_id, file_name)
             
             if not file_data:
+                logger.error(f"קובץ לא נמצא במסד: {file_name}")
                 await query.edit_message_text("⚠️ הקובץ לא נמצא")
                 return ConversationHandler.END
+            
+            logger.info(f"קובץ נמצא: {file_data.get('file_name', 'N/A')}")
         
         else:  # edit_code_X - גישה דרך cache
             file_index = query.data.split('_')[2]
+            logger.info(f"עריכה דרך cache: index {file_index}")
+            
             files_cache = context.user_data.get('files_cache', {})
             file_data = files_cache.get(file_index)
             
             if not file_data:
+                logger.error(f"קובץ לא נמצא ב-cache: index {file_index}")
                 await query.edit_message_text("⚠️ הקובץ לא נמצא")
                 return ConversationHandler.END
             
             file_name = file_data.get('file_name', 'קובץ')
+            logger.info(f"קובץ נמצא ב-cache: {file_name}")
         
         # שמירת המידע לעריכה
         context.user_data['editing_file'] = {
@@ -436,6 +449,8 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             'edit_type': 'code',
             'file_name': file_name
         }
+        
+        logger.info(f"מידע נשמר ל-context: {file_name}")
         
         # כפתור ביטול במקום פקודה
         keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="cancel_edit")]]
@@ -448,10 +463,11 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             parse_mode='Markdown'
         )
         
+        logger.info("הודעת עריכה נשלחה, מחזיר EDIT_CODE")
         return EDIT_CODE
         
     except Exception as e:
-        logger.error(f"Error in handle_edit_code: {e}")
+        logger.error(f"שגיאה ב-handle_edit_code: {e}", exc_info=True)
         await query.edit_message_text("❌ שגיאה בתחילת עריכה")
     
     return ConversationHandler.END
@@ -540,36 +556,62 @@ async def handle_cancel_edit(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת קוד חדש לעריכה"""
+    logger.info(f"=== receive_new_code התחיל - User ID: {update.effective_user.id}")
+    
     new_code = update.message.text
     editing_info = context.user_data.get('editing_file', {})
-    file_data = editing_info.get('file_data', {})
     
+    logger.info(f"קוד חדש התקבל, אורך: {len(new_code)} תווים")
+    logger.info(f"editing_info: {editing_info}")
+    
+    file_data = editing_info.get('file_data', {})
     file_name = editing_info.get('file_name') or file_data.get('file_name', 'קובץ')
     old_code = file_data.get('code', '')
     user_id = update.effective_user.id
     
+    logger.info(f"שם קובץ: {file_name}, משתמש: {user_id}")
+    
     # תגובה מיידית שהקוד התקבל
-    processing_msg = await update.message.reply_text("⏳ מעבד ושומר את הקוד החדש...")
+    try:
+        processing_msg = await update.message.reply_text("⏳ מעבד ושומר את הקוד החדש...")
+        logger.info("הודעת עיבוד נשלחה")
+    except Exception as e:
+        logger.error(f"שגיאה בשליחת הודעת עיבוד: {e}")
+        processing_msg = None
     
     try:
+        logger.info("מתחיל תהליך שמירה...")
+        
         # יצירת גרסה חדשה במסד הנתונים
         from file_manager import VersionManager
         from database import db
         
+        logger.info("ייבואים הושלמו")
+        
         version_manager = VersionManager()
+        logger.info("VersionManager נוצר")
         
         # זיהוי שפה מחדש
         from code_processor import code_processor
+        logger.info("מזהה שפת תכנות...")
+        
         detected_language = code_processor.detect_language(new_code, file_name)
+        logger.info(f"שפה זוהתה: {detected_language}")
         
         # שמירת הגרסה החדשה
+        logger.info("שומר קובץ במסד הנתונים...")
         success = db.save_file(user_id, file_name, new_code, detected_language)
+        logger.info(f"תוצאת שמירה: {success}")
         
         if success:
+            logger.info("שמירה הצליחה, מחשב שינויים...")
+            
             # חישוב שינויים
             try:
                 changes_summary = version_manager._generate_changes_summary(old_code, new_code)
-            except Exception:
+                logger.info(f"סיכום שינויים: {changes_summary}")
+            except Exception as summary_error:
+                logger.error(f"שגיאה בחישוב שינויים: {summary_error}")
                 changes_summary = "שינויים זוהו"
             
             # כפתורים מלאים אחרי שמירה
@@ -589,14 +631,19 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
+            logger.info("כפתורים נוצרו")
             
             # מחיקת הודעת העיבוד
-            try:
-                await processing_msg.delete()
-            except:
-                pass
+            if processing_msg:
+                try:
+                    await processing_msg.delete()
+                    logger.info("הודעת עיבוד נמחקה")
+                except Exception as del_error:
+                    logger.error(f"שגיאה במחיקת הודעת עיבוד: {del_error}")
             
-            await update.message.reply_text(
+            # שליחת הודעת הצלחה
+            logger.info("שולח הודעת הצלחה...")
+            success_msg = await update.message.reply_text(
                 f"✅ *הקוד עודכן בהצלחה!*\n\n"
                 f"📄 קובץ: `{file_name}`\n"
                 f"🔍 שפה: {detected_language}\n"
@@ -605,34 +652,52 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
+            logger.info(f"הודעת הצלחה נשלחה, ID: {success_msg.message_id}")
+            
         else:
+            logger.error("שמירה נכשלה!")
+            
             # מחיקת הודעת העיבוד
-            try:
-                await processing_msg.delete()
-            except:
-                pass
-                
+            if processing_msg:
+                try:
+                    await processing_msg.delete()
+                except:
+                    pass
+                    
             await update.message.reply_text(
                 "❌ שגיאה בשמירת הקוד החדש. נסה שוב.",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
+            logger.info("הודעת כישלון נשלחה")
     
     except Exception as e:
-        logger.error(f"Error updating code: {e}")
+        logger.error(f"שגיאה קריטית ב-receive_new_code: {e}", exc_info=True)
         
         # מחיקת הודעת העיבוד
-        try:
-            await processing_msg.delete()
-        except:
-            pass
+        if processing_msg:
+            try:
+                await processing_msg.delete()
+            except:
+                pass
+        
+        # הודעת שגיאה עם כפתורי חזרה
+        keyboard = [
+            [InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")],
+            [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
             
         await update.message.reply_text(
-            f"❌ שגיאה בעדכון הקוד: {str(e)[:100]}...",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            f"❌ שגיאה בעדכון הקוד:\n`{str(e)[:100]}...`\n\nנסה שוב מאוחר יותר",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
+        logger.info("הודעת שגיאה עם כפתורים נשלחה")
     
     # ניקוי
+    logger.info("מנקה context.user_data...")
     context.user_data.clear()
+    logger.info("=== receive_new_code הסתיים")
     return ConversationHandler.END
 
 async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1426,6 +1491,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
     """Creates and returns the ConversationHandler for saving files."""
+    logger.info("יוצר ConversationHandler...")
+    
     return ConversationHandler(
         entry_points=[
             CommandHandler("start", start_command),
@@ -1433,19 +1500,24 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
         ],
         states={
-            GET_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_code)],
+            GET_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_code)
+            ],
             GET_FILENAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename),
                 CallbackQueryHandler(handle_duplicate_callback)
             ],
-            EDIT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code)],
-            EDIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_name)],
+            EDIT_CODE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code)
+            ],
+            EDIT_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_name)
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(handle_callback_query)  # הוסף את זה!
+            CallbackQueryHandler(handle_cancel_edit, pattern="^cancel_edit$"),
         ],
-        # הוסף allow_reentry=True כדי לאפשר חזרה לשיחה
         allow_reentry=True,
         per_message=False
     )
