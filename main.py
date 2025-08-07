@@ -4,15 +4,18 @@
 נקודת הכניסה הראשית לבוט
 """
 
-import asyncio
+# הגדרות מתקדמות
+import os
 import logging
+import asyncio
+from datetime import datetime
+
 import signal
 import sys
 import time
 import pymongo
 from datetime import datetime, timezone, timedelta
 import atexit
-import os
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
 
@@ -32,7 +35,7 @@ from activity_reporter import create_reporter
 
 # (Lock mechanism constants removed)
 
-# הגדרת לוגים
+# הגדרת לוגר מתקדם
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -42,6 +45,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# הודעת התחלה מרשימה
+logger.info("🚀 מפעיל בוט קוד מתקדם - גרסה פרו!")
 
 # הפחתת רעש בלוגים
 logging.getLogger("httpx").setLevel(logging.ERROR)  # רק שגיאות קריטיות

@@ -286,5 +286,31 @@ class DatabaseManager:
         """Alias for close() kept for backward compatibility."""
         self.close()
 
+    def rename_file(self, user_id: int, old_name: str, new_name: str) -> bool:
+        """שינוי שם קובץ"""
+        try:
+            # בדיקה אם השם החדש כבר קיים
+            existing = self.get_latest_version(user_id, new_name)
+            if existing and new_name != old_name:
+                logger.warning(f"File {new_name} already exists for user {user_id}")
+                return False
+            
+            # עדכון שם הקובץ בכל הגרסאות
+            result = self.collection.update_many(
+                {"user_id": user_id, "file_name": old_name, "is_active": True},
+                {"$set": {"file_name": new_name, "updated_at": datetime.now()}}
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"Renamed file {old_name} to {new_name} for user {user_id}")
+                return True
+            else:
+                logger.warning(f"No files renamed - file {old_name} not found for user {user_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error renaming file {old_name} to {new_name} for user {user_id}: {e}")
+            return False
+
 # יצירת אינסטנס גלובלי
 db = DatabaseManager()
