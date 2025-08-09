@@ -180,6 +180,9 @@ class GitHubMenuHandler:
                 
                 # סמן שאנחנו במצב העלאה לגיטהאב
                 context.user_data['waiting_for_github_upload'] = True
+                context.user_data['upload_mode'] = 'github'  # הוסף גם את המשתנה החדש
+                context.user_data['target_repo'] = session['selected_repo']
+                context.user_data['target_folder'] = session.get('selected_folder', '')
                 context.user_data['in_github_menu'] = True
                 return FILE_UPLOAD
         
@@ -257,6 +260,7 @@ class GitHubMenuHandler:
         elif query.data == 'github_menu':
             # חזרה לתפריט הראשי של GitHub
             context.user_data['waiting_for_github_upload'] = False
+            context.user_data['upload_mode'] = None  # נקה גם את המשתנה החדש
             context.user_data['in_github_menu'] = False
             await self.github_menu_command(update, context)
             return ConversationHandler.END
@@ -608,10 +612,11 @@ class GitHubMenuHandler:
         user_id = update.message.from_user.id
         session = self.get_user_session(user_id)
         
-        # בדוק אם אנחנו במצב העלאה לגיטהאב
-        if context.user_data.get('waiting_for_github_upload'):
+        # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
+        if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
             # העלאה לגיטהאב
-            if not session.get('selected_repo'):
+            repo_name = context.user_data.get('target_repo') or session.get('selected_repo')
+            if not repo_name:
                 await update.message.reply_text(
                     "❌ קודם בחר ריפו!\nשלח /github"
                 )
@@ -659,12 +664,12 @@ class GitHubMenuHandler:
                     # הוסף delay בין בקשות
                     await self.apply_rate_limit_delay(user_id)
                     
-                    logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
-                    repo = g.get_repo(session['selected_repo'])
+                    logger.info(f"[GitHub API] Getting repo: {repo_name}")
+                    repo = g.get_repo(repo_name)
                     
                     # בניית נתיב הקובץ
-                    folder = session.get('selected_folder')
-                    if folder and folder.strip():
+                    folder = context.user_data.get('target_folder') or session.get('selected_folder')
+                    if folder and folder.strip() and folder != 'root':
                         # הסר / מיותרים
                         folder = folder.strip('/')
                         file_path = f"{folder}/{filename}"
@@ -692,11 +697,11 @@ class GitHubMenuHandler:
                         action = "הועלה"
                         logger.info(f"✅ קובץ נוצר בהצלחה")
                     
-                    raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
+                    raw_url = f"https://raw.githubusercontent.com/{repo_name}/main/{file_path}"
                     
                     await update.message.reply_text(
                         f"✅ הקובץ {action} בהצלחה לגיטהאב!\n\n"
-                        f"📁 ריפו: `{session['selected_repo']}`\n"
+                        f"📁 ריפו: `{repo_name}`\n"
                         f"📂 מיקום: `{file_path}`\n"
                         f"🔗 קישור ישיר:\n{raw_url}",
                         parse_mode='Markdown'
@@ -704,6 +709,7 @@ class GitHubMenuHandler:
                     
                     # נקה את הסטטוס
                     context.user_data['waiting_for_github_upload'] = False
+                    context.user_data['upload_mode'] = None
                     
                 except Exception as e:
                     logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
