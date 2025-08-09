@@ -168,6 +168,28 @@ class CodeKeeperBot:
         self.application.add_handler(upload_conv_handler)
         
         logger.info("✅ GitHub handler נוסף בהצלחה")
+        
+        # Handler נפרד לטיפול בטוקן GitHub
+        async def handle_github_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            text = update.message.text
+            if text.startswith('ghp_') or text.startswith('github_pat_'):
+                user_id = update.message.from_user.id
+                if user_id not in github_handler.user_sessions:
+                    github_handler.user_sessions[user_id] = {}
+                github_handler.user_sessions[user_id]['github_token'] = text
+                await update.message.reply_text(
+                    "✅ טוקן נשמר בהצלחה!\n"
+                    "כעת תוכל לגשת לריפוזיטוריז הפרטיים שלך.\n\n"
+                    "שלח /github כדי לחזור לתפריט."
+                )
+                return
+        
+        # הוסף את ה-handler
+        self.application.add_handler(
+            MessageHandler(filters.Regex('^(ghp_|github_pat_)'), handle_github_token),
+            group=0  # עדיפות גבוהה
+        )
+        logger.info("✅ GitHub token handler נוסף בהצלחה")
 
         # --- רק אחרי כל ה-handlers של GitHub, הוסף את ה-handler הגלובלי ---
         # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
