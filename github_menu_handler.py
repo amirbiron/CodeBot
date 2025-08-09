@@ -205,18 +205,19 @@ class GitHubMenuHandler:
             current_folder = session.get('selected_folder') or 'root'
             has_token = "✅" if session.get('github_token') else "❌"
             
-            keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await query.edit_message_text(
                 f"📊 *הגדרות נוכחיות:*\n\n"
                 f"📁 ריפו: `{current_repo}`\n"
                 f"📂 תיקייה: `{current_folder}`\n"
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
-                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
-                parse_mode='Markdown',
-                reply_markup=reply_markup
+                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
+                f"⏳ חוזר לתפריט בעוד מספר שניות...",
+                parse_mode='Markdown'
             )
+            
+            # המתן 3 שניות ואז הצג את התפריט
+            await asyncio.sleep(3)
+            await self.github_menu_command(update, context)
             
         elif query.data == 'set_token':
             await query.edit_message_text(
@@ -254,25 +255,26 @@ class GitHubMenuHandler:
                 return FOLDER_SELECT
             elif folder == 'root':
                 session['selected_folder'] = None
-                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
-                    "✅ תיקייה עודכנה ל: `root` (ראשי)", 
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    "✅ תיקייה עודכנה ל: `root` (ראשי)\n\n⏳ חוזר לתפריט...", 
+                    parse_mode='Markdown'
                 )
+                # המתן שנייה ואז הצג את התפריט
+                await asyncio.sleep(1.5)
+                await self.github_menu_command(update, context)
             else:
                 session['selected_folder'] = folder.replace('_', '/')
-                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
-                    f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", 
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`\n\n⏳ חוזר לתפריט...", 
+                    parse_mode='Markdown'
                 )
+                # המתן שנייה ואז הצג את התפריט
+                await asyncio.sleep(1.5)
+                await self.github_menu_command(update, context)
                 
         elif query.data == 'github_menu':
             # חזרה לתפריט הראשי של GitHub
+            await query.answer()
             context.user_data['waiting_for_github_upload'] = False
             context.user_data['upload_mode'] = None  # נקה גם את המשתנה החדש
             context.user_data['in_github_menu'] = False
@@ -781,22 +783,20 @@ class GitHubMenuHandler:
             # טיפול בהגדרת תיקייה
             if text.strip() in ['/', '']:
                 session['selected_folder'] = None
-                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
-                    "✅ תיקייה הוגדרה: `root` (ראשי)",
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    "✅ תיקייה הוגדרה: `root` (ראשי)\n\n⏳ חוזר לתפריט...",
+                    parse_mode='Markdown'
                 )
             else:
                 # הסר / מיותרים
                 folder = text.strip().strip('/')
                 session['selected_folder'] = folder
-                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
-                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
-                    f"✅ תיקייה הוגדרה: `{folder}`",
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
+                    f"✅ תיקייה הוגדרה: `{folder}`\n\n⏳ חוזר לתפריט...",
+                    parse_mode='Markdown'
                 )
+            
+            # המתן שנייה ואז הצג את התפריט
+            await asyncio.sleep(1.5)
+            await self.github_menu_command(update, context)
             return ConversationHandler.END
