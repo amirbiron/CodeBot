@@ -285,11 +285,21 @@ class GitHubMenuHandler:
             return
         
         try:
-            # בדוק אם יש repos ב-context.user_data
-            if 'repos' not in context.user_data:
-                logger.info(f"[GitHub API] Fetching repos for user {user_id}")
+            # בדוק אם יש repos ב-context.user_data ואם הם עדיין תקפים
+            cache_time = context.user_data.get('repos_cache_time', 0)
+            current_time = time.time()
+            cache_age = current_time - cache_time
+            cache_max_age = 3600  # שעה אחת
+            
+            needs_refresh = (
+                'repos' not in context.user_data or 
+                cache_age > cache_max_age
+            )
+            
+            if needs_refresh:
+                logger.info(f"[GitHub API] Fetching repos for user {user_id} (cache age: {int(cache_age)}s)")
                 
-                # אם אין cache, בצע בקשה ל-API
+                # אם אין cache או שהוא ישן, בצע בקשה ל-API
                 from github import Github
                 g = Github(session['github_token'])
                 
@@ -301,26 +311,32 @@ class GitHubMenuHandler:
                     logger.warning(f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining")
                 
                 if rate.core.remaining < 10:
-                    if query:
-                        await query.answer(
-                            f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות",
-                            show_alert=True
-                        )
-                        return
-                
-                # הוסף delay בין בקשות
-                await self.apply_rate_limit_delay(user_id)
-                
-                user = g.get_user()
-                logger.info(f"[GitHub API] Getting repos for user: {user.login}")
-                
-                # קבל את כל הריפוזיטוריז - טען רק פעם אחת!
-                context.user_data['repos'] = list(user.get_repos())
-                logger.info(f"[GitHub API] Loaded {len(context.user_data['repos'])} repos into cache")
+                    # אם יש cache ישן, השתמש בו במקום לחסום
+                    if 'repos' in context.user_data:
+                        logger.warning(f"[GitHub API] Using stale cache due to rate limit")
+                        all_repos = context.user_data['repos']
+                    else:
+                        if query:
+                            await query.answer(
+                                f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות",
+                                show_alert=True
+                            )
+                            return
+                else:
+                    # הוסף delay בין בקשות
+                    await self.apply_rate_limit_delay(user_id)
+                    
+                    user = g.get_user()
+                    logger.info(f"[GitHub API] Getting repos for user: {user.login}")
+                    
+                    # קבל את כל הריפוזיטוריז - טען רק פעם אחת!
+                    context.user_data['repos'] = list(user.get_repos())
+                    context.user_data['repos_cache_time'] = current_time
+                    logger.info(f"[GitHub API] Loaded {len(context.user_data['repos'])} repos into cache")
+                    all_repos = context.user_data['repos']
             else:
-                logger.info(f"[Cache] Using cached repos for user {user_id} - {len(context.user_data.get('repos', []))} repos")
-            
-            all_repos = context.user_data['repos']
+                logger.info(f"[Cache] Using cached repos for user {user_id} - {len(context.user_data.get('repos', []))} repos (age: {int(cache_age)}s)")
+                all_repos = context.user_data['repos']
             
             # הגדרות pagination
             repos_per_page = 8
@@ -689,7 +705,9 @@ class GitHubMenuHandler:
             # נקה את repos מ-context.user_data כשמשנים טוקן
             if 'repos' in context.user_data:
                 del context.user_data['repos']
-                logger.info(f"[GitHub] Cleared repos cache for user {user_id} after token change")
+            if 'repos_cache_time' in context.user_data:
+                del context.user_data['repos_cache_time']
+            logger.info(f"[GitHub] Cleared repos cache for user {user_id} after token change")
             
             await update.message.reply_text(
                 "✅ טוקן נשמר בהצלחה!\n"

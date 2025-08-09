@@ -23,7 +23,8 @@ from pymongo.errors import DuplicateKeyError
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
-                          MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler)
+                          MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
+                          PicklePersistence)
 
 from config import config
 from database import CodeSnippet, DatabaseManager, db
@@ -115,7 +116,16 @@ class CodeKeeperBot:
     """המחלקה הראשית של הבוט"""
     
     def __init__(self):
-        self.application = Application.builder().token(config.BOT_TOKEN).defaults(Defaults(parse_mode=ParseMode.HTML)).build()
+        # יצירת persistence לשמירת נתונים בין הפעלות
+        persistence = PicklePersistence(filepath="bot_data.pickle")
+        
+        self.application = (
+            Application.builder()
+            .token(config.BOT_TOKEN)
+            .defaults(Defaults(parse_mode=ParseMode.HTML))
+            .persistence(persistence)
+            .build()
+        )
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
     
