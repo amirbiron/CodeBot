@@ -37,6 +37,7 @@ from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
+from repo_analyzer_handler import RepoAnalyzerHandler, get_repo_analyzer_conversation_handler
 
 # (Lock mechanism constants removed)
 
@@ -196,6 +197,17 @@ class CodeKeeperBot:
         self.application.add_handler(upload_conv_handler)
         
         logger.info("✅ GitHub handler נוסף בהצלחה")
+        
+        # --- Repo Analyzer handlers ---
+        repo_analyzer_handler = get_repo_analyzer_conversation_handler()
+        self.application.add_handler(repo_analyzer_handler)
+        
+        # הוסף callback handler לכפתורי ניתוח ריפו
+        self.application.add_handler(
+            CallbackQueryHandler(RepoAnalyzerHandler.handle_repo_callback, 
+                               pattern='^repo_')
+        )
+        logger.info("✅ Repo Analyzer handler נוסף בהצלחה")
         
         # Handler נפרד לטיפול בטוקן GitHub
         async def handle_github_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
