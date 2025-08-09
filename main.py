@@ -496,12 +496,13 @@ class CodeKeeperBot:
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
+                    lines_count = len(content.split('\n'))
                     await update.message.reply_text(
                         f"✅ **הקובץ נשמר בהצלחה!**\n\n"
                         f"📄 **שם:** `{file_name}`\n"
                         f"{emoji} **שפה:** {language}\n"
                         f"💾 **גודל:** {len(content):,} תווים\n"
-                        f"📏 **שורות:** {len(content.split('\n')):,}\n\n"
+                        f"📏 **שורות:** {lines_count:,}\n\n"
                         "💡 הקובץ נשמר במערכת הקבצים הגדולים",
                         reply_markup=reply_markup,
                         parse_mode='Markdown'
