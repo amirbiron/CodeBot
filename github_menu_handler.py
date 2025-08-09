@@ -483,7 +483,16 @@ class GitHubMenuHandler:
             logger.info(f"📄 מעלה קובץ שמור: {file_data['file_name']}")
             
             # קודד את התוכן ל-base64
-            content = file_data['content']
+            # בדוק כמה אפשרויות לשדה content
+            content = file_data.get('content') or \
+                     file_data.get('code') or \
+                     file_data.get('data') or \
+                     file_data.get('file_content', '')
+            
+            if not content:
+                await update.callback_query.edit_message_text("❌ תוכן הקובץ ריק או לא נמצא")
+                return
+                
             if isinstance(content, str):
                 # אם התוכן כבר מחרוזת, קודד אותו
                 encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
