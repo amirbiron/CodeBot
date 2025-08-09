@@ -15,6 +15,7 @@ from telegram.ext import (
 )
 from database import DatabaseManager
 from activity_reporter import create_reporter
+from utils import get_language_emoji as get_file_emoji
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
 # כפתורי המקלדת הראשית
-MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"]]
+MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"], ["📂 קבצים גדולים"]]
 
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
@@ -115,8 +116,84 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     reporter.report_activity(user_id)
     return ConversationHandler.END
 
+async def show_large_files_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """הצגת קבצים גדולים ישירות מהתפריט הראשי"""
+    from large_files_handler import large_files_handler
+    await large_files_handler.show_large_files_menu(update, context)
+    reporter.report_activity(update.effective_user.id)
+    return ConversationHandler.END
+
 async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """גרסת callback של show_all_files"""
+    """גרסת callback של show_all_files - מציגה תפריט בחירה בין סוגי קבצים"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    from database import db
+    
+    try:
+        # קבלת מידע על קבצים
+        regular_files = db.get_user_files(user_id)
+        large_files, large_count = db.get_user_large_files(user_id, page=1, per_page=100)
+        
+        # יצירת תפריט בחירה
+        keyboard = []
+        
+        if regular_files:
+            keyboard.append([InlineKeyboardButton(
+                f"📁 קבצים רגילים ({len(regular_files)})",
+                callback_data="show_regular_files"
+            )])
+        
+        if large_files:
+            keyboard.append([InlineKeyboardButton(
+                f"📚 קבצים גדולים ({large_count})",
+                callback_data="show_large_files"
+            )])
+        
+        if not regular_files and not large_files:
+            await query.edit_message_text(
+                "📂 אין לך קבצים שמורים עדיין.\n"
+                "✨ שלח קובץ או השתמש ב-'➕ הוסף קוד חדש' כדי להתחיל!"
+            )
+            # Add main menu keyboard
+            keyboard = [
+                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                "🎮 בחר פעולה:",
+                reply_markup=reply_markup
+            )
+        else:
+            # הוספת כפתור תפריט ראשי
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            total_files = len(regular_files) + large_count
+            
+            text = (
+                f"📚 **הקבצים שלך** (סה\"כ: {total_files})\n\n"
+                "🎯 בחר קטגוריה:"
+            )
+            
+            await query.edit_message_text(
+                text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        
+        reporter.report_activity(user_id)
+        
+    except Exception as e:
+        logger.error(f"Error in show_all_files_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
+    
+    return ConversationHandler.END
+
+async def show_regular_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """הצגת קבצים רגילים בלבד"""
     query = update.callback_query
     await query.answer()
     
@@ -138,7 +215,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.message.reply_text(
-                "🎮 בחר פעולה מתקדמת:",
+                "🎮 בחר פעולה:",
                 reply_markup=reply_markup
             )
         else:
@@ -191,35 +268,10 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         reporter.report_activity(user_id)
         
     except Exception as e:
-        logger.error(f"Error in show_all_files_callback: {e}")
+        logger.error(f"Error in show_regular_files_callback: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
     
     return ConversationHandler.END
-
-def get_file_emoji(language: str) -> str:
-    """מחזיר אמוג'י מתקדם לסוג הקובץ"""
-    emoji_map = {
-        'python': '🐍',
-        'javascript': '⚡',
-        'typescript': '🔷',
-        'html': '🌐',
-        'css': '🎨',
-        'java': '☕',
-        'cpp': '⚙️',
-        'c': '🔧',
-        'php': '🐘',
-        'sql': '🗄️',
-        'json': '📋',
-        'yaml': '📝',
-        'markdown': '📖',
-        'bash': '💻',
-        'rust': '🦀',
-        'go': '🔵',
-        'swift': '🦉',
-        'kotlin': '💎',
-        'text': '📄'
-    }
-    return emoji_map.get(language.lower(), '🚀')
 
 async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """התחלת תהליך שמירה מתקדם"""
@@ -551,6 +603,62 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת הקוד החדש לעריכה"""
     new_code = update.message.text
+    
+    # בדיקה אם מדובר בעריכת קובץ גדול
+    editing_large_file = context.user_data.get('editing_large_file')
+    if editing_large_file:
+        try:
+            user_id = update.effective_user.id
+            file_name = editing_large_file['file_name']
+            file_data = editing_large_file['file_data']
+            
+            from utils import detect_language_from_filename
+            language = detect_language_from_filename(file_name)
+            
+            # יצירת קובץ גדול חדש עם התוכן המעודכן
+            from database import LargeFile
+            updated_file = LargeFile(
+                user_id=user_id,
+                file_name=file_name,
+                content=new_code,
+                programming_language=language,
+                file_size=len(new_code.encode('utf-8')),
+                lines_count=len(new_code.split('\n'))
+            )
+            
+            from database import db
+            success = db.save_large_file(updated_file)
+            
+            if success:
+                from utils import get_language_emoji
+                emoji = get_language_emoji(language)
+                
+                keyboard = [[InlineKeyboardButton("📚 חזרה לקבצים גדולים", callback_data="show_large_files")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    f"✅ **הקובץ הגדול עודכן בהצלחה!**\n\n"
+                    f"📄 **קובץ:** `{file_name}`\n"
+                    f"{emoji} **שפה:** {language}\n"
+                    f"💾 **גודל חדש:** {len(new_code):,} תווים\n"
+                    f"📏 **שורות:** {len(new_code.split('\n')):,}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+                
+                # ניקוי נתוני העריכה
+                context.user_data.pop('editing_large_file', None)
+            else:
+                await update.message.reply_text("❌ שגיאה בעדכון הקובץ הגדול")
+            
+            return ConversationHandler.END
+            
+        except Exception as e:
+            logger.error(f"Error updating large file: {e}")
+            await update.message.reply_text("❌ שגיאה בעדכון הקובץ")
+            return ConversationHandler.END
+    
+    # המשך הטיפול הרגיל בקבצים רגילים
     file_data = context.user_data.get('editing_file_data')
     
     if not file_data:
@@ -1156,6 +1264,41 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("replace_") or data == "rename_file" or data == "cancel_save":
             return await handle_duplicate_callback(update, context)
         
+        # טיפול בקבצים גדולים
+        elif data == "show_regular_files":
+            return await show_regular_files_callback(update, context)
+        elif data == "show_large_files":
+            from large_files_handler import large_files_handler
+            await large_files_handler.show_large_files_menu(update, context)
+        elif data.startswith("lf_page_"):
+            from large_files_handler import large_files_handler
+            page = int(data.replace("lf_page_", ""))
+            await large_files_handler.show_large_files_menu(update, context, page)
+        elif data.startswith("large_file_"):
+            from large_files_handler import large_files_handler
+            await large_files_handler.handle_file_selection(update, context)
+        elif data.startswith("lf_view_"):
+            from large_files_handler import large_files_handler
+            await large_files_handler.view_large_file(update, context)
+        elif data.startswith("lf_download_"):
+            from large_files_handler import large_files_handler
+            await large_files_handler.download_large_file(update, context)
+        elif data.startswith("lf_edit_"):
+            from large_files_handler import large_files_handler
+            return await large_files_handler.edit_large_file(update, context)
+        elif data.startswith("lf_delete_"):
+            from large_files_handler import large_files_handler
+            await large_files_handler.delete_large_file_confirm(update, context)
+        elif data.startswith("lf_confirm_delete_"):
+            from large_files_handler import large_files_handler
+            await large_files_handler.delete_large_file(update, context)
+        elif data.startswith("lf_info_"):
+            from large_files_handler import large_files_handler
+            await large_files_handler.show_file_info(update, context)
+        elif data == "noop":
+            # כפתור שלא עושה כלום (לתצוגה בלבד)
+            await query.answer()
+        
     except telegram.error.BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
@@ -1184,6 +1327,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             CommandHandler("start", start_command),
             MessageHandler(filters.Regex("^➕ הוסף קוד חדש$"), start_save_flow),
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
+            MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
         ],
         states={
             GET_CODE: [

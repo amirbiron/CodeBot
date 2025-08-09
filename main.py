@@ -9,6 +9,7 @@ import os
 import logging
 import asyncio
 from datetime import datetime
+from io import BytesIO
 
 import signal
 import sys
@@ -33,6 +34,7 @@ from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
+from large_files_handler import large_files_handler
 
 # (Lock mechanism constants removed)
 
@@ -214,13 +216,18 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         
-        # --- שלב 3: רישום המטפל הכללי בסוף ---
+        # --- שלב 3: רישום handler לקבצים ---
+        self.application.add_handler(
+            MessageHandler(filters.Document.ALL, self.handle_document)
+        )
+        
+        # --- שלב 4: רישום המטפל הכללי בסוף ---
         # הוא יפעל רק אם אף אחד מהמטפלים הספציפיים יותר לא תפס את ההודעה.
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message)
         )
         
-        # --- שלב 4: טיפול בשגיאות ---
+        # --- שלב 5: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
     
     # start_command הוסר - ConversationHandler מטפל בפקודת /start
@@ -426,6 +433,119 @@ class CodeKeeperBot:
         """
         
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+    
+    async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """טיפול בקבצים שנשלחים לבוט"""
+        try:
+            document = update.message.document
+            user_id = update.effective_user.id
+            
+            # בדיקת גודל הקובץ (עד 10MB)
+            if document.file_size > 10 * 1024 * 1024:
+                await update.message.reply_text(
+                    "❌ הקובץ גדול מדי!\n"
+                    "📏 הגודל המקסימלי המותר הוא 10MB"
+                )
+                return
+            
+            # הורדת הקובץ
+            await update.message.reply_text("⏳ מוריד את הקובץ...")
+            file = await context.bot.get_file(document.file_id)
+            
+            # קריאת התוכן
+            file_bytes = BytesIO()
+            await file.download_to_memory(file_bytes)
+            file_bytes.seek(0)
+            
+            try:
+                content = file_bytes.read().decode('utf-8')
+            except UnicodeDecodeError:
+                await update.message.reply_text(
+                    "❌ לא ניתן לקרוא את הקובץ!\n"
+                    "📝 אנא ודא שזהו קובץ טקסט/קוד"
+                )
+                return
+            
+            # זיהוי שפת תכנות
+            file_name = document.file_name or "untitled.txt"
+            from utils import detect_language_from_filename
+            language = detect_language_from_filename(file_name)
+            
+            # בדיקה אם הקובץ גדול (מעל 4096 תווים)
+            if len(content) > 4096:
+                # שמירה כקובץ גדול
+                from database import LargeFile
+                large_file = LargeFile(
+                    user_id=user_id,
+                    file_name=file_name,
+                    content=content,
+                    programming_language=language,
+                    file_size=len(content.encode('utf-8')),
+                    lines_count=len(content.split('\n'))
+                )
+                
+                success = db.save_large_file(large_file)
+                
+                if success:
+                    from utils import get_language_emoji
+                    emoji = get_language_emoji(language)
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("📚 הצג קבצים גדולים", callback_data="show_large_files")],
+                        [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await update.message.reply_text(
+                        f"✅ **הקובץ נשמר בהצלחה!**\n\n"
+                        f"📄 **שם:** `{file_name}`\n"
+                        f"{emoji} **שפה:** {language}\n"
+                        f"💾 **גודל:** {len(content):,} תווים\n"
+                        f"📏 **שורות:** {len(content.split('\n')):,}\n\n"
+                        f"💡 הקובץ נשמר במערכת הקבצים הגדולים",
+                        reply_markup=reply_markup,
+                        parse_mode='Markdown'
+                    )
+                else:
+                    await update.message.reply_text("❌ שגיאה בשמירת הקובץ")
+            else:
+                # שמירה כקובץ רגיל
+                from database import CodeSnippet
+                snippet = CodeSnippet(
+                    user_id=user_id,
+                    file_name=file_name,
+                    code=content,
+                    programming_language=language
+                )
+                
+                success = db.save_code_snippet(snippet)
+                
+                if success:
+                    from utils import get_language_emoji
+                    emoji = get_language_emoji(language)
+                    
+                    keyboard = [
+                        [InlineKeyboardButton("📚 הצג את כל הקבצים", callback_data="files")],
+                        [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
+                    ]
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await update.message.reply_text(
+                        f"✅ **הקובץ נשמר בהצלחה!**\n\n"
+                        f"📄 **שם:** `{file_name}`\n"
+                        f"{emoji} **שפה:** {language}\n"
+                        f"💾 **גודל:** {len(content)} תווים\n",
+                        reply_markup=reply_markup,
+                        parse_mode='Markdown'
+                    )
+                else:
+                    await update.message.reply_text("❌ שגיאה בשמירת הקובץ")
+            
+            reporter.report_activity(user_id)
+            
+        except Exception as e:
+            logger.error(f"שגיאה בטיפול בקובץ: {e}")
+            await update.message.reply_text("❌ שגיאה בעיבוד הקובץ")
     
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בהודעות טקסט (קוד פוטנציאלי)"""
