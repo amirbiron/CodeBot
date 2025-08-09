@@ -22,7 +22,7 @@ from pymongo.errors import DuplicateKeyError
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
-                          MessageHandler, filters, Defaults)
+                          MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler)
 
 from config import config
 from database import CodeSnippet, DatabaseManager, db
@@ -32,6 +32,7 @@ from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
+from github_menu_handler import GitHubMenuHandler
 
 # (Lock mechanism constants removed)
 
@@ -162,6 +163,40 @@ class CodeKeeperBot:
         
         # --- שלב 4: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
+        
+        # --- שלב 5: הוספת תפריט GitHub ---
+        # יצירת מופע של המטפל
+        github_handler = GitHubMenuHandler()
+        
+        # הוסף פקודת github
+        self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
+        
+        # הגדר conversation handler להעלאת קבצים
+        from github_menu_handler import FILE_UPLOAD, REPO_SELECT, FOLDER_SELECT
+        upload_conv_handler = ConversationHandler(
+            entry_points=[
+                CallbackQueryHandler(github_handler.handle_menu_callback, pattern='^upload_file$')
+            ],
+            states={
+                FILE_UPLOAD: [
+                    MessageHandler(filters.Document.ALL, github_handler.handle_file_upload)
+                ],
+                REPO_SELECT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
+                ],
+                FOLDER_SELECT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
+                ]
+            },
+            fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)]
+        )
+        
+        self.application.add_handler(upload_conv_handler)
+        
+        # הוסף callback handler כללי לתפריט GitHub
+        self.application.add_handler(CallbackQueryHandler(github_handler.handle_menu_callback))
+        
+        logger.info("✅ GitHub handler נוסף בהצלחה")
     
     # start_command הוסר - ConversationHandler מטפל בפקודת /start
     
