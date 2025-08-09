@@ -90,12 +90,12 @@ class GitHubMenuHandler:
         # בנה הודעת סטטוס
         status_msg = "🔧 *GitHub Integration Menu*\n\n"
         
-        if 'github_token' in session:
+        if session.get('github_token'):
             status_msg += "✅ טוקן מוגדר\n"
         else:
             status_msg += "❌ טוקן לא מוגדר\n"
         
-        if 'selected_repo' in session:
+        if session.get('selected_repo'):
             status_msg += f"📁 ריפו: `{session['selected_repo']}`\n"
             folder_display = session.get('selected_folder') or 'root'
             status_msg += f"📂 תיקייה: `{folder_display}`\n"
@@ -105,14 +105,14 @@ class GitHubMenuHandler:
         keyboard = []
         
         # כפתור הגדרת טוקן
-        if 'github_token' not in session:
+        if not session.get('github_token'):
             keyboard.append([InlineKeyboardButton("🔑 הגדר טוקן GitHub", callback_data="set_token")])
         
         # כפתור בחירת ריפו
         keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
         
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
-        if 'selected_repo' in session:
+        if session.get('selected_repo'):
             keyboard.append([
                 InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")
             ])
@@ -205,13 +205,17 @@ class GitHubMenuHandler:
             current_folder = session.get('selected_folder') or 'root'
             has_token = "✅" if session.get('github_token') else "❌"
             
+            keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.edit_message_text(
                 f"📊 *הגדרות נוכחיות:*\n\n"
                 f"📁 ריפו: `{current_repo}`\n"
                 f"📂 תיקייה: `{current_folder}`\n"
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
                 f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
-                parse_mode='Markdown'
+                parse_mode='Markdown',
+                reply_markup=reply_markup
             )
             
         elif query.data == 'set_token':
@@ -230,7 +234,8 @@ class GitHubMenuHandler:
                 [InlineKeyboardButton("📂 docs", callback_data='folder_docs')],
                 [InlineKeyboardButton("📂 assets", callback_data='folder_assets')],
                 [InlineKeyboardButton("📂 images", callback_data='folder_images')],
-                [InlineKeyboardButton("✏️ אחר (הקלד ידנית)", callback_data='folder_custom')]
+                [InlineKeyboardButton("✏️ אחר (הקלד ידנית)", callback_data='folder_custom')],
+                [InlineKeyboardButton("🔙 חזור לתפריט", callback_data='github_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -249,10 +254,22 @@ class GitHubMenuHandler:
                 return FOLDER_SELECT
             elif folder == 'root':
                 session['selected_folder'] = None
-                await query.edit_message_text("✅ תיקייה עודכנה ל: `root` (ראשי)", parse_mode='Markdown')
+                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    "✅ תיקייה עודכנה ל: `root` (ראשי)", 
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
             else:
                 session['selected_folder'] = folder.replace('_', '/')
-                await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", parse_mode='Markdown')
+                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", 
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
                 
         elif query.data == 'github_menu':
             # חזרה לתפריט הראשי של GitHub
@@ -295,7 +312,7 @@ class GitHubMenuHandler:
             
         session = self.user_sessions.get(user_id, {})
         
-        if 'github_token' not in session:
+        if not session.get('github_token'):
             if query:
                 await query.answer("❌ נא להגדיר טוקן קודם")
             else:
@@ -437,7 +454,7 @@ class GitHubMenuHandler:
         user_id = update.effective_user.id
         session = self.user_sessions.get(user_id, {})
         
-        if 'selected_repo' not in session:
+        if not session.get('selected_repo'):
             await update.callback_query.answer("❌ נא לבחור ריפו קודם")
             return
         
@@ -477,7 +494,7 @@ class GitHubMenuHandler:
         user_id = update.effective_user.id
         session = self.user_sessions.get(user_id, {})
         
-        if 'selected_repo' not in session:
+        if not session.get('selected_repo'):
             await update.callback_query.answer("❌ נא לבחור ריפו קודם")
             return
         
@@ -764,16 +781,22 @@ class GitHubMenuHandler:
             # טיפול בהגדרת תיקייה
             if text.strip() in ['/', '']:
                 session['selected_folder'] = None
+                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
                     "✅ תיקייה הוגדרה: `root` (ראשי)",
-                    parse_mode='Markdown'
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
                 )
             else:
                 # הסר / מיותרים
                 folder = text.strip().strip('/')
                 session['selected_folder'] = folder
+                keyboard = [[InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
                     f"✅ תיקייה הוגדרה: `{folder}`",
-                    parse_mode='Markdown'
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
                 )
             return ConversationHandler.END
