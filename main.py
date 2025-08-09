@@ -502,7 +502,7 @@ class CodeKeeperBot:
                         f"{emoji} **שפה:** {language}\n"
                         f"💾 **גודל:** {len(content):,} תווים\n"
                         f"📏 **שורות:** {len(content.split('\n')):,}\n\n"
-                        f"💡 הקובץ נשמר במערכת הקבצים הגדולים",
+                        "💡 הקובץ נשמר במערכת הקבצים הגדולים",
                         reply_markup=reply_markup,
                         parse_mode='Markdown'
                     )
