@@ -128,12 +128,12 @@ class CodeKeeperBot:
         # פונקציה להגדרת פקודות בתפריט
         async def post_init(application: Application) -> None:
             """הגדרת פקודות בתפריט הבוט"""
+            # פקודות לכל המשתמשים
             await application.bot.set_my_commands([
                 BotCommand("start", "🏠 התחל שיחה עם הבוט"),
                 BotCommand("help", "📚 עזרה ורשימת פקודות"),
                 BotCommand("save", "💾 שמור קובץ קוד חדש"),
                 BotCommand("search", "🔍 חפש בקבצים שמורים"),
-                BotCommand("stats", "📊 סטטיסטיקות שימוש"),
                 BotCommand("github", "🔧 תפריט GitHub")
             ])
         
