@@ -28,9 +28,6 @@ class BotConfig:
     # הגדרות syntax highlighting
     HIGHLIGHT_THEME: str = "github-dark"
     
-    # רשימת מנהלים (Telegram user IDs)
-    ADMIN_IDS: list = None
-    
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
             self.SUPPORTED_LANGUAGES = [
@@ -38,17 +35,6 @@ class BotConfig:
                 'php', 'ruby', 'go', 'rust', 'typescript', 'sql', 'bash',
                 'json', 'xml', 'yaml', 'markdown', 'dockerfile', 'nginx'
             ]
-        
-        # טען רשימת מנהלים ממשתנה סביבה
-        if self.ADMIN_IDS is None:
-            admin_ids_str = os.getenv('ADMIN_IDS', '')
-            if admin_ids_str:
-                try:
-                    self.ADMIN_IDS = [int(id.strip()) for id in admin_ids_str.split(',') if id.strip()]
-                except ValueError:
-                    self.ADMIN_IDS = []
-            else:
-                self.ADMIN_IDS = []
 
 def load_config() -> BotConfig:
     """טוען את הקונפיגורציה ממשתני הסביבה"""
