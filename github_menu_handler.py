@@ -601,7 +601,8 @@ class GitHubMenuHandler:
                 f"✅ הקובץ {action} בהצלחה!\n\n"
                 f"📁 ריפו: `{session['selected_repo']}`\n"
                 f"📂 מיקום: `{file_path}`\n"
-                f"🔗 קישור ישיר:\n{raw_url}",
+                f"🔗 קישור ישיר:\n{raw_url}\n\n"
+                f"שלח /github כדי לחזור לתפריט.",
                 parse_mode='Markdown'
             )
             
@@ -718,7 +719,8 @@ class GitHubMenuHandler:
                         f"✅ הקובץ {action} בהצלחה לגיטהאב!\n\n"
                         f"📁 ריפו: `{repo_name}`\n"
                         f"📂 מיקום: `{file_path}`\n"
-                        f"🔗 קישור ישיר:\n{raw_url}",
+                        f"🔗 קישור ישיר:\n{raw_url}\n\n"
+                        f"שלח /github כדי לחזור לתפריט.",
                         parse_mode='Markdown'
                     )
                     
