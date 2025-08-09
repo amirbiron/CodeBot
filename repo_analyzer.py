@@ -74,6 +74,14 @@ class RepoAnalyzer:
         if self.github_token:
             self.headers['Authorization'] = f'token {self.github_token}'
     
+    def set_token(self, token: str):
+        """עדכון הטוקן בזמן ריצה"""
+        self.github_token = token
+        if token:
+            self.headers['Authorization'] = f'token {token}'
+        elif 'Authorization' in self.headers:
+            del self.headers['Authorization']
+    
     async def fetch_and_analyze_repo(self, url: str) -> Dict[str, Any]:
         """
         שולף ומנתח ריפוזיטורי GitHub

@@ -47,14 +47,24 @@ class RepoAnalyzerHandler:
         """התחלת תהליך ניתוח ריפוזיטורי"""
         user_id = update.effective_user.id
         
+        # בדוק אם יש טוקן GitHub
+        from github_menu_handler import GitHubMenuHandler
+        github_handler = GitHubMenuHandler()
+        has_token = False
+        if hasattr(github_handler, 'user_sessions') and user_id in github_handler.user_sessions:
+            has_token = bool(github_handler.user_sessions[user_id].get('github_token'))
+        
+        token_status = "✅ יש לך טוקן GitHub - תוכל לנתח גם ריפוז פרטיים!" if has_token else "ℹ️ אין טוקן - רק ריפוז ציבוריים (מוגבל ל-60 בקשות לשעה)"
+        
         # אם זה מהתפריט הראשי
         if update.message:
             await update.message.reply_text(
                 "📝 *ניתוח ריפוזיטורי GitHub*\n\n"
-                "שלח לי קישור לריפוזיטורי ציבורי ב-GitHub שתרצה לנתח.\n\n"
+                f"{token_status}\n\n"
+                "שלח לי קישור לריפוזיטורי ב-GitHub שתרצה לנתח.\n\n"
                 "דוגמה:\n"
                 "`https://github.com/owner/repo`\n\n"
-                "💡 *טיפ:* הריפו חייב להיות ציבורי כדי שאוכל לנתח אותו.\n\n"
+                "💡 *טיפ:* להוספת טוקן GitHub, השתמש בתפריט /github\n\n"
                 "לביטול, שלח /cancel",
                 parse_mode='Markdown',
                 reply_markup=ReplyKeyboardMarkup([["❌ ביטול"]], resize_keyboard=True)
@@ -120,14 +130,32 @@ class RepoAnalyzerHandler:
         )
         
         try:
+            # בדוק אם יש טוקן GitHub שמור מהתפריט של GitHub
+            from github_menu_handler import GitHubMenuHandler
+            github_handler = GitHubMenuHandler()
+            
+            # נסה לקבל את הטוקן מה-session
+            github_token = None
+            if hasattr(github_handler, 'user_sessions') and user_id in github_handler.user_sessions:
+                github_token = github_handler.user_sessions[user_id].get('github_token')
+            
+            # אם יש טוקן, עדכן את ה-analyzer
+            if github_token:
+                from repo_analyzer import repo_analyzer
+                repo_analyzer.set_token(github_token)
+                logger.info(f"Using GitHub token for user {user_id}")
+            
             # נתח את הריפו
             analysis_result = await fetch_and_analyze_repo(text)
             
             if 'error' in analysis_result:
-                await analyzing_msg.edit_text(
-                    f"❌ *שגיאה בניתוח*\n\n{analysis_result['error']}",
-                    parse_mode='Markdown'
-                )
+                error_msg = f"❌ *שגיאה בניתוח*\n\n{analysis_result['error']}"
+                
+                # אם השגיאה קשורה לריפו פרטי ואין טוקן
+                if 'פרטי' in analysis_result['error'] and not github_token:
+                    error_msg += "\n\n💡 *טיפ:* נראה שזה ריפו פרטי. הוסף טוקן GitHub דרך /github כדי לנתח ריפוז פרטיים."
+                
+                await analyzing_msg.edit_text(error_msg, parse_mode='Markdown')
                 await update.message.reply_text(
                     "נסה שוב עם ריפו אחר או חזור לתפריט הראשי:",
                     reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
@@ -136,6 +164,7 @@ class RepoAnalyzerHandler:
             
             # שמור את תוצאות הניתוח
             context.user_data['repo_analysis'] = analysis_result
+            context.user_data['used_token'] = bool(github_token)  # שמור אם השתמשנו בטוקן
             
             # צור הצעות שיפור
             suggestions = generate_improvement_suggestions(analysis_result)
@@ -177,7 +206,12 @@ class RepoAnalyzerHandler:
         
         # בנה טקסט סיכום
         summary_text = f"📊 *ניתוח הריפו {repo_name}*\n"
-        summary_text += f"👤 בעלים: {owner}\n\n"
+        summary_text += f"👤 בעלים: {owner}\n"
+        
+        # הוסף אינדיקציה על שימוש בטוקן
+        if context.user_data.get('used_token'):
+            summary_text += "🔑 נותח עם טוקן GitHub\n"
+        summary_text += "\n"
         
         # מידע בסיסי
         if analysis.get('description'):
