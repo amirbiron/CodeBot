@@ -277,11 +277,10 @@ class GitHubMenuHandler:
             else:
                 repo_name = query.data.replace('repo_', '')
                 session['selected_repo'] = repo_name
-                await query.edit_message_text(
-                    f"✅ ריפו נבחר: `{repo_name}`\n\n"
-                    f"כעת תוכל להעלות קבצים!",
-                    parse_mode='Markdown'
-                )
+                
+                # הצג את התפריט המלא אחרי בחירת הריפו
+                await self.github_menu_command(update, context)
+                return
     
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
@@ -756,10 +755,9 @@ class GitHubMenuHandler:
         
         elif '/' in text:
             session['selected_repo'] = text
-            await update.message.reply_text(
-                f"✅ ריפו הוגדר: `{text}`",
-                parse_mode='Markdown'
-            )
+            
+            # הצג את התפריט המלא אחרי הגדרת הריפו
+            await self.github_menu_command(update, context)
             return ConversationHandler.END
         
         else:
