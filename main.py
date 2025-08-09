@@ -172,7 +172,7 @@ class CodeKeeperBot:
         # --- רק אחרי כל ה-handlers של GitHub, הוסף את ה-handler הגלובלי ---
         # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
         from conversation_handlers import handle_callback_query
-        from telegram.ext import CallbackQueryHandler
+        # CallbackQueryHandler כבר מיובא בתחילת הקובץ!
         self.application.add_handler(CallbackQueryHandler(handle_callback_query))
         logger.info("CallbackQueryHandler גלובלי נוסף")
 
