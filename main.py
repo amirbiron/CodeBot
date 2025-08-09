@@ -20,7 +20,7 @@ import atexit
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
 
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeChat
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
@@ -241,6 +241,7 @@ class CodeKeeperBot:
         # self.application.add_handler(CommandHandler("list", self.list_command))  # מחוק - מטופל על ידי הכפתור "📚 הצג את כל הקבצים שלי"
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
+        self.application.add_handler(CommandHandler("check", self.check_commands))
         
         # --- שלב 3: רישום handler לקבצים ---
         self.application.add_handler(
@@ -427,6 +428,36 @@ class CodeKeeperBot:
         
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
+    async def check_commands(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """בדיקת הפקודות הזמינות (רק לאמיר)"""
+        
+        if update.effective_user.id != 6865105071:
+            return
+        
+        # בדוק פקודות ציבוריות
+        public_cmds = await context.bot.get_my_commands()
+        
+        # בדוק פקודות אישיות
+        from telegram import BotCommandScopeChat
+        personal_cmds = await context.bot.get_my_commands(
+            scope=BotCommandScopeChat(chat_id=6865105071)
+        )
+        
+        message = "📋 **סטטוס פקודות:**\n\n"
+        message += f"**ציבוריות:** {len(public_cmds)} פקודות\n"
+        
+        if public_cmds:
+            for cmd in public_cmds:
+                message += f"  • /{cmd.command}\n"
+        
+        message += f"\n**אישיות לך:** {len(personal_cmds)} פקודות\n"
+        
+        if personal_cmds:
+            for cmd in personal_cmds:
+                message += f"  • /{cmd.command} - {cmd.description}\n"
+        
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש או מנהל"""
         reporter.report_activity(update.effective_user.id)
@@ -494,8 +525,12 @@ class CodeKeeperBot:
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בקבצים שנשלחים לבוט"""
         
-        # בדוק אם אנחנו במצב העלאה לגיטהאב
-        if context.user_data.get('waiting_for_github_upload'):
+        # דיבאג
+        logger.info(f"DEBUG: upload_mode = {context.user_data.get('upload_mode')}")
+        logger.info(f"DEBUG: waiting_for_github_upload = {context.user_data.get('waiting_for_github_upload')}")
+        
+        # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
+        if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
             # תן ל-GitHub handler לטפל בזה
             return
         
@@ -842,16 +877,25 @@ def main() -> None:
 # A minimal post_init stub to comply with the PTB builder chain
 async def setup_bot_data(application: Application) -> None:  # noqa: D401
     """A post_init function to setup application-wide data."""
-    # הגדרת תפריט פקודות
-    await application.bot.set_my_commands([
-        BotCommand("start", "התחל שיחה עם הבוט"),
-        BotCommand("help", "עזרה ורשימת פקודות"),
-        BotCommand("save", "שמור קטע קוד חדש"),
-        BotCommand("search", "חפש בקטעי הקוד שלך"),
-        BotCommand("stats", "📊 סטטיסטיקות"),
-        BotCommand("github", "🔧 אינטגרציית GitHub")
-    ])
-    logger.info("✅ Bot commands menu set successfully")
+    # מחיקת כל הפקודות הציבוריות
+    await application.bot.delete_my_commands()
+    logger.info("✅ All public commands removed")
+    
+    # הגדרת פקודת stats רק למנהל (אמיר בירון)
+    AMIR_ID = 6865105071  # ה-ID של אמיר בירון
+    
+    try:
+        # הגדר את פקודת stats רק לאמיר
+        await application.bot.set_my_commands(
+            commands=[
+                BotCommand("stats", "📊 סטטיסטיקות שימוש")
+            ],
+            scope=BotCommandScopeChat(chat_id=AMIR_ID)
+        )
+        logger.info(f"✅ Stats command set for Amir (ID: {AMIR_ID})")
+        
+    except Exception as e:
+        logger.error(f"⚠️ Error setting admin commands: {e}")
 
 if __name__ == "__main__":
     main()
