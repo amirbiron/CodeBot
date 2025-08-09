@@ -15,31 +15,72 @@ class GitHubMenuHandler:
         """Get or create user session"""
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {
-                'repo': None,
-                'folder': 'uploads',
+                'selected_repo': None,
+                'selected_folder': 'uploads',
                 'github_token': None
             }
         return self.user_sessions[user_id]
     
     async def github_menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Show main GitHub menu"""
-        keyboard = [
-            [InlineKeyboardButton("📁 בחר ריפו", callback_data='select_repo')],
-            [InlineKeyboardButton("📤 העלה קובץ", callback_data='upload_file')],
-            [InlineKeyboardButton("📋 הצג ריפו נוכחי", callback_data='show_current')],
-            [InlineKeyboardButton("🔑 הגדר טוקן GitHub", callback_data='set_token')],
-            [InlineKeyboardButton("📂 שנה תיקיית יעד", callback_data='set_folder')],
-            [InlineKeyboardButton("❌ סגור", callback_data='close_menu')]
-        ]
+        """מציג תפריט GitHub"""
+        user_id = update.effective_user.id
+        
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        
+        session = self.user_sessions[user_id]
+        
+        # בנה הודעת סטטוס
+        status_msg = "🔧 *GitHub Integration Menu*\n\n"
+        
+        if 'github_token' in session:
+            status_msg += "✅ טוקן מוגדר\n"
+        else:
+            status_msg += "❌ טוקן לא מוגדר\n"
+        
+        if 'selected_repo' in session:
+            status_msg += f"📁 ריפו: `{session['selected_repo']}`\n"
+            if 'selected_folder' in session:
+                status_msg += f"📂 תיקייה: `{session['selected_folder']}`\n"
+        else:
+            status_msg += "❌ ריפו לא נבחר\n"
+        
+        keyboard = []
+        
+        # כפתור הגדרת טוקן
+        if 'github_token' not in session:
+            keyboard.append([InlineKeyboardButton("🔑 הגדר טוקן GitHub", callback_data="set_token")])
+        
+        # כפתור בחירת ריפו
+        keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
+        
+        # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
+        if 'selected_repo' in session:
+            keyboard.append([
+                InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file"),
+                InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")
+            ])
+        
+        # כפתור הצגת הגדרות
+        keyboard.append([InlineKeyboardButton("📋 הצג הגדרות נוכחיות", callback_data="show_current")])
+        
+        # כפתור סגירה
+        keyboard.append([InlineKeyboardButton("❌ סגור", callback_data="close_menu")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            "🔧 *תפריט GitHub*\n"
-            "בחר פעולה:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                status_msg, 
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                status_msg, 
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
     
     async def handle_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle menu button clicks"""
@@ -53,23 +94,40 @@ class GitHubMenuHandler:
             await self.show_repo_selection(query, context)
             
         elif query.data == 'upload_file':
-            if not session.get('repo'):
+            if not session.get('selected_repo'):
                 await query.edit_message_text(
                     "❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'"
                 )
             else:
                 await query.edit_message_text(
                     f"📤 *העלאת קובץ לריפו:*\n"
-                    f"`{session['repo']}`\n"
-                    f"📂 תיקייה: `{session['folder']}`\n\n"
+                    f"`{session['selected_repo']}`\n"
+                    f"📂 תיקייה: `{session.get('selected_folder', 'uploads')}`\n\n"
                     f"שלח לי קובץ להעלאה:",
                     parse_mode='Markdown'
                 )
                 return FILE_UPLOAD
+        
+        elif query.data == "upload_saved":
+            await self.upload_saved_files(update, context)
+            
+        elif query.data.startswith("repos_page_"):
+            page = int(query.data.split("_")[2])
+            await self.show_repos(update, context, page)
+            
+        elif query.data.startswith("upload_saved_"):
+            file_id = query.data.split("_")[2]
+            await self.handle_saved_file_upload(update, context, file_id)
+            
+        elif query.data == "back_to_menu":
+            await self.github_menu_command(update, context)
+            
+        elif query.data == "noop":
+            await query.answer()  # לא עושה כלום, רק לכפתור התצוגה
                 
         elif query.data == 'show_current':
-            current_repo = session.get('repo', 'לא נבחר')
-            current_folder = session.get('folder', 'uploads')
+            current_repo = session.get('selected_repo', 'לא נבחר')
+            current_folder = session.get('selected_folder', 'uploads')
             has_token = "✅" if session.get('github_token') else "❌"
             
             await query.edit_message_text(
@@ -110,8 +168,8 @@ class GitHubMenuHandler:
                 await query.edit_message_text("הקלד שם תיקייה:")
                 return FOLDER_SELECT
             else:
-                session['folder'] = folder.replace('_', '/')
-                await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['folder']}`", parse_mode='Markdown')
+                session['selected_folder'] = folder.replace('_', '/')
+                await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", parse_mode='Markdown')
                 
         elif query.data == 'close_menu':
             await query.edit_message_text("👋 התפריט נסגר")
@@ -127,7 +185,7 @@ class GitHubMenuHandler:
                 return REPO_SELECT
             else:
                 repo_name = query.data.replace('repo_', '')
-                session['repo'] = repo_name
+                session['selected_repo'] = repo_name
                 await query.edit_message_text(
                     f"✅ ריפו נבחר: `{repo_name}`\n\n"
                     f"כעת תוכל להעלות קבצים!",
@@ -136,47 +194,202 @@ class GitHubMenuHandler:
     
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
-        user_id = query.from_user.id
-        session = self.get_user_session(user_id)
+        await self.show_repos(query.message, context, query=query)
+    
+    async def show_repos(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0, query=None):
+        """מציג רשימת ריפוזיטוריז עם pagination"""
+        if query:
+            user_id = query.from_user.id
+        else:
+            user_id = update.effective_user.id
+            
+        session = self.user_sessions.get(user_id, {})
         
-        token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
-        
-        if not token:
-            await query.edit_message_text(
-                "❌ לא נמצא טוקן GitHub!\n"
-                "שלח /github ובחר 'הגדר טוקן'"
-            )
+        if 'github_token' not in session:
+            if query:
+                await query.answer("❌ נא להגדיר טוקן קודם")
+            else:
+                await update.reply_text("❌ נא להגדיר טוקן קודם")
             return
         
         try:
-            g = Github(token)
+            from github import Github
+            g = Github(session['github_token'])
             user = g.get_user()
             
-            repos = list(user.get_repos())[:10]
+            # קבל את כל הריפוזיטוריז
+            all_repos = list(user.get_repos())
+            
+            # הגדרות pagination
+            repos_per_page = 8
+            total_repos = len(all_repos)
+            total_pages = (total_repos + repos_per_page - 1) // repos_per_page
+            
+            # חשב אינדקסים
+            start_idx = page * repos_per_page
+            end_idx = min(start_idx + repos_per_page, total_repos)
+            
+            # ריפוזיטוריז לעמוד הנוכחי
+            page_repos = all_repos[start_idx:end_idx]
             
             keyboard = []
-            for repo in repos:
+            
+            # הוסף ריפוזיטוריז
+            for repo in page_repos:
                 keyboard.append([
                     InlineKeyboardButton(
-                        f"📁 {repo.full_name}",
-                        callback_data=f'repo_{repo.full_name}'
+                        f"📁 {repo.name}", 
+                        callback_data=f"repo_{repo.full_name}"
                     )
                 ])
             
-            keyboard.append([
-                InlineKeyboardButton("✏️ הקלד ריפו ידנית", callback_data='repo_manual')
-            ])
+            # כפתורי ניווט
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(
+                    InlineKeyboardButton("⬅️ הקודם", callback_data=f"repos_page_{page-1}")
+                )
+            
+            nav_buttons.append(
+                InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop")
+            )
+            
+            if page < total_pages - 1:
+                nav_buttons.append(
+                    InlineKeyboardButton("➡️ הבא", callback_data=f"repos_page_{page+1}")
+                )
+            
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+            
+            # כפתורים נוספים
+            keyboard.append([InlineKeyboardButton("✍️ הקלד שם ריפו ידנית", callback_data="repo_manual")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            await query.edit_message_text(
-                "📁 בחר ריפו מהרשימה:",
+            if query:
+                await query.edit_message_text(
+                    f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):",
+                    reply_markup=reply_markup
+                )
+            else:
+                await update.callback_query.edit_message_text(
+                    f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):",
+                    reply_markup=reply_markup
+                )
+            
+        except Exception as e:
+            if query:
+                await query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+            else:
+                await update.callback_query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+    
+    async def upload_saved_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג רשימת קבצים שמורים להעלאה"""
+        user_id = update.effective_user.id
+        session = self.user_sessions.get(user_id, {})
+        
+        if 'selected_repo' not in session:
+            await update.callback_query.answer("❌ נא לבחור ריפו קודם")
+            return
+        
+        try:
+            # כאן תצטרך להתחבר למסד הנתונים שלך
+            # לדוגמה:
+            from database import db
+            files = db.get_user_files(user_id)
+            
+            if not files:
+                await update.callback_query.answer("❌ אין לך קבצים שמורים", show_alert=True)
+                return
+            
+            keyboard = []
+            for file in files[:10]:  # מציג עד 10 קבצים
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📄 {file['file_name']}", 
+                        callback_data=f"upload_saved_{file['_id']}"
+                    )
+                ])
+            
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.callback_query.edit_message_text(
+                "בחר קובץ להעלאה:",
                 reply_markup=reply_markup
             )
             
         except Exception as e:
-            await query.edit_message_text(
-                f"❌ שגיאה בטעינת ריפוזיטוריז:\n{str(e)}"
+            await update.callback_query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+    
+    async def handle_saved_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str):
+        """מטפל בהעלאת קובץ שמור ל-GitHub"""
+        user_id = update.effective_user.id
+        session = self.user_sessions.get(user_id, {})
+        
+        if 'selected_repo' not in session:
+            await update.callback_query.answer("❌ נא לבחור ריפו קודם")
+            return
+        
+        try:
+            from database import db
+            from bson import ObjectId
+            
+            # קבל את הקובץ מהמסד
+            file_data = db.collection.find_one({
+                "_id": ObjectId(file_id),
+                "user_id": user_id
+            })
+            
+            if not file_data:
+                await update.callback_query.answer("❌ קובץ לא נמצא", show_alert=True)
+                return
+            
+            await update.callback_query.edit_message_text("⏳ מעלה קובץ ל-GitHub...")
+            
+            # התחבר ל-GitHub
+            from github import Github
+            g = Github(session['github_token'])
+            repo = g.get_repo(session['selected_repo'])
+            
+            # הגדר נתיב הקובץ
+            folder = session.get('selected_folder', 'uploads')
+            file_path = f"{folder}/{file_data['file_name']}"
+            
+            # נסה להעלות או לעדכן את הקובץ
+            try:
+                existing = repo.get_contents(file_path)
+                result = repo.update_file(
+                    path=file_path,
+                    message=f"Update {file_data['file_name']} via Telegram bot",
+                    content=file_data['content'],
+                    sha=existing.sha
+                )
+                action = "עודכן"
+            except:
+                result = repo.create_file(
+                    path=file_path,
+                    message=f"Upload {file_data['file_name']} via Telegram bot",
+                    content=file_data['content']
+                )
+                action = "הועלה"
+            
+            raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
+            
+            await update.callback_query.edit_message_text(
+                f"✅ הקובץ {action} בהצלחה!\n\n"
+                f"📁 ריפו: `{session['selected_repo']}`\n"
+                f"📂 מיקום: `{file_path}`\n"
+                f"🔗 קישור ישיר:\n{raw_url}",
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            await update.callback_query.edit_message_text(
+                f"❌ שגיאה בהעלאה:\n{str(e)}"
             )
     
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -184,7 +397,7 @@ class GitHubMenuHandler:
         user_id = update.message.from_user.id
         session = self.get_user_session(user_id)
         
-        if not session.get('repo'):
+        if not session.get('selected_repo'):
             await update.message.reply_text(
                 "❌ קודם בחר ריפו!\nשלח /github"
             )
@@ -201,9 +414,9 @@ class GitHubMenuHandler:
                 token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
                 
                 g = Github(token)
-                repo = g.get_repo(session['repo'])
+                repo = g.get_repo(session['selected_repo'])
                 
-                file_path = f"{session['folder']}/{filename}"
+                file_path = f"{session.get('selected_folder', 'uploads')}/{filename}"
                 
                 try:
                     existing = repo.get_contents(file_path)
@@ -222,11 +435,11 @@ class GitHubMenuHandler:
                     )
                     action = "הועלה"
                 
-                raw_url = f"https://raw.githubusercontent.com/{session['repo']}/main/{file_path}"
+                raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
                 
                 await update.message.reply_text(
                     f"✅ הקובץ {action} בהצלחה!\n\n"
-                    f"📁 ריפו: `{session['repo']}`\n"
+                    f"📁 ריפו: `{session['selected_repo']}`\n"
                     f"📂 מיקום: `{file_path}`\n"
                     f"🔗 קישור ישיר:\n{raw_url}",
                     parse_mode='Markdown'
@@ -256,7 +469,7 @@ class GitHubMenuHandler:
             return ConversationHandler.END
         
         elif '/' in text:
-            session['repo'] = text
+            session['selected_repo'] = text
             await update.message.reply_text(
                 f"✅ ריפו הוגדר: `{text}`",
                 parse_mode='Markdown'
@@ -264,7 +477,7 @@ class GitHubMenuHandler:
             return ConversationHandler.END
         
         else:
-            session['folder'] = text
+            session['selected_folder'] = text
             await update.message.reply_text(
                 f"✅ תיקייה הוגדרה: `{text}`",
                 parse_mode='Markdown'
