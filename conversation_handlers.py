@@ -42,7 +42,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         "🔹 חיפוש והצגה חכמה\n"
         "🔹 הורדה וניהול מלא\n"
         "🔹 העלאת קבצים ל-GitHub\n\n"
-        "בחר פעולה מהכפתורים החכמים למטה:"
+        "בחר פעולה מהתפריט למטה 👇\n\n"
+        "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
     )
     
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
