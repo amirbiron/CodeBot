@@ -162,13 +162,25 @@ class GitHubMenuHandler:
                 )
             else:
                 folder_display = session.get('selected_folder') or 'root'
+                
+                # הוסף כפתור למנהל קבצים
+                keyboard = [
+                    [InlineKeyboardButton("📂 פתח מנהל קבצים", switch_inline_query_current_chat="")],
+                    [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
+                ]
+                
                 await query.edit_message_text(
                     f"📤 *העלאת קובץ לריפו:*\n"
                     f"`{session['selected_repo']}`\n"
                     f"📂 תיקייה: `{folder_display}`\n\n"
-                    f"שלח לי קובץ להעלאה:",
+                    f"שלח קובץ או לחץ לפתיחת מנהל קבצים:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='Markdown'
                 )
+                
+                # סמן שאנחנו במצב העלאה לגיטהאב
+                context.user_data['waiting_for_github_upload'] = True
+                context.user_data['in_github_menu'] = True
                 return FILE_UPLOAD
         
         elif query.data == "upload_saved":
@@ -242,6 +254,13 @@ class GitHubMenuHandler:
                 session['selected_folder'] = folder.replace('_', '/')
                 await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", parse_mode='Markdown')
                 
+        elif query.data == 'github_menu':
+            # חזרה לתפריט הראשי של GitHub
+            context.user_data['waiting_for_github_upload'] = False
+            context.user_data['in_github_menu'] = False
+            await self.github_menu_command(update, context)
+            return ConversationHandler.END
+            
         elif query.data == 'close_menu':
             await query.edit_message_text("👋 התפריט נסגר")
             
@@ -589,117 +608,126 @@ class GitHubMenuHandler:
         user_id = update.message.from_user.id
         session = self.get_user_session(user_id)
         
-        if not session.get('selected_repo'):
-            await update.message.reply_text(
-                "❌ קודם בחר ריפו!\nשלח /github"
-            )
-            return ConversationHandler.END
-        
-        if update.message.document:
-            await update.message.reply_text("⏳ מעלה קובץ...")
+        # בדוק אם אנחנו במצב העלאה לגיטהאב
+        if context.user_data.get('waiting_for_github_upload'):
+            # העלאה לגיטהאב
+            if not session.get('selected_repo'):
+                await update.message.reply_text(
+                    "❌ קודם בחר ריפו!\nשלח /github"
+                )
+                return ConversationHandler.END
             
-            try:
-                file = await context.bot.get_file(update.message.document.file_id)
-                file_data = await file.download_as_bytearray()
-                filename = update.message.document.file_name
-                
-                # לוג גודל וסוג הקובץ
-                file_size = len(file_data)
-                logger.info(f"📄 מעלה קובץ: {filename}, גודל: {file_size} bytes")
-                
-                # PyGithub מקודד אוטומטית ל-base64, אז נמיר ל-string אם צריך
-                if isinstance(file_data, (bytes, bytearray)):
-                    content = file_data.decode('utf-8')
-                else:
-                    content = str(file_data)
-                logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
-                
-                token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
-                
-                g = Github(token)
-                
-                # בדוק rate limit לפני הבקשה
-                logger.info(f"[GitHub API] Checking rate limit before file upload")
-                rate = g.get_rate_limit()
-                logger.info(f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}")
-                
-                if rate.core.remaining < 100:
-                    logger.warning(f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining")
-                
-                if rate.core.remaining < 10:
-                    await update.message.reply_text(
-                        f"⏳ מגבלת API נמוכה מדי!\n"
-                        f"נותרו רק {rate.core.remaining} בקשות\n"
-                        f"נסה שוב מאוחר יותר"
-                    )
-                    return ConversationHandler.END
-                
-                # הוסף delay בין בקשות
-                await self.apply_rate_limit_delay(user_id)
-                
-                logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
-                repo = g.get_repo(session['selected_repo'])
-                
-                # בניית נתיב הקובץ
-                folder = session.get('selected_folder')
-                if folder and folder.strip():
-                    # הסר / מיותרים
-                    folder = folder.strip('/')
-                    file_path = f"{folder}/{filename}"
-                else:
-                    # העלה ל-root
-                    file_path = filename
-                logger.info(f"📁 נתיב יעד: {file_path}")
+            if update.message.document:
+                await update.message.reply_text("⏳ מעלה קובץ לגיטהאב...")
                 
                 try:
-                    existing = repo.get_contents(file_path)
-                    result = repo.update_file(
-                        path=file_path,
-                        message=f"Update {filename} via Telegram bot",
-                        content=content,  # PyGithub יקודד אוטומטית
-                        sha=existing.sha
+                    file = await context.bot.get_file(update.message.document.file_id)
+                    file_data = await file.download_as_bytearray()
+                    filename = update.message.document.file_name
+                    
+                    # לוג גודל וסוג הקובץ
+                    file_size = len(file_data)
+                    logger.info(f"📄 מעלה קובץ: {filename}, גודל: {file_size} bytes")
+                    
+                    # PyGithub מקודד אוטומטית ל-base64, אז נמיר ל-string אם צריך
+                    if isinstance(file_data, (bytes, bytearray)):
+                        content = file_data.decode('utf-8')
+                    else:
+                        content = str(file_data)
+                    logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
+                    
+                    token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
+                    
+                    g = Github(token)
+                    
+                    # בדוק rate limit לפני הבקשה
+                    logger.info(f"[GitHub API] Checking rate limit before file upload")
+                    rate = g.get_rate_limit()
+                    logger.info(f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}")
+                    
+                    if rate.core.remaining < 100:
+                        logger.warning(f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining")
+                    
+                    if rate.core.remaining < 10:
+                        await update.message.reply_text(
+                            f"⏳ מגבלת API נמוכה מדי!\n"
+                            f"נותרו רק {rate.core.remaining} בקשות\n"
+                            f"נסה שוב מאוחר יותר"
+                        )
+                        return ConversationHandler.END
+                    
+                    # הוסף delay בין בקשות
+                    await self.apply_rate_limit_delay(user_id)
+                    
+                    logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
+                    repo = g.get_repo(session['selected_repo'])
+                    
+                    # בניית נתיב הקובץ
+                    folder = session.get('selected_folder')
+                    if folder and folder.strip():
+                        # הסר / מיותרים
+                        folder = folder.strip('/')
+                        file_path = f"{folder}/{filename}"
+                    else:
+                        # העלה ל-root
+                        file_path = filename
+                    logger.info(f"📁 נתיב יעד: {file_path}")
+                    
+                    try:
+                        existing = repo.get_contents(file_path)
+                        result = repo.update_file(
+                            path=file_path,
+                            message=f"Update {filename} via Telegram bot",
+                            content=content,  # PyGithub יקודד אוטומטית
+                            sha=existing.sha
+                        )
+                        action = "עודכן"
+                        logger.info(f"✅ קובץ עודכן בהצלחה")
+                    except:
+                        result = repo.create_file(
+                            path=file_path,
+                            message=f"Upload {filename} via Telegram bot",
+                            content=content  # PyGithub יקודד אוטומטית
+                        )
+                        action = "הועלה"
+                        logger.info(f"✅ קובץ נוצר בהצלחה")
+                    
+                    raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
+                    
+                    await update.message.reply_text(
+                        f"✅ הקובץ {action} בהצלחה לגיטהאב!\n\n"
+                        f"📁 ריפו: `{session['selected_repo']}`\n"
+                        f"📂 מיקום: `{file_path}`\n"
+                        f"🔗 קישור ישיר:\n{raw_url}",
+                        parse_mode='Markdown'
                     )
-                    action = "עודכן"
-                    logger.info(f"✅ קובץ עודכן בהצלחה")
-                except:
-                    result = repo.create_file(
-                        path=file_path,
-                        message=f"Upload {filename} via Telegram bot",
-                        content=content  # PyGithub יקודד אוטומטית
-                    )
-                    action = "הועלה"
-                    logger.info(f"✅ קובץ נוצר בהצלחה")
-                
-                raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
-                
-                await update.message.reply_text(
-                    f"✅ הקובץ {action} בהצלחה!\n\n"
-                    f"📁 ריפו: `{session['selected_repo']}`\n"
-                    f"📂 מיקום: `{file_path}`\n"
-                    f"🔗 קישור ישיר:\n{raw_url}",
-                    parse_mode='Markdown'
-                )
-                
-            except Exception as e:
-                logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
-                
-                error_msg = str(e)
-                
-                # בדוק אם זו שגיאת rate limit
-                if "rate limit" in error_msg.lower() or "403" in error_msg:
-                    error_msg = (
-                        "⏳ חריגה ממגבלת GitHub API\n"
-                        "נסה שוב בעוד כמה דקות\n\n"
-                        "💡 טיפ: המתן מספר דקות לפני ניסיון נוסף"
-                    )
-                else:
-                    error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
-                
-                await update.message.reply_text(error_msg)
+                    
+                    # נקה את הסטטוס
+                    context.user_data['waiting_for_github_upload'] = False
+                    
+                except Exception as e:
+                    logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
+                    
+                    error_msg = str(e)
+                    
+                    # בדוק אם זו שגיאת rate limit
+                    if "rate limit" in error_msg.lower() or "403" in error_msg:
+                        error_msg = (
+                            "⏳ חריגה ממגבלת GitHub API\n"
+                            "נסה שוב בעוד כמה דקות\n\n"
+                            "💡 טיפ: המתן מספר דקות לפני ניסיון נוסף"
+                        )
+                    else:
+                        error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
+                    
+                    await update.message.reply_text(error_msg)
+            else:
+                await update.message.reply_text("⚠️ שלח קובץ להעלאה")
+            
+            return ConversationHandler.END
         else:
-            await update.message.reply_text("⚠️ שלח קובץ להעלאה")
-        
-        return ConversationHandler.END
+            # אם לא במצב העלאה לגיטהאב, תן למטפל הרגיל לטפל בזה
+            return ConversationHandler.END
     
     async def handle_text_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text input for various states"""
