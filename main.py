@@ -36,6 +36,7 @@ from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
+from user_statistics import user_stats
 
 # (Lock mechanism constants removed)
 
@@ -262,6 +263,9 @@ class CodeKeeperBot:
         context.user_data['in_github_menu'] = False
         
         reporter.report_activity(update.effective_user.id)
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(update.effective_user.id, update.effective_user.username, "help_command")
         response = """
 📚 <b>רשימת הפקודות המלאה:</b>
 
@@ -297,6 +301,9 @@ class CodeKeeperBot:
         
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(user_id, update.effective_user.username, "save_command")
         
         if not context.args:
             await update.message.reply_text(
@@ -381,6 +388,9 @@ class CodeKeeperBot:
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(user_id, update.effective_user.username, "search_command")
+        
         if not context.args:
             await update.message.reply_text(
                 "🔍 **איך לחפש:**\n"
@@ -439,6 +449,19 @@ class CodeKeeperBot:
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(user_id, update.effective_user.username, "stats_command")
+        
+        # בדוק אם המשתמש הוא אדמין
+        ADMIN_IDS = [config.ADMIN_IDS] if hasattr(config, 'ADMIN_IDS') and isinstance(config.ADMIN_IDS, int) else getattr(config, 'ADMIN_IDS', [])
+        
+        # אם המשתמש הוא אדמין והוא כתב /stats admin, הצג סטטיסטיקות מערכת
+        if user_id in ADMIN_IDS and context.args and context.args[0] == "admin":
+            report = user_stats.format_weekly_report()
+            await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # אחרת, הצג סטטיסטיקות אישיות
         stats = db.get_user_stats(user_id)
         
         if not stats or stats.get('total_files', 0) == 0:
@@ -480,6 +503,9 @@ class CodeKeeperBot:
             
             document = update.message.document
             user_id = update.effective_user.id
+            
+            # רישום פעילות משתמש
+            user_stats.log_user_activity(user_id, update.effective_user.username, "upload_file")
             
             # בדיקת גודל הקובץ (עד 10MB)
             if document.file_size > 10 * 1024 * 1024:
@@ -768,11 +794,19 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(update.effective_user.id, update.effective_user.username, "start_command")
+        
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text("👋 שלום! הבוט מוכן לשימוש.", reply_markup=reply_markup)
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(update.effective_user.id, update.effective_user.username, "help_command")
+        
         await update.message.reply_text("ℹ️ השתמש ב/start כדי להתחיל.")
 
     application.add_handler(CommandHandler("start", start_command))
