@@ -43,7 +43,7 @@ class CodeProcessor:
         # הגדרת לוגר ייעודי לטיפול בשגיאות קוד
         self.code_logger = logging.getLogger('code_handler')
         if not self.code_logger.handlers:
-            handler = logging.FileHandler('code_errors.log')
+            handler = logging.StreamHandler()  # שימוש ב-StreamHandler במקום FileHandler לסביבת פרודקשן
             handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
             self.code_logger.addHandler(handler)
             self.code_logger.setLevel(logging.INFO)

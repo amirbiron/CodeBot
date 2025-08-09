@@ -40,16 +40,16 @@ class CodeErrorLogger:
     def _setup_logger(self):
         """הגדרת הלוגר עם קבצי יומן נפרדים"""
         if not self.logger.handlers:
-            # לוגר לשגיאות כלליות
-            error_handler = logging.FileHandler('code_errors.log', encoding='utf-8')
+            # לוגר לשגיאות כלליות - שימוש ב-StreamHandler לסביבת פרודקשן
+            error_handler = logging.StreamHandler()
             error_handler.setLevel(logging.ERROR)
             error_formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
             error_handler.setFormatter(error_formatter)
             
-            # לוגר לסטטיסטיקות ופעילות
-            activity_handler = logging.FileHandler('code_activity.log', encoding='utf-8')
+            # לוגר לסטטיסטיקות ופעילות - שימוש ב-StreamHandler לסביבת פרודקשן
+            activity_handler = logging.StreamHandler()
             activity_handler.setLevel(logging.INFO)
             activity_formatter = logging.Formatter(
                 '%(asctime)s - %(levelname)s - %(message)s'
