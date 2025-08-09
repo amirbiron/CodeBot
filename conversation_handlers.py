@@ -636,12 +636,13 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 keyboard = [[InlineKeyboardButton("📚 חזרה לקבצים גדולים", callback_data="show_large_files")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
+                lines_count = len(new_code.split('\n'))
                 await update.message.reply_text(
                     f"✅ **הקובץ הגדול עודכן בהצלחה!**\n\n"
                     f"📄 **קובץ:** `{file_name}`\n"
                     f"{emoji} **שפה:** {language}\n"
                     f"💾 **גודל חדש:** {len(new_code):,} תווים\n"
-                    f"📏 **שורות:** {len(new_code.split('\n')):,}",
+                    f"📏 **שורות:** {lines_count:,}",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
