@@ -142,7 +142,7 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
             CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern='^(select_repo|upload_file|show_current|set_token|set_folder|close_menu|folder_|repo_)')
+                               pattern='^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop)')
         )
         
         # הגדר conversation handler להעלאת קבצים
