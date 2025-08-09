@@ -133,6 +133,43 @@ class CodeKeeperBot:
         handler_count_after = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers אחרי: {handler_count_after}")
 
+        # --- GitHub handlers - חייבים להיות לפני ה-handler הגלובלי! ---
+        github_handler = GitHubMenuHandler()
+        
+        # הוסף פקודת github
+        self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
+        
+        # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
+        self.application.add_handler(
+            CallbackQueryHandler(github_handler.handle_menu_callback, 
+                               pattern='^(select_repo|upload_file|show_current|set_token|set_folder|close_menu|folder_|repo_)')
+        )
+        
+        # הגדר conversation handler להעלאת קבצים
+        from github_menu_handler import FILE_UPLOAD, REPO_SELECT, FOLDER_SELECT
+        upload_conv_handler = ConversationHandler(
+            entry_points=[
+                CallbackQueryHandler(github_handler.handle_menu_callback, pattern='^upload_file$')
+            ],
+            states={
+                FILE_UPLOAD: [
+                    MessageHandler(filters.Document.ALL, github_handler.handle_file_upload)
+                ],
+                REPO_SELECT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
+                ],
+                FOLDER_SELECT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
+                ]
+            },
+            fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)]
+        )
+        
+        self.application.add_handler(upload_conv_handler)
+        
+        logger.info("✅ GitHub handler נוסף בהצלחה")
+
+        # --- רק אחרי כל ה-handlers של GitHub, הוסף את ה-handler הגלובלי ---
         # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
         from conversation_handlers import handle_callback_query
         from telegram.ext import CallbackQueryHandler
@@ -163,40 +200,6 @@ class CodeKeeperBot:
         
         # --- שלב 4: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
-        
-        # --- שלב 5: הוספת תפריט GitHub ---
-        # יצירת מופע של המטפל
-        github_handler = GitHubMenuHandler()
-        
-        # הוסף פקודת github
-        self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
-        
-        # הגדר conversation handler להעלאת קבצים
-        from github_menu_handler import FILE_UPLOAD, REPO_SELECT, FOLDER_SELECT
-        upload_conv_handler = ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(github_handler.handle_menu_callback, pattern='^upload_file$')
-            ],
-            states={
-                FILE_UPLOAD: [
-                    MessageHandler(filters.Document.ALL, github_handler.handle_file_upload)
-                ],
-                REPO_SELECT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
-                ],
-                FOLDER_SELECT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
-                ]
-            },
-            fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)]
-        )
-        
-        self.application.add_handler(upload_conv_handler)
-        
-        # הוסף callback handler כללי לתפריט GitHub
-        self.application.add_handler(CallbackQueryHandler(github_handler.handle_menu_callback))
-        
-        logger.info("✅ GitHub handler נוסף בהצלחה")
     
     # start_command הוסר - ConversationHandler מטפל בפקודת /start
     
