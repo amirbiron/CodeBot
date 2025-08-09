@@ -3,6 +3,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
 from typing import Dict, Any
+import base64
+import logging
+
+# הגדרת לוגר
+logger = logging.getLogger(__name__)
 
 # מצבי שיחה
 REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
@@ -350,6 +355,20 @@ class GitHubMenuHandler:
             
             await update.callback_query.edit_message_text("⏳ מעלה קובץ ל-GitHub...")
             
+            # לוג פרטי הקובץ
+            logger.info(f"📄 מעלה קובץ שמור: {file_data['file_name']}")
+            
+            # קודד את התוכן ל-base64
+            content = file_data['content']
+            if isinstance(content, str):
+                # אם התוכן כבר מחרוזת, קודד אותו
+                encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+            else:
+                # אם התוכן בינארי
+                encoded_content = base64.b64encode(content).decode('utf-8')
+            
+            logger.info(f"✅ קודד ל-base64, גודל מקודד: {len(encoded_content)} chars")
+            
             # התחבר ל-GitHub
             from github import Github
             g = Github(session['github_token'])
@@ -358,6 +377,7 @@ class GitHubMenuHandler:
             # הגדר נתיב הקובץ
             folder = session.get('selected_folder', 'uploads')
             file_path = f"{folder}/{file_data['file_name']}"
+            logger.info(f"📁 נתיב יעד: {file_path}")
             
             # נסה להעלות או לעדכן את הקובץ
             try:
@@ -365,17 +385,19 @@ class GitHubMenuHandler:
                 result = repo.update_file(
                     path=file_path,
                     message=f"Update {file_data['file_name']} via Telegram bot",
-                    content=file_data['content'],
+                    content=encoded_content,  # שימוש בתוכן מקודד
                     sha=existing.sha
                 )
                 action = "עודכן"
+                logger.info(f"✅ קובץ עודכן בהצלחה")
             except:
                 result = repo.create_file(
                     path=file_path,
                     message=f"Upload {file_data['file_name']} via Telegram bot",
-                    content=file_data['content']
+                    content=encoded_content  # שימוש בתוכן מקודד
                 )
                 action = "הועלה"
+                logger.info(f"✅ קובץ נוצר בהצלחה")
             
             raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
             
@@ -388,8 +410,10 @@ class GitHubMenuHandler:
             )
             
         except Exception as e:
+            logger.error(f"❌ שגיאה בהעלאת קובץ שמור: {str(e)}", exc_info=True)
             await update.callback_query.edit_message_text(
-                f"❌ שגיאה בהעלאה:\n{str(e)}"
+                f"❌ שגיאה בהעלאה:\n{str(e)}\n\n"
+                f"פרטים נוספים נשמרו בלוג."
             )
     
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -411,29 +435,40 @@ class GitHubMenuHandler:
                 file_data = await file.download_as_bytearray()
                 filename = update.message.document.file_name
                 
+                # לוג גודל וסוג הקובץ
+                file_size = len(file_data)
+                logger.info(f"📄 מעלה קובץ: {filename}, גודל: {file_size} bytes")
+                
+                # קודד ל-base64
+                encoded_content = base64.b64encode(file_data).decode('utf-8')
+                logger.info(f"✅ קודד ל-base64, גודל מקודד: {len(encoded_content)} chars")
+                
                 token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
                 
                 g = Github(token)
                 repo = g.get_repo(session['selected_repo'])
                 
                 file_path = f"{session.get('selected_folder', 'uploads')}/{filename}"
+                logger.info(f"📁 נתיב יעד: {file_path}")
                 
                 try:
                     existing = repo.get_contents(file_path)
                     result = repo.update_file(
                         path=file_path,
                         message=f"Update {filename} via Telegram bot",
-                        content=file_data,
+                        content=encoded_content,  # שימוש בתוכן מקודד
                         sha=existing.sha
                     )
                     action = "עודכן"
+                    logger.info(f"✅ קובץ עודכן בהצלחה")
                 except:
                     result = repo.create_file(
                         path=file_path,
                         message=f"Upload {filename} via Telegram bot",
-                        content=file_data
+                        content=encoded_content  # שימוש בתוכן מקודד
                     )
                     action = "הועלה"
+                    logger.info(f"✅ קובץ נוצר בהצלחה")
                 
                 raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
                 
@@ -446,8 +481,10 @@ class GitHubMenuHandler:
                 )
                 
             except Exception as e:
+                logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
                 await update.message.reply_text(
-                    f"❌ שגיאה בהעלאה:\n{str(e)}"
+                    f"❌ שגיאה בהעלאה:\n{str(e)}\n\n"
+                    f"פרטים נוספים נשמרו בלוג."
                 )
         else:
             await update.message.reply_text("⚠️ שלח קובץ להעלאה")
