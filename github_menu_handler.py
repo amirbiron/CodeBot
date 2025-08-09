@@ -114,9 +114,6 @@ class GitHubMenuHandler:
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if 'selected_repo' in session:
             keyboard.append([
-                InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")
-            ])
-            keyboard.append([
                 InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")
             ])
             keyboard.append([
