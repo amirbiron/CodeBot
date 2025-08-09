@@ -219,6 +219,12 @@ class CodeKeeperBot:
         )
         logger.info("✅ GitHub token handler נוסף בהצלחה")
 
+        # --- Repository Analyzer Handler ---
+        from repo_analyzer_handler import repo_analyzer_handler
+        repo_analyzer_conv_handler = repo_analyzer_handler.get_conversation_handler()
+        self.application.add_handler(repo_analyzer_conv_handler)
+        logger.info("✅ Repository Analyzer handler נוסף בהצלחה")
+
         # --- רק אחרי כל ה-handlers של GitHub, הוסף את ה-handler הגלובלי ---
         # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
         from conversation_handlers import handle_callback_query
