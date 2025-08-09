@@ -3,7 +3,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
 from typing import Dict, Any
-import base64
 import logging
 import time
 import asyncio
@@ -482,7 +481,7 @@ class GitHubMenuHandler:
             # לוג פרטי הקובץ
             logger.info(f"📄 מעלה קובץ שמור: {file_data['file_name']}")
             
-            # קודד את התוכן ל-base64
+            # קבל את התוכן מהקובץ השמור
             # בדוק כמה אפשרויות לשדה content
             content = file_data.get('content') or \
                      file_data.get('code') or \
@@ -493,14 +492,11 @@ class GitHubMenuHandler:
                 await update.callback_query.edit_message_text("❌ תוכן הקובץ ריק או לא נמצא")
                 return
                 
-            if isinstance(content, str):
-                # אם התוכן כבר מחרוזת, קודד אותו
-                encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-            else:
-                # אם התוכן בינארי
-                encoded_content = base64.b64encode(content).decode('utf-8')
+            # PyGithub מקודד אוטומטית ל-base64, אז רק נוודא שהתוכן הוא string
+            if isinstance(content, bytes):
+                content = content.decode('utf-8')
             
-            logger.info(f"✅ קודד ל-base64, גודל מקודד: {len(encoded_content)} chars")
+            logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
             
             # התחבר ל-GitHub
             from github import Github
@@ -546,7 +542,7 @@ class GitHubMenuHandler:
                 result = repo.update_file(
                     path=file_path,
                     message=f"Update {file_data['file_name']} via Telegram bot",
-                    content=encoded_content,  # שימוש בתוכן מקודד
+                    content=content,  # PyGithub יקודד אוטומטית
                     sha=existing.sha
                 )
                 action = "עודכן"
@@ -556,7 +552,7 @@ class GitHubMenuHandler:
                 result = repo.create_file(
                     path=file_path,
                     message=f"Upload {file_data['file_name']} via Telegram bot",
-                    content=encoded_content  # שימוש בתוכן מקודד
+                    content=content  # PyGithub יקודד אוטומטית
                 )
                 action = "הועלה"
                 logger.info(f"[GitHub API] File created successfully: {file_path}")
@@ -611,9 +607,12 @@ class GitHubMenuHandler:
                 file_size = len(file_data)
                 logger.info(f"📄 מעלה קובץ: {filename}, גודל: {file_size} bytes")
                 
-                # קודד ל-base64
-                encoded_content = base64.b64encode(file_data).decode('utf-8')
-                logger.info(f"✅ קודד ל-base64, גודל מקודד: {len(encoded_content)} chars")
+                # PyGithub מקודד אוטומטית ל-base64, אז נמיר ל-string אם צריך
+                if isinstance(file_data, (bytes, bytearray)):
+                    content = file_data.decode('utf-8')
+                else:
+                    content = str(file_data)
+                logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
                 
                 token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
                 
@@ -657,7 +656,7 @@ class GitHubMenuHandler:
                     result = repo.update_file(
                         path=file_path,
                         message=f"Update {filename} via Telegram bot",
-                        content=encoded_content,  # שימוש בתוכן מקודד
+                        content=content,  # PyGithub יקודד אוטומטית
                         sha=existing.sha
                     )
                     action = "עודכן"
@@ -666,7 +665,7 @@ class GitHubMenuHandler:
                     result = repo.create_file(
                         path=file_path,
                         message=f"Upload {filename} via Telegram bot",
-                        content=encoded_content  # שימוש בתוכן מקודד
+                        content=content  # PyGithub יקודד אוטומטית
                     )
                     action = "הועלה"
                     logger.info(f"✅ קובץ נוצר בהצלחה")
