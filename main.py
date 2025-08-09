@@ -20,7 +20,7 @@ import atexit
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
 
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
@@ -125,11 +125,24 @@ class CodeKeeperBot:
         # יצירת persistence לשמירת נתונים בין הפעלות
         persistence = PicklePersistence(filepath=f"{DATA_DIR}/bot_data.pickle")
         
+        # פונקציה להגדרת פקודות בתפריט
+        async def post_init(application: Application) -> None:
+            """הגדרת פקודות בתפריט הבוט"""
+            await application.bot.set_my_commands([
+                BotCommand("start", "🏠 התחל שיחה עם הבוט"),
+                BotCommand("help", "📚 עזרה ורשימת פקודות"),
+                BotCommand("save", "💾 שמור קובץ קוד חדש"),
+                BotCommand("search", "🔍 חפש בקבצים שמורים"),
+                BotCommand("stats", "📊 סטטיסטיקות שימוש"),
+                BotCommand("github", "🔧 תפריט GitHub")
+            ])
+        
         self.application = (
             Application.builder()
             .token(config.BOT_TOKEN)
             .defaults(Defaults(parse_mode=ParseMode.HTML))
             .persistence(persistence)
+            .post_init(post_init)
             .build()
         )
         self.setup_handlers()
