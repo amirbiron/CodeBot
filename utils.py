@@ -782,3 +782,153 @@ def generate_summary_stats(files_data: List[Dict]) -> Dict[str, Any]:
         "most_used_tag": max(tag_counts, key=tag_counts.get) if tag_counts else None,
         "average_file_size": total_size // total_files if total_files > 0 else 0
     }
+
+def detect_language_from_filename(filename: str) -> str:
+    """זיהוי שפת תכנות לפי סיומת הקובץ"""
+    # מיפוי סיומות לשפות
+    extensions_map = {
+        # Python
+        '.py': 'python',
+        '.pyw': 'python',
+        '.pyx': 'python',
+        '.pyi': 'python',
+        
+        # JavaScript/TypeScript
+        '.js': 'javascript',
+        '.jsx': 'javascript',
+        '.ts': 'typescript',
+        '.tsx': 'typescript',
+        '.mjs': 'javascript',
+        
+        # Web
+        '.html': 'html',
+        '.htm': 'html',
+        '.css': 'css',
+        '.scss': 'scss',
+        '.sass': 'sass',
+        '.less': 'less',
+        
+        # Java/Kotlin
+        '.java': 'java',
+        '.kt': 'kotlin',
+        '.kts': 'kotlin',
+        
+        # C/C++
+        '.c': 'c',
+        '.h': 'c',
+        '.cpp': 'cpp',
+        '.cc': 'cpp',
+        '.cxx': 'cpp',
+        '.hpp': 'cpp',
+        '.hxx': 'cpp',
+        
+        # C#
+        '.cs': 'csharp',
+        
+        # Go
+        '.go': 'go',
+        
+        # Rust
+        '.rs': 'rust',
+        
+        # Ruby
+        '.rb': 'ruby',
+        '.rake': 'ruby',
+        
+        # PHP
+        '.php': 'php',
+        '.phtml': 'php',
+        
+        # Swift
+        '.swift': 'swift',
+        
+        # Shell
+        '.sh': 'bash',
+        '.bash': 'bash',
+        '.zsh': 'bash',
+        '.fish': 'bash',
+        
+        # SQL
+        '.sql': 'sql',
+        
+        # JSON/YAML/XML
+        '.json': 'json',
+        '.yaml': 'yaml',
+        '.yml': 'yaml',
+        '.xml': 'xml',
+        
+        # Markdown
+        '.md': 'markdown',
+        '.markdown': 'markdown',
+        
+        # Other
+        '.r': 'r',
+        '.lua': 'lua',
+        '.vim': 'vim',
+        '.dockerfile': 'dockerfile',
+        'Dockerfile': 'dockerfile',
+        '.makefile': 'makefile',
+        'Makefile': 'makefile',
+        '.cmake': 'cmake',
+        '.gradle': 'gradle',
+        '.properties': 'properties',
+        '.ini': 'ini',
+        '.toml': 'toml',
+        '.env': 'env',
+        '.gitignore': 'gitignore',
+        '.dockerignore': 'dockerignore'
+    }
+    
+    # בדיקת סיומת
+    filename_lower = filename.lower()
+    for ext, lang in extensions_map.items():
+        if filename_lower.endswith(ext.lower()) or filename_lower == ext.lower():
+            return lang
+    
+    # אם לא נמצאה התאמה, נחזיר 'text'
+    return 'text'
+
+def get_language_emoji(language: str) -> str:
+    """מחזיר אימוג'י מתאים לשפת התכנות"""
+    emoji_map = {
+        'python': '🐍',
+        'javascript': '🟨',
+        'typescript': '🔷',
+        'java': '☕',
+        'kotlin': '🟣',
+        'c': '🔵',
+        'cpp': '🔷',
+        'csharp': '🟦',
+        'go': '🐹',
+        'rust': '🦀',
+        'ruby': '💎',
+        'php': '🐘',
+        'swift': '🦉',
+        'bash': '🐚',
+        'sql': '🗄️',
+        'html': '🌐',
+        'css': '🎨',
+        'scss': '🎨',
+        'sass': '🎨',
+        'less': '🎨',
+        'json': '📋',
+        'yaml': '📄',
+        'xml': '📰',
+        'markdown': '📝',
+        'r': '📊',
+        'lua': '🌙',
+        'vim': '📝',
+        'dockerfile': '🐳',
+        'makefile': '🔧',
+        'cmake': '🔨',
+        'gradle': '🐘',
+        'properties': '⚙️',
+        'ini': '⚙️',
+        'toml': '⚙️',
+        'env': '🔐',
+        'gitignore': '🚫',
+        'dockerignore': '🚫',
+        'text': '📄'
+    }
+    
+    return emoji_map.get(language.lower(), '📄')

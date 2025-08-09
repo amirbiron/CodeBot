@@ -1,7 +1,7 @@
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pymongo
 from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel, MongoClient
@@ -32,6 +32,33 @@ class CodeSnippet:
         if self.updated_at is None:
             self.updated_at = datetime.now()
 
+@dataclass
+class LargeFile:
+    """מחלקה לייצוג קובץ גדול"""
+    user_id: int
+    file_name: str
+    content: str
+    programming_language: str
+    file_size: int  # גודל בבתים
+    lines_count: int  # מספר שורות
+    description: str = ""
+    tags: List[str] = None
+    created_at: datetime = None
+    updated_at: datetime = None
+    is_active: bool = True
+    
+    def __post_init__(self):
+        if self.tags is None:
+            self.tags = []
+        if self.created_at is None:
+            self.created_at = datetime.now()
+        if self.updated_at is None:
+            self.updated_at = datetime.now()
+        # חישוב אוטומטי של גודל ומספר שורות
+        if self.content:
+            self.file_size = len(self.content.encode('utf-8'))
+            self.lines_count = len(self.content.split('\n'))
+
 class DatabaseManager:
     """מנהל מסד הנתונים"""
     
@@ -47,6 +74,7 @@ class DatabaseManager:
             self.client = MongoClient(config.MONGODB_URL)
             self.db = self.client[config.DATABASE_NAME]
             self.collection = self.db.code_snippets
+            self.large_files_collection = self.db.large_files  # קולקשן חדש לקבצים גדולים
             
             # יצירת אינדקסים לחיפוש מהיר
             self._create_indexes()
@@ -69,8 +97,20 @@ class DatabaseManager:
             IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)])
         ]
         
+        # אינדקסים לקבצים גדולים
+        large_files_indexes = [
+            IndexModel([("user_id", ASCENDING)]),
+            IndexModel([("file_name", ASCENDING)]),
+            IndexModel([("programming_language", ASCENDING)]),
+            IndexModel([("created_at", DESCENDING)]),
+            IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),
+            IndexModel([("file_size", ASCENDING)]),
+            IndexModel([("lines_count", ASCENDING)])
+        ]
+        
         try:
             self.collection.create_indexes(indexes)
+            self.large_files_collection.create_indexes(large_files_indexes)
             logger.info("אינדקסים נוצרו בהצלחה")
         except Exception as e:
             logger.warning(f"שגיאה ביצירת אינדקסים: {e}")
@@ -311,6 +351,114 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error renaming file {old_name} to {new_name} for user {user_id}: {e}")
             return False
+
+    # פונקציות לניהול קבצים גדולים
+    def save_large_file(self, large_file: LargeFile) -> bool:
+        """שומר קובץ גדול במסד הנתונים"""
+        try:
+            # בדיקה אם קיים קובץ עם אותו שם
+            existing = self.get_large_file(large_file.user_id, large_file.file_name)
+            
+            if existing:
+                # מחיקת הגרסה הקודמת
+                self.delete_large_file(large_file.user_id, large_file.file_name)
+            
+            # שמירה במסד הנתונים
+            result = self.large_files_collection.insert_one(asdict(large_file))
+            
+            if result.inserted_id:
+                logger.info(f"קובץ גדול נשמר: {large_file.file_name} ({large_file.file_size} בתים)")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"שגיאה בשמירת קובץ גדול: {e}")
+            return False
+    
+    def get_large_file(self, user_id: int, file_name: str) -> Optional[Dict]:
+        """מחזיר קובץ גדול ספציפי"""
+        try:
+            return self.large_files_collection.find_one(
+                {"user_id": user_id, "file_name": file_name, "is_active": True}
+            )
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת קובץ גדול: {e}")
+            return None
+    
+    def get_large_file_by_id(self, file_id: str) -> Optional[Dict]:
+        """מחזיר קובץ גדול לפי ID"""
+        try:
+            from bson import ObjectId
+            return self.large_files_collection.find_one({"_id": ObjectId(file_id)})
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת קובץ גדול לפי ID: {e}")
+            return None
+    
+    def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict], int]:
+        """מחזיר רשימת קבצים גדולים של משתמש עם pagination"""
+        try:
+            # חישוב skip
+            skip = (page - 1) * per_page
+            
+            # ספירת סה"כ קבצים
+            total_count = self.large_files_collection.count_documents(
+                {"user_id": user_id, "is_active": True}
+            )
+            
+            # קבלת הקבצים לעמוד הנוכחי
+            files = list(self.large_files_collection.find(
+                {"user_id": user_id, "is_active": True},
+                sort=[("created_at", DESCENDING)]
+            ).skip(skip).limit(per_page))
+            
+            return files, total_count
+            
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת קבצים גדולים: {e}")
+            return [], 0
+    
+    def delete_large_file(self, user_id: int, file_name: str) -> bool:
+        """מוחק קובץ גדול"""
+        try:
+            result = self.large_files_collection.update_one(
+                {"user_id": user_id, "file_name": file_name},
+                {"$set": {"is_active": False, "updated_at": datetime.now()}}
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"קובץ גדול נמחק: {file_name}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"שגיאה במחיקת קובץ גדול: {e}")
+            return False
+    
+    def delete_large_file_by_id(self, file_id: str) -> bool:
+        """מוחק קובץ גדול לפי ID"""
+        try:
+            from bson import ObjectId
+            result = self.large_files_collection.delete_one({"_id": ObjectId(file_id)})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"שגיאה במחיקת קובץ גדול לפי ID: {e}")
+            return False
+    
+    def get_all_user_files_combined(self, user_id: int) -> Dict[str, List[Dict]]:
+        """מחזיר את כל הקבצים של משתמש - גם רגילים וגם גדולים"""
+        try:
+            regular_files = self.get_user_files(user_id, limit=100)
+            large_files, _ = self.get_user_large_files(user_id, page=1, per_page=100)
+            
+            return {
+                "regular_files": regular_files,
+                "large_files": large_files
+            }
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת כל הקבצים: {e}")
+            return {"regular_files": [], "large_files": []}
 
 # יצירת אינסטנס גלובלי
 db = DatabaseManager()
