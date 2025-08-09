@@ -76,6 +76,9 @@ class GitHubMenuHandler:
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
         
+        # סמן שאנחנו בתפריט GitHub
+        context.user_data['in_github_menu'] = True
+        
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {}
         
@@ -162,12 +165,20 @@ class GitHubMenuHandler:
                 )
             else:
                 folder_display = session.get('selected_folder') or 'root'
+                
+                # הוסף כפתור לבחירת קובץ
+                keyboard = [
+                    [InlineKeyboardButton("📎 בחר קובץ מהמכשיר", switch_inline_query_current_chat="")],
+                    [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
+                ]
+                
                 await query.edit_message_text(
                     f"📤 *העלאת קובץ לריפו:*\n"
                     f"`{session['selected_repo']}`\n"
                     f"📂 תיקייה: `{folder_display}`\n\n"
-                    f"שלח לי קובץ להעלאה:",
-                    parse_mode='Markdown'
+                    f"שלח לי קובץ להעלאה או לחץ לבחירה:",
+                    parse_mode='Markdown',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 return FILE_UPLOAD
         
@@ -182,7 +193,7 @@ class GitHubMenuHandler:
             file_id = query.data.split("_")[2]
             await self.handle_saved_file_upload(update, context, file_id)
             
-        elif query.data == "back_to_menu":
+        elif query.data == "back_to_menu" or query.data == "github_menu":
             await self.github_menu_command(update, context)
             
         elif query.data == "noop":
@@ -243,6 +254,8 @@ class GitHubMenuHandler:
                 await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", parse_mode='Markdown')
                 
         elif query.data == 'close_menu':
+            # סמן שיצאנו מתפריט GitHub
+            context.user_data['in_github_menu'] = False
             await query.edit_message_text("👋 התפריט נסגר")
             
         elif query.data.startswith('repo_'):

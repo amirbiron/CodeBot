@@ -232,8 +232,17 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         
         # --- שלב 3: רישום handler לקבצים ---
+        # Handler מותאם שבודק אם אנחנו בתפריט GitHub
+        async def smart_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if context.user_data.get('in_github_menu'):
+                # אנחנו בתפריט GitHub - העבר ל-handler של GitHub
+                await github_handler.handle_file_upload(update, context)
+            else:
+                # תפריט רגיל - שמור מקומית
+                await self.handle_document(update, context)
+        
         self.application.add_handler(
-            MessageHandler(filters.Document.ALL, self.handle_document)
+            MessageHandler(filters.Document.ALL, smart_document_handler)
         )
         
         # --- שלב 4: רישום המטפל הכללי בסוף ---
@@ -249,6 +258,9 @@ class CodeKeeperBot:
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         response = """
 📚 <b>רשימת הפקודות המלאה:</b>
@@ -280,6 +292,9 @@ class CodeKeeperBot:
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
@@ -360,6 +375,9 @@ class CodeKeeperBot:
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
@@ -415,6 +433,9 @@ class CodeKeeperBot:
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
@@ -452,6 +473,11 @@ class CodeKeeperBot:
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בקבצים שנשלחים לבוט"""
         try:
+            # בדוק אם אנחנו בתפריט GitHub
+            if context.user_data.get('in_github_menu'):
+                # אנחנו בתפריט GitHub - תן ל-handler של GitHub לטפל בזה
+                return
+            
             document = update.message.document
             user_id = update.effective_user.id
             
