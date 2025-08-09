@@ -151,6 +151,7 @@ nano .env
 ```env
 BOT_TOKEN=your_bot_token_here
 MONGODB_URL=mongodb://localhost:27017/code_keeper_bot
+ADMIN_IDS=123456789,987654321  # אופציונלי - רשימת Telegram IDs של מנהלים
 ```
 
 ### 4. הגדרות אינטגרציה (אופציונלי)
@@ -389,6 +390,11 @@ if __name__ == "__main__":
 | `/analyze` | ניתוח מתקדם | `/analyze script.py` |
 | `/validate` | בדיקת תחביר | `/validate script.py` |
 | `/minify` | דחיסת קוד | `/minify script.js` |
+
+### פקודות מנהל
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/stats admin` | סטטיסטיקות שימוש בבוט | `/stats admin` |
 
 ## 🔍 דוגמאות שימוש
 

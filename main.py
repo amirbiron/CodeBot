@@ -20,7 +20,7 @@ import atexit
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
 
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
@@ -36,6 +36,7 @@ from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
+from user_statistics import user_stats
 
 # (Lock mechanism constants removed)
 
@@ -124,11 +125,24 @@ class CodeKeeperBot:
         # יצירת persistence לשמירת נתונים בין הפעלות
         persistence = PicklePersistence(filepath=f"{DATA_DIR}/bot_data.pickle")
         
+        # פונקציה להגדרת פקודות בתפריט
+        async def post_init(application: Application) -> None:
+            """הגדרת פקודות בתפריט הבוט"""
+            # פקודות לכל המשתמשים
+            await application.bot.set_my_commands([
+                BotCommand("start", "🏠 התחל שיחה עם הבוט"),
+                BotCommand("help", "📚 עזרה ורשימת פקודות"),
+                BotCommand("save", "💾 שמור קובץ קוד חדש"),
+                BotCommand("search", "🔍 חפש בקבצים שמורים"),
+                BotCommand("github", "🔧 תפריט GitHub")
+            ])
+        
         self.application = (
             Application.builder()
             .token(config.BOT_TOKEN)
             .defaults(Defaults(parse_mode=ParseMode.HTML))
             .persistence(persistence)
+            .post_init(post_init)
             .build()
         )
         self.setup_handlers()
@@ -232,8 +246,17 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         
         # --- שלב 3: רישום handler לקבצים ---
+        # Handler מותאם שבודק אם אנחנו בתפריט GitHub
+        async def smart_document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            if context.user_data.get('in_github_menu'):
+                # אנחנו בתפריט GitHub - העבר ל-handler של GitHub
+                await github_handler.handle_file_upload(update, context)
+            else:
+                # תפריט רגיל - שמור מקומית
+                await self.handle_document(update, context)
+        
         self.application.add_handler(
-            MessageHandler(filters.Document.ALL, self.handle_document)
+            MessageHandler(filters.Document.ALL, smart_document_handler)
         )
         
         # --- שלב 4: רישום המטפל הכללי בסוף ---
@@ -249,7 +272,13 @@ class CodeKeeperBot:
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(update.effective_user.id, update.effective_user.username, "help_command")
         response = """
 📚 <b>רשימת הפקודות המלאה:</b>
 
@@ -280,8 +309,14 @@ class CodeKeeperBot:
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(user_id, update.effective_user.username, "save_command")
         
         if not context.args:
             await update.message.reply_text(
@@ -360,8 +395,14 @@ class CodeKeeperBot:
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(user_id, update.effective_user.username, "search_command")
         
         if not context.args:
             await update.message.reply_text(
@@ -415,9 +456,25 @@ class CodeKeeperBot:
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש"""
+        # איפוס flag של תפריט GitHub
+        context.user_data['in_github_menu'] = False
+        
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(user_id, update.effective_user.username, "stats_command")
+        
+        # בדוק אם המשתמש הוא אדמין
+        ADMIN_IDS = [config.ADMIN_IDS] if hasattr(config, 'ADMIN_IDS') and isinstance(config.ADMIN_IDS, int) else getattr(config, 'ADMIN_IDS', [])
+        
+        # אם המשתמש הוא אדמין והוא כתב /stats admin, הצג סטטיסטיקות מערכת
+        if user_id in ADMIN_IDS and context.args and context.args[0] == "admin":
+            report = user_stats.format_weekly_report()
+            await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+            return
+        
+        # אחרת, הצג סטטיסטיקות אישיות
         stats = db.get_user_stats(user_id)
         
         if not stats or stats.get('total_files', 0) == 0:
@@ -452,8 +509,16 @@ class CodeKeeperBot:
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בקבצים שנשלחים לבוט"""
         try:
+            # בדוק אם אנחנו בתפריט GitHub
+            if context.user_data.get('in_github_menu'):
+                # אנחנו בתפריט GitHub - תן ל-handler של GitHub לטפל בזה
+                return
+            
             document = update.message.document
             user_id = update.effective_user.id
+            
+            # רישום פעילות משתמש
+            user_stats.log_user_activity(user_id, update.effective_user.username, "upload_file")
             
             # בדיקת גודל הקובץ (עד 10MB)
             if document.file_size > 10 * 1024 * 1024:
@@ -742,11 +807,19 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(update.effective_user.id, update.effective_user.username, "start_command")
+        
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text("👋 שלום! הבוט מוכן לשימוש.", reply_markup=reply_markup)
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
+        
+        # רישום פעילות משתמש
+        user_stats.log_user_activity(update.effective_user.id, update.effective_user.username, "help_command")
+        
         await update.message.reply_text("ℹ️ השתמש ב/start כדי להתחיל.")
 
     application.add_handler(CommandHandler("start", start_command))
