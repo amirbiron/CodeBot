@@ -6,6 +6,9 @@ from typing import Dict, Any
 import logging
 import time
 import asyncio
+import json
+from repo_analyzer import RepoAnalyzer
+from datetime import datetime
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -120,6 +123,10 @@ class GitHubMenuHandler:
                 InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")
             ])
         
+        # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
+        if session.get('github_token'):
+            keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
+        
         # כפתור הצגת הגדרות
         keyboard.append([InlineKeyboardButton("📋 הצג הגדרות נוכחיות", callback_data="show_current")])
         
@@ -200,6 +207,34 @@ class GitHubMenuHandler:
         elif query.data == "noop":
             await query.answer()  # לא עושה כלום, רק לכפתור התצוגה
                 
+        elif query.data == 'analyze_repo':
+            await self.show_analyze_repo_menu(update, context)
+        
+        elif query.data == 'analyze_current_repo':
+            # נתח את הריפו הנבחר
+            session = self.get_user_session(query.from_user.id)
+            repo_url = f"https://github.com/{session['selected_repo']}"
+            await self.analyze_repository(update, context, repo_url)
+        
+        elif query.data == 'analyze_other_repo':
+            await self.request_repo_url(update, context)
+        
+        elif query.data == 'show_suggestions':
+            await self.show_improvement_suggestions(update, context)
+        
+        elif query.data == 'show_full_analysis':
+            await self.show_full_analysis(update, context)
+        
+        elif query.data == 'download_analysis_json':
+            await self.download_analysis_json(update, context)
+        
+        elif query.data == 'back_to_analysis':
+            await self.show_analyze_results_menu(update, context)
+        
+        elif query.data.startswith('suggestion_'):
+            suggestion_index = int(query.data.split('_')[1])
+            await self.show_suggestion_details(update, context, suggestion_index)
+            
         elif query.data == 'show_current':
             current_repo = session.get('selected_repo', 'לא נבחר')
             current_folder = session.get('selected_folder') or 'root'
@@ -758,6 +793,12 @@ class GitHubMenuHandler:
         session = self.get_user_session(user_id)
         text = update.message.text
         
+        # בדוק אם מחכים ל-URL לניתוח
+        if context.user_data.get('waiting_for_repo_url'):
+            handled = await self.handle_repo_url_input(update, context)
+            if handled:
+                return ConversationHandler.END
+        
         if text.startswith('ghp_') or text.startswith('github_pat_'):
             session['github_token'] = text
             
@@ -802,3 +843,433 @@ class GitHubMenuHandler:
             await asyncio.sleep(1.5)
             await self.github_menu_command(update, context)
             return ConversationHandler.END
+
+    async def show_analyze_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט לניתוח ריפו"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        
+        # בדוק אם יש ריפו נבחר
+        if session.get('selected_repo'):
+            # אם יש ריפו נבחר, הצע לנתח אותו או לבחור אחר
+            keyboard = [
+                [InlineKeyboardButton(f"📊 נתח את {session['selected_repo']}", callback_data="analyze_current_repo")],
+                [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
+                [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
+            ]
+            
+            await query.edit_message_text(
+                "🔍 *ניתוח ריפוזיטורי*\n\n"
+                "בחר אפשרות:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+        else:
+            # אם אין ריפו נבחר, בקש URL
+            await self.request_repo_url(update, context)
+    
+    async def request_repo_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מבקש URL של ריפו לניתוח"""
+        query = update.callback_query if update.callback_query else None
+        
+        keyboard = [
+            [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
+        ]
+        
+        message_text = (
+            "🔍 *ניתוח ריפוזיטורי*\n\n"
+            "שלח URL של ריפו ציבורי ב-GitHub:\n"
+            "לדוגמה: `https://github.com/owner/repo`\n\n"
+            "💡 הריפו חייב להיות ציבורי או שיש לך גישה אליו עם הטוקן"
+        )
+        
+        if query:
+            await query.edit_message_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                message_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+        
+        # סמן שאנחנו מחכים ל-URL
+        context.user_data['waiting_for_repo_url'] = True
+    
+    async def analyze_repository(self, update: Update, context: ContextTypes.DEFAULT_TYPE, repo_url: str):
+        """מנתח ריפוזיטורי ומציג תוצאות"""
+        query = update.callback_query if update.callback_query else None
+        user_id = update.effective_user.id
+        session = self.get_user_session(user_id)
+        
+        # הצג הודעת המתנה
+        status_message = await self._send_or_edit_message(
+            update, 
+            "🔍 מנתח את הריפו...\nזה עשוי לקחת מספר שניות..."
+        )
+        
+        try:
+            # צור מנתח עם הטוקן
+            analyzer = RepoAnalyzer(github_token=session.get('github_token'))
+            
+            # נתח את הריפו
+            analysis = await analyzer.fetch_and_analyze_repo(repo_url)
+            
+            # שמור את הניתוח ב-session
+            session['last_analysis'] = analysis
+            session['last_analyzed_repo'] = repo_url
+            
+            # צור סיכום
+            summary = self._create_analysis_summary(analysis)
+            
+            # צור כפתורים
+            keyboard = [
+                [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
+                [InlineKeyboardButton("📋 פרטים מלאים", callback_data="show_full_analysis")],
+                [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
+                [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
+                [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
+            ]
+            
+            # עדכן את ההודעה עם התוצאות
+            await status_message.edit_text(
+                summary,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            logger.error(f"Error analyzing repository: {e}")
+            error_message = f"❌ שגיאה בניתוח הריפו:\n{str(e)}"
+            
+            keyboard = [
+                [InlineKeyboardButton("🔍 נסה ריפו אחר", callback_data="analyze_other_repo")],
+                [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
+            ]
+            
+            await status_message.edit_text(
+                error_message,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+    
+    def _create_analysis_summary(self, analysis: Dict[str, Any]) -> str:
+        """יוצר סיכום של הניתוח"""
+        summary = f"📊 *ניתוח הריפו {analysis['repo_name']}*\n\n"
+        
+        # סטטוס קבצים בסיסיים
+        summary += "*קבצים בסיסיים:*\n"
+        summary += "✅ README\n" if analysis['has_readme'] else "❌ חסר README\n"
+        summary += "✅ LICENSE\n" if analysis['has_license'] else "❌ חסר LICENSE\n"
+        summary += "✅ .gitignore\n" if analysis['has_gitignore'] else "❌ חסר .gitignore\n"
+        
+        # מידע על הפרויקט
+        summary += f"\n*מידע כללי:*\n"
+        if analysis.get('language'):
+            summary += f"🔤 שפה עיקרית: {analysis['language']}\n"
+        summary += f"📁 {analysis['file_count']} קבצי קוד\n"
+        
+        # קבצים לפי סוג
+        if analysis['files_by_type']:
+            top_types = sorted(analysis['files_by_type'].items(), key=lambda x: x[1], reverse=True)[:3]
+            for ext, count in top_types:
+                summary += f"   • {count} קבצי {ext}\n"
+        
+        # תלויות
+        if analysis['dependencies']:
+            summary += f"📦 {len(analysis['dependencies'])} תלויות\n"
+        
+        # בעיות פוטנציאליות
+        if analysis['large_files']:
+            summary += f"⚠️ {len(analysis['large_files'])} קבצים גדולים\n"
+        if analysis['long_functions']:
+            summary += f"⚠️ {len(analysis['long_functions'])} פונקציות ארוכות\n"
+        
+        # ציון איכות
+        quality_score = analysis.get('quality_score', 0)
+        if quality_score >= 80:
+            emoji = "🌟"
+            text = "מצוין"
+        elif quality_score >= 60:
+            emoji = "✨"
+            text = "טוב"
+        elif quality_score >= 40:
+            emoji = "⭐"
+            text = "בינוני"
+        else:
+            emoji = "💫"
+            text = "דורש שיפור"
+        
+        summary += f"\n*ציון איכות: {emoji} {quality_score}/100 ({text})*"
+        
+        return summary
+    
+    async def show_improvement_suggestions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג הצעות לשיפור"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        
+        if not session.get('last_analysis'):
+            await query.edit_message_text(
+                "❌ לא נמצא ניתוח. נתח ריפו קודם.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")],
+                    [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
+                ])
+            )
+            return
+        
+        # צור הצעות לשיפור
+        analyzer = RepoAnalyzer()
+        suggestions = analyzer.generate_improvement_suggestions(session['last_analysis'])
+        
+        if not suggestions:
+            await query.edit_message_text(
+                "🎉 מעולה! לא נמצאו הצעות לשיפור משמעותיות.\n"
+                "הפרויקט נראה מצוין!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")],
+                    [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="github_menu")]
+                ])
+            )
+            return
+        
+        # שמור הצעות ב-session
+        session['suggestions'] = suggestions
+        
+        # צור כפתורים להצעות (מקסימום 8 הצעות)
+        keyboard = []
+        for i, suggestion in enumerate(suggestions[:8]):
+            impact_emoji = "🔴" if suggestion['impact'] == 'high' else "🟡" if suggestion['impact'] == 'medium' else "🟢"
+            button_text = f"{impact_emoji} {suggestion['title']}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"suggestion_{i}")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")])
+        
+        message = f"💡 *הצעות לשיפור לריפו {session['last_analysis']['repo_name']}*\n\n"
+        message += f"נמצאו {len(suggestions)} הצעות לשיפור.\n"
+        message += "בחר הצעה לפרטים נוספים:\n\n"
+        message += "🔴 = השפעה גבוהה | 🟡 = בינונית | 🟢 = נמוכה"
+        
+        await query.edit_message_text(
+            message,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    async def show_suggestion_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE, suggestion_index: int):
+        """מציג פרטי הצעה ספציפית"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        
+        suggestions = session.get('suggestions', [])
+        if suggestion_index >= len(suggestions):
+            await query.answer("❌ הצעה לא נמצאה", show_alert=True)
+            return
+        
+        suggestion = suggestions[suggestion_index]
+        
+        # מיפוי השפעה ומאמץ לעברית
+        impact_map = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
+        effort_map = {'high': 'גבוה', 'medium': 'בינוני', 'low': 'נמוך'}
+        
+        message = f"*{suggestion['title']}*\n\n"
+        message += f"❓ *למה:* {suggestion['why']}\n\n"
+        message += f"💡 *איך:* {suggestion['how']}\n\n"
+        message += f"📊 *השפעה:* {impact_map.get(suggestion['impact'], suggestion['impact'])}\n"
+        message += f"⚡ *מאמץ:* {effort_map.get(suggestion['effort'], suggestion['effort'])}\n"
+        
+        keyboard = []
+        
+        # הוסף כפתור למידע נוסף בהתאם לקטגוריה
+        if suggestion['id'] == 'add_license':
+            keyboard.append([InlineKeyboardButton("📚 מידע על רישיונות", url="https://choosealicense.com/")])
+        elif suggestion['id'] == 'add_gitignore':
+            keyboard.append([InlineKeyboardButton("📚 יצירת .gitignore", url="https://gitignore.io/")])
+        elif suggestion['id'] == 'add_ci_cd':
+            keyboard.append([InlineKeyboardButton("📚 GitHub Actions", url="https://docs.github.com/en/actions")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 חזור להצעות", callback_data="show_suggestions")])
+        
+        await query.edit_message_text(
+            message,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    async def show_full_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג ניתוח מלא"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        
+        analysis = session.get('last_analysis')
+        if not analysis:
+            await query.answer("❌ לא נמצא ניתוח", show_alert=True)
+            return
+        
+        # צור דוח מפורט
+        report = f"📊 *דוח מלא - {analysis['repo_name']}*\n\n"
+        
+        # מידע בסיסי
+        report += "*📌 מידע כללי:*\n"
+        report += f"• URL: {analysis['repo_url']}\n"
+        if analysis.get('description'):
+            report += f"• תיאור: {analysis['description']}\n"
+        report += f"• שפה: {analysis.get('language', 'לא זוהתה')}\n"
+        report += f"• כוכבים: ⭐ {analysis.get('stars', 0)}\n"
+        report += f"• Forks: 🍴 {analysis.get('forks', 0)}\n"
+        
+        # קבצים
+        report += f"\n*📁 קבצים:*\n"
+        report += f"• סה״כ קבצי קוד: {analysis['file_count']}\n"
+        if analysis['files_by_type']:
+            report += "• לפי סוג:\n"
+            for ext, count in sorted(analysis['files_by_type'].items(), key=lambda x: x[1], reverse=True):
+                report += f"  - {ext}: {count}\n"
+        
+        # בעיות
+        if analysis['large_files'] or analysis['long_functions']:
+            report += f"\n*⚠️ בעיות פוטנציאליות:*\n"
+            if analysis['large_files']:
+                report += f"• {len(analysis['large_files'])} קבצים גדולים (500+ שורות)\n"
+            if analysis['long_functions']:
+                report += f"• {len(analysis['long_functions'])} פונקציות ארוכות (50+ שורות)\n"
+        
+        # תלויות
+        if analysis['dependencies']:
+            report += f"\n*📦 תלויות ({len(analysis['dependencies'])}):*\n"
+            # הצג רק 10 הראשונות
+            for dep in analysis['dependencies'][:10]:
+                report += f"• {dep['name']} ({dep['type']})\n"
+            if len(analysis['dependencies']) > 10:
+                report += f"• ... ועוד {len(analysis['dependencies']) - 10}\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")],
+            [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="github_menu")]
+        ]
+        
+        # חלק את ההודעה אם היא ארוכה מדי
+        if len(report) > 4000:
+            report = report[:3900] + "\n\n... (קוצר לצורך תצוגה)"
+        
+        await query.edit_message_text(
+            report,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
+        )
+    
+    async def download_analysis_json(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """שולח קובץ JSON עם הניתוח המלא"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        
+        analysis = session.get('last_analysis')
+        if not analysis:
+            await query.answer("❌ לא נמצא ניתוח", show_alert=True)
+            return
+        
+        # הוסף גם את ההצעות לדוח
+        analyzer = RepoAnalyzer()
+        suggestions = analyzer.generate_improvement_suggestions(analysis)
+        
+        full_report = {
+            'analysis': analysis,
+            'suggestions': suggestions,
+            'generated_at': datetime.now().isoformat()
+        }
+        
+        # צור קובץ JSON
+        json_content = json.dumps(full_report, ensure_ascii=False, indent=2)
+        
+        # שלח כקובץ
+        import io
+        file = io.BytesIO(json_content.encode('utf-8'))
+        file.name = f"repo_analysis_{analysis['repo_name']}.json"
+        
+        await query.message.reply_document(
+            document=file,
+            filename=file.name,
+            caption=f"📊 דוח ניתוח מלא עבור {analysis['repo_name']}"
+        )
+        
+        # חזור לתפריט
+        await self.show_analyze_results_menu(update, context)
+    
+    async def show_analyze_results_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג מחדש את תפריט התוצאות"""
+        user_id = update.effective_user.id
+        session = self.get_user_session(user_id)
+        
+        analysis = session.get('last_analysis')
+        if not analysis:
+            return
+        
+        summary = self._create_analysis_summary(analysis)
+        
+        keyboard = [
+            [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
+            [InlineKeyboardButton("📋 פרטים מלאים", callback_data="show_full_analysis")],
+            [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
+            [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
+            [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
+        ]
+        
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                summary,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+        else:
+            await update.message.reply_text(
+                summary,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+    
+    async def _send_or_edit_message(self, update: Update, text: str, **kwargs):
+        """שולח או עורך הודעה בהתאם לסוג ה-update"""
+        if update.callback_query:
+            return await update.callback_query.edit_message_text(text, **kwargs)
+        else:
+            return await update.message.reply_text(text, **kwargs)
+    
+    async def handle_repo_url_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מטפל בקלט של URL לניתוח"""
+        if not context.user_data.get('waiting_for_repo_url'):
+            return False
+        
+        text = update.message.text
+        context.user_data['waiting_for_repo_url'] = False
+        
+        # בדוק אם זה URL של GitHub
+        if 'github.com' not in text:
+            await update.message.reply_text(
+                "❌ נא לשלוח URL תקין של GitHub\n"
+                "לדוגמה: https://github.com/owner/repo",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔍 נסה שוב", callback_data="analyze_other_repo")],
+                    [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
+                ])
+            )
+            return True
+        
+        # נתח את הריפו
+        await self.analyze_repository(update, context, text)
+        return True
