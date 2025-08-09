@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
 # כפתורי המקלדת הראשית
-MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"], ["📂 קבצים גדולים"], ["🔧 GitHub"], ["🔍 נתח ריפוזיטורי"]]
+MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"], ["📂 קבצים גדולים"], ["🔧 GitHub"]]
 
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
