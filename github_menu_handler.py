@@ -205,17 +205,19 @@ class GitHubMenuHandler:
             current_folder = session.get('selected_folder') or 'root'
             has_token = "✅" if session.get('github_token') else "❌"
             
-            keyboard = [[InlineKeyboardButton("🔙 חזרה לתפריט", callback_data="github_menu")]]
-            
             await query.edit_message_text(
                 f"📊 *הגדרות נוכחיות:*\n\n"
                 f"📁 ריפו: `{current_repo}`\n"
                 f"📂 תיקייה: `{current_folder}`\n"
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
-                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
-                parse_mode='Markdown',
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
+                f"⏳ חוזר לתפריט בעוד מספר שניות...",
+                parse_mode='Markdown'
             )
+            
+            # המתן 3 שניות ואז הצג את התפריט
+            await asyncio.sleep(3)
+            await self.github_menu_command(update, context)
             
         elif query.data == 'set_token':
             await query.edit_message_text(
