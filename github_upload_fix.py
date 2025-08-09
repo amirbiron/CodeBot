@@ -182,7 +182,7 @@ async def upload_to_github_fixed(update, context, status_message):
         keyboard = [
             [InlineKeyboardButton("👁 צפה בקובץ", url=file_url)],
             [InlineKeyboardButton("📤 העלה עוד", callback_data="github_upload_new")],
-            [InlineKeyboardButton("🔙 חזרה לתפריט", callback_data="github_menu")]
+            [InlineKeyboardButton("🔙 תפריט GitHub", callback_data="github_menu")]
         ]
         
         await status_message.edit_text(
