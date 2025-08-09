@@ -457,12 +457,34 @@ class CodeKeeperBot:
             await file.download_to_memory(file_bytes)
             file_bytes.seek(0)
             
-            try:
-                content = file_bytes.read().decode('utf-8')
-            except UnicodeDecodeError:
+            # ניסיון לקרוא את הקובץ בקידודים שונים
+            content = None
+            detected_encoding = None
+            encodings_to_try = ['utf-8', 'windows-1255', 'iso-8859-8', 'cp1255', 'utf-16', 'latin-1']
+            
+            # קרא את הבייטים
+            raw_bytes = file_bytes.read()
+            file_size_bytes = len(raw_bytes)
+            
+            # לוג פרטי הקובץ
+            logger.info(f"📄 קובץ נשלח: {document.file_name}, גודל: {file_size_bytes} bytes")
+            
+            # נסה קידודים שונים
+            for encoding in encodings_to_try:
+                try:
+                    content = raw_bytes.decode(encoding)
+                    detected_encoding = encoding
+                    logger.info(f"✅ הקובץ נקרא בהצלחה בקידוד: {encoding}")
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is None:
+                logger.error(f"❌ לא ניתן לקרוא את הקובץ באף קידוד: {encodings_to_try}")
                 await update.message.reply_text(
                     "❌ לא ניתן לקרוא את הקובץ!\n"
-                    "📝 אנא ודא שזהו קובץ טקסט/קוד"
+                    f"📝 ניסיתי את הקידודים: {', '.join(encodings_to_try)}\n"
+                    "💡 אנא ודא שזהו קובץ טקסט/קוד ולא קובץ בינארי"
                 )
                 return
             
@@ -501,6 +523,7 @@ class CodeKeeperBot:
                         f"✅ **הקובץ נשמר בהצלחה!**\n\n"
                         f"📄 **שם:** `{file_name}`\n"
                         f"{emoji} **שפה:** {language}\n"
+                        f"🔤 **קידוד:** {detected_encoding}\n"
                         f"💾 **גודל:** {len(content):,} תווים\n"
                         f"📏 **שורות:** {lines_count:,}\n\n"
                         "💡 הקובץ נשמר במערכת הקבצים הגדולים",
@@ -535,6 +558,7 @@ class CodeKeeperBot:
                         f"✅ **הקובץ נשמר בהצלחה!**\n\n"
                         f"📄 **שם:** `{file_name}`\n"
                         f"{emoji} **שפה:** {language}\n"
+                        f"🔤 **קידוד:** {detected_encoding}\n"
                         f"💾 **גודל:** {len(content)} תווים\n",
                         reply_markup=reply_markup,
                         parse_mode='Markdown'

@@ -3,6 +3,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
 from typing import Dict, Any
+import base64
+import logging
+
+# הגדרת לוגר
+logger = logging.getLogger(__name__)
 
 # מצבי שיחה
 REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
@@ -16,7 +21,7 @@ class GitHubMenuHandler:
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {
                 'selected_repo': None,
-                'selected_folder': 'uploads',
+                'selected_folder': None,  # None = root של הריפו
                 'github_token': None
             }
         return self.user_sessions[user_id]
@@ -40,8 +45,8 @@ class GitHubMenuHandler:
         
         if 'selected_repo' in session:
             status_msg += f"📁 ריפו: `{session['selected_repo']}`\n"
-            if 'selected_folder' in session:
-                status_msg += f"📂 תיקייה: `{session['selected_folder']}`\n"
+            folder_display = session.get('selected_folder') or 'root'
+            status_msg += f"📂 תיקייה: `{folder_display}`\n"
         else:
             status_msg += "❌ ריפו לא נבחר\n"
         
@@ -57,8 +62,13 @@ class GitHubMenuHandler:
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if 'selected_repo' in session:
             keyboard.append([
-                InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file"),
+                InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")
+            ])
+            keyboard.append([
                 InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")
+            ])
+            keyboard.append([
+                InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")
             ])
         
         # כפתור הצגת הגדרות
@@ -99,10 +109,11 @@ class GitHubMenuHandler:
                     "❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'"
                 )
             else:
+                folder_display = session.get('selected_folder') or 'root'
                 await query.edit_message_text(
                     f"📤 *העלאת קובץ לריפו:*\n"
                     f"`{session['selected_repo']}`\n"
-                    f"📂 תיקייה: `{session.get('selected_folder', 'uploads')}`\n\n"
+                    f"📂 תיקייה: `{folder_display}`\n\n"
                     f"שלח לי קובץ להעלאה:",
                     parse_mode='Markdown'
                 )
@@ -127,14 +138,15 @@ class GitHubMenuHandler:
                 
         elif query.data == 'show_current':
             current_repo = session.get('selected_repo', 'לא נבחר')
-            current_folder = session.get('selected_folder', 'uploads')
+            current_folder = session.get('selected_folder') or 'root'
             has_token = "✅" if session.get('github_token') else "❌"
             
             await query.edit_message_text(
                 f"📊 *הגדרות נוכחיות:*\n\n"
                 f"📁 ריפו: `{current_repo}`\n"
                 f"📂 תיקייה: `{current_folder}`\n"
-                f"🔑 טוקן מוגדר: {has_token}",
+                f"🔑 טוקן מוגדר: {has_token}\n\n"
+                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
                 parse_mode='Markdown'
             )
             
@@ -149,11 +161,12 @@ class GitHubMenuHandler:
             
         elif query.data == 'set_folder':
             keyboard = [
-                [InlineKeyboardButton("uploads", callback_data='folder_uploads')],
-                [InlineKeyboardButton("assets", callback_data='folder_assets')],
-                [InlineKeyboardButton("assets/images", callback_data='folder_assets_images')],
-                [InlineKeyboardButton("docs", callback_data='folder_docs')],
-                [InlineKeyboardButton("אחר (הקלד ידנית)", callback_data='folder_custom')]
+                [InlineKeyboardButton("📁 root (ראשי)", callback_data='folder_root')],
+                [InlineKeyboardButton("📂 src", callback_data='folder_src')],
+                [InlineKeyboardButton("📂 docs", callback_data='folder_docs')],
+                [InlineKeyboardButton("📂 assets", callback_data='folder_assets')],
+                [InlineKeyboardButton("📂 images", callback_data='folder_images')],
+                [InlineKeyboardButton("✏️ אחר (הקלד ידנית)", callback_data='folder_custom')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -165,8 +178,14 @@ class GitHubMenuHandler:
         elif query.data.startswith('folder_'):
             folder = query.data.replace('folder_', '')
             if folder == 'custom':
-                await query.edit_message_text("הקלד שם תיקייה:")
+                await query.edit_message_text(
+                    "✏️ הקלד שם תיקייה:\n"
+                    "(השאר ריק או הקלד / להעלאה ל-root)"
+                )
                 return FOLDER_SELECT
+            elif folder == 'root':
+                session['selected_folder'] = None
+                await query.edit_message_text("✅ תיקייה עודכנה ל: `root` (ראשי)", parse_mode='Markdown')
             else:
                 session['selected_folder'] = folder.replace('_', '/')
                 await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", parse_mode='Markdown')
@@ -350,14 +369,35 @@ class GitHubMenuHandler:
             
             await update.callback_query.edit_message_text("⏳ מעלה קובץ ל-GitHub...")
             
+            # לוג פרטי הקובץ
+            logger.info(f"📄 מעלה קובץ שמור: {file_data['file_name']}")
+            
+            # קודד את התוכן ל-base64
+            content = file_data['content']
+            if isinstance(content, str):
+                # אם התוכן כבר מחרוזת, קודד אותו
+                encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+            else:
+                # אם התוכן בינארי
+                encoded_content = base64.b64encode(content).decode('utf-8')
+            
+            logger.info(f"✅ קודד ל-base64, גודל מקודד: {len(encoded_content)} chars")
+            
             # התחבר ל-GitHub
             from github import Github
             g = Github(session['github_token'])
             repo = g.get_repo(session['selected_repo'])
             
             # הגדר נתיב הקובץ
-            folder = session.get('selected_folder', 'uploads')
-            file_path = f"{folder}/{file_data['file_name']}"
+            folder = session.get('selected_folder')
+            if folder and folder.strip():
+                # הסר / מיותרים
+                folder = folder.strip('/')
+                file_path = f"{folder}/{file_data['file_name']}"
+            else:
+                # העלה ל-root
+                file_path = file_data['file_name']
+            logger.info(f"📁 נתיב יעד: {file_path}")
             
             # נסה להעלות או לעדכן את הקובץ
             try:
@@ -365,17 +405,19 @@ class GitHubMenuHandler:
                 result = repo.update_file(
                     path=file_path,
                     message=f"Update {file_data['file_name']} via Telegram bot",
-                    content=file_data['content'],
+                    content=encoded_content,  # שימוש בתוכן מקודד
                     sha=existing.sha
                 )
                 action = "עודכן"
+                logger.info(f"✅ קובץ עודכן בהצלחה")
             except:
                 result = repo.create_file(
                     path=file_path,
                     message=f"Upload {file_data['file_name']} via Telegram bot",
-                    content=file_data['content']
+                    content=encoded_content  # שימוש בתוכן מקודד
                 )
                 action = "הועלה"
+                logger.info(f"✅ קובץ נוצר בהצלחה")
             
             raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
             
@@ -388,8 +430,10 @@ class GitHubMenuHandler:
             )
             
         except Exception as e:
+            logger.error(f"❌ שגיאה בהעלאת קובץ שמור: {str(e)}", exc_info=True)
             await update.callback_query.edit_message_text(
-                f"❌ שגיאה בהעלאה:\n{str(e)}"
+                f"❌ שגיאה בהעלאה:\n{str(e)}\n\n"
+                f"פרטים נוספים נשמרו בלוג."
             )
     
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -411,29 +455,48 @@ class GitHubMenuHandler:
                 file_data = await file.download_as_bytearray()
                 filename = update.message.document.file_name
                 
+                # לוג גודל וסוג הקובץ
+                file_size = len(file_data)
+                logger.info(f"📄 מעלה קובץ: {filename}, גודל: {file_size} bytes")
+                
+                # קודד ל-base64
+                encoded_content = base64.b64encode(file_data).decode('utf-8')
+                logger.info(f"✅ קודד ל-base64, גודל מקודד: {len(encoded_content)} chars")
+                
                 token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
                 
                 g = Github(token)
                 repo = g.get_repo(session['selected_repo'])
                 
-                file_path = f"{session.get('selected_folder', 'uploads')}/{filename}"
+                # בניית נתיב הקובץ
+                folder = session.get('selected_folder')
+                if folder and folder.strip():
+                    # הסר / מיותרים
+                    folder = folder.strip('/')
+                    file_path = f"{folder}/{filename}"
+                else:
+                    # העלה ל-root
+                    file_path = filename
+                logger.info(f"📁 נתיב יעד: {file_path}")
                 
                 try:
                     existing = repo.get_contents(file_path)
                     result = repo.update_file(
                         path=file_path,
                         message=f"Update {filename} via Telegram bot",
-                        content=file_data,
+                        content=encoded_content,  # שימוש בתוכן מקודד
                         sha=existing.sha
                     )
                     action = "עודכן"
+                    logger.info(f"✅ קובץ עודכן בהצלחה")
                 except:
                     result = repo.create_file(
                         path=file_path,
                         message=f"Upload {filename} via Telegram bot",
-                        content=file_data
+                        content=encoded_content  # שימוש בתוכן מקודד
                     )
                     action = "הועלה"
+                    logger.info(f"✅ קובץ נוצר בהצלחה")
                 
                 raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
                 
@@ -446,8 +509,10 @@ class GitHubMenuHandler:
                 )
                 
             except Exception as e:
+                logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
                 await update.message.reply_text(
-                    f"❌ שגיאה בהעלאה:\n{str(e)}"
+                    f"❌ שגיאה בהעלאה:\n{str(e)}\n\n"
+                    f"פרטים נוספים נשמרו בלוג."
                 )
         else:
             await update.message.reply_text("⚠️ שלח קובץ להעלאה")
@@ -477,9 +542,19 @@ class GitHubMenuHandler:
             return ConversationHandler.END
         
         else:
-            session['selected_folder'] = text
-            await update.message.reply_text(
-                f"✅ תיקייה הוגדרה: `{text}`",
-                parse_mode='Markdown'
-            )
+            # טיפול בהגדרת תיקייה
+            if text.strip() in ['/', '']:
+                session['selected_folder'] = None
+                await update.message.reply_text(
+                    "✅ תיקייה הוגדרה: `root` (ראשי)",
+                    parse_mode='Markdown'
+                )
+            else:
+                # הסר / מיותרים
+                folder = text.strip().strip('/')
+                session['selected_folder'] = folder
+                await update.message.reply_text(
+                    f"✅ תיקייה הוגדרה: `{folder}`",
+                    parse_mode='Markdown'
+                )
             return ConversationHandler.END
