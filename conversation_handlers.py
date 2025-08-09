@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
 # כפתורי המקלדת הראשית
-MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"], ["📂 קבצים גדולים"]]
+MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"], ["📂 קבצים גדולים"], ["🔧 GitHub"]]
 
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
@@ -38,9 +38,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     welcome_text = (
         f"🤖 שלום {user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
         "🔹 שמור ונהל קטעי קוד בחכמה\n"
-        "🔹 עריכה מתקדמת עם גרסאות\n"
+        "🔹 עריכה מתקדמת עם גרסאות (בפיתוח)\n"
         "🔹 חיפוש והצגה חכמה\n"
-        "🔹 הורדה וניהול מלא\n\n"
+        "🔹 הורדה וניהול מלא\n"
+        "🔹 העלאת קבצים ל-GitHub\n\n"
         "בחר פעולה מהכפתורים החכמים למטה:"
     )
     
@@ -120,6 +121,14 @@ async def show_large_files_direct(update: Update, context: ContextTypes.DEFAULT_
     """הצגת קבצים גדולים ישירות מהתפריט הראשי"""
     from large_files_handler import large_files_handler
     await large_files_handler.show_large_files_menu(update, context)
+    reporter.report_activity(update.effective_user.id)
+    return ConversationHandler.END
+
+async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """הצגת תפריט GitHub"""
+    from github_menu_handler import GitHubMenuHandler
+    github_handler = GitHubMenuHandler()
+    await github_handler.github_menu_command(update, context)
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
@@ -1329,6 +1338,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^➕ הוסף קוד חדש$"), start_save_flow),
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
             MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
+            MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
         ],
         states={
             GET_CODE: [
