@@ -20,7 +20,7 @@ import atexit
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
 
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
@@ -36,6 +36,7 @@ from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
+from user_stats import user_stats
 
 # (Lock mechanism constants removed)
 
@@ -58,11 +59,20 @@ logging.getLogger("httpx").setLevel(logging.ERROR)  # רק שגיאות קריט
 logging.getLogger("telegram.ext.Updater").setLevel(logging.ERROR)
 logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
 
+# יצירת אובייקט reporter גלובלי
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
     service_id="srv-d29d72adbo4c73bcuep0",
     service_name="CodeBot"
 )
+
+async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """רישום פעילות משתמש"""
+    if update.effective_user:
+        user_stats.log_user(
+            update.effective_user.id,
+            update.effective_user.username
+        )
 
 # =============================================================================
 # MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
@@ -129,6 +139,7 @@ class CodeKeeperBot:
             .token(config.BOT_TOKEN)
             .defaults(Defaults(parse_mode=ParseMode.HTML))
             .persistence(persistence)
+            .post_init(setup_bot_data)
             .build()
         )
         self.setup_handlers()
@@ -250,6 +261,7 @@ class CodeKeeperBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)
         response = """
 📚 <b>רשימת הפקודות המלאה:</b>
 
@@ -281,6 +293,7 @@ class CodeKeeperBot:
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -361,6 +374,7 @@ class CodeKeeperBot:
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)
         user_id = update.effective_user.id
         
         if not context.args:
@@ -414,24 +428,52 @@ class CodeKeeperBot:
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """הצגת סטטיסטיקות המשתמש"""
+        """הצגת סטטיסטיקות המשתמש או מנהל"""
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
-        stats = db.get_user_stats(user_id)
+        # רשימת מנהלים
+        ADMIN_IDS = [6865105071]  # הוסף את ה-ID שלך כאן!
         
-        if not stats or stats.get('total_files', 0) == 0:
-            await update.message.reply_text(
-                "📊 עדיין אין לך קטעי קוד שמורים.\n"
-                "התחל עם /save!"
-            )
-            return
-        
-        languages_str = ", ".join(stats.get('languages', []))
-        last_activity = stats.get('latest_activity')
-        last_activity_str = last_activity.strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
-        
-        response = f"""
+        # אם המשתמש הוא מנהל, הצג סטטיסטיקות מנהל
+        if user_id in ADMIN_IDS:
+            # קבל סטטיסטיקות כלליות
+            general_stats = user_stats.get_all_time_stats()
+            weekly_users = user_stats.get_weekly_stats()
+            
+            message = "📊 **סטטיסטיקות מנהל - שבוע אחרון:**\n\n"
+            message += f"👥 סה״כ משתמשים רשומים: {general_stats['total_users']}\n"
+            message += f"🟢 פעילים היום: {general_stats['active_today']}\n"
+            message += f"📅 פעילים השבוע: {general_stats['active_week']}\n\n"
+            
+            if weekly_users:
+                message += "📋 **רשימת משתמשים פעילים:**\n"
+                for i, user in enumerate(weekly_users[:15], 1):
+                    username = f"@{user['username']}" if user['username'] and not user['username'].startswith('User_') else user['username']
+                    message += f"{i}. {username} - {user['days']} ימים ({user['total_actions']} פעולות)\n"
+                
+                if len(weekly_users) > 15:
+                    message += f"\n... ועוד {len(weekly_users) - 15} משתמשים"
+            else:
+                message += "אין משתמשים פעילים בשבוע האחרון"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+        else:
+            # סטטיסטיקות רגילות למשתמש רגיל
+            stats = db.get_user_stats(user_id)
+            
+            if not stats or stats.get('total_files', 0) == 0:
+                await update.message.reply_text(
+                    "📊 עדיין אין לך קטעי קוד שמורים.\n"
+                    "התחל עם /save!"
+                )
+                return
+            
+            languages_str = ", ".join(stats.get('languages', []))
+            last_activity = stats.get('latest_activity')
+            last_activity_str = last_activity.strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
+            
+            response = f"""
 📊 **הסטטיסטיקות שלך:**
 
 📁 סה"כ קבצים: **{stats['total_files']}**
@@ -445,12 +487,20 @@ class CodeKeeperBot:
 {last_activity_str}
 
 💡 **טיפ:** השתמש בתגיות לארגון טוב יותר!
-        """
-        
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+            """
+            
+            await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בקבצים שנשלחים לבוט"""
+        
+        # בדוק אם אנחנו במצב העלאה לגיטהאב
+        if context.user_data.get('waiting_for_github_upload'):
+            # תן ל-GitHub handler לטפל בזה
+            return
+        
+        await log_user_activity(update, context)
+        
         try:
             document = update.message.document
             user_id = update.effective_user.id
@@ -590,6 +640,7 @@ class CodeKeeperBot:
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בהודעות טקסט (קוד פוטנציאלי)"""
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)
         user_id = update.effective_user.id
         text = update.message.text
         
@@ -791,8 +842,16 @@ def main() -> None:
 # A minimal post_init stub to comply with the PTB builder chain
 async def setup_bot_data(application: Application) -> None:  # noqa: D401
     """A post_init function to setup application-wide data."""
-    # ניתן להוסיף לוגיקה נוספת כאן בעתיד
-    pass
+    # הגדרת תפריט פקודות
+    await application.bot.set_my_commands([
+        BotCommand("start", "התחל שיחה עם הבוט"),
+        BotCommand("help", "עזרה ורשימת פקודות"),
+        BotCommand("save", "שמור קטע קוד חדש"),
+        BotCommand("search", "חפש בקטעי הקוד שלך"),
+        BotCommand("stats", "📊 סטטיסטיקות"),
+        BotCommand("github", "🔧 אינטגרציית GitHub")
+    ])
+    logger.info("✅ Bot commands menu set successfully")
 
 if __name__ == "__main__":
     main()
