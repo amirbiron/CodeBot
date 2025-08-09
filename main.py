@@ -271,23 +271,22 @@ class CodeKeeperBot:
 • <code>/list</code> - הצגת כל הקבצים שלך.
 • <code>/show &lt;filename&gt;</code> - הצגת קובץ עם הדגשת תחביר וכפתורי פעולה.
 • <code>/edit &lt;filename&gt;</code> - עריכת קוד של קובץ קיים.
-• <code>/delete &lt;filename&gt;</code> - מחיקת קובץ וכל הגרסאות שלו.
-
-<b>גרסאות וניתוח:</b>
-• <code>/versions &lt;filename&gt;</code> - הצגת כל הגרסאות של קובץ.
-• <code>/restore &lt;filename&gt; &lt;version&gt;</code> - שחזור גרסה ישנה.
-• <code>/analyze &lt;filename&gt;</code> - ניתוח סטטיסטי של קוד.
-• <code>/validate &lt;filename&gt;</code> - בדיקת תחביר בסיסית.
-
-<b>שיתוף וארגון:</b>
-• <code>/share &lt;filename&gt;</code> - קבלת אפשרויות שיתוף.
-• <code>/download &lt;filename&gt;</code> - הורדת הקובץ למחשב שלך.
+• <code>/delete &lt;filename&gt;</code> - מחיקת קובץ.
+• <code>/rename &lt;old&gt; &lt;new&gt;</code> - שינוי שם קובץ.
+• <code>/download &lt;filename&gt;</code> - הורדת קובץ כמסמך.
+• <code>/github</code> - תפריט העלאה ל-GitHub.
+    
+<b>חיפוש וסינון:</b>
+• <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
+• <code>/stats</code> - סטטיסטיקות אישיות.
 • <code>/tags &lt;filename&gt; &lt;tag1&gt;,&lt;tag2&gt;</code> - הוספת תגיות לקובץ.
 • <code>/search &lt;query&gt;</code> - חיפוש טקסטואלי בקוד שלך.
     
 <b>מידע כללי:</b>
 • <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
 • <code>/help</code> - הצגת הודעה זו.
+
+🔧 <b>לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir</b>
 """
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
@@ -829,11 +828,18 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        await update.message.reply_text("👋 שלום! הבוט מוכן לשימוש.", reply_markup=reply_markup)
+        await update.message.reply_text(
+            "👋 שלום! הבוט מוכן לשימוש.\n\n"
+            "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir", 
+            reply_markup=reply_markup
+        )
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
-        await update.message.reply_text("ℹ️ השתמש ב/start כדי להתחיל.")
+        await update.message.reply_text(
+            "ℹ️ השתמש ב/start כדי להתחיל.\n\n"
+            "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
+        )
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
