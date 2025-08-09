@@ -5,6 +5,8 @@ from github import Github
 from typing import Dict, Any
 import base64
 import logging
+import time
+import asyncio
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -15,6 +17,7 @@ REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 class GitHubMenuHandler:
     def __init__(self):
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
+        self.last_api_call = {}  # מעקב אחר זמן הבקשה האחרונה לכל משתמש
         
     def get_user_session(self, user_id: int) -> Dict[str, Any]:
         """Get or create user session"""
@@ -26,6 +29,50 @@ class GitHubMenuHandler:
             }
         return self.user_sessions[user_id]
     
+    async def check_rate_limit(self, github_client: Github, update_or_query) -> bool:
+        """בודק את מגבלת ה-API של GitHub"""
+        try:
+            rate_limit = github_client.get_rate_limit()
+            core_limit = rate_limit.core
+            
+            if core_limit.remaining < 10:
+                reset_time = core_limit.reset
+                minutes_until_reset = max(1, int((reset_time - time.time()) / 60))
+                
+                error_message = (
+                    f"⏳ חריגה ממגבלת GitHub API\n"
+                    f"נותרו רק {core_limit.remaining} בקשות\n"
+                    f"המגבלה תתאפס בעוד {minutes_until_reset} דקות\n\n"
+                    f"💡 נסה שוב מאוחר יותר"
+                )
+                
+                # בדוק אם זה callback query או update רגיל
+                if hasattr(update_or_query, 'answer'):
+                    # זה callback query
+                    await update_or_query.answer(error_message, show_alert=True)
+                else:
+                    # זה update רגיל
+                    await update_or_query.message.reply_text(error_message)
+                
+                return False
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error checking rate limit: {e}")
+            return True  # במקרה של שגיאה, נמשיך בכל זאת
+    
+    async def apply_rate_limit_delay(self, user_id: int):
+        """מוסיף השהייה בין בקשות API"""
+        current_time = time.time()
+        last_call = self.last_api_call.get(user_id, 0)
+        
+        # אם עברו פחות מ-2 שניות מהבקשה האחרונה, נחכה
+        time_since_last = current_time - last_call
+        if time_since_last < 2:
+            await asyncio.sleep(2 - time_since_last)
+        
+        self.last_api_call[user_id] = time.time()
+    
     async def github_menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
@@ -34,6 +81,12 @@ class GitHubMenuHandler:
             self.user_sessions[user_id] = {}
         
         session = self.user_sessions[user_id]
+        
+        # בדיקת טוקן
+        token = session.get('github_token')
+        logger.info(f"[GitHub] Token exists: {bool(token)}")
+        if token:
+            logger.info(f"[GitHub] Token length: {len(token)}")
         
         # בנה הודעת סטטוס
         status_msg = "🔧 *GitHub Integration Menu*\n\n"
@@ -232,12 +285,58 @@ class GitHubMenuHandler:
             return
         
         try:
-            from github import Github
-            g = Github(session['github_token'])
-            user = g.get_user()
+            # בדוק אם יש repos ב-context.user_data ואם הם עדיין תקפים
+            cache_time = context.user_data.get('repos_cache_time', 0)
+            current_time = time.time()
+            cache_age = current_time - cache_time
+            cache_max_age = 3600  # שעה אחת
             
-            # קבל את כל הריפוזיטוריז
-            all_repos = list(user.get_repos())
+            needs_refresh = (
+                'repos' not in context.user_data or 
+                cache_age > cache_max_age
+            )
+            
+            if needs_refresh:
+                logger.info(f"[GitHub API] Fetching repos for user {user_id} (cache age: {int(cache_age)}s)")
+                
+                # אם אין cache או שהוא ישן, בצע בקשה ל-API
+                from github import Github
+                g = Github(session['github_token'])
+                
+                # בדוק rate limit לפני הבקשה
+                rate = g.get_rate_limit()
+                logger.info(f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}")
+                
+                if rate.core.remaining < 100:
+                    logger.warning(f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining")
+                
+                if rate.core.remaining < 10:
+                    # אם יש cache ישן, השתמש בו במקום לחסום
+                    if 'repos' in context.user_data:
+                        logger.warning(f"[GitHub API] Using stale cache due to rate limit")
+                        all_repos = context.user_data['repos']
+                    else:
+                        if query:
+                            await query.answer(
+                                f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות",
+                                show_alert=True
+                            )
+                            return
+                else:
+                    # הוסף delay בין בקשות
+                    await self.apply_rate_limit_delay(user_id)
+                    
+                    user = g.get_user()
+                    logger.info(f"[GitHub API] Getting repos for user: {user.login}")
+                    
+                    # קבל את כל הריפוזיטוריז - טען רק פעם אחת!
+                    context.user_data['repos'] = list(user.get_repos())
+                    context.user_data['repos_cache_time'] = current_time
+                    logger.info(f"[GitHub API] Loaded {len(context.user_data['repos'])} repos into cache")
+                    all_repos = context.user_data['repos']
+            else:
+                logger.info(f"[Cache] Using cached repos for user {user_id} - {len(context.user_data.get('repos', []))} repos (age: {int(cache_age)}s)")
+                all_repos = context.user_data['repos']
             
             # הגדרות pagination
             repos_per_page = 8
@@ -299,10 +398,21 @@ class GitHubMenuHandler:
                 )
             
         except Exception as e:
-            if query:
-                await query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+            error_msg = str(e)
+            
+            # בדוק אם זו שגיאת rate limit
+            if "rate limit" in error_msg.lower() or "403" in error_msg:
+                error_msg = (
+                    "⏳ חריגה ממגבלת GitHub API\n"
+                    "נסה שוב בעוד כמה דקות"
+                )
             else:
-                await update.callback_query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+                error_msg = f"❌ שגיאה: {error_msg}"
+            
+            if query:
+                await query.answer(error_msg, show_alert=True)
+            else:
+                await update.callback_query.answer(error_msg, show_alert=True)
     
     async def upload_saved_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג רשימת קבצים שמורים להעלאה"""
@@ -386,6 +496,26 @@ class GitHubMenuHandler:
             # התחבר ל-GitHub
             from github import Github
             g = Github(session['github_token'])
+            
+            # בדוק rate limit לפני הבקשה
+            logger.info(f"[GitHub API] Checking rate limit before uploading file")
+            rate = g.get_rate_limit()
+            logger.info(f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}")
+            
+            if rate.core.remaining < 100:
+                logger.warning(f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining")
+            
+            if rate.core.remaining < 10:
+                await update.callback_query.answer(
+                    f"⏳ מגבלת API נמוכה מדי! נותרו רק {rate.core.remaining} בקשות",
+                    show_alert=True
+                )
+                return
+            
+            # הוסף delay בין בקשות
+            await self.apply_rate_limit_delay(user_id)
+            
+            logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
             repo = g.get_repo(session['selected_repo'])
             
             # הגדר נתיב הקובץ
@@ -401,7 +531,9 @@ class GitHubMenuHandler:
             
             # נסה להעלות או לעדכן את הקובץ
             try:
+                logger.info(f"[GitHub API] Checking if file exists: {file_path}")
                 existing = repo.get_contents(file_path)
+                logger.info(f"[GitHub API] File exists, updating: {file_path}")
                 result = repo.update_file(
                     path=file_path,
                     message=f"Update {file_data['file_name']} via Telegram bot",
@@ -411,13 +543,14 @@ class GitHubMenuHandler:
                 action = "עודכן"
                 logger.info(f"✅ קובץ עודכן בהצלחה")
             except:
+                logger.info(f"[GitHub API] File doesn't exist, creating: {file_path}")
                 result = repo.create_file(
                     path=file_path,
                     message=f"Upload {file_data['file_name']} via Telegram bot",
                     content=encoded_content  # שימוש בתוכן מקודד
                 )
                 action = "הועלה"
-                logger.info(f"✅ קובץ נוצר בהצלחה")
+                logger.info(f"[GitHub API] File created successfully: {file_path}")
             
             raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
             
@@ -431,10 +564,20 @@ class GitHubMenuHandler:
             
         except Exception as e:
             logger.error(f"❌ שגיאה בהעלאת קובץ שמור: {str(e)}", exc_info=True)
-            await update.callback_query.edit_message_text(
-                f"❌ שגיאה בהעלאה:\n{str(e)}\n\n"
-                f"פרטים נוספים נשמרו בלוג."
-            )
+            
+            error_msg = str(e)
+            
+            # בדוק אם זו שגיאת rate limit
+            if "rate limit" in error_msg.lower() or "403" in error_msg:
+                error_msg = (
+                    "⏳ חריגה ממגבלת GitHub API\n"
+                    "נסה שוב בעוד כמה דקות\n\n"
+                    "💡 טיפ: המתן מספר דקות לפני ניסיון נוסף"
+                )
+            else:
+                error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
+            
+            await update.callback_query.edit_message_text(error_msg)
     
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle file upload"""
@@ -466,6 +609,27 @@ class GitHubMenuHandler:
                 token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
                 
                 g = Github(token)
+                
+                # בדוק rate limit לפני הבקשה
+                logger.info(f"[GitHub API] Checking rate limit before file upload")
+                rate = g.get_rate_limit()
+                logger.info(f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}")
+                
+                if rate.core.remaining < 100:
+                    logger.warning(f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining")
+                
+                if rate.core.remaining < 10:
+                    await update.message.reply_text(
+                        f"⏳ מגבלת API נמוכה מדי!\n"
+                        f"נותרו רק {rate.core.remaining} בקשות\n"
+                        f"נסה שוב מאוחר יותר"
+                    )
+                    return ConversationHandler.END
+                
+                # הוסף delay בין בקשות
+                await self.apply_rate_limit_delay(user_id)
+                
+                logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
                 repo = g.get_repo(session['selected_repo'])
                 
                 # בניית נתיב הקובץ
@@ -510,10 +674,20 @@ class GitHubMenuHandler:
                 
             except Exception as e:
                 logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
-                await update.message.reply_text(
-                    f"❌ שגיאה בהעלאה:\n{str(e)}\n\n"
-                    f"פרטים נוספים נשמרו בלוג."
-                )
+                
+                error_msg = str(e)
+                
+                # בדוק אם זו שגיאת rate limit
+                if "rate limit" in error_msg.lower() or "403" in error_msg:
+                    error_msg = (
+                        "⏳ חריגה ממגבלת GitHub API\n"
+                        "נסה שוב בעוד כמה דקות\n\n"
+                        "💡 טיפ: המתן מספר דקות לפני ניסיון נוסף"
+                    )
+                else:
+                    error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
+                
+                await update.message.reply_text(error_msg)
         else:
             await update.message.reply_text("⚠️ שלח קובץ להעלאה")
         
@@ -527,6 +701,14 @@ class GitHubMenuHandler:
         
         if text.startswith('ghp_') or text.startswith('github_pat_'):
             session['github_token'] = text
+            
+            # נקה את repos מ-context.user_data כשמשנים טוקן
+            if 'repos' in context.user_data:
+                del context.user_data['repos']
+            if 'repos_cache_time' in context.user_data:
+                del context.user_data['repos_cache_time']
+            logger.info(f"[GitHub] Cleared repos cache for user {user_id} after token change")
+            
             await update.message.reply_text(
                 "✅ טוקן נשמר בהצלחה!\n"
                 "כעת תוכל לגשת לריפוזיטוריז הפרטיים שלך."
