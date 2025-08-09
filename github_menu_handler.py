@@ -21,7 +21,7 @@ class GitHubMenuHandler:
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {
                 'selected_repo': None,
-                'selected_folder': 'uploads',
+                'selected_folder': None,  # None = root של הריפו
                 'github_token': None
             }
         return self.user_sessions[user_id]
@@ -45,8 +45,8 @@ class GitHubMenuHandler:
         
         if 'selected_repo' in session:
             status_msg += f"📁 ריפו: `{session['selected_repo']}`\n"
-            if 'selected_folder' in session:
-                status_msg += f"📂 תיקייה: `{session['selected_folder']}`\n"
+            folder_display = session.get('selected_folder') or 'root'
+            status_msg += f"📂 תיקייה: `{folder_display}`\n"
         else:
             status_msg += "❌ ריפו לא נבחר\n"
         
@@ -64,6 +64,9 @@ class GitHubMenuHandler:
             keyboard.append([
                 InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file"),
                 InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")
+            ])
+            keyboard.append([
+                InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")
             ])
         
         # כפתור הצגת הגדרות
@@ -104,10 +107,11 @@ class GitHubMenuHandler:
                     "❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'"
                 )
             else:
+                folder_display = session.get('selected_folder') or 'root'
                 await query.edit_message_text(
                     f"📤 *העלאת קובץ לריפו:*\n"
                     f"`{session['selected_repo']}`\n"
-                    f"📂 תיקייה: `{session.get('selected_folder', 'uploads')}`\n\n"
+                    f"📂 תיקייה: `{folder_display}`\n\n"
                     f"שלח לי קובץ להעלאה:",
                     parse_mode='Markdown'
                 )
@@ -132,14 +136,15 @@ class GitHubMenuHandler:
                 
         elif query.data == 'show_current':
             current_repo = session.get('selected_repo', 'לא נבחר')
-            current_folder = session.get('selected_folder', 'uploads')
+            current_folder = session.get('selected_folder') or 'root'
             has_token = "✅" if session.get('github_token') else "❌"
             
             await query.edit_message_text(
                 f"📊 *הגדרות נוכחיות:*\n\n"
                 f"📁 ריפו: `{current_repo}`\n"
                 f"📂 תיקייה: `{current_folder}`\n"
-                f"🔑 טוקן מוגדר: {has_token}",
+                f"🔑 טוקן מוגדר: {has_token}\n\n"
+                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
                 parse_mode='Markdown'
             )
             
@@ -154,11 +159,12 @@ class GitHubMenuHandler:
             
         elif query.data == 'set_folder':
             keyboard = [
-                [InlineKeyboardButton("uploads", callback_data='folder_uploads')],
-                [InlineKeyboardButton("assets", callback_data='folder_assets')],
-                [InlineKeyboardButton("assets/images", callback_data='folder_assets_images')],
-                [InlineKeyboardButton("docs", callback_data='folder_docs')],
-                [InlineKeyboardButton("אחר (הקלד ידנית)", callback_data='folder_custom')]
+                [InlineKeyboardButton("📁 root (ראשי)", callback_data='folder_root')],
+                [InlineKeyboardButton("📂 src", callback_data='folder_src')],
+                [InlineKeyboardButton("📂 docs", callback_data='folder_docs')],
+                [InlineKeyboardButton("📂 assets", callback_data='folder_assets')],
+                [InlineKeyboardButton("📂 images", callback_data='folder_images')],
+                [InlineKeyboardButton("✏️ אחר (הקלד ידנית)", callback_data='folder_custom')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -170,8 +176,14 @@ class GitHubMenuHandler:
         elif query.data.startswith('folder_'):
             folder = query.data.replace('folder_', '')
             if folder == 'custom':
-                await query.edit_message_text("הקלד שם תיקייה:")
+                await query.edit_message_text(
+                    "✏️ הקלד שם תיקייה:\n"
+                    "(השאר ריק או הקלד / להעלאה ל-root)"
+                )
                 return FOLDER_SELECT
+            elif folder == 'root':
+                session['selected_folder'] = None
+                await query.edit_message_text("✅ תיקייה עודכנה ל: `root` (ראשי)", parse_mode='Markdown')
             else:
                 session['selected_folder'] = folder.replace('_', '/')
                 await query.edit_message_text(f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`", parse_mode='Markdown')
@@ -375,8 +387,14 @@ class GitHubMenuHandler:
             repo = g.get_repo(session['selected_repo'])
             
             # הגדר נתיב הקובץ
-            folder = session.get('selected_folder', 'uploads')
-            file_path = f"{folder}/{file_data['file_name']}"
+            folder = session.get('selected_folder')
+            if folder and folder.strip():
+                # הסר / מיותרים
+                folder = folder.strip('/')
+                file_path = f"{folder}/{file_data['file_name']}"
+            else:
+                # העלה ל-root
+                file_path = file_data['file_name']
             logger.info(f"📁 נתיב יעד: {file_path}")
             
             # נסה להעלות או לעדכן את הקובץ
@@ -448,7 +466,15 @@ class GitHubMenuHandler:
                 g = Github(token)
                 repo = g.get_repo(session['selected_repo'])
                 
-                file_path = f"{session.get('selected_folder', 'uploads')}/{filename}"
+                # בניית נתיב הקובץ
+                folder = session.get('selected_folder')
+                if folder and folder.strip():
+                    # הסר / מיותרים
+                    folder = folder.strip('/')
+                    file_path = f"{folder}/{filename}"
+                else:
+                    # העלה ל-root
+                    file_path = filename
                 logger.info(f"📁 נתיב יעד: {file_path}")
                 
                 try:
@@ -514,9 +540,19 @@ class GitHubMenuHandler:
             return ConversationHandler.END
         
         else:
-            session['selected_folder'] = text
-            await update.message.reply_text(
-                f"✅ תיקייה הוגדרה: `{text}`",
-                parse_mode='Markdown'
-            )
+            # טיפול בהגדרת תיקייה
+            if text.strip() in ['/', '']:
+                session['selected_folder'] = None
+                await update.message.reply_text(
+                    "✅ תיקייה הוגדרה: `root` (ראשי)",
+                    parse_mode='Markdown'
+                )
+            else:
+                # הסר / מיותרים
+                folder = text.strip().strip('/')
+                session['selected_folder'] = folder
+                await update.message.reply_text(
+                    f"✅ תיקייה הוגדרה: `{folder}`",
+                    parse_mode='Markdown'
+                )
             return ConversationHandler.END
