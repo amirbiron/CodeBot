@@ -116,8 +116,13 @@ class CodeKeeperBot:
     """המחלקה הראשית של הבוט"""
     
     def __init__(self):
+        # יצירת תיקייה זמנית עם הרשאות כתיבה
+        DATA_DIR = "/tmp"
+        if not os.path.exists(DATA_DIR):
+            os.makedirs(DATA_DIR, exist_ok=True)
+            
         # יצירת persistence לשמירת נתונים בין הפעלות
-        persistence = PicklePersistence(filepath="bot_data.pickle")
+        persistence = PicklePersistence(filepath=f"{DATA_DIR}/bot_data.pickle")
         
         self.application = (
             Application.builder()
