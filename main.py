@@ -842,6 +842,7 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text(
             "👋 שלום! הבוט מוכן לשימוש.\n\n"
@@ -851,6 +852,7 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         await update.message.reply_text(
             "ℹ️ השתמש ב/start כדי להתחיל.\n\n"
             "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
