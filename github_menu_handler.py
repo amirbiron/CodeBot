@@ -17,6 +17,7 @@ from repo_analyzer import RepoAnalyzer
 from datetime import datetime
 from io import BytesIO
 import zipfile
+from telegram.error import BadRequest
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -58,24 +59,23 @@ def format_bytes(num: int) -> str:
     try:
         for unit in ["B", "KB", "MB", "GB"]:
             if num < 1024.0 or unit == "GB":
-                return f"{num:.1f} {unit}" if unit != "B" else f"{num} {unit}"
+                return f"{num:.1f} {unit}" if unit != "B" else f"{int(num)} {unit}"
             num /= 1024.0
     except Exception:
-        pass
+        return str(num)
     return str(num)
 
 class GitHubMenuHandler:
     def __init__(self):
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
-        self.last_api_call = {}  # מעקב אחר זמן הבקשה האחרונה לכל משתמש
+        self.last_api_call: Dict[int, float] = {}
         
     def get_user_session(self, user_id: int) -> Dict[str, Any]:
-        """Get or create user session"""
+        """מחזיר או יוצר סשן משתמש בזיכרון"""
         if user_id not in self.user_sessions:
+            # נסה לטעון ריפו מועדף מהמסד
             from database import db
-            # טען את הריפו הנבחר מהמסד נתונים
             selected_repo = db.get_selected_repo(user_id)
-            
             self.user_sessions[user_id] = {
                 'selected_repo': selected_repo,  # טען מהמסד נתונים
                 'selected_folder': None,  # None = root של הריפו
@@ -537,7 +537,7 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ חסרים נתונים")
                 return
             try:
-                await query.answer("מכין ZIP...", show_alert=False)
+                await query.answer("יוצר קובץ ZIP, עשוי לקחת 1–2 דקות...", show_alert=True)
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 zip_buffer = BytesIO()
@@ -547,7 +547,7 @@ class GitHubMenuHandler:
                 with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split('/')[-1]
- 
+  
                     async def add_path_to_zip(path: str, rel_prefix: str):
                         # קבל את התוכן עבור הנתיב
                         contents = repo.get_contents(path or "")
@@ -574,9 +574,9 @@ class GitHubMenuHandler:
                                 zipf.writestr(arcname, data)
                                 total_bytes += len(data)
                                 total_files += 1
- 
+  
                     await add_path_to_zip(current_path, "")
- 
+  
                 zip_buffer.seek(0)
                 filename = f"{repo.name}{'-' + current_path.replace('/', '_') if current_path else ''}.zip"
                 zip_buffer.name = filename
@@ -1842,17 +1842,14 @@ class GitHubMenuHandler:
         for f in files:
             if multi_mode:
                 checked = "☑️" if f.path in selection else "⬜️"
-                size_str = format_bytes(getattr(f, 'size', 0) or 0)
-                entry_rows.append([InlineKeyboardButton(f"{checked} {f.name} ({size_str})", callback_data=f"browse_toggle_select:{f.path}")])
+                entry_rows.append([InlineKeyboardButton(f"{checked} {f.name}", callback_data=f"browse_toggle_select:{f.path}")])
             else:
                 if context.user_data.get('browse_action') == 'download':
                     size_val = getattr(f, 'size', 0) or 0
-                    size_str = format_bytes(size_val)
                     large_flag = " ⚠️" if size_val and size_val > MAX_INLINE_FILE_BYTES else ""
-                    entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name} ({size_str}){large_flag}", callback_data=f"browse_select_download:{f.path}")])
+                    entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name}{large_flag}", callback_data=f"browse_select_download:{f.path}")])
                 else:
-                    size_str = format_bytes(getattr(f, 'size', 0) or 0)
-                    entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name} ({size_str})", callback_data=f"browse_select_delete:{f.path}")])
+                    entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
         # עימוד
         page_size = 10
         total_items = len(entry_rows)
@@ -1876,27 +1873,34 @@ class GitHubMenuHandler:
             # חזרה למעלה
             parent = '/'.join(path.split('/')[:-1])
             bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
-        # כפתור ZIP לתיקייה הנוכחית (רק במצב הורדה)
+        # סדר כפתורים לשורות כדי למנוע צפיפות
+        row = []
         if context.user_data.get('browse_action') == 'download':
-            bottom.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
-        # שיתוף קישור לתיקייה הנוכחית
-        bottom.append(InlineKeyboardButton("🔗 שתף קישור לתיקייה", callback_data=f"share_folder_link:{path or ''}"))
-        # כפתורי מצב מרובה
+            row.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
+        if len(row) >= 1:
+            keyboard.append(row)
+        row = []
+        if context.user_data.get('browse_action') == 'download':
+            row.append(InlineKeyboardButton("🔗 שתף קישור לתיקייה", callback_data=f"share_folder_link:{path or ''}"))
         if not multi_mode:
-            bottom.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
+            row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
+            keyboard.append(row)
         else:
+            keyboard.append(row)
+            row = []
             if context.user_data.get('browse_action') == 'download':
-                bottom.append(InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute"))
-                bottom.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
+                row.append(InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute"))
+                row.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
+                keyboard.append(row)
             else:
-                # מחיקה: מצבים
                 safe_label = "מצב מחיקה בטוח: פעיל" if context.user_data.get('safe_delete', True) else "מצב מחיקה בטוח: כבוי"
-                bottom.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
-                bottom.append(InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"))
-                bottom.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
-            bottom.append(InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"))
-            bottom.append(InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"))
-        bottom.append(InlineKeyboardButton("🔙 חזרה", callback_data="github_menu"))
+                row.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
+                keyboard.append(row)
+                row = [InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"), InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links")]
+                keyboard.append(row)
+            row = [InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"), InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle")] 
+            keyboard.append(row)
+        keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data="github_menu")])
         if bottom:
             keyboard.append(bottom)
         # טקסט
@@ -2065,12 +2069,17 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("תדירות: 2ד׳", callback_data="notifications_interval_120"), InlineKeyboardButton("5ד׳", callback_data="notifications_interval_300"), InlineKeyboardButton("15ד׳", callback_data="notifications_interval_900")],
             [InlineKeyboardButton("בדוק עכשיו", callback_data="notifications_check_now")]
         ]
-        await query.edit_message_text(
+        text = (
             f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
-            f"מצב: {'פעיל' if enabled else 'כבוי'} | תדירות: {int(interval/60)} ד׳",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
+            f"מצב: {'פעיל' if enabled else 'כבוי'} | תדירות: {int(interval/60)} ד׳\n"
+            f"התראות = בדיקת PRs/Issues חדשים/שעודכנו ושיגור הודעה אליך."
         )
+        try:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
+        except BadRequest as e:
+            # התעלם אם התוכן לא השתנה
+            if 'Message is not modified' not in str(e):
+                raise
 
     async def toggle_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -2079,10 +2088,14 @@ class GitHubMenuHandler:
         settings['enabled'] = not settings.get('enabled', False)
         # ניהול job
         name = f"notif_{user_id}"
-        for job in context.application.job_queue.get_jobs_by_name(name):
-            job.schedule_removal()
-        if settings['enabled']:
-            context.application.job_queue.run_repeating(self._notifications_job, interval=settings.get('interval', 300), first=5, name=name, data={'user_id': user_id})
+        jq = getattr(context, 'job_queue', None) or getattr(context.application, 'job_queue', None)
+        if jq:
+            for job in jq.get_jobs_by_name(name) or []:
+                job.schedule_removal()
+            if settings['enabled']:
+                jq.run_repeating(self._notifications_job, interval=settings.get('interval', 300), first=5, name=name, data={'user_id': user_id})
+        else:
+            await query.answer('אזהרה: JobQueue לא זמין — התראות לא ירוצו ברקע', show_alert=True)
         await self.show_notifications_menu(update, context)
 
     async def toggle_notifications_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2108,16 +2121,24 @@ class GitHubMenuHandler:
         settings['interval'] = interval
         # עדכן job אם קיים
         name = f"notif_{user_id}"
-        for job in context.application.job_queue.get_jobs_by_name(name):
-            job.schedule_removal()
-        if settings.get('enabled'):
-            context.application.job_queue.run_repeating(self._notifications_job, interval=interval, first=5, name=name, data={'user_id': user_id})
+        jq = getattr(context, 'job_queue', None) or getattr(context.application, 'job_queue', None)
+        if jq:
+            for job in jq.get_jobs_by_name(name) or []:
+                job.schedule_removal()
+            if settings.get('enabled'):
+                jq.run_repeating(self._notifications_job, interval=interval, first=5, name=name, data={'user_id': user_id})
+        else:
+            await query.answer('אזהרה: JobQueue לא זמין — התראות לא ירוצו ברקע', show_alert=True)
         await self.show_notifications_menu(update, context)
 
     async def notifications_check_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await self._notifications_job(context)
-        await self.show_notifications_menu(update, context)
+        try:
+            await self.show_notifications_menu(update, context)
+        except BadRequest as e:
+            if 'Message is not modified' not in str(e):
+                raise
 
     async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE):
         try:
