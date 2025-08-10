@@ -145,23 +145,6 @@ class CodeKeeperBot:
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
     
-    async def _notify_deploy_complete(self):
-        """שולח הודעת דיפלוי הושלם לאדמינים (פעם אחת בהפעלה)."""
-        try:
-            admin_ids = config.ADMIN_USER_IDS or []
-            # Fallback to existing hardcoded admin if env not provided
-            if not admin_ids:
-                admin_ids = [6865105071]
-            for admin_id in admin_ids:
-                try:
-                    await self.application.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"✅ דיפלוי הושלם בהצלחה ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
-                    )
-                except Exception:
-                    continue
-        except Exception:
-            pass
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
@@ -879,9 +862,6 @@ class CodeKeeperBot:
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
-        
-        # שליחת התראת דיפלוי הושלם
-        asyncio.create_task(self._notify_deploy_complete())
         
         logger.info("הבוט פועל! לחץ Ctrl+C להפסקה.")
     
