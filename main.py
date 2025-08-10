@@ -163,6 +163,7 @@ class CodeKeeperBot:
 
         # --- GitHub handlers - חייבים להיות לפני ה-handler הגלובלי! ---
         github_handler = GitHubMenuHandler()
+        logger.info("✅ GitHubMenuHandler instance created successfully")
         
         # הוסף פקודת github
         self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
@@ -170,7 +171,7 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
             CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern='^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop)')
+                               pattern='^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json)')
         )
         
         # הגדר conversation handler להעלאת קבצים
@@ -194,6 +195,20 @@ class CodeKeeperBot:
         )
         
         self.application.add_handler(upload_conv_handler)
+        
+        # הוסף handler כללי לטיפול בקלט טקסט של GitHub (כולל URL לניתוח)
+        async def handle_github_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            # בדוק אם מחכים ל-URL לניתוח
+            if context.user_data.get('waiting_for_repo_url'):
+                logger.info(f"🔗 Detected repo URL input from user {update.effective_user.id}")
+                return await github_handler.handle_text_input(update, context)
+            return False
+        
+        # הוסף את ה-handler עם עדיפות גבוהה
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_github_text),
+            group=-1  # עדיפות גבוהה מאוד
+        )
         
         logger.info("✅ GitHub handler נוסף בהצלחה")
         

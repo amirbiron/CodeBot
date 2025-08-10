@@ -62,8 +62,10 @@ class RepoAnalyzer:
     
     async def fetch_and_analyze_repo(self, repo_url: str) -> Dict[str, Any]:
         """שולף ומנתח ריפוזיטורי מ-GitHub"""
+        logger.info(f"🔍 Starting analysis of repository: {repo_url}")
         try:
             owner, repo_name = self.parse_github_url(repo_url)
+            logger.info(f"📦 Parsed repo: owner={owner}, name={repo_name}")
             
             if not self.github_client:
                 raise ValueError("נדרש GitHub token לניתוח ריפוזיטורי")
