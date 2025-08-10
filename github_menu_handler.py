@@ -151,6 +151,7 @@ class GitHubMenuHandler:
     async def handle_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle menu button clicks"""
         query = update.callback_query
+        logger.info(f"📱 GitHub handler received callback: {query.data} from user {query.from_user.id}")
         await query.answer()
         
         user_id = query.from_user.id
@@ -208,15 +209,18 @@ class GitHubMenuHandler:
             await query.answer()  # לא עושה כלום, רק לכפתור התצוגה
                 
         elif query.data == 'analyze_repo':
+            logger.info(f"🔍 User {query.from_user.id} clicked 'analyze_repo' button")
             await self.show_analyze_repo_menu(update, context)
         
         elif query.data == 'analyze_current_repo':
             # נתח את הריפו הנבחר
+            logger.info(f"📊 User {query.from_user.id} analyzing current repo")
             session = self.get_user_session(query.from_user.id)
             repo_url = f"https://github.com/{session['selected_repo']}"
             await self.analyze_repository(update, context, repo_url)
         
         elif query.data == 'analyze_other_repo':
+            logger.info(f"🔄 User {query.from_user.id} wants to analyze another repo")
             await self.request_repo_url(update, context)
         
         elif query.data == 'show_suggestions':
@@ -792,11 +796,14 @@ class GitHubMenuHandler:
         user_id = update.message.from_user.id
         session = self.get_user_session(user_id)
         text = update.message.text
+        logger.info(f"📝 GitHub text input handler: user={user_id}, waiting_for_repo={context.user_data.get('waiting_for_repo_url')}")
         
         # בדוק אם מחכים ל-URL לניתוח
         if context.user_data.get('waiting_for_repo_url'):
+            logger.info("🔗 Handling repo URL input...")
             handled = await self.handle_repo_url_input(update, context)
             if handled:
+                logger.info("✅ Repo URL handled successfully")
                 return ConversationHandler.END
         
         if text.startswith('ghp_') or text.startswith('github_pat_'):
@@ -846,9 +853,11 @@ class GitHubMenuHandler:
 
     async def show_analyze_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט לניתוח ריפו"""
+        logger.info("📋 Starting show_analyze_repo_menu function")
         query = update.callback_query
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
+        logger.info(f"📊 Session data: selected_repo={session.get('selected_repo')}, has_token={bool(session.get('github_token'))}")
         
         # בדוק אם יש ריפו נבחר
         if session.get('selected_repo'):
@@ -871,6 +880,7 @@ class GitHubMenuHandler:
     
     async def request_repo_url(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מבקש URL של ריפו לניתוח"""
+        logger.info("📝 Requesting repository URL from user")
         query = update.callback_query if update.callback_query else None
         
         keyboard = [
@@ -902,9 +912,11 @@ class GitHubMenuHandler:
     
     async def analyze_repository(self, update: Update, context: ContextTypes.DEFAULT_TYPE, repo_url: str):
         """מנתח ריפוזיטורי ומציג תוצאות"""
+        logger.info(f"🎯 Starting repository analysis for URL: {repo_url}")
         query = update.callback_query if update.callback_query else None
         user_id = update.effective_user.id
         session = self.get_user_session(user_id)
+        logger.info(f"👤 User {user_id} analyzing repo: {repo_url}")
         
         # הצג הודעת המתנה
         status_message = await self._send_or_edit_message(
@@ -1252,10 +1264,12 @@ class GitHubMenuHandler:
     
     async def handle_repo_url_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מטפל בקלט של URL לניתוח"""
+        logger.info(f"🔗 Handling repo URL input: waiting={context.user_data.get('waiting_for_repo_url')}")
         if not context.user_data.get('waiting_for_repo_url'):
             return False
         
         text = update.message.text
+        logger.info(f"📌 Received URL: {text}")
         context.user_data['waiting_for_repo_url'] = False
         
         # בדוק אם זה URL של GitHub
