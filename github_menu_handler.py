@@ -467,7 +467,54 @@ class GitHubMenuHandler:
         
         elif query.data == 'download_file_menu':
             await self.show_download_file_menu(update, context)
-    
+        
+        elif query.data.startswith('browse_open:'):
+            context.user_data['browse_path'] = query.data.split(':', 1)[1]
+            await self.show_repo_browser(update, context)
+        elif query.data.startswith('browse_select_download:'):
+            path = query.data.split(':', 1)[1]
+            context.user_data.pop('waiting_for_download_file_path', None)
+            context.user_data.pop('browse_action', None)
+            context.user_data.pop('browse_path', None)
+            # הורדה מיידית
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            contents = repo.get_contents(path)
+            data = contents.decoded_content
+            filename = os.path.basename(contents.path) or 'downloaded_file'
+            await query.message.reply_document(
+                document=BytesIO(data),
+                filename=filename
+            )
+            await self.github_menu_command(update, context)
+        elif query.data.startswith('browse_select_delete:'):
+            path = query.data.split(':', 1)[1]
+            # דרוש אישור לפני מחיקה
+            context.user_data['pending_delete_file_path'] = path
+            keyboard = [
+                [InlineKeyboardButton("✅ אישור מחיקה", callback_data="confirm_delete_file")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+            ]
+            await query.edit_message_text(
+                "האם אתה בטוח שברצונך למחוק את הקובץ הבא?\n\n"
+                f"<code>{path}</code>",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        
+        elif query.data == 'confirm_delete_repo_step1':
+            # שלב שני: אתה בטוח?
+            keyboard = [
+                [InlineKeyboardButton("🧨 כן, מחק ריפו סופית", callback_data="confirm_delete_repo")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+            ]
+            await query.edit_message_text(
+                "❗ אתה בטוח? פעולה זו תמחק את הריפו לצמיתות.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
         await self.show_repos(query.message, context, query=query)
@@ -926,71 +973,15 @@ class GitHubMenuHandler:
         text = update.message.text
         logger.info(f"📝 GitHub text input handler: user={user_id}, waiting_for_repo={context.user_data.get('waiting_for_repo_url')}")
         
-        # קלט נתיב למחיקת קובץ
-        if context.user_data.get('waiting_for_delete_file_path'):
-            context.user_data['waiting_for_delete_file_path'] = False
-            file_path = text.strip().lstrip('/')
-            context.user_data['pending_delete_file_path'] = file_path
-            keyboard = [
-                [InlineKeyboardButton("✅ אישור מחיקה", callback_data="confirm_delete_file")],
-                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
-            ]
-            await update.message.reply_text(
-                "האם אתה בטוח שברצונך למחוק את הקובץ הבא?\n\n"
-                f"<code>{file_path}</code>",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
-            )
-            return ConversationHandler.END
+        # הנתיבים למחיקה/הורדה עוברים דרך דפדפן הכפתורים כעת, לכן אין צורך לטפל כאן
         
-        # קלט נתיב להורדת קובץ
-        if context.user_data.get('waiting_for_download_file_path'):
-            context.user_data['waiting_for_download_file_path'] = False
-            file_path = text.strip().lstrip('/')
-            token = self.get_user_token(user_id)
-            repo_name = session.get('selected_repo')
-            if not (token and repo_name and file_path):
-                await update.message.reply_text("❌ נתונים חסרים להורדה")
-                return ConversationHandler.END
-            try:
-                g = Github(token)
-                repo = g.get_repo(repo_name)
-                contents = repo.get_contents(file_path)
-                data = contents.decoded_content
-                filename = os.path.basename(contents.path) or 'downloaded_file'
-                await update.message.reply_document(
-                    document=InputFile(BytesIO(data), filename=filename),
-                    caption=f"📥 הורד: <code>{contents.path}</code>",
-                    parse_mode='HTML'
-                )
-            except Exception as e:
-                logger.error(f"Error downloading file: {e}")
-                await update.message.reply_text(f"❌ שגיאה בהורדת קובץ: {e}")
-            finally:
-                await self.github_menu_command(update, context)
-            return ConversationHandler.END
-        
-        # בדוק אם מחכים ל-URL לניתוח
+        # הזן/בחר ריפו לניתוח
         if context.user_data.get('waiting_for_repo_url'):
-            logger.info("🔗 Handling repo URL input...")
-            handled = await self.handle_repo_url_input(update, context)
-            if handled:
-                logger.info("✅ Repo URL handled successfully")
-                return ConversationHandler.END
+            context.user_data['waiting_for_repo_url'] = False
+            await self.analyze_repository(update, context, text)
+            return True
         
-        if text.startswith('ghp_') or text.startswith('github_pat_'):
-            session['github_token'] = text
-            
-            # שמור גם במסד נתונים
-            from database import db
-            db.save_github_token(user_id, text)
-            
-            await update.message.reply_text(
-                "✅ טוקן נשמר בהצלחה!\nשלח /github כדי לחזור לתפריט."
-            )
-            return ConversationHandler.END
-        
-        # אם לא במצב מיוחד, סיים כדי שמטפלים אחרים יטפלו
+        # ברירת מחדל: סיים
         return ConversationHandler.END
 
     async def show_analyze_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1495,25 +1486,16 @@ class GitHubMenuHandler:
         return True
 
     async def show_delete_file_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """מציג תפריט מחיקת קובץ מהריפו (קלט ידני של נתיב)"""
+        """מציג תפריט מחיקת קובץ מהריפו (דפדוף בכפתורים)"""
         query = update.callback_query
         session = self.get_user_session(query.from_user.id)
         repo = session.get('selected_repo')
         if not repo:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
-        keyboard = [
-            [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
-        ]
-        await query.edit_message_text(
-            "🗑️ מחיקת קובץ מהריפו\n\n"
-            "הכנס את הנתיב המלא לקובץ למחיקה (לדוגמה: src/app.py).\n"
-            "לאחר שליחה תוצג בקשת אישור.\n\n"
-            f"ריפו נבחר: <code>{repo}</code>",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
-        context.user_data['waiting_for_delete_file_path'] = True
+        context.user_data['browse_action'] = 'delete'
+        context.user_data['browse_path'] = ''
+        await self.show_repo_browser(update, context)
 
     async def show_delete_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט מחיקת ריפו שלם עם אזהרות"""
@@ -1524,7 +1506,7 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
         keyboard = [
-            [InlineKeyboardButton("✅ אני מבין/ה ומאשר/ת מחיקה", callback_data="confirm_delete_repo")],
+            [InlineKeyboardButton("✅ אני מבין/ה ומאשר/ת מחיקה", callback_data="confirm_delete_repo_step1")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
         ]
         await query.edit_message_text(
@@ -1532,7 +1514,7 @@ class GitHubMenuHandler:
             "- יימחקו כל הקבצים, ה-Issues, ה-PRs וה-Settings\n"
             "- לא ניתן לשחזר לאחר המחיקה\n\n"
             f"ריפו למחיקה: <code>{repo}</code>\n\n"
-            "אם ברצונך להמשיך, לחץ על האישור ואז תתבצע מחיקה.",
+            "אם ברצונך להמשיך, לחץ על האישור ואז תתבקש לאשר שוב.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
@@ -1615,21 +1597,62 @@ class GitHubMenuHandler:
         )
 
     async def show_download_file_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """מציג תפריט הורדת קובץ מהריפו (קלט ידני של נתיב)"""
+        """מציג תפריט הורדת קובץ מהריפו (דפדוף בכפתורים)"""
         query = update.callback_query
         session = self.get_user_session(query.from_user.id)
         repo = session.get('selected_repo')
         if not repo:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
-        keyboard = [
-            [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
-        ]
+        # התחל בדפדוף מה-root
+        context.user_data['browse_action'] = 'download'
+        context.user_data['browse_path'] = ''
+        await self.show_repo_browser(update, context)
+
+    async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג דפדפן ריפו לפי נתיב ושימוש (download/delete)"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        path = context.user_data.get('browse_path', '')
+        # קבלת תוכן התיקייה
+        contents = repo.get_contents(path or "")
+        if not isinstance(contents, list):
+            # אם זה קובץ יחיד, הפוך לרשימה לצורך תצוגה
+            contents = [contents]
+        keyboard = []
+        # כפתורי קבצים ותיקיות
+        folders = [c for c in contents if c.type == 'dir']
+        files = [c for c in contents if c.type == 'file']
+        for folder in folders:
+            keyboard.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
+        for f in files:
+            if context.user_data.get('browse_action') == 'download':
+                keyboard.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
+            else:
+                keyboard.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
+        # שורה תחתונה
+        bottom = []
+        if path:
+            # חזרה למעלה
+            parent = '/'.join(path.split('/')[:-1])
+            bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
+        bottom.append(InlineKeyboardButton("🔙 חזרה", callback_data="github_menu"))
+        if bottom:
+            keyboard.append(bottom)
+        # טקסט
+        action = 'הורדה' if context.user_data.get('browse_action') == 'download' else 'מחיקה'
         await query.edit_message_text(
-            "📥 הורדת קובץ מהריפו\n\n"
-            "הכנס את הנתיב המלא לקובץ להורדה (לדוגמה: src/app.py).\n\n"
-            f"ריפו נבחר: <code>{repo}</code>",
+            f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+            f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+            f"בחר קובץ ל{action} או פתח תיקייה:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
-        context.user_data['waiting_for_download_file_path'] = True
