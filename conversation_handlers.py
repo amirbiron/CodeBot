@@ -313,7 +313,7 @@ async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "📝 שלח לי את קטע הקוד המבריק שלך.\n"
         "💡 אני אזהה את השפה אוטומטית ואארגן הכל!\n\n"
         "🚫 לביטול בכל שלב: `/cancel`",
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
         parse_mode='Markdown'
     )
     reporter.report_activity(update.effective_user.id)

@@ -42,7 +42,7 @@ class LargeFilesHandler:
             text = (
                 "📂 **אין לך קבצים גדולים שמורים**\n\n"
                 "💡 **איך לשמור קבצים גדולים?**\n"
-                "• שלח קובץ טקסט/קוד לבוט\n"
+                "• שלח קובץ טקסט לבוט\n"
                 "• הבוט ישמור אותו אוטומטית\n"
                 "• תמיכה עד 10MB!"
             )
@@ -88,7 +88,8 @@ class LargeFilesHandler:
         if page > 1:
             nav_buttons.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"lf_page_{page-1}"))
         
-        nav_buttons.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="noop"))
+        if total_pages > 1:
+            nav_buttons.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="noop"))
         
         if page < total_pages:
             nav_buttons.append(InlineKeyboardButton("➡️ הבא", callback_data=f"lf_page_{page+1}"))
@@ -155,7 +156,8 @@ class LargeFilesHandler:
                 InlineKeyboardButton("📊 מידע מפורט", callback_data=f"lf_info_{file_index}")
             ],
             [
-                InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]
+                InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")
+            ]
         ]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -337,7 +339,12 @@ class LargeFilesHandler:
             if file_index in large_files_cache:
                 del large_files_cache[file_index]
             
-            keyboard = [[InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]]
+            # בדוק אם נשארו קבצים פעילים
+            remaining_files, remaining_total = db.get_user_large_files(user_id, page=1, per_page=1)
+            if remaining_total > 0:
+                keyboard = [[InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]]
+            else:
+                keyboard = [[InlineKeyboardButton("🏠 חזרה לתפריט", callback_data="main")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
