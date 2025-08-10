@@ -240,6 +240,24 @@ class CodeKeeperBot:
         )
         logger.info("✅ GitHub token handler נוסף בהצלחה")
 
+        # פקודה למחיקת טוקן GitHub
+        async def handle_github_logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            user_id = update.effective_user.id
+            # מחיקה מהמסד נתונים
+            removed = db.delete_github_token(user_id)
+            # ניקוי מהסשן
+            try:
+                session = github_handler.get_user_session(user_id)
+                session["github_token"] = None
+            except Exception:
+                pass
+            if removed:
+                await update.message.reply_text("🔐 הטוקן נמחק בהצלחה מהחשבון שלך.")
+            else:
+                await update.message.reply_text("ℹ️ לא נמצא טוקן לשחזור או שאירעה שגיאה.")
+
+        self.application.add_handler(CommandHandler("github_logout", handle_github_logout))
+
         # --- רק אחרי כל ה-handlers של GitHub, הוסף את ה-handler הגלובלי ---
         # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
         from conversation_handlers import handle_callback_query
