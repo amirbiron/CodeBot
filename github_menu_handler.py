@@ -179,6 +179,13 @@ class GitHubMenuHandler:
             keyboard.append([
                 InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")
             ])
+            # פעולות מחיקה בטוחות
+            keyboard.append([
+                InlineKeyboardButton("🗑️ מחק קובץ מהריפו", callback_data="delete_file_menu")
+            ])
+            keyboard.append([
+                InlineKeyboardButton("⚠️ מחק ריפו שלם (מתקדם)", callback_data="delete_repo_menu")
+            ])
         
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
@@ -899,6 +906,23 @@ class GitHubMenuHandler:
         text = update.message.text
         logger.info(f"📝 GitHub text input handler: user={user_id}, waiting_for_repo={context.user_data.get('waiting_for_repo_url')}")
         
+        # קלט נתיב למחיקת קובץ
+        if context.user_data.get('waiting_for_delete_file_path'):
+            context.user_data['waiting_for_delete_file_path'] = False
+            file_path = text.strip().lstrip('/')
+            context.user_data['pending_delete_file_path'] = file_path
+            keyboard = [
+                [InlineKeyboardButton("✅ אישור מחיקה", callback_data="confirm_delete_file")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+            ]
+            await update.message.reply_text(
+                "האם אתה בטוח שברצונך למחוק את הקובץ הבא?\n\n"
+                f"<code>{file_path}</code>",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+            return ConversationHandler.END
+
         # בדוק אם מחכים ל-URL לניתוח
         if context.user_data.get('waiting_for_repo_url'):
             logger.info("🔗 Handling repo URL input...")
@@ -1460,3 +1484,104 @@ class GitHubMenuHandler:
         # נתח את הריפו
         await self.analyze_repository(update, context, text)
         return True
+
+    async def show_delete_file_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט מחיקת קובץ מהריפו (קלט ידני של נתיב)"""
+        query = update.callback_query
+        session = self.get_user_session(query.from_user.id)
+        repo = session.get('selected_repo')
+        if not repo:
+            await query.edit_message_text("❌ לא נבחר ריפו")
+            return
+        keyboard = [
+            [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
+        ]
+        await query.edit_message_text(
+            "🗑️ מחיקת קובץ מהריפו\n\n"
+            "הכנס את הנתיב המלא לקובץ למחיקה (לדוגמה: src/app.py).\n"
+            "לאחר שליחה תוצג בקשת אישור.\n\n"
+            f"ריפו נבחר: <code>{repo}</code>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+        context.user_data['waiting_for_delete_file_path'] = True
+
+    async def show_delete_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט מחיקת ריפו שלם עם אזהרות"""
+        query = update.callback_query
+        session = self.get_user_session(query.from_user.id)
+        repo = session.get('selected_repo')
+        if not repo:
+            await query.edit_message_text("❌ לא נבחר ריפו")
+            return
+        keyboard = [
+            [InlineKeyboardButton("✅ אני מבין/ה ומאשר/ת מחיקה", callback_data="confirm_delete_repo")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+        ]
+        await query.edit_message_text(
+            "⚠️ מחיקת ריפו שלם הינה פעולה בלתי הפיכה!\n\n"
+            "- יימחקו כל הקבצים, ה-Issues, ה-PRs וה-Settings\n"
+            "- לא ניתן לשחזר לאחר המחיקה\n\n"
+            f"ריפו למחיקה: <code>{repo}</code>\n\n"
+            "אם ברצונך להמשיך, לחץ על האישור ואז תתבצע מחיקה.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
+    async def confirm_delete_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מבצע מחיקת קובץ לאחר אישור"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        file_path = context.user_data.get('pending_delete_file_path')
+        if not (token and repo_name and file_path):
+            await query.edit_message_text("❌ נתונים חסרים למחיקה")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            # בדוק אם הקובץ קיים וקבל sha לצורך מחיקה
+            contents = repo.get_contents(file_path)
+            default_branch = repo.default_branch or "main"
+            repo.delete_file(contents.path, f"Delete via bot: {file_path}", contents.sha, branch=default_branch)
+            await query.edit_message_text(
+                f"✅ הקובץ נמחק בהצלחה: <code>{file_path}</code>", parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Error deleting file: {e}")
+            await query.edit_message_text(f"❌ שגיאה במחיקת קובץ: {e}")
+        finally:
+            context.user_data.pop('pending_delete_file_path', None)
+            await self.github_menu_command(update, context)
+
+    async def confirm_delete_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מבצע מחיקת ריפו שלם לאחר אישור"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ נתונים חסרים למחיקה")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            owner = g.get_user()
+            # ודא שלמשתמש יש הרשאה למחוק
+            if repo.owner.login != owner.login:
+                await query.edit_message_text("❌ ניתן למחוק רק ריפו שאתה בעליו")
+                return
+            repo.delete()
+            await query.edit_message_text(
+                f"✅ הריפו נמחק בהצלחה: <code>{repo_name}</code>", parse_mode='HTML'
+            )
+            # נקה בחירה לאחר מחיקה
+            session['selected_repo'] = None
+        except Exception as e:
+            logger.error(f"Error deleting repository: {e}")
+            await query.edit_message_text(f"❌ שגיאה במחיקת ריפו: {e}")
+        finally:
+            await self.github_menu_command(update, context)
