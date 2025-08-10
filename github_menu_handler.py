@@ -537,7 +537,7 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ חסרים נתונים")
                 return
             try:
-                await query.answer("יוצר קובץ ZIP, עשוי לקחת 1–2 דקות...", show_alert=True)
+                await query.answer("מוריד תיקייה כ־ZIP, התהליך עשוי להימשך 1–2 דקות.", show_alert=True)
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 zip_buffer = BytesIO()
@@ -2318,14 +2318,18 @@ class GitHubMenuHandler:
 
     async def notifications_check_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await self._notifications_job(context, user_id=query.from_user.id)
+        try:
+            await query.answer("בודק עכשיו...", show_alert=False)
+        except Exception:
+            pass
+        await self._notifications_job(context, user_id=query.from_user.id, force=True)
         try:
             await self.show_notifications_menu(update, context)
         except BadRequest as e:
             if 'Message is not modified' not in str(e):
                 raise
 
-    async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE, user_id: int | None = None):
+    async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE, user_id: int | None = None, force: bool = False):
         try:
             if user_id is None:
                 job = getattr(context, 'job', None)
@@ -2339,7 +2343,9 @@ class GitHubMenuHandler:
             settings = context.application.user_data.get(user_id, {}).get('notifications') if hasattr(context.application, 'user_data') else None
             if settings is None:
                 settings = context.user_data.get('notifications', {})
-            if not (token and repo_name and settings and settings.get('enabled')):
+            if not (token and repo_name):
+                return
+            if not force and not (settings and settings.get('enabled')):
                 return
             g = Github(token)
             repo = g.get_repo(repo_name)
