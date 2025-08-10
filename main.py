@@ -249,10 +249,15 @@ class CodeKeeperBot:
             try:
                 session = github_handler.get_user_session(user_id)
                 session["github_token"] = None
+                session['selected_repo'] = None
+                session['selected_folder'] = None
             except Exception:
                 pass
+            # ניקוי קאש ריפוזיטוריז
+            context.user_data.pop('repos', None)
+            context.user_data.pop('repos_cache_time', None)
             if removed:
-                await update.message.reply_text("🔐 הטוקן נמחק בהצלחה מהחשבון שלך.")
+                await update.message.reply_text("🔐 הטוקן נמחק בהצלחה מהחשבון שלך.\n✅ הוסרו גם הגדרות ריפו/תיקייה.")
             else:
                 await update.message.reply_text("ℹ️ לא נמצא טוקן לשחזור או שאירעה שגיאה.")
 
@@ -511,23 +516,32 @@ class CodeKeeperBot:
             general_stats = user_stats.get_all_time_stats()
             weekly_users = user_stats.get_weekly_stats()
             
-            message = "📊 **סטטיסטיקות מנהל - שבוע אחרון:**\n\n"
+            # בנה הודעה בטוחה ל-HTML
+            message = "📊 <b>סטטיסטיקות מנהל - שבוע אחרון:</b>\n\n"
             message += f"👥 סה״כ משתמשים רשומים: {general_stats['total_users']}\n"
             message += f"🟢 פעילים היום: {general_stats['active_today']}\n"
             message += f"📅 פעילים השבוע: {general_stats['active_week']}\n\n"
             
             if weekly_users:
-                message += "📋 **רשימת משתמשים פעילים:**\n"
+                message += "📋 <b>רשימת משתמשים פעילים:</b>\n"
+                from html import escape as html_escape
                 for i, user in enumerate(weekly_users[:15], 1):
-                    username = f"@{user['username']}" if user['username'] and not user['username'].startswith('User_') else user['username']
-                    message += f"{i}. {username} - {user['days']} ימים ({user['total_actions']} פעולות)\n"
+                    username = user.get('username') or 'User'
+                    # הימלטות בטוחה
+                    safe_username = html_escape(username)
+                    if safe_username and safe_username != 'User' and not safe_username.startswith('User_'):
+                        # הוספת @ אם זה שם משתמש טלגרם
+                        display_name = f"@{safe_username}" if not safe_username.startswith('@') else safe_username
+                    else:
+                        display_name = safe_username
+                    message += f"{i}. {display_name} - {user['days']} ימים ({user['total_actions']} פעולות)\n"
                 
                 if len(weekly_users) > 15:
                     message += f"\n... ועוד {len(weekly_users) - 15} משתמשים"
             else:
                 message += "אין משתמשים פעילים בשבוע האחרון"
             
-            await update.message.reply_text(message, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+            await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
         else:
             # סטטיסטיקות רגילות למשתמש רגיל
             stats = db.get_user_stats(user_id)
@@ -544,21 +558,17 @@ class CodeKeeperBot:
             last_activity = stats.get('latest_activity')
             last_activity_str = last_activity.strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
             
-            response = f"""
-📊 **הסטטיסטיקות שלך:**
-
-📁 סה"כ קבצים: **{stats['total_files']}**
-🔢 סה"כ גרסאות: **{stats['total_versions']}**
-💾 מגבלת קבצים: {config.MAX_FILES_PER_USER}
-
-🔤 **שפות בשימוש:**
-{languages_str}
-
-📅 **פעילות אחרונה:**
-{last_activity_str}
-
-💡 **טיפ:** השתמש בתגיות לארגון טוב יותר!
-            """
+            response = (
+                "📊 <b>הסטטיסטיקות שלך:</b>\n\n"
+                f"📁 סה\"כ קבצים: <b>{stats['total_files']}</b>\n"
+                f"🔢 סה\"כ גרסאות: <b>{stats['total_versions']}</b>\n"
+                f"💾 מגבלת קבצים: {config.MAX_FILES_PER_USER}\n\n"
+                "🔤 <b>שפות בשימוש:</b>\n"
+                f"{languages_str}\n\n"
+                "📅 <b>פעילות אחרונה:</b>\n"
+                f"{last_activity_str}\n\n"
+                "💡 <b>טיפ:</b> השתמש בתגיות לארגון טוב יותר!"
+            )
             
             await update.message.reply_text(response, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
     

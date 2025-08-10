@@ -938,6 +938,9 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("📚 אין היסטוריית גרסאות לקובץ זה")
             return ConversationHandler.END
         
+        # הנח שהרשימה ממוינת כך שהגרסה העדכנית ראשונה
+        latest_version_num = versions[0].get('version') if versions and isinstance(versions[0], dict) else None
+        
         history_text = f"📚 *היסטוריית גרסאות - {file_name}*\n\n"
         
         keyboard: List[List[InlineKeyboardButton]] = []
@@ -952,16 +955,25 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
             history_text += f"   📏 {code_length:,} תווים\n\n"
             
             # כפתורים לפעולות על כל גרסה
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"👁 הצג גרסה {version_num}",
-                    callback_data=f"view_version_{version_num}_{file_name}"
-                ),
-                InlineKeyboardButton(
-                    f"↩️ שחזר לגרסה {version_num}",
-                    callback_data=f"revert_version_{version_num}_{file_name}"
-                )
-            ])
+            if latest_version_num is not None and version_num == latest_version_num:
+                # אל תציג כפתור שחזור עבור הגרסה הנוכחית
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"👁 הצג גרסה {version_num}",
+                        callback_data=f"view_version_{version_num}_{file_name}"
+                    )
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"👁 הצג גרסה {version_num}",
+                        callback_data=f"view_version_{version_num}_{file_name}"
+                    ),
+                    InlineKeyboardButton(
+                        f"↩️ שחזר לגרסה {version_num}",
+                        callback_data=f"revert_version_{version_num}_{file_name}"
+                    )
+                ])
         
         # כפתור חזרה מתאים לפי מקור הקריאה
         if file_index is not None:
@@ -1480,6 +1492,11 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text("❌ הגרסה המבוקשת לא נמצאה")
             return ConversationHandler.END
         
+        # בדיקה אם זו הגרסה הנוכחית
+        latest_doc = db.get_latest_version(user_id, file_name)
+        latest_version_num = latest_doc.get('version') if latest_doc else None
+        is_current = latest_version_num == version_num
+        
         code = version_doc.get('code', '')
         language = version_doc.get('programming_language', 'text')
         
@@ -1490,13 +1507,21 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             code_preview = code
         
-        keyboard = [
-            [
-                InlineKeyboardButton("↩️ שחזר לגרסה זו", callback_data=f"revert_version_{version_num}_{file_name}"),
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
-            ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]
-        ]
+        if is_current:
+            keyboard = [
+                [
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
+                ],
+                [InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]
+            ]
+        else:
+            keyboard = [
+                [
+                    InlineKeyboardButton("↩️ שחזר לגרסה זו", callback_data=f"revert_version_{version_num}_{file_name}"),
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
+                ],
+                [InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]
+            ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
