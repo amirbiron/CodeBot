@@ -220,6 +220,10 @@ class CodeKeeperBot:
                 if user_id not in github_handler.user_sessions:
                     github_handler.user_sessions[user_id] = {}
                 github_handler.user_sessions[user_id]['github_token'] = text
+                
+                # שמור גם במסד נתונים
+                db.save_github_token(user_id, text)
+                
                 await update.message.reply_text(
                     "✅ טוקן נשמר בהצלחה!\n"
                     "כעת תוכל לגשת לריפוזיטוריז הפרטיים שלך.\n\n"
@@ -842,7 +846,13 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
     """Register basic command handlers required for the bot to operate."""
 
     async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
-        reporter.report_activity(update.effective_user.id)
+        user_id = update.effective_user.id
+        username = update.effective_user.username
+        
+        # שמור משתמש במסד נתונים (INSERT OR IGNORE)
+        db_manager.save_user(user_id, username)
+        
+        reporter.report_activity(user_id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text(

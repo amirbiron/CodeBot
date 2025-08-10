@@ -34,7 +34,14 @@ reporter = create_reporter(
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """טיפול בפקודת /start - מציג את התפריט הראשי"""
+    user_id = update.effective_user.id
     user_name = update.effective_user.first_name
+    username = update.effective_user.username
+    
+    # שמור משתמש במסד נתונים (INSERT OR IGNORE)
+    from database import db
+    db.save_user(user_id, username)
+    
     welcome_text = (
         f"🤖 שלום {user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
         "🔹 שמור ונהל קטעי קוד בחכמה\n"
@@ -48,7 +55,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
-    reporter.report_activity(update.effective_user.id)
+    reporter.report_activity(user_id)
     return ConversationHandler.END
 
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
