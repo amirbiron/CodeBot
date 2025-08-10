@@ -730,3 +730,21 @@ SOFTWARE.
 ---
 
 *נבנה באהבה ל-developers 💚*
+
+## פיתוח: איכות קוד ובדיקות
+- התקנת hooks:
+  ```bash
+  pre-commit install
+  ```
+- הרצת בדיקות:
+  ```bash
+  pytest -q
+  ```
+- בדיקת טיפוסים:
+  ```bash
+  mypy .
+  ```
+- עיצוב ולינט:
+  ```bash
+  black . && isort . && flake8
+  ```
