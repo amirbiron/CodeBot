@@ -1378,6 +1378,8 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
             MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
+            # כניסה לעריכת קוד/שם גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
+            CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|lf_edit_)')
         ],
         states={
             GET_CODE: [

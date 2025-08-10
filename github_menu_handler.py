@@ -175,6 +175,8 @@ class GitHubMenuHandler:
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
             keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
+            # כפתור יציאה (מחיקת טוקן) כאשר יש טוקן
+            keyboard.append([InlineKeyboardButton("🚪 התנתק מגיטהאב", callback_data="logout_github")])
         
         # כפתור הצגת הגדרות
         keyboard.append([InlineKeyboardButton("📋 הצג הגדרות נוכחיות", callback_data="show_current")])
@@ -256,7 +258,23 @@ class GitHubMenuHandler:
             
         elif query.data == "noop":
             await query.answer()  # לא עושה כלום, רק לכפתור התצוגה
-                
+        
+        # --- New: logout GitHub token from menu ---
+        elif query.data == "logout_github":
+            from database import db
+            removed = db.delete_github_token(user_id)
+            try:
+                session["github_token"] = None
+            except Exception:
+                pass
+            if removed:
+                await query.edit_message_text("🔐 הטוקן נמחק.⏳ מרענן תפריט...")
+            else:
+                await query.edit_message_text("ℹ️ לא נמצא טוקן או שאירעה שגיאה.⏳ מרענן תפריט...")
+            # refresh the menu after logout
+            await self.github_menu_command(update, context)
+            return
+        
         elif query.data == 'analyze_repo':
             logger.info(f"🔍 User {query.from_user.id} clicked 'analyze_repo' button")
             await self.show_analyze_repo_menu(update, context)
