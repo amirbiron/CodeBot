@@ -2,7 +2,7 @@
 # Code Keeper Bot Dependencies
 
 # Core Telegram Bot
-python-telegram-bot==20.7
+python-telegram-bot[job-queue]==20.7
 
 # Database
 pymongo==4.6.1
