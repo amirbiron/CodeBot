@@ -509,7 +509,7 @@ class CodeKeeperBot:
             else:
                 message += "אין משתמשים פעילים בשבוע האחרון"
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message, parse_mode='Markdown', reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
         else:
             # סטטיסטיקות רגילות למשתמש רגיל
             stats = db.get_user_stats(user_id)
@@ -517,7 +517,8 @@ class CodeKeeperBot:
             if not stats or stats.get('total_files', 0) == 0:
                 await update.message.reply_text(
                     "📊 עדיין אין לך קטעי קוד שמורים.\n"
-                    "התחל עם /save!"
+                    "התחל עם /save!",
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
                 )
                 return
             
@@ -541,7 +542,7 @@ class CodeKeeperBot:
 💡 **טיפ:** השתמש בתגיות לארגון טוב יותר!
             """
             
-            await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+            await update.message.reply_text(response, parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בקבצים שנשלחים לבוט"""
