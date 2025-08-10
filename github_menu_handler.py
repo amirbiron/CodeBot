@@ -472,6 +472,8 @@ class GitHubMenuHandler:
         elif query.data.startswith('browse_open:'):
             context.user_data['browse_path'] = query.data.split(':', 1)[1]
             context.user_data['browse_page'] = 0
+            # מצב מרובה ומחיקה בטוחה לאיפוס
+            context.user_data['multi_selection'] = []
             await self.show_repo_browser(update, context)
         elif query.data.startswith('browse_select_download:'):
             path = query.data.split(':', 1)[1]
@@ -1555,6 +1557,10 @@ class GitHubMenuHandler:
         context.user_data['browse_action'] = 'delete'
         context.user_data['browse_path'] = ''
         context.user_data['browse_page'] = 0
+        # מצב מרובה ומחיקה בטוחה לאיפוס
+        context.user_data['multi_mode'] = False
+        context.user_data['multi_selection'] = []
+        context.user_data['safe_delete'] = True
         await self.show_repo_browser(update, context)
 
     async def show_delete_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1668,6 +1674,8 @@ class GitHubMenuHandler:
         context.user_data['browse_action'] = 'download'
         context.user_data['browse_path'] = ''
         context.user_data['browse_page'] = 0
+        context.user_data['multi_mode'] = False
+        context.user_data['multi_selection'] = []
         await self.show_repo_browser(update, context)
 
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1694,11 +1702,17 @@ class GitHubMenuHandler:
         entry_rows = []
         for folder in folders:
             entry_rows.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
+        multi_mode = context.user_data.get('multi_mode', False)
+        selection = set(context.user_data.get('multi_selection', []))
         for f in files:
-            if context.user_data.get('browse_action') == 'download':
-                entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
+            if multi_mode:
+                checked = "☑️" if f.path in selection else "⬜️"
+                entry_rows.append([InlineKeyboardButton(f"{checked} {f.name}", callback_data=f"browse_toggle_select:{f.path}")])
             else:
-                entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
+                if context.user_data.get('browse_action') == 'download':
+                    entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
+                else:
+                    entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
         # עימוד
         page_size = 10
         total_items = len(entry_rows)
@@ -1722,8 +1736,22 @@ class GitHubMenuHandler:
             # חזרה למעלה
             parent = '/'.join(path.split('/')[:-1])
             bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
-        # כפתור ZIP לתיקייה הנוכחית
-        bottom.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
+        # כפתור ZIP לתיקייה הנוכחית (רק במצב הורדה)
+        if context.user_data.get('browse_action') == 'download':
+            bottom.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
+        # כפתורי מצב מרובה
+        if not multi_mode:
+            bottom.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
+        else:
+            if context.user_data.get('browse_action') == 'download':
+                bottom.append(InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute"))
+            else:
+                # מחיקה: מצבים
+                safe_label = "מצב מחיקה בטוח: פעיל" if context.user_data.get('safe_delete', True) else "מצב מחיקה בטוח: כבוי"
+                bottom.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
+                bottom.append(InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"))
+            bottom.append(InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"))
+            bottom.append(InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"))
         bottom.append(InlineKeyboardButton("🔙 חזרה", callback_data="github_menu"))
         if bottom:
             keyboard.append(bottom)
