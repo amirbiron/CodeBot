@@ -24,6 +24,7 @@ import os
 import sys
 import tempfile
 import time
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
