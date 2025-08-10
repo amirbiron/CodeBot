@@ -17,6 +17,7 @@ from database import DatabaseManager
 from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
+from typing import List, Optional
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -911,17 +912,25 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[1]
+        data = query.data
+        file_index: Optional[str] = None
         files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
         
-        if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
-            return ConversationHandler.END
+        if data.startswith("versions_file_"):
+            # מצב של שם קובץ ישיר
+            file_name = data.replace("versions_file_", "", 1)
+        else:
+            # מצב של אינדקס מרשימת הקבצים
+            file_index = data.split('_')[1]
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name')
         
         user_id = update.effective_user.id
-        file_name = file_data.get('file_name')
-        
         from database import db
         versions = db.get_all_versions(user_id, file_name)
         
@@ -931,6 +940,8 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
         
         history_text = f"📚 *היסטוריית גרסאות - {file_name}*\n\n"
         
+        keyboard: List[List[InlineKeyboardButton]] = []
+        
         for i, version in enumerate(versions[:5]):  # מציג עד 5 גרסאות
             created_at = version.get('created_at', 'לא ידוע')
             version_num = version.get('version', i+1)
@@ -939,10 +950,25 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
             history_text += f"🔹 **גרסה {version_num}**\n"
             history_text += f"   📅 {created_at}\n"
             history_text += f"   📏 {code_length:,} תווים\n\n"
+            
+            # כפתורים לפעולות על כל גרסה
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"👁 הצג גרסה {version_num}",
+                    callback_data=f"view_version_{version_num}_{file_name}"
+                ),
+                InlineKeyboardButton(
+                    f"↩️ שחזר לגרסה {version_num}",
+                    callback_data=f"revert_version_{version_num}_{file_name}"
+                )
+            ])
         
-        keyboard = [
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]
-        ]
+        # כפתור חזרה מתאים לפי מקור הקריאה
+        if file_index is not None:
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")])
+        else:
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")])
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
@@ -963,16 +989,35 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     
     try:
-        file_index = query.data.split('_')[1]
+        data = query.data
         files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
+        file_name: Optional[str] = None
+        code: str = ''
         
-        if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+        if data.startswith('dl_'):
+            # מצב אינדקס
+            file_index = data.split('_')[1]
+            file_data = files_cache.get(file_index)
+            
+            if not file_data:
+                await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+                return ConversationHandler.END
+            
+            file_name = file_data.get('file_name', 'file.txt')
+            code = file_data.get('code', '')
+        elif data.startswith('download_direct_'):
+            # מצב שם ישיר
+            file_name = data.replace('download_direct_', '', 1)
+            from database import db
+            user_id = update.effective_user.id
+            latest = db.get_latest_version(user_id, file_name)
+            if not latest:
+                await query.edit_message_text("❌ לא נמצאה גרסה אחרונה לקובץ")
+                return ConversationHandler.END
+            code = latest.get('code', '')
+        else:
+            await query.edit_message_text("❌ בקשת הורדה לא חוקית")
             return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'file.txt')
-        code = file_data.get('code', '')
         
         # יצירת קובץ להורדה
         file_bytes = BytesIO()
@@ -985,9 +1030,12 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
             caption=f"📥 *הורדת קובץ*\n\n📄 **שם:** `{file_name}`\n📏 **גודל:** {len(code):,} תווים"
         )
         
-        keyboard = [
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]
-        ]
+        keyboard = []
+        if data.startswith('dl_'):
+            file_index = data.split('_')[1]
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")])
+        else:
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
@@ -1280,6 +1328,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("view_"):
             if data.startswith("view_direct_"):
                 return await handle_view_direct_file(update, context)
+            elif data.startswith("view_version_"):
+                return await handle_view_version(update, context)
             else:
                 return await handle_view_file(update, context)
         elif data.startswith("edit_code_"):
@@ -1292,6 +1342,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return await handle_edit_name_direct(update, context)
             else:
                 return await handle_edit_name(update, context)
+        elif data.startswith("revert_version_"):
+            return await handle_revert_version(update, context)
         elif data.startswith("versions_"):
             return await handle_versions_history(update, context)
         elif data.startswith("dl_") or data.startswith("download_"):
@@ -1310,6 +1362,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "🎮 בחר פעולה מתקדמת:",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
+            return ConversationHandler.END
         elif data.startswith("replace_") or data == "rename_file" or data == "cancel_save":
             return await handle_duplicate_callback(update, context)
         
