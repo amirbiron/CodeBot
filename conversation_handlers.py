@@ -134,8 +134,12 @@ async def show_large_files_direct(update: Update, context: ContextTypes.DEFAULT_
 
 async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הצגת תפריט GitHub"""
-    from github_menu_handler import GitHubMenuHandler
-    github_handler = GitHubMenuHandler()
+    # שימוש ב-instance הגלובלי במקום ליצור חדש
+    if 'github_handler' not in context.bot_data:
+        from github_menu_handler import GitHubMenuHandler
+        context.bot_data['github_handler'] = GitHubMenuHandler()
+    
+    github_handler = context.bot_data['github_handler']
     await github_handler.github_menu_command(update, context)
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END

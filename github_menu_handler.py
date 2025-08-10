@@ -267,7 +267,7 @@ class GitHubMenuHandler:
             await self.analyze_repository(update, context, repo_url)
         
         elif query.data == "back_to_github_menu":
-            await self.show_github_menu(update, context)
+            await self.github_menu_command(update, context)
         
         elif query.data == 'analyze_other_repo':
             logger.info(f"🔄 User {query.from_user.id} wants to analyze another repo")

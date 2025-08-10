@@ -162,8 +162,10 @@ class CodeKeeperBot:
         logger.info(f"🔍 כמות handlers אחרי: {handler_count_after}")
 
         # --- GitHub handlers - חייבים להיות לפני ה-handler הגלובלי! ---
+        # יצירת instance יחיד של GitHubMenuHandler ושמירה ב-bot_data
         github_handler = GitHubMenuHandler()
-        logger.info("✅ GitHubMenuHandler instance created successfully")
+        self.application.bot_data['github_handler'] = github_handler
+        logger.info("✅ GitHubMenuHandler instance created and stored in bot_data")
         
         # הוסף פקודת github
         self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
