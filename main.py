@@ -475,6 +475,7 @@ class CodeKeeperBot:
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש או מנהל"""
         reporter.report_activity(update.effective_user.id)
+        await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         user_id = update.effective_user.id
         
         # רשימת מנהלים
