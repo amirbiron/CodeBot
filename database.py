@@ -459,6 +459,72 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"שגיאה בקבלת כל הקבצים: {e}")
             return {"regular_files": [], "large_files": []}
+    
+    def save_github_token(self, user_id: int, token: str) -> bool:
+        """שומר טוקן GitHub למשתמש במסד הנתונים"""
+        try:
+            # יצירת קולקשן users אם לא קיים
+            users_collection = self.db.users
+            
+            # עדכון או יצירת רשומת משתמש
+            result = users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "github_token": token,
+                        "updated_at": datetime.now()
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.now()
+                    }
+                },
+                upsert=True
+            )
+            
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"שגיאה בשמירת טוקן GitHub: {e}")
+            return False
+    
+    def get_github_token(self, user_id: int) -> str:
+        """מחזיר טוקן GitHub של משתמש מהמסד נתונים"""
+        try:
+            users_collection = self.db.users
+            user = users_collection.find_one({"user_id": user_id})
+            
+            if user and "github_token" in user:
+                return user["github_token"]
+            
+            return None
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת טוקן GitHub: {e}")
+            return None
+    
+    def save_user(self, user_id: int, username: str = None) -> bool:
+        """שומר משתמש במסד הנתונים (INSERT OR IGNORE)"""
+        try:
+            users_collection = self.db.users
+            
+            # עדכון או יצירת רשומת משתמש
+            result = users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$setOnInsert": {
+                        "user_id": user_id,
+                        "username": username,
+                        "created_at": datetime.now()
+                    },
+                    "$set": {
+                        "last_activity": datetime.now()
+                    }
+                },
+                upsert=True
+            )
+            
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"שגיאה בשמירת משתמש: {e}")
+            return False
 
 # יצירת אינסטנס גלובלי
 db = DatabaseManager()

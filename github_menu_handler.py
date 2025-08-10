@@ -104,6 +104,24 @@ class GitHubMenuHandler:
         
         self.last_api_call[user_id] = time.time()
     
+    def get_user_token(self, user_id: int) -> str:
+        """מקבל טוקן של משתמש - מהסשן או מהמסד נתונים"""
+        session = self.get_user_session(user_id)
+        
+        # נסה מהסשן
+        token = session.get('github_token')
+        if token:
+            return token
+        
+        # נסה מהמסד נתונים
+        from database import db
+        token = db.get_github_token(user_id)
+        if token:
+            # שמור בסשן לשימוש מהיר
+            session['github_token'] = token
+        
+        return token
+    
     async def github_menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
@@ -113,8 +131,8 @@ class GitHubMenuHandler:
         
         session = self.user_sessions[user_id]
         
-        # בדיקת טוקן
-        token = session.get('github_token')
+        # בדיקת טוקן - גם מהסשן וגם מהמסד נתונים
+        token = self.get_user_token(user_id)
         logger.info(f"[GitHub] Token exists: {bool(token)}")
         if token:
             logger.info(f"[GitHub] Token length: {len(token)}")
@@ -122,7 +140,7 @@ class GitHubMenuHandler:
         # בנה הודעת סטטוס
         status_msg = "🔧 <b>GitHub Integration Menu</b>\n\n"
         
-        if session.get('github_token'):
+        if token:  # השתמש ב-token שכבר בדקנו
             status_msg += "✅ טוקן מוגדר\n"
         else:
             status_msg += "❌ טוקן לא מוגדר\n"
@@ -137,7 +155,7 @@ class GitHubMenuHandler:
         keyboard = []
         
         # כפתור הגדרת טוקן
-        if not session.get('github_token'):
+        if not token:
             keyboard.append([InlineKeyboardButton("🔑 הגדר טוקן GitHub", callback_data="set_token")])
         
         # כפתור בחירת ריפו
@@ -153,7 +171,7 @@ class GitHubMenuHandler:
             ])
         
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
-        if session.get('github_token'):
+        if token:
             keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
         
         # כפתור הצגת הגדרות
@@ -248,6 +266,9 @@ class GitHubMenuHandler:
             repo_url = f"https://github.com/{session['selected_repo']}"
             await self.analyze_repository(update, context, repo_url)
         
+        elif query.data == "back_to_github_menu":
+            await self.github_menu_command(update, context)
+        
         elif query.data == 'analyze_other_repo':
             logger.info(f"🔄 User {query.from_user.id} wants to analyze another repo")
             await self.analyze_another_repo(update, context)
@@ -283,7 +304,7 @@ class GitHubMenuHandler:
         elif query.data == 'show_current':
             current_repo = session.get('selected_repo', 'לא נבחר')
             current_folder = session.get('selected_folder') or 'root'
-            has_token = "✅" if session.get('github_token') else "❌"
+            has_token = "✅" if self.get_user_token(user_id) else "❌"
             
             await query.edit_message_text(
                 f"📊 <b>הגדרות נוכחיות:</b>\n\n"
@@ -394,7 +415,7 @@ class GitHubMenuHandler:
             
         session = self.user_sessions.get(user_id, {})
         
-        if not session.get('github_token'):
+        if not self.get_user_token(user_id):
             if query:
                 await query.answer("❌ נא להגדיר טוקן קודם")
             else:
@@ -418,7 +439,7 @@ class GitHubMenuHandler:
                 
                 # אם אין cache או שהוא ישן, בצע בקשה ל-API
                 from github import Github
-                g = Github(session['github_token'])
+                g = Github(self.get_user_token(user_id))
                 
                 # בדוק rate limit לפני הבקשה
                 rate = g.get_rate_limit()
@@ -618,7 +639,7 @@ class GitHubMenuHandler:
             
             # התחבר ל-GitHub
             from github import Github
-            g = Github(session['github_token'])
+            g = Github(self.get_user_token(user_id))
             
             # בדוק rate limit לפני הבקשה
             logger.info(f"[GitHub API] Checking rate limit before uploading file")
@@ -737,7 +758,7 @@ class GitHubMenuHandler:
                         content = str(file_data)
                     logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
                     
-                    token = session.get('github_token') or os.environ.get('GITHUB_TOKEN')
+                    token = self.get_user_token(user_id) or os.environ.get('GITHUB_TOKEN')
                     
                     g = Github(token)
                     
@@ -850,6 +871,10 @@ class GitHubMenuHandler:
         if text.startswith('ghp_') or text.startswith('github_pat_'):
             session['github_token'] = text
             
+            # שמור גם במסד נתונים
+            from database import db
+            db.save_github_token(user_id, text)
+            
             # נקה את repos מ-context.user_data כשמשנים טוקן
             if 'repos' in context.user_data:
                 del context.user_data['repos']
@@ -898,7 +923,7 @@ class GitHubMenuHandler:
         query = update.callback_query
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
-        logger.info(f"📊 Session data: selected_repo={session.get('selected_repo')}, has_token={bool(session.get('github_token'))}")
+        logger.info(f"📊 Session data: selected_repo={session.get('selected_repo')}, has_token={bool(self.get_user_token(user_id))}")
         
         # בדוק אם יש ריפו נבחר
         if session.get('selected_repo'):
@@ -984,7 +1009,7 @@ class GitHubMenuHandler:
         
         try:
             # צור מנתח עם הטוקן
-            analyzer = RepoAnalyzer(github_token=session.get('github_token'))
+            analyzer = RepoAnalyzer(github_token=self.get_user_token(user_id))
             
             # נתח את הריפו
             analysis = await analyzer.fetch_and_analyze_repo(repo_url)
