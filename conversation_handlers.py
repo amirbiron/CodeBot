@@ -1456,3 +1456,114 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         allow_reentry=True,
         per_message=False
     )
+
+async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """הצגת קוד של גרסה מסוימת"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        data = query.data  # פורמט צפוי: view_version_{version}_{file_name}
+        remainder = data.replace('view_version_', '', 1)
+        sep_index = remainder.find('_')
+        if sep_index == -1:
+            await query.edit_message_text("❌ נתוני גרסה שגויים")
+            return ConversationHandler.END
+        version_str = remainder[:sep_index]
+        file_name = remainder[sep_index+1:]
+        version_num = int(version_str)
+        
+        user_id = update.effective_user.id
+        from database import db
+        version_doc = db.get_version(user_id, file_name, version_num)
+        if not version_doc:
+            await query.edit_message_text("❌ הגרסה המבוקשת לא נמצאה")
+            return ConversationHandler.END
+        
+        code = version_doc.get('code', '')
+        language = version_doc.get('programming_language', 'text')
+        
+        # קיצור תצוגה אם ארוך מדי
+        max_length = 3500
+        if len(code) > max_length:
+            code_preview = code[:max_length] + "\n\n... [הקובץ קוצר, להמשך מלא הורד את הקובץ]"
+        else:
+            code_preview = code
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("↩️ שחזר לגרסה זו", callback_data=f"revert_version_{version_num}_{file_name}"),
+                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
+            ],
+            [InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"📄 *{file_name}* ({language}) - גרסה {version_num}\n\n"
+            f"```{language}\n{code_preview}\n```",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in handle_view_version: {e}")
+        await query.edit_message_text("❌ שגיאה בהצגת גרסה")
+    
+    return ConversationHandler.END
+
+async def handle_revert_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """שחזור הקובץ לגרסה מסוימת על ידי יצירת גרסה חדשה עם תוכן ישן"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        data = query.data  # פורמט צפוי: revert_version_{version}_{file_name}
+        remainder = data.replace('revert_version_', '', 1)
+        sep_index = remainder.find('_')
+        if sep_index == -1:
+            await query.edit_message_text("❌ נתוני שחזור שגויים")
+            return ConversationHandler.END
+        version_str = remainder[:sep_index]
+        file_name = remainder[sep_index+1:]
+        version_num = int(version_str)
+        
+        user_id = update.effective_user.id
+        from database import db
+        version_doc = db.get_version(user_id, file_name, version_num)
+        if not version_doc:
+            await query.edit_message_text("❌ הגרסה לשחזור לא נמצאה")
+            return ConversationHandler.END
+        
+        code = version_doc.get('code', '')
+        language = version_doc.get('programming_language', 'text')
+        
+        success = db.save_file(user_id, file_name, code, language)
+        if not success:
+            await query.edit_message_text("❌ שגיאה בשחזור הגרסה")
+            return ConversationHandler.END
+        
+        latest = db.get_latest_version(user_id, file_name)
+        latest_ver = latest.get('version', version_num) if latest else version_num
+        
+        keyboard = [
+            [
+                InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=f"view_direct_{file_name}"),
+                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"✅ *שוחזר בהצלחה לגרסה {version_num}!*\n\n"
+            f"📄 **קובץ:** `{file_name}`\n"
+            f"📝 **גרסה נוכחית:** {latest_ver}",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in handle_revert_version: {e}")
+        await query.edit_message_text("❌ שגיאה בשחזור גרסה")
+    
+    return ConversationHandler.END
