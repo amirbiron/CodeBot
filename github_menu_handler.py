@@ -1121,50 +1121,75 @@ class GitHubMenuHandler:
         query = update.callback_query
         await query.answer()
         
-        user_id = query.from_user.id
-        session = self.get_user_session(user_id)
-        
-        suggestions = session.get('suggestions', [])
-        if suggestion_index >= len(suggestions):
-            await query.answer("❌ הצעה לא נמצאה", show_alert=True)
-            return
-        
-        suggestion = suggestions[suggestion_index]
-        
-        # מיפוי השפעה ומאמץ לעברית
-        impact_map = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
-        effort_map = {'high': 'גבוה', 'medium': 'בינוני', 'low': 'נמוך'}
-        
-        # Escape HTML special characters
-        title = escape(suggestion['title'])
-        why = escape(suggestion['why'])
-        how = escape(suggestion['how'])
-        impact = escape(impact_map.get(suggestion['impact'], suggestion['impact']))
-        effort = escape(effort_map.get(suggestion['effort'], suggestion['effort']))
-        
-        message = f"<b>{title}</b>\n\n"
-        message += f"❓ <b>למה:</b> {why}\n\n"
-        message += f"💡 <b>איך:</b> {how}\n\n"
-        message += f"📊 <b>השפעה:</b> {impact}\n"
-        message += f"⚡ <b>מאמץ:</b> {effort}\n"
-        
-        keyboard = []
-        
-        # הוסף כפתור למידע נוסף בהתאם לקטגוריה
-        if suggestion['id'] == 'add_license':
-            keyboard.append([InlineKeyboardButton("📚 מידע על רישיונות", url="https://choosealicense.com/")])
-        elif suggestion['id'] == 'add_gitignore':
-            keyboard.append([InlineKeyboardButton("📚 יצירת .gitignore", url="https://gitignore.io/")])
-        elif suggestion['id'] == 'add_ci_cd':
-            keyboard.append([InlineKeyboardButton("📚 GitHub Actions", url="https://docs.github.com/en/actions")])
-        
-        keyboard.append([InlineKeyboardButton("🔙 חזור להצעות", callback_data="show_suggestions")])
-        
-        await query.edit_message_text(
-            message,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='HTML'
-        )
+        try:
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            
+            suggestions = session.get('suggestions', [])
+            if suggestion_index >= len(suggestions):
+                await query.answer("❌ הצעה לא נמצאה", show_alert=True)
+                return
+            
+            suggestion = suggestions[suggestion_index]
+            
+            # מיפוי השפעה ומאמץ לעברית
+            impact_map = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
+            effort_map = {'high': 'גבוה', 'medium': 'בינוני', 'low': 'נמוך'}
+            
+            # Escape HTML special characters - with safe fallbacks
+            title = escape(str(suggestion.get('title', 'הצעה')))
+            why = escape(str(suggestion.get('why', 'לא צוין')))
+            how = escape(str(suggestion.get('how', 'לא צוין')))
+            impact = escape(impact_map.get(suggestion.get('impact', 'medium'), 'בינונית'))
+            effort = escape(effort_map.get(suggestion.get('effort', 'medium'), 'בינוני'))
+            
+            # בנה הודעה בטוחה
+            message = f"<b>{title}</b>\n\n"
+            message += f"❓ <b>למה:</b> {why}\n\n"
+            message += f"💡 <b>איך:</b> {how}\n\n"
+            message += f"📊 <b>השפעה:</b> {impact}\n"
+            message += f"⚡ <b>מאמץ:</b> {effort}\n"
+            
+            keyboard = []
+            
+            # הוסף כפתור למידע נוסף בהתאם לקטגוריה
+            suggestion_id = suggestion.get('id', '')
+            if suggestion_id == 'add_license':
+                keyboard.append([InlineKeyboardButton("📚 מידע על רישיונות", url="https://choosealicense.com/")])
+            elif suggestion_id == 'add_gitignore':
+                keyboard.append([InlineKeyboardButton("📚 יצירת .gitignore", url="https://gitignore.io/")])
+            elif suggestion_id == 'add_ci_cd':
+                keyboard.append([InlineKeyboardButton("📚 GitHub Actions", url="https://docs.github.com/en/actions")])
+            
+            keyboard.append([InlineKeyboardButton("🔙 חזור להצעות", callback_data="show_suggestions")])
+            
+            await query.edit_message_text(
+                message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in show_suggestion_details: {e}")
+            # Fallback to simple text without HTML
+            try:
+                simple_text = f"הצעה #{suggestion_index + 1}\n\n"
+                if 'suggestion' in locals():
+                    simple_text += f"{suggestion.get('title', 'הצעה')}\n\n"
+                    simple_text += f"למה: {suggestion.get('why', 'לא צוין')}\n"
+                    simple_text += f"איך: {suggestion.get('how', 'לא צוין')}\n"
+                else:
+                    simple_text += "לא ניתן להציג את פרטי ההצעה"
+                
+                await query.edit_message_text(
+                    simple_text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔙 חזור", callback_data="show_suggestions")]
+                    ])
+                )
+            except Exception as fallback_error:
+                logger.error(f"Fallback also failed: {fallback_error}")
+                await query.answer("❌ שגיאה בהצגת ההצעה", show_alert=True)
     
     async def show_full_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג ניתוח מלא"""
