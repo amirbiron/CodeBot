@@ -470,6 +470,7 @@ class GitHubMenuHandler:
         
         elif query.data.startswith('browse_open:'):
             context.user_data['browse_path'] = query.data.split(':', 1)[1]
+            context.user_data['browse_page'] = 0
             await self.show_repo_browser(update, context)
         elif query.data.startswith('browse_select_download:'):
             path = query.data.split(':', 1)[1]
@@ -503,6 +504,15 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='HTML'
             )
+        
+        elif query.data.startswith('browse_page:'):
+            # מעבר עמודים בדפדפן הריפו
+            try:
+                page_index = int(query.data.split(':', 1)[1])
+            except ValueError:
+                page_index = 0
+            context.user_data['browse_page'] = max(0, page_index)
+            await self.show_repo_browser(update, context)
         
         elif query.data == 'confirm_delete_repo_step1':
             # שלב שני: אתה בטוח?
@@ -1495,6 +1505,7 @@ class GitHubMenuHandler:
             return
         context.user_data['browse_action'] = 'delete'
         context.user_data['browse_path'] = ''
+        context.user_data['browse_page'] = 0
         await self.show_repo_browser(update, context)
 
     async def show_delete_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1607,6 +1618,7 @@ class GitHubMenuHandler:
         # התחל בדפדוף מה-root
         context.user_data['browse_action'] = 'download'
         context.user_data['browse_path'] = ''
+        context.user_data['browse_page'] = 0
         await self.show_repo_browser(update, context)
 
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1627,17 +1639,34 @@ class GitHubMenuHandler:
         if not isinstance(contents, list):
             # אם זה קובץ יחיד, הפוך לרשימה לצורך תצוגה
             contents = [contents]
-        keyboard = []
-        # כפתורי קבצים ותיקיות
+        # בניית פריטים (תיקיות קודם, אחר כך קבצים)
         folders = [c for c in contents if c.type == 'dir']
         files = [c for c in contents if c.type == 'file']
+        entry_rows = []
         for folder in folders:
-            keyboard.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
+            entry_rows.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
         for f in files:
             if context.user_data.get('browse_action') == 'download':
-                keyboard.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
+                entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
             else:
-                keyboard.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
+                entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
+        # עימוד
+        page_size = 10
+        total_items = len(entry_rows)
+        total_pages = max(1, (total_items + page_size - 1) // page_size)
+        current_page = min(max(0, context.user_data.get('browse_page', 0)), total_pages - 1)
+        start_index = current_page * page_size
+        end_index = start_index + page_size
+        keyboard = entry_rows[start_index:end_index]
+        # ניווט עמודים
+        if total_pages > 1:
+            nav_row = []
+            if current_page > 0:
+                nav_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"browse_page:{current_page - 1}"))
+            nav_row.append(InlineKeyboardButton(f"עמוד {current_page + 1}/{total_pages}", callback_data="noop"))
+            if current_page < total_pages - 1:
+                nav_row.append(InlineKeyboardButton("הבא ➡️", callback_data=f"browse_page:{current_page + 1}"))
+            keyboard.append(nav_row)
         # שורה תחתונה
         bottom = []
         if path:
@@ -1652,7 +1681,7 @@ class GitHubMenuHandler:
         await query.edit_message_text(
             f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
             f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-            f"בחר קובץ ל{action} או פתח תיקייה:",
+            f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
