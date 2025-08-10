@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 # מצבי שיחה
 REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 
+# מגבלות קבצים גדולים
+MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
+MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
+MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
+
 def safe_html_escape(text):
     """Safely escape text for HTML parsing in Telegram"""
     if not text:
@@ -46,6 +51,17 @@ def safe_html_escape(text):
     text = text.replace('<', '(').replace('>', ')')
     
     return text.strip()
+
+def format_bytes(num: int) -> str:
+    """פורמט נחמד לגודל קובץ"""
+    try:
+        for unit in ["B", "KB", "MB", "GB"]:
+            if num < 1024.0 or unit == "GB":
+                return f"{num:.1f} {unit}" if unit != "B" else f"{num} {unit}"
+            num /= 1024.0
+    except Exception:
+        pass
+    return str(num)
 
 class GitHubMenuHandler:
     def __init__(self):
@@ -486,12 +502,26 @@ class GitHubMenuHandler:
             g = Github(token)
             repo = g.get_repo(repo_name)
             contents = repo.get_contents(path)
-            data = contents.decoded_content
-            filename = os.path.basename(contents.path) or 'downloaded_file'
-            await query.message.reply_document(
-                document=BytesIO(data),
-                filename=filename
-            )
+            # אם הקובץ גדול מדי, שלח קישור להורדה במקום תוכן מלא
+            size = getattr(contents, 'size', 0) or 0
+            if size and size > MAX_INLINE_FILE_BYTES:
+                download_url = getattr(contents, 'download_url', None)
+                if download_url:
+                    await query.message.reply_text(
+                        f"⚠️ הקובץ גדול ({format_bytes(size)}). להורדה: <a href=\"{download_url}\">קישור ישיר</a>",
+                        parse_mode='HTML'
+                    )
+                else:
+                    await query.message.reply_text(
+                        f"⚠️ הקובץ גדול ({format_bytes(size)}) ולא ניתן להורידו ישירות כרגע."
+                    )
+            else:
+                data = contents.decoded_content
+                filename = os.path.basename(contents.path) or 'downloaded_file'
+                await query.message.reply_document(
+                    document=BytesIO(data),
+                    filename=filename
+                )
             await self.github_menu_command(update, context)
         elif query.data.startswith('browse_select_delete:'):
             path = query.data.split(':', 1)[1]
@@ -523,10 +553,13 @@ class GitHubMenuHandler:
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 zip_buffer = BytesIO()
+                total_bytes = 0
+                total_files = 0
+                skipped_large = 0
                 with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split('/')[-1]
-
+ 
                     async def add_path_to_zip(path: str, rel_prefix: str):
                         # קבל את התוכן עבור הנתיב
                         contents = repo.get_contents(path or "")
@@ -539,16 +572,31 @@ class GitHubMenuHandler:
                             elif item.type == 'file':
                                 await self.apply_rate_limit_delay(user_id)
                                 file_obj = repo.get_contents(item.path)
+                                file_size = getattr(file_obj, 'size', 0) or 0
+                                nonlocal total_bytes, total_files, skipped_large
+                                if file_size > MAX_INLINE_FILE_BYTES:
+                                    skipped_large += 1
+                                    continue
+                                if total_files >= MAX_ZIP_FILES:
+                                    continue
+                                if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                    continue
                                 data = file_obj.decoded_content
                                 arcname = f"{zip_root}/{rel_prefix}{item.name}"
                                 zipf.writestr(arcname, data)
-
+                                total_bytes += len(data)
+                                total_files += 1
+ 
                     await add_path_to_zip(current_path, "")
-
+ 
                 zip_buffer.seek(0)
                 filename = f"{repo.name}{'-' + current_path.replace('/', '_') if current_path else ''}.zip"
                 zip_buffer.name = filename
-                await query.message.reply_document(document=zip_buffer, filename=filename, caption=f"📦 קובץ ZIP לתיקייה: /{current_path or ''}")
+                caption = f"📦 קובץ ZIP לתיקייה: /{current_path or ''}\n" \
+                          f"מכיל {total_files} קבצים, {format_bytes(total_bytes)}."
+                if skipped_large:
+                    caption += f"\n⚠️ דילג על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
+                await query.message.reply_document(document=zip_buffer, filename=filename, caption=caption)
             except Exception as e:
                 logger.error(f"Error creating ZIP: {e}")
                 await query.edit_message_text(f"❌ שגיאה בהכנת ZIP: {e}")
@@ -1700,6 +1748,17 @@ class GitHubMenuHandler:
         folders = [c for c in contents if c.type == 'dir']
         files = [c for c in contents if c.type == 'file']
         entry_rows = []
+        # Breadcrumbs
+        crumbs_row = []
+        crumbs_row.append(InlineKeyboardButton("🏠 root", callback_data="browse_open:"))
+        if path:
+            parts = path.split('/')
+            accum = []
+            for part in parts:
+                accum.append(part)
+                crumbs_row.append(InlineKeyboardButton(part, callback_data=f"browse_open:{'/'.join(accum)}"))
+        if crumbs_row:
+            entry_rows.append(crumbs_row)
         for folder in folders:
             entry_rows.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
         multi_mode = context.user_data.get('multi_mode', False)
@@ -1707,12 +1766,17 @@ class GitHubMenuHandler:
         for f in files:
             if multi_mode:
                 checked = "☑️" if f.path in selection else "⬜️"
-                entry_rows.append([InlineKeyboardButton(f"{checked} {f.name}", callback_data=f"browse_toggle_select:{f.path}")])
+                size_str = format_bytes(getattr(f, 'size', 0) or 0)
+                entry_rows.append([InlineKeyboardButton(f"{checked} {f.name} ({size_str})", callback_data=f"browse_toggle_select:{f.path}")])
             else:
                 if context.user_data.get('browse_action') == 'download':
-                    entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
+                    size_val = getattr(f, 'size', 0) or 0
+                    size_str = format_bytes(size_val)
+                    large_flag = " ⚠️" if size_val and size_val > MAX_INLINE_FILE_BYTES else ""
+                    entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name} ({size_str}){large_flag}", callback_data=f"browse_select_download:{f.path}")])
                 else:
-                    entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
+                    size_str = format_bytes(getattr(f, 'size', 0) or 0)
+                    entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name} ({size_str})", callback_data=f"browse_select_delete:{f.path}")])
         # עימוד
         page_size = 10
         total_items = len(entry_rows)
