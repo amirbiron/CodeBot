@@ -221,7 +221,7 @@ class GitHubMenuHandler:
         
         elif query.data == 'analyze_other_repo':
             logger.info(f"🔄 User {query.from_user.id} wants to analyze another repo")
-            await self.request_repo_url(update, context)
+            await self.analyze_another_repo(update, context)
         
         elif query.data == 'show_suggestions':
             await self.show_improvement_suggestions(update, context)
@@ -234,6 +234,18 @@ class GitHubMenuHandler:
         
         elif query.data == 'back_to_analysis':
             await self.show_analyze_results_menu(update, context)
+        
+        elif query.data == 'back_to_analysis_menu':
+            await self.show_analyze_results_menu(update, context)
+        
+        elif query.data == 'back_to_summary':
+            await self.show_analyze_results_menu(update, context)
+        
+        elif query.data == 'choose_my_repo':
+            await self.show_repos(update, context)
+        
+        elif query.data == 'enter_repo_url':
+            await self.request_repo_url(update, context)
         
         elif query.data.startswith('suggestion_'):
             suggestion_index = int(query.data.split('_')[1])
@@ -909,6 +921,23 @@ class GitHubMenuHandler:
         
         # סמן שאנחנו מחכים ל-URL
         context.user_data['waiting_for_repo_url'] = True
+    
+    async def analyze_another_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט בחירה לניתוח ריפו אחר"""
+        query = update.callback_query
+        await query.answer()
+        
+        # הצג כפתורים לבחירה
+        keyboard = [
+            [InlineKeyboardButton("📁 בחר מהריפוזיטורים שלי", callback_data="choose_my_repo")],
+            [InlineKeyboardButton("🔗 הכנס URL של ריפו ציבורי", callback_data="enter_repo_url")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="back_to_analysis_menu")]
+        ]
+        
+        await query.edit_message_text(
+            "איך תרצה לבחור ריפו לניתוח?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     
     async def analyze_repository(self, update: Update, context: ContextTypes.DEFAULT_TYPE, repo_url: str):
         """מנתח ריפוזיטורי ומציג תוצאות"""
