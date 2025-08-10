@@ -37,6 +37,7 @@ from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
+from html import escape as html_escape
 
 # (Lock mechanism constants removed)
 
@@ -383,9 +384,12 @@ class CodeKeeperBot:
             'user_id': user_id
         }
         
+        safe_file_name = html_escape(file_name)
+        safe_tags = ", ".join(html_escape(t) for t in tags) if tags else 'ללא'
+        
         await update.message.reply_text(
-            f"📝 מוכן לשמור את <code>{file_name}</code>\n"
-            f"🏷️ תגיות: {', '.join(tags) if tags else 'ללא'}\n\n"
+            f"📝 מוכן לשמור את <code>{safe_file_name}</code>\n"
+            f"🏷️ תגיות: {safe_tags}\n\n"
             "אנא שלח את קטע הקוד:",
             parse_mode=ParseMode.HTML
         )
@@ -461,23 +465,17 @@ class CodeKeeperBot:
         
         if not results:
             await update.message.reply_text(
-                f"🔍 לא נמצאו תוצאות עבור: <code>{' '.join(context.args)}</code>",
+                f"🔍 לא נמצאו תוצאות עבור: <code>{html_escape(' '.join(context.args))}</code>",
                 parse_mode=ParseMode.HTML
             )
             return
         
         # הצגת תוצאות
-        response = f"🔍 **תוצאות חיפוש עבור:** <code>{' '.join(context.args)}</code>\n\n"
+        safe_query = html_escape(' '.join(context.args))
+        response = f"🔍 **תוצאות חיפוש עבור:** <code>{safe_query}</code>\n\n"
         
         for i, file_data in enumerate(results[:10], 1):
-            response += f"**{i}. {file_data['file_name']}**\n"
-            response += f"🔤 {file_data['programming_language']} | "
-            response += f"📅 {file_data['updated_at'].strftime('%d/%m')}\n"
-            
-            if file_data.get('description'):
-                response += f"📝 {file_data['description']}\n"
-            
-            response += "\n"
+            response += f"{i}. <code>{html_escape(file_data['file_name'])}</code> — {file_data['programming_language']}\n"
         
         if len(results) > 10:
             response += f"\n📄 מוצגות 10 מתוך {len(results)} תוצאות"
