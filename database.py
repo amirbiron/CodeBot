@@ -499,7 +499,23 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"שגיאה בקבלת טוקן GitHub: {e}")
             return None
-    
+
+    def delete_github_token(self, user_id: int) -> bool:
+        """מוחק את טוקן ה-GitHub של המשתמש מהמסד נתונים"""
+        try:
+            users_collection = self.db.users
+            result = users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$unset": {"github_token": ""},
+                    "$set": {"updated_at": datetime.now()}
+                }
+            )
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"שגיאה במחיקת טוקן GitHub: {e}")
+            return False
+
     def save_selected_repo(self, user_id: int, repo_name: str) -> bool:
         """שומר את הריפו הנבחר של המשתמש במסד הנתונים"""
         try:

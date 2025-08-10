@@ -324,8 +324,9 @@ class GitHubMenuHandler:
             
         elif query.data == 'set_token':
             await query.edit_message_text(
-                "🔑 שלח לי את הטוקן של GitHub:\n"
-                "(הטוקן יישמר רק לסשן הנוכחי)\n\n"
+                "🔑 שלח לי את הטוקן של GitHub:\n\n"
+                "הטוקן יישמר בצורה מאובטחת לחשבון שלך לצורך שימוש עתידי.\n"
+                "תוכל להסיר אותו בכל עת עם הפקודה /github_logout.\n\n"
                 "💡 טיפ: צור טוקן ב:\n"
                 "https://github.com/settings/tokens"
             )

@@ -701,6 +701,8 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         user_id = update.effective_user.id
         # תמיכה במקרים ישירים ומקרי cache
         file_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
+        editing_file_index = context.user_data.get('editing_file_index')
+        files_cache = context.user_data.get('files_cache')
         
         from code_processor import code_processor
         
@@ -739,6 +741,17 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             from database import db
             updated_file = db.get_latest_version(user_id, file_name)
             version_num = updated_file.get('version', 1) if updated_file else 1
+            
+            # רענון קאש של הקבצים אם קיים אינדקס רלוונטי
+            try:
+                if files_cache is not None and editing_file_index is not None and str(editing_file_index) in files_cache:
+                    entry = files_cache[str(editing_file_index)]
+                    entry['code'] = cleaned_code
+                    entry['programming_language'] = detected_language
+                    entry['version'] = version_num
+                    entry['updated_at'] = datetime.now()
+            except Exception as e:
+                logger.warning(f"Failed to refresh files_cache after edit: {e}")
             
             await update.message.reply_text(
                 f"✅ *הקובץ עודכן בהצלחה!*\n\n"
@@ -787,7 +800,11 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             parse_mode='Markdown'
         )
     
+    # נקה את מצב העריכה אך שמור קאש של קבצים אם קיים
+    preserved_cache = context.user_data.get('files_cache')
     context.user_data.clear()
+    if preserved_cache is not None:
+        context.user_data['files_cache'] = preserved_cache
     return ConversationHandler.END
 
 async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
