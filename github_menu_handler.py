@@ -5,6 +5,7 @@ import os
 import re
 from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
 from typing import Dict, Any
@@ -603,6 +604,41 @@ class GitHubMenuHandler:
                 return
             # החזר לדפדפן באותו מקום
             await self.show_repo_browser(update, context)
+        
+        elif query.data.startswith('inline_download_file:'):
+            # הורדת קובץ שנבחר דרך אינליין
+            path = query.data.split(':', 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
+                return
+            try:
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                contents = repo.get_contents(path)
+                size = getattr(contents, 'size', 0) or 0
+                if size and size > MAX_INLINE_FILE_BYTES:
+                    download_url = getattr(contents, 'download_url', None)
+                    if download_url:
+                        await query.message.reply_text(
+                            f"⚠️ הקובץ גדול ({format_bytes(size)}). להורדה: <a href=\"{download_url}\">קישור ישיר</a>",
+                            parse_mode='HTML'
+                        )
+                    else:
+                        await query.message.reply_text(
+                            f"⚠️ הקובץ גדול ({format_bytes(size)}) ולא ניתן להורידו ישירות כרגע."
+                        )
+                else:
+                    data = contents.decoded_content
+                    filename = os.path.basename(contents.path) or 'downloaded_file'
+                    await query.message.reply_document(document=BytesIO(data), filename=filename)
+            except Exception as e:
+                logger.error(f"Inline download error: {e}")
+                await query.message.reply_text(f"❌ שגיאה בהורדה: {e}")
+            return
         
         elif query.data.startswith('browse_page:'):
             # מעבר עמודים בדפדפן הריפו
@@ -1828,3 +1864,139 @@ class GitHubMenuHandler:
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
+
+    async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""
+        inline_query = update.inline_query
+        user_id = inline_query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        q = (inline_query.query or '').strip()
+        results = []
+        if not (token and repo_name):
+            # בקש מהמשתמש לבחור ריפו
+            results.append(
+                InlineQueryResultArticle(
+                    id=f"help-no-repo",
+                    title="בחר/התחבר לריפו לפני שימוש באינליין",
+                    description="שלח /github לבחירת ריפו ו/או התחברות",
+                    input_message_content=InputTextMessageContent("🔧 שלח /github לבחירת ריפו ולהתחברות ל-GitHub")
+                )
+            )
+            await inline_query.answer(results, cache_time=1, is_personal=True)
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        # ללא קלט: הצג עזרה קצרה
+        if not q:
+            results = [
+                InlineQueryResultArticle(
+                    id="help-1",
+                    title="zip <path> — הורד תיקייה כ־ZIP",
+                    description="לדוגמה: zip src/components",
+                    input_message_content=InputTextMessageContent("בחר תיקייה להורדה כ־ZIP"),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("פתח /github", callback_data="github_menu")]])
+                ),
+                InlineQueryResultArticle(
+                    id="help-2",
+                    title="file <path> — הורד קובץ בודד",
+                    description="לדוגמה: file README.md או src/app.py",
+                    input_message_content=InputTextMessageContent("בחר קובץ להורדה"),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("פתח /github", callback_data="github_menu")]])
+                ),
+                InlineQueryResultArticle(
+                    id="help-3",
+                    title=f"ריפו נוכחי: {repo_name}",
+                    description="הקלד נתיב מלא לרשימה/קובץ",
+                    input_message_content=InputTextMessageContent(f"ריפו: {repo_name}")
+                )
+            ]
+            await inline_query.answer(results, cache_time=1, is_personal=True)
+            return
+        # פרסור פשוט: zip <path> / file <path> או נתיב ישיר
+        is_zip = False
+        is_file = False
+        path = q
+        if q.lower().startswith('zip '):
+            is_zip = True
+            path = q[4:].strip()
+        elif q.lower().startswith('file '):
+            is_file = True
+            path = q[5:].strip()
+        path = path.lstrip('/')
+        try:
+            contents = repo.get_contents(path)
+            # תיקייה
+            if isinstance(contents, list):
+                # תוצאה ל־ZIP
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"zip-{path or 'root'}",
+                        title=f"📦 ZIP לתיקייה: /{path or ''}",
+                        description=f"{repo_name} — אריזת תיקייה והורדה",
+                        input_message_content=InputTextMessageContent(f"ZIP לתיקייה: /{path or ''}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 הורד ZIP", callback_data=f"download_zip:{path}")]])
+                    )
+                )
+                # הצג כמה קבצים ראשונים בתיקייה להורדה מהירה
+                shown = 0
+                for item in contents:
+                    if getattr(item, 'type', '') == 'file':
+                        size_str = format_bytes(getattr(item, 'size', 0) or 0)
+                        results.append(
+                            InlineQueryResultArticle(
+                                id=f"file-{item.path}",
+                                title=f"⬇️ {item.name} ({size_str})",
+                                description=f"/{item.path}",
+                                input_message_content=InputTextMessageContent(f"קובץ: /{item.path}"),
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ הורד", callback_data=f"inline_download_file:{item.path}")]])
+                            )
+                        )
+                        shown += 1
+                        if shown >= 10:
+                            break
+            else:
+                # קובץ בודד
+                size_str = format_bytes(getattr(contents, 'size', 0) or 0)
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"file-{path}",
+                        title=f"⬇️ הורד: {os.path.basename(contents.path)} ({size_str})",
+                        description=f"/{path}",
+                        input_message_content=InputTextMessageContent(f"קובץ: /{path}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ הורד", callback_data=f"inline_download_file:{path}")]])
+                    )
+                )
+        except Exception:
+            # אם לצורך zip/file מפורש, החזר כפתור גם אם לא קיים (ייתכן נתיב שגוי)
+            if is_zip and path:
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"zip-maybe-{path}",
+                        title=f"📦 ZIP: /{path}",
+                        description="ניסיון אריזה לתיקייה (אם קיימת)",
+                        input_message_content=InputTextMessageContent(f"ZIP לתיקייה: /{path}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 הורד ZIP", callback_data=f"download_zip:{path}")]])
+                    )
+                )
+            elif is_file and path:
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"file-maybe-{path}",
+                        title=f"⬇️ קובץ: /{path}",
+                        description="ניסיון הורדה לקובץ (אם קיים)",
+                        input_message_content=InputTextMessageContent(f"קובץ: /{path}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ הורד", callback_data=f"inline_download_file:{path}")]])
+                    )
+                )
+            else:
+                results.append(
+                    InlineQueryResultArticle(
+                        id="not-found",
+                        title="לא נמצאה התאמה",
+                        description="הקלד: zip <path> או file <path> או נתיב מלא",
+                        input_message_content=InputTextMessageContent("לא נמצאה התאמה לשאילתה")
+                    )
+                )
+        await inline_query.answer(results[:50], cache_time=1, is_personal=True)
