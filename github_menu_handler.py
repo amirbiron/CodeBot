@@ -113,8 +113,12 @@ class GitHubMenuHandler:
         
         session = self.user_sessions[user_id]
         
-        # בדיקת טוקן
-        token = session.get('github_token')
+        # בדיקת טוקן - גם מהסשן וגם מהמסד נתונים
+        saved_token = self.db.get_github_token(user_id)
+        token = session.get('github_token') or saved_token
+        if saved_token and not session.get('github_token'):
+            session['github_token'] = saved_token
+        
         logger.info(f"[GitHub] Token exists: {bool(token)}")
         if token:
             logger.info(f"[GitHub] Token length: {len(token)}")
@@ -269,6 +273,9 @@ class GitHubMenuHandler:
         
         elif query.data == 'back_to_summary':
             await self.show_analyze_results_menu(update, context)
+        
+        elif query.data == 'back_to_github_menu':
+            await self.github_menu_command(update, context)
         
         elif query.data == 'choose_my_repo':
             await self.show_repos(update, context)
