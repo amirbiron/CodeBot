@@ -49,10 +49,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     welcome_text = (
         f"🤖 שלום {user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
         "🔹 שמור ונהל קטעי קוד בחכמה\n"
-        "🔹 עריכה מתקדמת עם גרסאות (בפיתוח)\n"
+        "🔹 עריכה מתקדמת עם גרסאות\n"
         "🔹 חיפוש והצגה חכמה\n"
         "🔹 הורדה וניהול מלא\n"
-        "🔹 העלאת קבצים ל-GitHub\n\n"
+        "🔹 העלאת קבצים ל-GitHub\n"
+        "🔹 ניתוח ריפו\n\n"
         "בחר פעולה מהתפריט למטה 👇\n\n"
         "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
     )
