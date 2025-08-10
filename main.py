@@ -145,6 +145,7 @@ class CodeKeeperBot:
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
     
+    
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
@@ -173,8 +174,8 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
             CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr)')
-        )
+                                                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr)')
+)
 
         # Inline query handler
         self.application.add_handler(InlineQueryHandler(github_handler.handle_inline_query))
@@ -521,7 +522,7 @@ class CodeKeeperBot:
         user_id = update.effective_user.id
         
         # רשימת מנהלים
-        ADMIN_IDS = [6865105071]  # הוסף את ה-ID שלך כאן!
+        ADMIN_IDS = config.ADMIN_USER_IDS or [6865105071]
         
         # אם המשתמש הוא מנהל, הצג סטטיסטיקות מנהל
         if user_id in ADMIN_IDS:

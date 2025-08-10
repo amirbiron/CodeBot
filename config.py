@@ -28,6 +28,9 @@ class BotConfig:
     # הגדרות syntax highlighting
     HIGHLIGHT_THEME: str = "github-dark"
     
+    # מזהי אדמינים לקבלת התראות מערכת (פסיקים מופרדים)
+    ADMIN_USER_IDS: list[int] | None = None
+    
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
             self.SUPPORTED_LANGUAGES = [
@@ -47,6 +50,15 @@ def load_config() -> BotConfig:
     if not mongodb_url:
         raise ValueError("MONGODB_URL לא נמצא במשתני הסביבה")
     
+    # Parse admin IDs (comma-separated integers)
+    admin_ids_env = os.getenv('ADMIN_USER_IDS', '').strip()
+    admin_ids: list[int] | None = None
+    if admin_ids_env:
+        try:
+            admin_ids = [int(x) for x in admin_ids_env.split(',') if x.strip()]
+        except Exception:
+            admin_ids = None
+    
     return BotConfig(
         BOT_TOKEN=bot_token,
         MONGODB_URL=mongodb_url,
@@ -55,7 +67,8 @@ def load_config() -> BotConfig:
         PASTEBIN_API_KEY=os.getenv('PASTEBIN_API_KEY'),
         MAX_CODE_SIZE=int(os.getenv('MAX_CODE_SIZE', '100000')),
         MAX_FILES_PER_USER=int(os.getenv('MAX_FILES_PER_USER', '1000')),
-        HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark')
+        HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark'),
+        ADMIN_USER_IDS=admin_ids
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה
