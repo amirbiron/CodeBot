@@ -149,36 +149,19 @@ class GitHubMenuHandler:
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
         
-        # ודא שהסשן של המשתמש נטען מהמסד (כולל selected_repo)
         session = self.get_user_session(user_id)
-        
-        # בדיקת טוקן - גם מהסשן וגם מהמסד נתונים
         token = self.get_user_token(user_id)
-        logger.info(f"[GitHub] Token exists: {bool(token)}")
-        if token:
-            logger.info(f"[GitHub] Token length: {len(token)}")
-        
-        # אם אין טוקן, נקה בחירות כדי למנוע הצגת מידע ישן
-        if not token:
-            session['selected_repo'] = None
-            session['selected_folder'] = None
-            context.user_data.pop('repos', None)
-            context.user_data.pop('repos_cache_time', None)
         
         # בנה הודעת סטטוס
-        status_msg = "🔧 <b>GitHub Integration Menu</b>\n\n"
-        
-        if token:  # השתמש ב-token שכבר בדקנו
-            status_msg += "✅ טוקן מוגדר\n"
+        status_msg = "<b>🔧 תפריט GitHub</b>\n\n"
+        if token:
+            status_msg += "🔑 <b>מחובר ל-GitHub</b>\n"
         else:
-            status_msg += "❌ טוקן לא מוגדר\n"
-        
-        if token and session.get('selected_repo'):
-            status_msg += f"📁 ריפו: <code>{session['selected_repo']}</code>\n"
-            folder_display = session.get('selected_folder') or 'root'
-            status_msg += f"📂 תיקייה: <code>{folder_display}</code>\n"
-        else:
-            status_msg += "❌ ריפו לא נבחר\n"
+            status_msg += "🔒 <b>לא מחובר</b>\n"
+        if session.get('selected_repo'):
+            status_msg += f"📁 ריפו נבחר: <code>{session['selected_repo']}</code>\n"
+        if session.get('selected_folder'):
+            status_msg += f"📂 תיקיית יעד: <code>{session['selected_folder']}</code>\n"
         
         keyboard = []
         
@@ -205,6 +188,10 @@ class GitHubMenuHandler:
             # ריכוז פעולות מחיקה בתפריט משנה
             keyboard.append([
                 InlineKeyboardButton("🧨 מחק קובץ/ריפו שלם", callback_data="danger_delete_menu")
+            ])
+            # התראות חכמות
+            keyboard.append([
+                InlineKeyboardButton("🔔 התראות חכמות", callback_data="notifications_menu")
             ])
         
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
@@ -660,6 +647,19 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
+        elif query.data == 'notifications_menu':
+            await self.show_notifications_menu(update, context)
+        elif query.data == 'notifications_toggle':
+            await self.toggle_notifications(update, context)
+        elif query.data == 'notifications_toggle_pr':
+            await self.toggle_notifications_pr(update, context)
+        elif query.data == 'notifications_toggle_issues':
+            await self.toggle_notifications_issues(update, context)
+        elif query.data.startswith('notifications_interval_'):
+            await self.set_notifications_interval(update, context)
+        elif query.data == 'notifications_check_now':
+            await self.notifications_check_now(update, context)
+    
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
         await self.show_repos(query.message, context, query=query)
@@ -1772,6 +1772,11 @@ class GitHubMenuHandler:
         if not (token and repo_name):
             await query.edit_message_text("❌ חסרים נתונים")
             return
+        # חיווי טעינה
+        try:
+            await query.edit_message_text("⏳ טוען תכולה...")
+        except Exception:
+            pass
         g = Github(token)
         repo = g.get_repo(repo_name)
         path = context.user_data.get('browse_path', '')
@@ -1839,17 +1844,21 @@ class GitHubMenuHandler:
         # כפתור ZIP לתיקייה הנוכחית (רק במצב הורדה)
         if context.user_data.get('browse_action') == 'download':
             bottom.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
+        # שיתוף קישור לתיקייה הנוכחית
+        bottom.append(InlineKeyboardButton("🔗 שתף קישור לתיקייה", callback_data=f"share_folder_link:{path or ''}"))
         # כפתורי מצב מרובה
         if not multi_mode:
             bottom.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
         else:
             if context.user_data.get('browse_action') == 'download':
                 bottom.append(InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute"))
+                bottom.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
             else:
                 # מחיקה: מצבים
                 safe_label = "מצב מחיקה בטוח: פעיל" if context.user_data.get('safe_delete', True) else "מצב מחיקה בטוח: כבוי"
                 bottom.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
                 bottom.append(InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"))
+                bottom.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
             bottom.append(InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"))
             bottom.append(InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"))
         bottom.append(InlineKeyboardButton("🔙 חזרה", callback_data="github_menu"))
@@ -2000,3 +2009,134 @@ class GitHubMenuHandler:
                     )
                 )
         await inline_query.answer(results[:50], cache_time=1, is_personal=True)
+
+    async def show_notifications_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        if not session.get('selected_repo'):
+            await query.edit_message_text("❌ בחר ריפו קודם (/github)")
+            return
+        settings = context.user_data.get('notifications', {})
+        enabled = settings.get('enabled', False)
+        pr_on = settings.get('pr', True)
+        issues_on = settings.get('issues', True)
+        interval = settings.get('interval', 300)
+        keyboard = [
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+            [InlineKeyboardButton("הפעל" if not enabled else "כבה", callback_data="notifications_toggle")],
+            [InlineKeyboardButton(f"PRs: {'פעיל' if pr_on else 'כבוי'}", callback_data="notifications_toggle_pr")],
+            [InlineKeyboardButton(f"Issues: {'פעיל' if issues_on else 'כבוי'}", callback_data="notifications_toggle_issues")],
+            [InlineKeyboardButton("תדירות: 2ד׳", callback_data="notifications_interval_120"), InlineKeyboardButton("5ד׳", callback_data="notifications_interval_300"), InlineKeyboardButton("15ד׳", callback_data="notifications_interval_900")],
+            [InlineKeyboardButton("בדוק עכשיו", callback_data="notifications_check_now")]
+        ]
+        await query.edit_message_text(
+            f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
+            f"מצב: {'פעיל' if enabled else 'כבוי'} | תדירות: {int(interval/60)} ד׳",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
+    async def toggle_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        settings['enabled'] = not settings.get('enabled', False)
+        # ניהול job
+        name = f"notif_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(name):
+            job.schedule_removal()
+        if settings['enabled']:
+            context.application.job_queue.run_repeating(self._notifications_job, interval=settings.get('interval', 300), first=5, name=name, data={'user_id': user_id})
+        await self.show_notifications_menu(update, context)
+
+    async def toggle_notifications_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        settings['pr'] = not settings.get('pr', True)
+        await self.show_notifications_menu(update, context)
+
+    async def toggle_notifications_issues(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        settings['issues'] = not settings.get('issues', True)
+        await self.show_notifications_menu(update, context)
+
+    async def set_notifications_interval(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        try:
+            interval = int(query.data.rsplit('_', 1)[1])
+        except Exception:
+            interval = 300
+        settings['interval'] = interval
+        # עדכן job אם קיים
+        name = f"notif_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(name):
+            job.schedule_removal()
+        if settings.get('enabled'):
+            context.application.job_queue.run_repeating(self._notifications_job, interval=interval, first=5, name=name, data={'user_id': user_id})
+        await self.show_notifications_menu(update, context)
+
+    async def notifications_check_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await self._notifications_job(context)
+        await self.show_notifications_menu(update, context)
+
+    async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            data = getattr(context.job, 'data', {}) if hasattr(context, 'job') else context.user_data
+            user_id = data.get('user_id') if isinstance(data, dict) else None
+            if not user_id and context._chat_id_and_data:
+                user_id = context._chat_id_and_data[0]
+            if not user_id:
+                return
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            settings = context.application.user_data.get(user_id, {}).get('notifications') if hasattr(context.application, 'user_data') else None
+            if settings is None:
+                settings = context.user_data.get('notifications', {})
+            if not (token and repo_name and settings and settings.get('enabled')):
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            # נהל זיכרון "נבדק לאחרונה"
+            last = session.get('notifications_last', {'pr': None, 'issues': None})
+            messages = []
+            # PRs
+            if settings.get('pr', True):
+                pulls = repo.get_pulls(state='all', sort='updated', direction='desc')
+                for pr in pulls[:10]:
+                    updated = pr.updated_at
+                    if last.get('pr') and updated <= last['pr']:
+                        break
+                    status = 'נפתח' if pr.state == 'open' and pr.created_at == pr.updated_at else ('מוזג' if pr.merged else ('נסגר' if pr.state == 'closed' else 'עודכן'))
+                    messages.append(f"🔔 PR {status}: <a href=\"{pr.html_url}\">{safe_html_escape(pr.title)}</a>")
+                if pulls.totalCount:
+                    session['notifications_last'] = session.get('notifications_last', {})
+                    session['notifications_last']['pr'] = datetime.utcnow()
+            # Issues
+            if settings.get('issues', True):
+                issues = repo.get_issues(state='all', sort='updated', direction='desc')
+                count = 0
+                for issue in issues:
+                    if issue.pull_request is not None:
+                        continue
+                    updated = issue.updated_at
+                    if last.get('issues') and updated <= last['issues']:
+                        break
+                    status = 'נפתח' if issue.state == 'open' and issue.created_at == issue.updated_at else ('נסגר' if issue.state == 'closed' else 'עודכן')
+                    messages.append(f"🔔 Issue {status}: <a href=\"{issue.html_url}\">{safe_html_escape(issue.title)}</a>")
+                    count += 1
+                    if count >= 10:
+                        break
+                session['notifications_last'] = session.get('notifications_last', {})
+                session['notifications_last']['issues'] = datetime.utcnow()
+            # שלח
+            if messages:
+                text = "\n".join(messages)
+                await context.bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', disable_web_page_preview=True)
+        except Exception as e:
+            logger.error(f"notifications job error: {e}")
