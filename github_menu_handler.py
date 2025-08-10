@@ -53,8 +53,12 @@ class GitHubMenuHandler:
     def get_user_session(self, user_id: int) -> Dict[str, Any]:
         """Get or create user session"""
         if user_id not in self.user_sessions:
+            from database import db
+            # טען את הריפו הנבחר מהמסד נתונים
+            selected_repo = db.get_selected_repo(user_id)
+            
             self.user_sessions[user_id] = {
-                'selected_repo': None,
+                'selected_repo': selected_repo,  # טען מהמסד נתונים
                 'selected_folder': None,  # None = root של הריפו
                 'github_token': None
             }
@@ -398,6 +402,10 @@ class GitHubMenuHandler:
                 repo_name = query.data.replace('repo_', '')
                 session['selected_repo'] = repo_name
                 
+                # שמור במסד נתונים
+                from database import db
+                db.save_selected_repo(user_id, repo_name)
+                
                 # הצג את התפריט המלא אחרי בחירת הריפו
                 await self.github_menu_command(update, context)
                 return
@@ -595,7 +603,7 @@ class GitHubMenuHandler:
     async def handle_saved_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str):
         """מטפל בהעלאת קובץ שמור ל-GitHub"""
         user_id = update.effective_user.id
-        session = self.user_sessions.get(user_id, {})
+        session = self.get_user_session(user_id)
         
         if not session.get('selected_repo'):
             await update.callback_query.answer("❌ נא לבחור ריפו קודם")
@@ -890,6 +898,10 @@ class GitHubMenuHandler:
         
         elif '/' in text:
             session['selected_repo'] = text
+            
+            # שמור במסד נתונים
+            from database import db
+            db.save_selected_repo(user_id, text)
             
             # הצג את התפריט המלא אחרי הגדרת הריפו
             await self.github_menu_command(update, context)
