@@ -4,7 +4,7 @@
 import os
 import re
 from html import escape
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
 from typing import Dict, Any
@@ -14,6 +14,7 @@ import asyncio
 import json
 from repo_analyzer import RepoAnalyzer
 from datetime import datetime
+from io import BytesIO
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -179,12 +180,13 @@ class GitHubMenuHandler:
             keyboard.append([
                 InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")
             ])
-            # פעולות מחיקה בטוחות
+            # פעולות נוספות בטוחות
             keyboard.append([
-                InlineKeyboardButton("🗑️ מחק קובץ מהריפו", callback_data="delete_file_menu")
+                InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="download_file_menu")
             ])
+            # ריכוז פעולות מחיקה בתפריט משנה
             keyboard.append([
-                InlineKeyboardButton("⚠️ מחק ריפו שלם (מתקדם)", callback_data="delete_repo_menu")
+                InlineKeyboardButton("🧨 מחק קובץ/ריפו שלם", callback_data="danger_delete_menu")
             ])
         
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
@@ -447,6 +449,24 @@ class GitHubMenuHandler:
                 # הצג את התפריט המלא אחרי בחירת הריפו
                 await self.github_menu_command(update, context)
                 return
+        
+        elif query.data == 'danger_delete_menu':
+            await self.show_danger_delete_menu(update, context)
+        
+        elif query.data == 'delete_file_menu':
+            await self.show_delete_file_menu(update, context)
+        
+        elif query.data == 'delete_repo_menu':
+            await self.show_delete_repo_menu(update, context)
+        
+        elif query.data == 'confirm_delete_file':
+            await self.confirm_delete_file(update, context)
+        
+        elif query.data == 'confirm_delete_repo':
+            await self.confirm_delete_repo(update, context)
+        
+        elif query.data == 'download_file_menu':
+            await self.show_download_file_menu(update, context)
     
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
@@ -922,7 +942,34 @@ class GitHubMenuHandler:
                 parse_mode='HTML'
             )
             return ConversationHandler.END
-
+        
+        # קלט נתיב להורדת קובץ
+        if context.user_data.get('waiting_for_download_file_path'):
+            context.user_data['waiting_for_download_file_path'] = False
+            file_path = text.strip().lstrip('/')
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name and file_path):
+                await update.message.reply_text("❌ נתונים חסרים להורדה")
+                return ConversationHandler.END
+            try:
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                contents = repo.get_contents(file_path)
+                data = contents.decoded_content
+                filename = os.path.basename(contents.path) or 'downloaded_file'
+                await update.message.reply_document(
+                    document=InputFile(BytesIO(data), filename=filename),
+                    caption=f"📥 הורד: <code>{contents.path}</code>",
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                logger.error(f"Error downloading file: {e}")
+                await update.message.reply_text(f"❌ שגיאה בהורדת קובץ: {e}")
+            finally:
+                await self.github_menu_command(update, context)
+            return ConversationHandler.END
+        
         # בדוק אם מחכים ל-URL לניתוח
         if context.user_data.get('waiting_for_repo_url'):
             logger.info("🔗 Handling repo URL input...")
@@ -938,51 +985,13 @@ class GitHubMenuHandler:
             from database import db
             db.save_github_token(user_id, text)
             
-            # נקה את repos מ-context.user_data כשמשנים טוקן
-            if 'repos' in context.user_data:
-                del context.user_data['repos']
-            if 'repos_cache_time' in context.user_data:
-                del context.user_data['repos_cache_time']
-            logger.info(f"[GitHub] Cleared repos cache for user {user_id} after token change")
-            
             await update.message.reply_text(
-                "✅ טוקן נשמר בהצלחה!\n"
-                "כעת תוכל לגשת לריפוזיטוריז הפרטיים שלך."
+                "✅ טוקן נשמר בהצלחה!\nשלח /github כדי לחזור לתפריט."
             )
             return ConversationHandler.END
         
-        elif '/' in text:
-            session['selected_repo'] = text
-            
-            # שמור במסד נתונים
-            from database import db
-            db.save_selected_repo(user_id, text)
-            
-            # הצג את התפריט המלא אחרי הגדרת הריפו
-            await self.github_menu_command(update, context)
-            return ConversationHandler.END
-        
-        else:
-            # טיפול בהגדרת תיקייה
-            if text.strip() in ['/', '']:
-                session['selected_folder'] = None
-                await update.message.reply_text(
-                    "✅ תיקייה הוגדרה: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...",
-                    parse_mode='HTML'
-                )
-            else:
-                # הסר / מיותרים
-                folder = text.strip().strip('/')
-                session['selected_folder'] = folder
-                await update.message.reply_text(
-                    f"✅ תיקייה הוגדרה: <code>{folder}</code>\n\n⏳ חוזר לתפריט...",
-                    parse_mode='HTML'
-                )
-            
-            # המתן שנייה ואז הצג את התפריט
-            await asyncio.sleep(1.5)
-            await self.github_menu_command(update, context)
-            return ConversationHandler.END
+        # אם לא במצב מיוחד, סיים כדי שמטפלים אחרים יטפלו
+        return ConversationHandler.END
 
     async def show_analyze_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט לניתוח ריפו"""
@@ -1585,3 +1594,42 @@ class GitHubMenuHandler:
             await query.edit_message_text(f"❌ שגיאה במחיקת ריפו: {e}")
         finally:
             await self.github_menu_command(update, context)
+
+    async def show_danger_delete_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט מחיקות מסוכן"""
+        query = update.callback_query
+        session = self.get_user_session(query.from_user.id)
+        repo = session.get('selected_repo')
+        if not repo:
+            await query.edit_message_text("❌ לא נבחר ריפו")
+            return
+        keyboard = [
+            [InlineKeyboardButton("🗑️ מחק קובץ מהריפו", callback_data="delete_file_menu")],
+            [InlineKeyboardButton("⚠️ מחק ריפו שלם (מתקדם)", callback_data="delete_repo_menu")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+        ]
+        await query.edit_message_text(
+            f"🧨 פעולות מחיקה ב-<code>{repo}</code>\n\nבחר פעולה:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
+    async def show_download_file_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט הורדת קובץ מהריפו (קלט ידני של נתיב)"""
+        query = update.callback_query
+        session = self.get_user_session(query.from_user.id)
+        repo = session.get('selected_repo')
+        if not repo:
+            await query.edit_message_text("❌ לא נבחר ריפו")
+            return
+        keyboard = [
+            [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")]
+        ]
+        await query.edit_message_text(
+            "📥 הורדת קובץ מהריפו\n\n"
+            "הכנס את הנתיב המלא לקובץ להורדה (לדוגמה: src/app.py).\n\n"
+            f"ריפו נבחר: <code>{repo}</code>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+        context.user_data['waiting_for_download_file_path'] = True
