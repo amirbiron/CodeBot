@@ -31,7 +31,7 @@ MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"], 
     ["📚 הצג את כל הקבצים שלי", "👁️ תצוגה מקדימה"], 
     ["📂 קבצים גדולים", "🔍 אוטו-השלמה"], 
-    ["🔧 GitHub"]
+    ["⚡ עיבוד Batch", "🔧 GitHub"]
 ]
 
 reporter = create_reporter(
@@ -1662,4 +1662,39 @@ async def handle_autocomplete_button(update: Update, context: ContextTypes.DEFAU
         "💡 <b>טיפ:</b> ככל שתכתוב יותר תווים, ההצעות יהיו מדויקות יותר!",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )
+
+async def handle_batch_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """טיפול בכפתור 'עיבוד Batch'"""
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 נתח כל הקבצים", callback_data="batch_analyze_all"),
+            InlineKeyboardButton("✅ בדוק תקינות", callback_data="batch_validate_all")
+        ],
+        [
+            InlineKeyboardButton("🐍 נתח Python", callback_data="batch_analyze_python"),
+            InlineKeyboardButton("🟨 נתח JavaScript", callback_data="batch_analyze_javascript")
+        ],
+        [
+            InlineKeyboardButton("☕ נתח Java", callback_data="batch_analyze_java"),
+            InlineKeyboardButton("🔷 נתח C++", callback_data="batch_analyze_cpp")
+        ],
+        [
+            InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs"),
+            InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main_menu")
+        ]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "⚡ <b>עיבוד Batch מתקדם</b>\n\n"
+        "🔥 <b>יתרונות:</b>\n"
+        "• ⚡ עיבוד מהיר של מרובה קבצים\n"
+        "• 🔄 עיבוד ברקע - אין המתנה\n"
+        "• 📊 ניתוח מפורט לכל קובץ\n"
+        "• ✅ בדיקת תקינות המונית\n\n"
+        "בחר פעולה:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=reply_markup
     )

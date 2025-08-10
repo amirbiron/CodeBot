@@ -26,6 +26,7 @@ from pygments.styles import get_style_by_name
 from pygments.util import ClassNotFound
 
 from config import config
+from cache_manager import cache, cached
 
 logger = logging.getLogger(__name__)
 
@@ -454,9 +455,83 @@ class CodeProcessor:
         
         return 'text'
     
+    @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
     def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
-        """Placeholder function. No longer performs highlighting to avoid Telegram API errors. Returns the original code unchanged."""
-        return code
+        """הדגשת תחביר מתקדמת עם caching"""
+        try:
+            # אם הקוד ריק או קצר מדי, אל תבצע highlighting
+            if not code or len(code.strip()) < 10:
+                return code
+            
+            # בחירת lexer מתאים
+            lexer = None
+            try:
+                # נסה לפי שפה
+                if programming_language and programming_language != 'text':
+                    lexer = get_lexer_by_name(programming_language)
+            except ClassNotFound:
+                try:
+                    # נסה לפי תוכן
+                    lexer = guess_lexer(code)
+                except ClassNotFound:
+                    # ברירת מחדל
+                    lexer = get_lexer_by_name('text')
+            
+            if not lexer:
+                return code
+            
+            # בחירת formatter
+            if output_format == 'html':
+                formatter = HtmlFormatter(
+                    style=self.style,
+                    noclasses=True,
+                    nowrap=True,
+                    linenos=False
+                )
+            elif output_format == 'terminal':
+                formatter = TerminalFormatter()
+            else:
+                return code  # פורמט לא נתמך
+            
+            # ביצוע highlighting
+            highlighted = highlight(code, lexer, formatter)
+            
+            # ניקוי HTML אם נדרש
+            if output_format == 'html':
+                # הסרת tags מיותרים שעלולים לגרום לבעיות בטלגרם
+                highlighted = self._clean_html_for_telegram(highlighted)
+            
+            return highlighted
+            
+        except Exception as e:
+            logger.error(f"שגיאה בהדגשת תחביר: {e}")
+            # במקרה של שגיאה, החזר את הקוד המקורי
+            return code
+    
+    def _clean_html_for_telegram(self, html_code: str) -> str:
+        """ניקוי HTML לתאימות עם Telegram"""
+        try:
+            # הסרת attributes מיותרים
+            import re
+            
+            # שמירה על tags בסיסיים בלבד
+            allowed_tags = ['b', 'i', 'u', 'code', 'pre', 'em', 'strong']
+            
+            # הסרת style attributes
+            html_code = re.sub(r'\s+style="[^"]*"', '', html_code)
+            
+            # הסרת class attributes
+            html_code = re.sub(r'\s+class="[^"]*"', '', html_code)
+            
+            # החלפת span tags ב-code tags
+            html_code = re.sub(r'<span[^>]*>', '<code>', html_code)
+            html_code = re.sub(r'</span>', '</code>', html_code)
+            
+            return html_code
+            
+        except Exception as e:
+            logger.error(f"שגיאה בניקוי HTML: {e}")
+            return html_code
     
     def create_code_image(self, code: str, programming_language: str, 
                          width: int = 800, font_size: int = 12) -> bytes:
@@ -724,6 +799,54 @@ class CodeProcessor:
         
         logger.info(f"דחוס קוד בשפה {programming_language}")
         return code.strip()
+    
+    @cached(expire_seconds=900, key_prefix="batch_highlight")  # cache ל-15 דקות
+    def highlight_code_batch(self, codes_data: List[Dict[str, str]], output_format: str = 'html') -> Dict[str, str]:
+        """הדגשת תחביר לmultiple קבצים בו-זמנית"""
+        try:
+            results = {}
+            
+            for code_data in codes_data:
+                file_name = code_data.get('file_name', 'unknown')
+                code = code_data.get('code', '')
+                language = code_data.get('programming_language', 'text')
+                
+                try:
+                    highlighted = self.highlight_code(code, language, output_format)
+                    results[file_name] = highlighted
+                except Exception as e:
+                    logger.error(f"שגיאה בהדגשת {file_name}: {e}")
+                    results[file_name] = code  # החזר קוד מקורי במקרה של שגיאה
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"שגיאה בהדגשת batch: {e}")
+            return {}
+    
+    @cached(expire_seconds=600, key_prefix="batch_analyze")  # cache ל-10 דקות
+    def analyze_code_batch(self, codes_data: List[Dict[str, str]]) -> Dict[str, Dict]:
+        """ניתוח batch של קבצים"""
+        try:
+            results = {}
+            
+            for code_data in codes_data:
+                file_name = code_data.get('file_name', 'unknown')
+                code = code_data.get('code', '')
+                language = code_data.get('programming_language', 'text')
+                
+                try:
+                    analysis = self.analyze_code(code, language)
+                    results[file_name] = analysis
+                except Exception as e:
+                    logger.error(f"שגיאה בניתוח {file_name}: {e}")
+                    results[file_name] = {'error': str(e)}
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"שגיאה בניתוח batch: {e}")
+            return {}
 
 # יצירת אינסטנס גלובלי
 code_processor = CodeProcessor()
