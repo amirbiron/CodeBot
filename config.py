@@ -14,6 +14,10 @@ class BotConfig:
     MONGODB_URL: str
     DATABASE_NAME: str = "code_keeper_bot"
     
+    # הגדרות Redis Cache
+    REDIS_URL: Optional[str] = None
+    CACHE_ENABLED: bool = True
+    
     # הגדרות GitHub Gist
     GITHUB_TOKEN: Optional[str] = None
     
@@ -51,6 +55,8 @@ def load_config() -> BotConfig:
         BOT_TOKEN=bot_token,
         MONGODB_URL=mongodb_url,
         DATABASE_NAME=os.getenv('DATABASE_NAME', 'code_keeper_bot'),
+        REDIS_URL=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+        CACHE_ENABLED=os.getenv('CACHE_ENABLED', 'true').lower() == 'true',
         GITHUB_TOKEN=os.getenv('GITHUB_TOKEN'),
         PASTEBIN_API_KEY=os.getenv('PASTEBIN_API_KEY'),
         MAX_CODE_SIZE=int(os.getenv('MAX_CODE_SIZE', '100000')),

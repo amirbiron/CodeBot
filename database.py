@@ -7,6 +7,7 @@ import pymongo
 from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel, MongoClient
 
 from config import config
+from cache_manager import cache, cached
 
 logger = logging.getLogger(__name__)
 
@@ -69,43 +70,133 @@ class DatabaseManager:
         self.connect()
     
     def connect(self):
-        """יוצר חיבור למסד הנתונים"""
+        """יוצר חיבור למסד הנתונים עם Connection Pooling מתקדם"""
         try:
-            self.client = MongoClient(config.MONGODB_URL)
+            # הגדרות Connection Pooling מתקדמות
+            self.client = MongoClient(
+                config.MONGODB_URL,
+                # הגדרות Connection Pool
+                maxPoolSize=50,              # מקסימום 50 חיבורים בו-זמנית
+                minPoolSize=5,               # מינימום 5 חיבורים תמיד פתוחים
+                maxIdleTimeMS=30000,         # סגירת חיבורים לא פעילים אחרי 30 שניות
+                waitQueueTimeoutMS=5000,     # זמן המתנה מקסימלי לחיבור פנוי
+                
+                # הגדרות Timeout
+                serverSelectionTimeoutMS=3000,  # זמן המתנה לבחירת שרת
+                socketTimeoutMS=20000,          # timeout לפעולות socket
+                connectTimeoutMS=10000,         # timeout להתחברות
+                
+                # הגדרות Retry
+                retryWrites=True,               # חזרה אוטומטית על כתיבות כושלות
+                retryReads=True,                # חזרה אוטומטית על קריאות כושלות
+                
+                # הגדרות נוספות
+                compressors='snappy,zlib',      # דחיסת נתונים לחיסכון ברוחב פס
+                zlibCompressionLevel=6          # רמת דחיסה מאוזנת
+            )
+            
             self.db = self.client[config.DATABASE_NAME]
             self.collection = self.db.code_snippets
             self.large_files_collection = self.db.large_files  # קולקשן חדש לקבצים גדולים
             
+            # בדיקת חיבור
+            self.client.admin.command('ping')
+            
             # יצירת אינדקסים לחיפוש מהיר
             self._create_indexes()
             
-            logger.info("התחברות למסד הנתונים הצליחה")
+            logger.info("התחברות למסד הנתונים הצליחה עם Connection Pooling מתקדם")
+            logger.info(f"Pool settings: maxPoolSize=50, minPoolSize=5, maxIdleTime=30s")
             
         except Exception as e:
             logger.error(f"שגיאה בהתחברות למסד הנתונים: {e}")
             raise
     
     def _create_indexes(self):
-        """יוצר אינדקסים לשיפור ביצועי החיפוש"""
+        """יוצר אינדקסים מתקדמים לשיפור ביצועי החיפוש"""
         indexes = [
+            # אינדקסים בסיסיים
             IndexModel([("user_id", ASCENDING)]),
             IndexModel([("file_name", ASCENDING)]),
-            IndexModel([("programming_language", ASCENDING)]),  # עודכן כאן
+            IndexModel([("programming_language", ASCENDING)]),
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
+            
+            # אינדקס מורכב קיים (טוב!)
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
-            IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)])
+            
+            # אינדקסים מורכבים חדשים לביצועים מתקדמים
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("programming_language", ASCENDING), 
+                ("created_at", DESCENDING)
+            ], name="user_lang_date_idx"),  # חיפוש קבצים לפי משתמש ושפה
+            
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("tags", ASCENDING), 
+                ("updated_at", DESCENDING)
+            ], name="user_tags_updated_idx"),  # חיפוש לפי תגיות ועדכון אחרון
+            
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("is_active", ASCENDING), 
+                ("programming_language", ASCENDING)
+            ], name="user_active_lang_idx"),  # חיפוש קבצים פעילים לפי שפה
+            
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("is_active", ASCENDING), 
+                ("updated_at", DESCENDING)
+            ], name="user_active_recent_idx"),  # קבצים פעילים אחרונים
+            
+            IndexModel([
+                ("programming_language", ASCENDING), 
+                ("tags", ASCENDING), 
+                ("created_at", DESCENDING)
+            ], name="lang_tags_date_idx"),  # חיפוש גלובלי לפי שפה ותגיות
+            
+            # אינדקס טקסט משופר
+            IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], 
+                      name="full_text_search_idx")
         ]
         
-        # אינדקסים לקבצים גדולים
+        # אינדקסים מתקדמים לקבצים גדולים
         large_files_indexes = [
+            # אינדקסים בסיסיים
             IndexModel([("user_id", ASCENDING)]),
             IndexModel([("file_name", ASCENDING)]),
             IndexModel([("programming_language", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
-            IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),
             IndexModel([("file_size", ASCENDING)]),
-            IndexModel([("lines_count", ASCENDING)])
+            IndexModel([("lines_count", ASCENDING)]),
+            
+            # אינדקסים מורכבים לקבצים גדולים
+            IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),
+            
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("programming_language", ASCENDING), 
+                ("file_size", ASCENDING)
+            ], name="user_lang_size_idx"),  # מיון לפי גודל בתוך שפה
+            
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("is_active", ASCENDING), 
+                ("created_at", DESCENDING)
+            ], name="user_active_date_large_idx"),  # קבצים גדולים פעילים אחרונים
+            
+            IndexModel([
+                ("programming_language", ASCENDING), 
+                ("file_size", ASCENDING), 
+                ("lines_count", ASCENDING)
+            ], name="lang_size_lines_idx"),  # ניתוח לפי שפה וגודל
+            
+            IndexModel([
+                ("user_id", ASCENDING), 
+                ("tags", ASCENDING), 
+                ("file_size", DESCENDING)
+            ], name="user_tags_size_idx")  # חיפוש בתגיות עם מיון לפי גודל
         ]
         
         try:
@@ -131,6 +222,8 @@ class DatabaseManager:
             result = self.collection.insert_one(asdict(snippet))
             
             if result.inserted_id:
+                # ביטול cache של המשתמש אחרי שמירה
+                cache.invalidate_user_cache(snippet.user_id)
                 logger.info(f"קטע קוד נשמר: {snippet.file_name} (גרסה {snippet.version})")
                 return True
             
@@ -150,6 +243,7 @@ class DatabaseManager:
         )
         return self.save_code_snippet(snippet)
     
+    @cached(expire_seconds=180, key_prefix="latest_version")  # cache ל-3 דקות
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         """מחזיר את הגרסה האחרונה של קטע קוד"""
         try:
@@ -193,6 +287,7 @@ class DatabaseManager:
             logger.error(f"שגיאה בקבלת גרסה {version} עבור {file_name}: {e}")
             return None
 
+    @cached(expire_seconds=120, key_prefix="user_files")  # cache ל-2 דקות
     def get_user_files(self, user_id: int, limit: int = 50) -> List[Dict]:
         """מחזיר את כל הקבצים של משתמש (גרסה אחרונה בלבד)"""
         try:
@@ -214,6 +309,7 @@ class DatabaseManager:
             logger.error(f"שגיאה בקבלת קבצי משתמש: {e}")
             return []
     
+    @cached(expire_seconds=300, key_prefix="search_code")  # cache ל-5 דקות
     def search_code(self, user_id: int, query: str, programming_language: str = None, 
                    tags: List[str] = None, limit: int = 20) -> List[Dict]:
         """חיפוש מתקדם בקטעי קוד"""
@@ -260,6 +356,8 @@ class DatabaseManager:
             )
             
             if result.modified_count > 0:
+                # ביטול cache של המשתמש אחרי מחיקה
+                cache.invalidate_user_cache(user_id)
                 logger.info(f"קובץ נמחק: {file_name}")
                 return True
             

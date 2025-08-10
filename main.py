@@ -37,6 +37,7 @@ from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
+from cache_commands import setup_cache_handlers
 from html import escape as html_escape
 
 # (Lock mechanism constants removed)
@@ -301,6 +302,9 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         
+        # הוספת פקודות cache
+        setup_cache_handlers(self.application)
+        
         # --- שלב 3: רישום handler לקבצים ---
         self.application.add_handler(
             MessageHandler(filters.Document.ALL, self.handle_document)
@@ -340,6 +344,10 @@ class CodeKeeperBot:
 • <code>/tags &lt;filename&gt; &lt;tag1&gt;,&lt;tag2&gt;</code> - הוספת תגיות לקובץ.
 • <code>/search &lt;query&gt;</code> - חיפוש טקסטואלי בקוד שלך.
     
+<b>ביצועים ותחזוקה:</b>
+• <code>/cache_stats</code> - סטטיסטיקות ביצועי cache.
+• <code>/clear_cache</code> - ניקוי cache אישי לשיפור ביצועים.
+
 <b>מידע כללי:</b>
 • <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
 • <code>/help</code> - הצגת הודעה זו.
