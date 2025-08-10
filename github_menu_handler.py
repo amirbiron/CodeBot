@@ -1050,7 +1050,7 @@ class GitHubMenuHandler:
         if analysis['files_by_type']:
             top_types = sorted(analysis['files_by_type'].items(), key=lambda x: x[1], reverse=True)[:3]
             for ext, count in top_types:
-                ext_escaped = escape(ext)
+                ext_escaped = safe_html_escape(ext)
                 summary += f"   • {count} קבצי {ext_escaped}\n"
         
         # תלויות
@@ -1128,7 +1128,7 @@ class GitHubMenuHandler:
         keyboard.append([InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")])
         
         # Escape HTML special characters
-        repo_name = escape(session['last_analysis']['repo_name'])
+        repo_name = safe_html_escape(session['last_analysis']['repo_name'])
         
         message = f"💡 <b>הצעות לשיפור לריפו {repo_name}</b>\n\n"
         message += f"נמצאו {len(suggestions)} הצעות לשיפור.\n"
@@ -1230,10 +1230,10 @@ class GitHubMenuHandler:
             return
         
         # צור דוח מפורט - Escape HTML special characters
-        repo_name = escape(analysis['repo_name'])
-        repo_url = escape(analysis['repo_url'])
-        description = escape(analysis.get('description', '')) if analysis.get('description') else None
-        language = escape(analysis.get('language', 'לא זוהתה'))
+        repo_name = safe_html_escape(analysis['repo_name'])
+        repo_url = safe_html_escape(analysis['repo_url'])
+        description = safe_html_escape(analysis.get('description', '')) if analysis.get('description') else None
+        language = safe_html_escape(analysis.get('language', 'לא זוהתה'))
         
         report = f"📊 <b>דוח מלא - {repo_name}</b>\n\n"
         
@@ -1267,8 +1267,8 @@ class GitHubMenuHandler:
             report += f"\n<b>📦 תלויות ({len(analysis['dependencies'])}):</b>\n"
             # הצג רק 10 הראשונות
             for dep in analysis['dependencies'][:10]:
-                dep_name = escape(dep['name'])
-                dep_type = escape(dep['type'])
+                dep_name = safe_html_escape(dep['name'])
+                dep_type = safe_html_escape(dep['type'])
                 report += f"• {dep_name} ({dep_type})\n"
             if len(analysis['dependencies']) > 10:
                 report += f"• ... ועוד {len(analysis['dependencies']) - 10}\n"
