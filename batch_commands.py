@@ -264,7 +264,7 @@ async def large_file_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         show_command = f"/show {file_name}"
         await update.message.reply_text(
             f"📄 <b>{html_escape(file_name)}</b>\n\n"
-            f"ℹ️ קובץ זה אינו גדול ({len(code.split('\n'))} שורות)\n"
+            f"ℹ️ קובץ זה אינו גדול ({len(code.splitlines())} שורות)\n"
             f"השתמש ב-<code>{show_command}</code> להצגה רגילה",
             parse_mode=ParseMode.HTML
         )
