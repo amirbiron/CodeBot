@@ -660,6 +660,41 @@ class GitHubMenuHandler:
         elif query.data == 'notifications_check_now':
             await self.notifications_check_now(update, context)
     
+        elif query.data == 'pr_menu':
+            await self.show_pr_menu(update, context)
+        elif query.data == 'create_pr_menu':
+            context.user_data['pr_branches_page'] = 0
+            await self.show_create_pr_menu(update, context)
+        elif query.data.startswith('branches_page_'):
+            try:
+                p = int(query.data.split('_')[-1])
+            except Exception:
+                p = 0
+            context.user_data['pr_branches_page'] = max(0, p)
+            await self.show_create_pr_menu(update, context)
+        elif query.data.startswith('pr_select_head:'):
+            head = query.data.split(':', 1)[1]
+            context.user_data['pr_head'] = head
+            await self.show_confirm_create_pr(update, context)
+        elif query.data == 'confirm_create_pr':
+            await self.confirm_create_pr(update, context)
+        elif query.data == 'merge_pr_menu':
+            context.user_data['pr_list_page'] = 0
+            await self.show_merge_pr_menu(update, context)
+        elif query.data.startswith('prs_page_'):
+            try:
+                p = int(query.data.split('_')[-1])
+            except Exception:
+                p = 0
+            context.user_data['pr_list_page'] = max(0, p)
+            await self.show_merge_pr_menu(update, context)
+        elif query.data.startswith('merge_pr:'):
+            pr_number = int(query.data.split(':', 1)[1])
+            context.user_data['pr_to_merge'] = pr_number
+            await self.show_confirm_merge_pr(update, context)
+        elif query.data == 'confirm_merge_pr':
+            await self.confirm_merge_pr(update, context)
+    
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
         await self.show_repos(query.message, context, query=query)
@@ -2140,3 +2175,188 @@ class GitHubMenuHandler:
                 await context.bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', disable_web_page_preview=True)
         except Exception as e:
             logger.error(f"notifications job error: {e}")
+
+    async def show_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        if not session.get('selected_repo'):
+            await query.edit_message_text("❌ בחר ריפו קודם (/github)")
+            return
+        keyboard = [
+            [InlineKeyboardButton("🆕 צור PR מסניף", callback_data="create_pr_menu")],
+            [InlineKeyboardButton("🔀 מזג PR פתוח", callback_data="merge_pr_menu")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+        ]
+        await query.edit_message_text(
+            f"🔀 פעולות Pull Request עבור <code>{session['selected_repo']}</code>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
+    async def show_create_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        branches = list(repo.get_branches())
+        page = context.user_data.get('pr_branches_page', 0)
+        page_size = 10
+        total_pages = max(1, (len(branches) + page_size - 1) // page_size)
+        page = min(max(0, page), total_pages - 1)
+        start = page * page_size
+        end = start + page_size
+        keyboard = []
+        for br in branches[start:end]:
+            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"pr_select_head:{br.name}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"branches_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"branches_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="pr_menu")])
+        await query.edit_message_text(
+            f"🆕 צור PR — בחר סניף head (base יהיה ברירת המחדל של הריפו)",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def show_confirm_create_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        head = context.user_data.get('pr_head')
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        base = repo.default_branch or 'main'
+        txt = (
+            f"תיצור PR חדש?\n"
+            f"ריפו: <code>{repo_name}</code>\n"
+            f"base: <code>{base}</code> ← head: <code>{head}</code>\n\n"
+            f"כותרת: <code>PR: {head} → {base}</code>"
+        )
+        kb = [
+            [InlineKeyboardButton("✅ אשר יצירה", callback_data="confirm_create_pr")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="create_pr_menu")]
+        ]
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
+    async def confirm_create_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        head = context.user_data.get('pr_head')
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            base = repo.default_branch or 'main'
+            title = f"PR: {head} → {base} (via bot)"
+            body = "נוצר אוטומטית על ידי הבוט"
+            pr = repo.create_pull(title=title, body=body, base=base, head=head)
+            await query.edit_message_text(f"✅ נוצר PR: <a href=\"{pr.html_url}\">{safe_html_escape(pr.title)}</a>", parse_mode='HTML')
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה ביצירת PR: {e}")
+            return
+        await self.show_pr_menu(update, context)
+
+    async def show_merge_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        pulls = list(repo.get_pulls(state='open', sort='created', direction='desc'))
+        page = context.user_data.get('pr_list_page', 0)
+        page_size = 10
+        total_pages = max(1, (len(pulls) + page_size - 1) // page_size)
+        page = min(max(0, page), total_pages - 1)
+        start = page * page_size
+        end = start + page_size
+        keyboard = []
+        for pr in pulls[start:end]:
+            title = safe_html_escape(pr.title)
+            keyboard.append([InlineKeyboardButton(f"#{pr.number} {title}", callback_data=f"merge_pr:{pr.number}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"prs_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"prs_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="pr_menu")])
+        await query.edit_message_text(
+            f"🔀 בחר PR למיזוג (פתוחים בלבד)",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def show_confirm_merge_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        pr_number = context.user_data.get('pr_to_merge')
+        if not (token and repo_name and pr_number):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        pr = repo.get_pull(pr_number)
+        txt = (
+            f"למזג PR?\n"
+            f"#{pr.number}: <b>{safe_html_escape(pr.title)}</b>\n"
+            f"{pr.html_url}"
+        )
+        kb = [
+            [InlineKeyboardButton("✅ אשר מיזוג", callback_data="confirm_merge_pr")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="merge_pr_menu")]
+        ]
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML', disable_web_page_preview=True)
+
+    async def confirm_merge_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        pr_number = context.user_data.get('pr_to_merge')
+        if not (token and repo_name and pr_number):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            result = pr.merge(merge_method='merge')
+            if result.merged:
+                await query.edit_message_text(f"✅ PR מוזג בהצלחה: <a href=\"{pr.html_url}\">#{pr.number}</a>", parse_mode='HTML')
+            else:
+                await query.edit_message_text(f"❌ מיזוג נכשל: {result.message}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה במיזוג PR: {e}")
+            return
+        await self.show_pr_menu(update, context)
