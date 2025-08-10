@@ -15,6 +15,7 @@ import json
 from repo_analyzer import RepoAnalyzer
 from datetime import datetime
 from io import BytesIO
+import zipfile
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -504,6 +505,54 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='HTML'
             )
+        
+        elif query.data.startswith('download_zip:'):
+            # הורדת התיקייה הנוכחית כקובץ ZIP
+            current_path = query.data.split(':', 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים")
+                return
+            try:
+                await query.answer("מכין ZIP...", show_alert=False)
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+                    # קבע שם תיקיית השורש בתוך ה-ZIP
+                    zip_root = repo.name if not current_path else current_path.split('/')[-1]
+
+                    async def add_path_to_zip(path: str, rel_prefix: str):
+                        # קבל את התוכן עבור הנתיב
+                        contents = repo.get_contents(path or "")
+                        if not isinstance(contents, list):
+                            contents = [contents]
+                        for item in contents:
+                            if item.type == 'dir':
+                                await self.apply_rate_limit_delay(user_id)
+                                await add_path_to_zip(item.path, f"{rel_prefix}{item.name}/")
+                            elif item.type == 'file':
+                                await self.apply_rate_limit_delay(user_id)
+                                file_obj = repo.get_contents(item.path)
+                                data = file_obj.decoded_content
+                                arcname = f"{zip_root}/{rel_prefix}{item.name}"
+                                zipf.writestr(arcname, data)
+
+                    await add_path_to_zip(current_path, "")
+
+                zip_buffer.seek(0)
+                filename = f"{repo.name}{'-' + current_path.replace('/', '_') if current_path else ''}.zip"
+                zip_buffer.name = filename
+                await query.message.reply_document(document=zip_buffer, filename=filename, caption=f"📦 קובץ ZIP לתיקייה: /{current_path or ''}")
+            except Exception as e:
+                logger.error(f"Error creating ZIP: {e}")
+                await query.edit_message_text(f"❌ שגיאה בהכנת ZIP: {e}")
+                return
+            # החזר לדפדפן באותו מקום
+            await self.show_repo_browser(update, context)
         
         elif query.data.startswith('browse_page:'):
             # מעבר עמודים בדפדפן הריפו
@@ -1673,6 +1722,8 @@ class GitHubMenuHandler:
             # חזרה למעלה
             parent = '/'.join(path.split('/')[:-1])
             bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
+        # כפתור ZIP לתיקייה הנוכחית
+        bottom.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
         bottom.append(InlineKeyboardButton("🔙 חזרה", callback_data="github_menu"))
         if bottom:
             keyboard.append(bottom)
