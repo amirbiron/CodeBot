@@ -5,6 +5,7 @@ import os
 import re
 from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from telegram import InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
 from typing import Dict, Any
@@ -15,12 +16,18 @@ import json
 from repo_analyzer import RepoAnalyzer
 from datetime import datetime
 from io import BytesIO
+import zipfile
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
 
 # מצבי שיחה
 REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
+
+# מגבלות קבצים גדולים
+MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
+MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
+MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 
 def safe_html_escape(text):
     """Safely escape text for HTML parsing in Telegram"""
@@ -45,6 +52,17 @@ def safe_html_escape(text):
     text = text.replace('<', '(').replace('>', ')')
     
     return text.strip()
+
+def format_bytes(num: int) -> str:
+    """פורמט נחמד לגודל קובץ"""
+    try:
+        for unit in ["B", "KB", "MB", "GB"]:
+            if num < 1024.0 or unit == "GB":
+                return f"{num:.1f} {unit}" if unit != "B" else f"{num} {unit}"
+            num /= 1024.0
+    except Exception:
+        pass
+    return str(num)
 
 class GitHubMenuHandler:
     def __init__(self):
@@ -131,36 +149,19 @@ class GitHubMenuHandler:
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
         
-        # ודא שהסשן של המשתמש נטען מהמסד (כולל selected_repo)
         session = self.get_user_session(user_id)
-        
-        # בדיקת טוקן - גם מהסשן וגם מהמסד נתונים
         token = self.get_user_token(user_id)
-        logger.info(f"[GitHub] Token exists: {bool(token)}")
-        if token:
-            logger.info(f"[GitHub] Token length: {len(token)}")
-        
-        # אם אין טוקן, נקה בחירות כדי למנוע הצגת מידע ישן
-        if not token:
-            session['selected_repo'] = None
-            session['selected_folder'] = None
-            context.user_data.pop('repos', None)
-            context.user_data.pop('repos_cache_time', None)
         
         # בנה הודעת סטטוס
-        status_msg = "🔧 <b>GitHub Integration Menu</b>\n\n"
-        
-        if token:  # השתמש ב-token שכבר בדקנו
-            status_msg += "✅ טוקן מוגדר\n"
+        status_msg = "<b>🔧 תפריט GitHub</b>\n\n"
+        if token:
+            status_msg += "🔑 <b>מחובר ל-GitHub</b>\n"
         else:
-            status_msg += "❌ טוקן לא מוגדר\n"
-        
-        if token and session.get('selected_repo'):
-            status_msg += f"📁 ריפו: <code>{session['selected_repo']}</code>\n"
-            folder_display = session.get('selected_folder') or 'root'
-            status_msg += f"📂 תיקייה: <code>{folder_display}</code>\n"
-        else:
-            status_msg += "❌ ריפו לא נבחר\n"
+            status_msg += "🔒 <b>לא מחובר</b>\n"
+        if session.get('selected_repo'):
+            status_msg += f"📁 ריפו נבחר: <code>{session['selected_repo']}</code>\n"
+        if session.get('selected_folder'):
+            status_msg += f"📂 תיקיית יעד: <code>{session['selected_folder']}</code>\n"
         
         keyboard = []
         
@@ -187,6 +188,10 @@ class GitHubMenuHandler:
             # ריכוז פעולות מחיקה בתפריט משנה
             keyboard.append([
                 InlineKeyboardButton("🧨 מחק קובץ/ריפו שלם", callback_data="danger_delete_menu")
+            ])
+            # התראות חכמות
+            keyboard.append([
+                InlineKeyboardButton("🔔 התראות חכמות", callback_data="notifications_menu")
             ])
         
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
@@ -470,6 +475,9 @@ class GitHubMenuHandler:
         
         elif query.data.startswith('browse_open:'):
             context.user_data['browse_path'] = query.data.split(':', 1)[1]
+            context.user_data['browse_page'] = 0
+            # מצב מרובה ומחיקה בטוחה לאיפוס
+            context.user_data['multi_selection'] = []
             await self.show_repo_browser(update, context)
         elif query.data.startswith('browse_select_download:'):
             path = query.data.split(':', 1)[1]
@@ -482,12 +490,26 @@ class GitHubMenuHandler:
             g = Github(token)
             repo = g.get_repo(repo_name)
             contents = repo.get_contents(path)
-            data = contents.decoded_content
-            filename = os.path.basename(contents.path) or 'downloaded_file'
-            await query.message.reply_document(
-                document=BytesIO(data),
-                filename=filename
-            )
+            # אם הקובץ גדול מדי, שלח קישור להורדה במקום תוכן מלא
+            size = getattr(contents, 'size', 0) or 0
+            if size and size > MAX_INLINE_FILE_BYTES:
+                download_url = getattr(contents, 'download_url', None)
+                if download_url:
+                    await query.message.reply_text(
+                        f"⚠️ הקובץ גדול ({format_bytes(size)}). להורדה: <a href=\"{download_url}\">קישור ישיר</a>",
+                        parse_mode='HTML'
+                    )
+                else:
+                    await query.message.reply_text(
+                        f"⚠️ הקובץ גדול ({format_bytes(size)}) ולא ניתן להורידו ישירות כרגע."
+                    )
+            else:
+                data = contents.decoded_content
+                filename = os.path.basename(contents.path) or 'downloaded_file'
+                await query.message.reply_document(
+                    document=BytesIO(data),
+                    filename=filename
+                )
             await self.github_menu_command(update, context)
         elif query.data.startswith('browse_select_delete:'):
             path = query.data.split(':', 1)[1]
@@ -504,6 +526,116 @@ class GitHubMenuHandler:
                 parse_mode='HTML'
             )
         
+        elif query.data.startswith('download_zip:'):
+            # הורדת התיקייה הנוכחית כקובץ ZIP
+            current_path = query.data.split(':', 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים")
+                return
+            try:
+                await query.answer("מכין ZIP...", show_alert=False)
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                zip_buffer = BytesIO()
+                total_bytes = 0
+                total_files = 0
+                skipped_large = 0
+                with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+                    # קבע שם תיקיית השורש בתוך ה-ZIP
+                    zip_root = repo.name if not current_path else current_path.split('/')[-1]
+ 
+                    async def add_path_to_zip(path: str, rel_prefix: str):
+                        # קבל את התוכן עבור הנתיב
+                        contents = repo.get_contents(path or "")
+                        if not isinstance(contents, list):
+                            contents = [contents]
+                        for item in contents:
+                            if item.type == 'dir':
+                                await self.apply_rate_limit_delay(user_id)
+                                await add_path_to_zip(item.path, f"{rel_prefix}{item.name}/")
+                            elif item.type == 'file':
+                                await self.apply_rate_limit_delay(user_id)
+                                file_obj = repo.get_contents(item.path)
+                                file_size = getattr(file_obj, 'size', 0) or 0
+                                nonlocal total_bytes, total_files, skipped_large
+                                if file_size > MAX_INLINE_FILE_BYTES:
+                                    skipped_large += 1
+                                    continue
+                                if total_files >= MAX_ZIP_FILES:
+                                    continue
+                                if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                    continue
+                                data = file_obj.decoded_content
+                                arcname = f"{zip_root}/{rel_prefix}{item.name}"
+                                zipf.writestr(arcname, data)
+                                total_bytes += len(data)
+                                total_files += 1
+ 
+                    await add_path_to_zip(current_path, "")
+ 
+                zip_buffer.seek(0)
+                filename = f"{repo.name}{'-' + current_path.replace('/', '_') if current_path else ''}.zip"
+                zip_buffer.name = filename
+                caption = f"📦 קובץ ZIP לתיקייה: /{current_path or ''}\n" \
+                          f"מכיל {total_files} קבצים, {format_bytes(total_bytes)}."
+                if skipped_large:
+                    caption += f"\n⚠️ דילג על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
+                await query.message.reply_document(document=zip_buffer, filename=filename, caption=caption)
+            except Exception as e:
+                logger.error(f"Error creating ZIP: {e}")
+                await query.edit_message_text(f"❌ שגיאה בהכנת ZIP: {e}")
+                return
+            # החזר לדפדפן באותו מקום
+            await self.show_repo_browser(update, context)
+        
+        elif query.data.startswith('inline_download_file:'):
+            # הורדת קובץ שנבחר דרך אינליין
+            path = query.data.split(':', 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
+                return
+            try:
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                contents = repo.get_contents(path)
+                size = getattr(contents, 'size', 0) or 0
+                if size and size > MAX_INLINE_FILE_BYTES:
+                    download_url = getattr(contents, 'download_url', None)
+                    if download_url:
+                        await query.message.reply_text(
+                            f"⚠️ הקובץ גדול ({format_bytes(size)}). להורדה: <a href=\"{download_url}\">קישור ישיר</a>",
+                            parse_mode='HTML'
+                        )
+                    else:
+                        await query.message.reply_text(
+                            f"⚠️ הקובץ גדול ({format_bytes(size)}) ולא ניתן להורידו ישירות כרגע."
+                        )
+                else:
+                    data = contents.decoded_content
+                    filename = os.path.basename(contents.path) or 'downloaded_file'
+                    await query.message.reply_document(document=BytesIO(data), filename=filename)
+            except Exception as e:
+                logger.error(f"Inline download error: {e}")
+                await query.message.reply_text(f"❌ שגיאה בהורדה: {e}")
+            return
+        
+        elif query.data.startswith('browse_page:'):
+            # מעבר עמודים בדפדפן הריפו
+            try:
+                page_index = int(query.data.split(':', 1)[1])
+            except ValueError:
+                page_index = 0
+            context.user_data['browse_page'] = max(0, page_index)
+            await self.show_repo_browser(update, context)
+        
         elif query.data == 'confirm_delete_repo_step1':
             # שלב שני: אתה בטוח?
             keyboard = [
@@ -515,6 +647,54 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         
+        elif query.data == 'notifications_menu':
+            await self.show_notifications_menu(update, context)
+        elif query.data == 'notifications_toggle':
+            await self.toggle_notifications(update, context)
+        elif query.data == 'notifications_toggle_pr':
+            await self.toggle_notifications_pr(update, context)
+        elif query.data == 'notifications_toggle_issues':
+            await self.toggle_notifications_issues(update, context)
+        elif query.data.startswith('notifications_interval_'):
+            await self.set_notifications_interval(update, context)
+        elif query.data == 'notifications_check_now':
+            await self.notifications_check_now(update, context)
+    
+        elif query.data == 'pr_menu':
+            await self.show_pr_menu(update, context)
+        elif query.data == 'create_pr_menu':
+            context.user_data['pr_branches_page'] = 0
+            await self.show_create_pr_menu(update, context)
+        elif query.data.startswith('branches_page_'):
+            try:
+                p = int(query.data.split('_')[-1])
+            except Exception:
+                p = 0
+            context.user_data['pr_branches_page'] = max(0, p)
+            await self.show_create_pr_menu(update, context)
+        elif query.data.startswith('pr_select_head:'):
+            head = query.data.split(':', 1)[1]
+            context.user_data['pr_head'] = head
+            await self.show_confirm_create_pr(update, context)
+        elif query.data == 'confirm_create_pr':
+            await self.confirm_create_pr(update, context)
+        elif query.data == 'merge_pr_menu':
+            context.user_data['pr_list_page'] = 0
+            await self.show_merge_pr_menu(update, context)
+        elif query.data.startswith('prs_page_'):
+            try:
+                p = int(query.data.split('_')[-1])
+            except Exception:
+                p = 0
+            context.user_data['pr_list_page'] = max(0, p)
+            await self.show_merge_pr_menu(update, context)
+        elif query.data.startswith('merge_pr:'):
+            pr_number = int(query.data.split(':', 1)[1])
+            context.user_data['pr_to_merge'] = pr_number
+            await self.show_confirm_merge_pr(update, context)
+        elif query.data == 'confirm_merge_pr':
+            await self.confirm_merge_pr(update, context)
+    
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
         await self.show_repos(query.message, context, query=query)
@@ -1495,6 +1675,11 @@ class GitHubMenuHandler:
             return
         context.user_data['browse_action'] = 'delete'
         context.user_data['browse_path'] = ''
+        context.user_data['browse_page'] = 0
+        # מצב מרובה ומחיקה בטוחה לאיפוס
+        context.user_data['multi_mode'] = False
+        context.user_data['multi_selection'] = []
+        context.user_data['safe_delete'] = True
         await self.show_repo_browser(update, context)
 
     async def show_delete_repo_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1607,6 +1792,9 @@ class GitHubMenuHandler:
         # התחל בדפדוף מה-root
         context.user_data['browse_action'] = 'download'
         context.user_data['browse_path'] = ''
+        context.user_data['browse_page'] = 0
+        context.user_data['multi_mode'] = False
+        context.user_data['multi_selection'] = []
         await self.show_repo_browser(update, context)
 
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1619,6 +1807,11 @@ class GitHubMenuHandler:
         if not (token and repo_name):
             await query.edit_message_text("❌ חסרים נתונים")
             return
+        # חיווי טעינה
+        try:
+            await query.edit_message_text("⏳ טוען תכולה...")
+        except Exception:
+            pass
         g = Github(token)
         repo = g.get_repo(repo_name)
         path = context.user_data.get('browse_path', '')
@@ -1627,23 +1820,82 @@ class GitHubMenuHandler:
         if not isinstance(contents, list):
             # אם זה קובץ יחיד, הפוך לרשימה לצורך תצוגה
             contents = [contents]
-        keyboard = []
-        # כפתורי קבצים ותיקיות
+        # בניית פריטים (תיקיות קודם, אחר כך קבצים)
         folders = [c for c in contents if c.type == 'dir']
         files = [c for c in contents if c.type == 'file']
+        entry_rows = []
+        # Breadcrumbs
+        crumbs_row = []
+        crumbs_row.append(InlineKeyboardButton("🏠 root", callback_data="browse_open:"))
+        if path:
+            parts = path.split('/')
+            accum = []
+            for part in parts:
+                accum.append(part)
+                crumbs_row.append(InlineKeyboardButton(part, callback_data=f"browse_open:{'/'.join(accum)}"))
+        if crumbs_row:
+            entry_rows.append(crumbs_row)
         for folder in folders:
-            keyboard.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
+            entry_rows.append([InlineKeyboardButton(f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}")])
+        multi_mode = context.user_data.get('multi_mode', False)
+        selection = set(context.user_data.get('multi_selection', []))
         for f in files:
-            if context.user_data.get('browse_action') == 'download':
-                keyboard.append([InlineKeyboardButton(f"⬇️ {f.name}", callback_data=f"browse_select_download:{f.path}")])
+            if multi_mode:
+                checked = "☑️" if f.path in selection else "⬜️"
+                size_str = format_bytes(getattr(f, 'size', 0) or 0)
+                entry_rows.append([InlineKeyboardButton(f"{checked} {f.name} ({size_str})", callback_data=f"browse_toggle_select:{f.path}")])
             else:
-                keyboard.append([InlineKeyboardButton(f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}")])
+                if context.user_data.get('browse_action') == 'download':
+                    size_val = getattr(f, 'size', 0) or 0
+                    size_str = format_bytes(size_val)
+                    large_flag = " ⚠️" if size_val and size_val > MAX_INLINE_FILE_BYTES else ""
+                    entry_rows.append([InlineKeyboardButton(f"⬇️ {f.name} ({size_str}){large_flag}", callback_data=f"browse_select_download:{f.path}")])
+                else:
+                    size_str = format_bytes(getattr(f, 'size', 0) or 0)
+                    entry_rows.append([InlineKeyboardButton(f"🗑️ {f.name} ({size_str})", callback_data=f"browse_select_delete:{f.path}")])
+        # עימוד
+        page_size = 10
+        total_items = len(entry_rows)
+        total_pages = max(1, (total_items + page_size - 1) // page_size)
+        current_page = min(max(0, context.user_data.get('browse_page', 0)), total_pages - 1)
+        start_index = current_page * page_size
+        end_index = start_index + page_size
+        keyboard = entry_rows[start_index:end_index]
+        # ניווט עמודים
+        if total_pages > 1:
+            nav_row = []
+            if current_page > 0:
+                nav_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"browse_page:{current_page - 1}"))
+            nav_row.append(InlineKeyboardButton(f"עמוד {current_page + 1}/{total_pages}", callback_data="noop"))
+            if current_page < total_pages - 1:
+                nav_row.append(InlineKeyboardButton("הבא ➡️", callback_data=f"browse_page:{current_page + 1}"))
+            keyboard.append(nav_row)
         # שורה תחתונה
         bottom = []
         if path:
             # חזרה למעלה
             parent = '/'.join(path.split('/')[:-1])
             bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
+        # כפתור ZIP לתיקייה הנוכחית (רק במצב הורדה)
+        if context.user_data.get('browse_action') == 'download':
+            bottom.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"))
+        # שיתוף קישור לתיקייה הנוכחית
+        bottom.append(InlineKeyboardButton("🔗 שתף קישור לתיקייה", callback_data=f"share_folder_link:{path or ''}"))
+        # כפתורי מצב מרובה
+        if not multi_mode:
+            bottom.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
+        else:
+            if context.user_data.get('browse_action') == 'download':
+                bottom.append(InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute"))
+                bottom.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
+            else:
+                # מחיקה: מצבים
+                safe_label = "מצב מחיקה בטוח: פעיל" if context.user_data.get('safe_delete', True) else "מצב מחיקה בטוח: כבוי"
+                bottom.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
+                bottom.append(InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"))
+                bottom.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
+            bottom.append(InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"))
+            bottom.append(InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"))
         bottom.append(InlineKeyboardButton("🔙 חזרה", callback_data="github_menu"))
         if bottom:
             keyboard.append(bottom)
@@ -1652,7 +1904,459 @@ class GitHubMenuHandler:
         await query.edit_message_text(
             f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
             f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-            f"בחר קובץ ל{action} או פתח תיקייה:",
+            f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
+
+    async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""
+        inline_query = update.inline_query
+        user_id = inline_query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        q = (inline_query.query or '').strip()
+        results = []
+        if not (token and repo_name):
+            # בקש מהמשתמש לבחור ריפו
+            results.append(
+                InlineQueryResultArticle(
+                    id=f"help-no-repo",
+                    title="בחר/התחבר לריפו לפני שימוש באינליין",
+                    description="שלח /github לבחירת ריפו ו/או התחברות",
+                    input_message_content=InputTextMessageContent("🔧 שלח /github לבחירת ריפו ולהתחברות ל-GitHub")
+                )
+            )
+            await inline_query.answer(results, cache_time=1, is_personal=True)
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        # ללא קלט: הצג עזרה קצרה
+        if not q:
+            results = [
+                InlineQueryResultArticle(
+                    id="help-1",
+                    title="zip <path> — הורד תיקייה כ־ZIP",
+                    description="לדוגמה: zip src/components",
+                    input_message_content=InputTextMessageContent("בחר תיקייה להורדה כ־ZIP"),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("פתח /github", callback_data="github_menu")]])
+                ),
+                InlineQueryResultArticle(
+                    id="help-2",
+                    title="file <path> — הורד קובץ בודד",
+                    description="לדוגמה: file README.md או src/app.py",
+                    input_message_content=InputTextMessageContent("בחר קובץ להורדה"),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("פתח /github", callback_data="github_menu")]])
+                ),
+                InlineQueryResultArticle(
+                    id="help-3",
+                    title=f"ריפו נוכחי: {repo_name}",
+                    description="הקלד נתיב מלא לרשימה/קובץ",
+                    input_message_content=InputTextMessageContent(f"ריפו: {repo_name}")
+                )
+            ]
+            await inline_query.answer(results, cache_time=1, is_personal=True)
+            return
+        # פרסור פשוט: zip <path> / file <path> או נתיב ישיר
+        is_zip = False
+        is_file = False
+        path = q
+        if q.lower().startswith('zip '):
+            is_zip = True
+            path = q[4:].strip()
+        elif q.lower().startswith('file '):
+            is_file = True
+            path = q[5:].strip()
+        path = path.lstrip('/')
+        try:
+            contents = repo.get_contents(path)
+            # תיקייה
+            if isinstance(contents, list):
+                # תוצאה ל־ZIP
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"zip-{path or 'root'}",
+                        title=f"📦 ZIP לתיקייה: /{path or ''}",
+                        description=f"{repo_name} — אריזת תיקייה והורדה",
+                        input_message_content=InputTextMessageContent(f"ZIP לתיקייה: /{path or ''}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 הורד ZIP", callback_data=f"download_zip:{path}")]])
+                    )
+                )
+                # הצג כמה קבצים ראשונים בתיקייה להורדה מהירה
+                shown = 0
+                for item in contents:
+                    if getattr(item, 'type', '') == 'file':
+                        size_str = format_bytes(getattr(item, 'size', 0) or 0)
+                        results.append(
+                            InlineQueryResultArticle(
+                                id=f"file-{item.path}",
+                                title=f"⬇️ {item.name} ({size_str})",
+                                description=f"/{item.path}",
+                                input_message_content=InputTextMessageContent(f"קובץ: /{item.path}"),
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ הורד", callback_data=f"inline_download_file:{item.path}")]])
+                            )
+                        )
+                        shown += 1
+                        if shown >= 10:
+                            break
+            else:
+                # קובץ בודד
+                size_str = format_bytes(getattr(contents, 'size', 0) or 0)
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"file-{path}",
+                        title=f"⬇️ הורד: {os.path.basename(contents.path)} ({size_str})",
+                        description=f"/{path}",
+                        input_message_content=InputTextMessageContent(f"קובץ: /{path}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ הורד", callback_data=f"inline_download_file:{path}")]])
+                    )
+                )
+        except Exception:
+            # אם לצורך zip/file מפורש, החזר כפתור גם אם לא קיים (ייתכן נתיב שגוי)
+            if is_zip and path:
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"zip-maybe-{path}",
+                        title=f"📦 ZIP: /{path}",
+                        description="ניסיון אריזה לתיקייה (אם קיימת)",
+                        input_message_content=InputTextMessageContent(f"ZIP לתיקייה: /{path}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 הורד ZIP", callback_data=f"download_zip:{path}")]])
+                    )
+                )
+            elif is_file and path:
+                results.append(
+                    InlineQueryResultArticle(
+                        id=f"file-maybe-{path}",
+                        title=f"⬇️ קובץ: /{path}",
+                        description="ניסיון הורדה לקובץ (אם קיים)",
+                        input_message_content=InputTextMessageContent(f"קובץ: /{path}"),
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ הורד", callback_data=f"inline_download_file:{path}")]])
+                    )
+                )
+            else:
+                results.append(
+                    InlineQueryResultArticle(
+                        id="not-found",
+                        title="לא נמצאה התאמה",
+                        description="הקלד: zip <path> או file <path> או נתיב מלא",
+                        input_message_content=InputTextMessageContent("לא נמצאה התאמה לשאילתה")
+                    )
+                )
+        await inline_query.answer(results[:50], cache_time=1, is_personal=True)
+
+    async def show_notifications_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        if not session.get('selected_repo'):
+            await query.edit_message_text("❌ בחר ריפו קודם (/github)")
+            return
+        settings = context.user_data.get('notifications', {})
+        enabled = settings.get('enabled', False)
+        pr_on = settings.get('pr', True)
+        issues_on = settings.get('issues', True)
+        interval = settings.get('interval', 300)
+        keyboard = [
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+            [InlineKeyboardButton("הפעל" if not enabled else "כבה", callback_data="notifications_toggle")],
+            [InlineKeyboardButton(f"PRs: {'פעיל' if pr_on else 'כבוי'}", callback_data="notifications_toggle_pr")],
+            [InlineKeyboardButton(f"Issues: {'פעיל' if issues_on else 'כבוי'}", callback_data="notifications_toggle_issues")],
+            [InlineKeyboardButton("תדירות: 2ד׳", callback_data="notifications_interval_120"), InlineKeyboardButton("5ד׳", callback_data="notifications_interval_300"), InlineKeyboardButton("15ד׳", callback_data="notifications_interval_900")],
+            [InlineKeyboardButton("בדוק עכשיו", callback_data="notifications_check_now")]
+        ]
+        await query.edit_message_text(
+            f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
+            f"מצב: {'פעיל' if enabled else 'כבוי'} | תדירות: {int(interval/60)} ד׳",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
+    async def toggle_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        settings['enabled'] = not settings.get('enabled', False)
+        # ניהול job
+        name = f"notif_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(name):
+            job.schedule_removal()
+        if settings['enabled']:
+            context.application.job_queue.run_repeating(self._notifications_job, interval=settings.get('interval', 300), first=5, name=name, data={'user_id': user_id})
+        await self.show_notifications_menu(update, context)
+
+    async def toggle_notifications_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        settings['pr'] = not settings.get('pr', True)
+        await self.show_notifications_menu(update, context)
+
+    async def toggle_notifications_issues(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        settings['issues'] = not settings.get('issues', True)
+        await self.show_notifications_menu(update, context)
+
+    async def set_notifications_interval(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        settings = context.user_data.setdefault('notifications', {'enabled': False, 'pr': True, 'issues': True, 'interval': 300})
+        try:
+            interval = int(query.data.rsplit('_', 1)[1])
+        except Exception:
+            interval = 300
+        settings['interval'] = interval
+        # עדכן job אם קיים
+        name = f"notif_{user_id}"
+        for job in context.application.job_queue.get_jobs_by_name(name):
+            job.schedule_removal()
+        if settings.get('enabled'):
+            context.application.job_queue.run_repeating(self._notifications_job, interval=interval, first=5, name=name, data={'user_id': user_id})
+        await self.show_notifications_menu(update, context)
+
+    async def notifications_check_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await self._notifications_job(context)
+        await self.show_notifications_menu(update, context)
+
+    async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            data = getattr(context.job, 'data', {}) if hasattr(context, 'job') else context.user_data
+            user_id = data.get('user_id') if isinstance(data, dict) else None
+            if not user_id and context._chat_id_and_data:
+                user_id = context._chat_id_and_data[0]
+            if not user_id:
+                return
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            settings = context.application.user_data.get(user_id, {}).get('notifications') if hasattr(context.application, 'user_data') else None
+            if settings is None:
+                settings = context.user_data.get('notifications', {})
+            if not (token and repo_name and settings and settings.get('enabled')):
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            # נהל זיכרון "נבדק לאחרונה"
+            last = session.get('notifications_last', {'pr': None, 'issues': None})
+            messages = []
+            # PRs
+            if settings.get('pr', True):
+                pulls = repo.get_pulls(state='all', sort='updated', direction='desc')
+                for pr in pulls[:10]:
+                    updated = pr.updated_at
+                    if last.get('pr') and updated <= last['pr']:
+                        break
+                    status = 'נפתח' if pr.state == 'open' and pr.created_at == pr.updated_at else ('מוזג' if pr.merged else ('נסגר' if pr.state == 'closed' else 'עודכן'))
+                    messages.append(f"🔔 PR {status}: <a href=\"{pr.html_url}\">{safe_html_escape(pr.title)}</a>")
+                if pulls.totalCount:
+                    session['notifications_last'] = session.get('notifications_last', {})
+                    session['notifications_last']['pr'] = datetime.utcnow()
+            # Issues
+            if settings.get('issues', True):
+                issues = repo.get_issues(state='all', sort='updated', direction='desc')
+                count = 0
+                for issue in issues:
+                    if issue.pull_request is not None:
+                        continue
+                    updated = issue.updated_at
+                    if last.get('issues') and updated <= last['issues']:
+                        break
+                    status = 'נפתח' if issue.state == 'open' and issue.created_at == issue.updated_at else ('נסגר' if issue.state == 'closed' else 'עודכן')
+                    messages.append(f"🔔 Issue {status}: <a href=\"{issue.html_url}\">{safe_html_escape(issue.title)}</a>")
+                    count += 1
+                    if count >= 10:
+                        break
+                session['notifications_last'] = session.get('notifications_last', {})
+                session['notifications_last']['issues'] = datetime.utcnow()
+            # שלח
+            if messages:
+                text = "\n".join(messages)
+                await context.bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', disable_web_page_preview=True)
+        except Exception as e:
+            logger.error(f"notifications job error: {e}")
+
+    async def show_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        if not session.get('selected_repo'):
+            await query.edit_message_text("❌ בחר ריפו קודם (/github)")
+            return
+        keyboard = [
+            [InlineKeyboardButton("🆕 צור PR מסניף", callback_data="create_pr_menu")],
+            [InlineKeyboardButton("🔀 מזג PR פתוח", callback_data="merge_pr_menu")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
+        ]
+        await query.edit_message_text(
+            f"🔀 פעולות Pull Request עבור <code>{session['selected_repo']}</code>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+
+    async def show_create_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        branches = list(repo.get_branches())
+        page = context.user_data.get('pr_branches_page', 0)
+        page_size = 10
+        total_pages = max(1, (len(branches) + page_size - 1) // page_size)
+        page = min(max(0, page), total_pages - 1)
+        start = page * page_size
+        end = start + page_size
+        keyboard = []
+        for br in branches[start:end]:
+            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"pr_select_head:{br.name}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"branches_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"branches_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="pr_menu")])
+        await query.edit_message_text(
+            f"🆕 צור PR — בחר סניף head (base יהיה ברירת המחדל של הריפו)",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def show_confirm_create_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        head = context.user_data.get('pr_head')
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        base = repo.default_branch or 'main'
+        txt = (
+            f"תיצור PR חדש?\n"
+            f"ריפו: <code>{repo_name}</code>\n"
+            f"base: <code>{base}</code> ← head: <code>{head}</code>\n\n"
+            f"כותרת: <code>PR: {head} → {base}</code>"
+        )
+        kb = [
+            [InlineKeyboardButton("✅ אשר יצירה", callback_data="confirm_create_pr")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="create_pr_menu")]
+        ]
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
+    async def confirm_create_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        head = context.user_data.get('pr_head')
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            base = repo.default_branch or 'main'
+            title = f"PR: {head} → {base} (via bot)"
+            body = "נוצר אוטומטית על ידי הבוט"
+            pr = repo.create_pull(title=title, body=body, base=base, head=head)
+            await query.edit_message_text(f"✅ נוצר PR: <a href=\"{pr.html_url}\">{safe_html_escape(pr.title)}</a>", parse_mode='HTML')
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה ביצירת PR: {e}")
+            return
+        await self.show_pr_menu(update, context)
+
+    async def show_merge_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        pulls = list(repo.get_pulls(state='open', sort='created', direction='desc'))
+        page = context.user_data.get('pr_list_page', 0)
+        page_size = 10
+        total_pages = max(1, (len(pulls) + page_size - 1) // page_size)
+        page = min(max(0, page), total_pages - 1)
+        start = page * page_size
+        end = start + page_size
+        keyboard = []
+        for pr in pulls[start:end]:
+            title = safe_html_escape(pr.title)
+            keyboard.append([InlineKeyboardButton(f"#{pr.number} {title}", callback_data=f"merge_pr:{pr.number}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"prs_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"prs_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="pr_menu")])
+        await query.edit_message_text(
+            f"🔀 בחר PR למיזוג (פתוחים בלבד)",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def show_confirm_merge_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        pr_number = context.user_data.get('pr_to_merge')
+        if not (token and repo_name and pr_number):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        pr = repo.get_pull(pr_number)
+        txt = (
+            f"למזג PR?\n"
+            f"#{pr.number}: <b>{safe_html_escape(pr.title)}</b>\n"
+            f"{pr.html_url}"
+        )
+        kb = [
+            [InlineKeyboardButton("✅ אשר מיזוג", callback_data="confirm_merge_pr")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="merge_pr_menu")]
+        ]
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML', disable_web_page_preview=True)
+
+    async def confirm_merge_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get('selected_repo')
+        pr_number = context.user_data.get('pr_to_merge')
+        if not (token and repo_name and pr_number):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            result = pr.merge(merge_method='merge')
+            if result.merged:
+                await query.edit_message_text(f"✅ PR מוזג בהצלחה: <a href=\"{pr.html_url}\">#{pr.number}</a>", parse_mode='HTML')
+            else:
+                await query.edit_message_text(f"❌ מיזוג נכשל: {result.message}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה במיזוג PR: {e}")
+            return
+        await self.show_pr_menu(update, context)
