@@ -2,6 +2,7 @@
 # This fixes Telegram parsing errors with special characters in suggestions
 
 import os
+import re
 from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
@@ -19,6 +20,30 @@ logger = logging.getLogger(__name__)
 
 # מצבי שיחה
 REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
+
+def safe_html_escape(text):
+    """Safely escape text for HTML parsing in Telegram"""
+    if not text:
+        return ""
+    
+    # Convert to string and escape HTML
+    text = str(text)
+    text = escape(text)
+    
+    # Remove any problematic characters that might break HTML parsing
+    # Replace common problematic patterns
+    text = text.replace('&lt;', '(')
+    text = text.replace('&gt;', ')')
+    text = text.replace('&amp;', '&')
+    
+    # Remove any zero-width characters and control characters
+    text = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', text)
+    text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
+    
+    # Ensure no unclosed tags by removing < and > that weren't escaped
+    text = text.replace('<', '(').replace('>', ')')
+    
+    return text.strip()
 
 class GitHubMenuHandler:
     def __init__(self):
@@ -1004,8 +1029,8 @@ class GitHubMenuHandler:
     def _create_analysis_summary(self, analysis: Dict[str, Any]) -> str:
         """יוצר סיכום של הניתוח"""
         # Escape HTML special characters
-        repo_name = escape(analysis['repo_name'])
-        language = escape(analysis.get('language', '')) if analysis.get('language') else None
+        repo_name = safe_html_escape(analysis['repo_name'])
+        language = safe_html_escape(analysis.get('language', '')) if analysis.get('language') else None
         
         summary = f"📊 <b>ניתוח הריפו {repo_name}</b>\n\n"
         
@@ -1136,12 +1161,12 @@ class GitHubMenuHandler:
             impact_map = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
             effort_map = {'high': 'גבוה', 'medium': 'בינוני', 'low': 'נמוך'}
             
-            # Escape HTML special characters - with safe fallbacks
-            title = escape(str(suggestion.get('title', 'הצעה')))
-            why = escape(str(suggestion.get('why', 'לא צוין')))
-            how = escape(str(suggestion.get('how', 'לא צוין')))
-            impact = escape(impact_map.get(suggestion.get('impact', 'medium'), 'בינונית'))
-            effort = escape(effort_map.get(suggestion.get('effort', 'medium'), 'בינוני'))
+            # Use safe HTML escaping to prevent parsing errors
+            title = safe_html_escape(suggestion.get('title', 'הצעה'))
+            why = safe_html_escape(suggestion.get('why', 'לא צוין'))
+            how = safe_html_escape(suggestion.get('how', 'לא צוין'))
+            impact = safe_html_escape(impact_map.get(suggestion.get('impact', 'medium'), 'בינונית'))
+            effort = safe_html_escape(effort_map.get(suggestion.get('effort', 'medium'), 'בינוני'))
             
             # בנה הודעה בטוחה
             message = f"<b>{title}</b>\n\n"
