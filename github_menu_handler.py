@@ -328,7 +328,7 @@ class GitHubMenuHandler:
             try:
         await query.edit_message_text(
                 "🔑 שלח לי את הטוקן של GitHub:\n"
-                "(הטוקן יישמר רק לסשן הנוכחי)
+                "(הטוקן יישמר רק לסשן הנוכחי)"
     except telegram.error.BadRequest as e:
         if "Can't parse entities" in str(e):
             # נסה לשלוח בלי פורמט
