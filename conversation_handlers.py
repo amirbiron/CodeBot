@@ -134,11 +134,13 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def show_large_files_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הצגת קבצים גדולים ישירות מהתפריט הראשי"""
+    # נקה דגלים ישנים של GitHub כדי למנוע בלבול בקלט
+    context.user_data.pop('waiting_for_delete_file_path', None)
+    context.user_data.pop('waiting_for_download_file_path', None)
     # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(update.effective_user.id, update.effective_user.username)
     from large_files_handler import large_files_handler
     await large_files_handler.show_large_files_menu(update, context)
-    reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
 async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -308,12 +310,12 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
 
 async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """התחלת תהליך שמירה מתקדם"""
+    cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
     await update.message.reply_text(
         "✨ *מצוין!* בואו נצור קוד חדש!\n\n"
         "📝 שלח לי את קטע הקוד המבריק שלך.\n"
-        "💡 אני אזהה את השפה אוטומטית ואארגן הכל!\n\n"
-        "🚫 לביטול בכל שלב: `/cancel`",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+        "💡 אני אזהה את השפה אוטומטית ואארגן הכל!",
+        reply_markup=cancel_markup,
         parse_mode='Markdown'
     )
     reporter.report_activity(update.effective_user.id)
@@ -605,8 +607,8 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
-            f"📝 שלח את הקוד החדש והמעודכן:\n"
-            f"🚫 לביטול: `/cancel`",
+            f"📝 שלח את הקוד החדש והמעודכן:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
         )
         
@@ -714,8 +716,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not is_valid:
             await update.message.reply_text(
                 f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
-                f"💡 אנא וודא שהקוד תקין ונסה שוב.\n"
-                f"🚫 לביטול: `/cancel`",
+                f"💡 אנא וודא שהקוד תקין ונסה שוב.",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
             return EDIT_CODE  # חזרה למצב עריכה
@@ -831,8 +832,8 @@ async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{current_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:\n"
-            f"🚫 לביטול: `/cancel`",
+            f"✏️ שלח שם חדש לקובץ:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
         )
         
@@ -1281,8 +1282,8 @@ async def handle_edit_code_direct(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
-            f"📝 שלח את הקוד החדש והמעודכן:\n"
-            f"🚫 לביטול: `/cancel`",
+            f"📝 שלח את הקוד החדש והמעודכן:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
             parse_mode='Markdown'
         )
         
@@ -1316,8 +1317,8 @@ async def handle_edit_name_direct(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{file_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:\n"
-            f"🚫 לביטול: `/cancel`",
+            f"✏️ שלח שם חדש לקובץ:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
             parse_mode='Markdown'
         )
         
@@ -1371,6 +1372,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_all_files_callback(update, context)
         elif data == "main":
             await query.edit_message_text("🏠 חוזר לבית החכם:")
+            await query.message.reply_text(
+                "🎮 בחר פעולה מתקדמת:",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return ConversationHandler.END
+        elif data == "cancel":
+            # ביטול כללי דרך כפתור
+            context.user_data.clear()
+            await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
             await query.message.reply_text(
                 "🎮 בחר פעולה מתקדמת:",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)

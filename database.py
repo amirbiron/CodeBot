@@ -431,13 +431,13 @@ class DatabaseManager:
     def delete_large_file(self, user_id: int, file_name: str) -> bool:
         """מוחק קובץ גדול"""
         try:
-            result = self.large_files_collection.update_one(
-                {"user_id": user_id, "file_name": file_name},
+            result = self.large_files_collection.update_many(
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {"is_active": False, "updated_at": datetime.now()}}
             )
             
             if result.modified_count > 0:
-                logger.info(f"קובץ גדול נמחק: {file_name}")
+                logger.info(f"קובץ גדול נמחק: {file_name} ({result.modified_count} מסמכים עודכנו)")
                 return True
             
             return False
