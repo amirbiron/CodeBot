@@ -1,0 +1,394 @@
+{
+  "skip_functions": [
+    "__init__",
+    "__str__",
+    "__repr__",
+    "__del__",
+    "signal_handler",
+    "cleanup_mongo_lock",
+    "get_lock_collection",
+    "manage_mongo_lock"
+  ],
+  
+  "skip_patterns": [
+    "^_.*",
+    ".*_internal$",
+    "^test_.*",
+    ".*_deprecated$"
+  ],
+  
+  "special_params": {
+    "start_command": {
+      "update": {
+        "_type": "update",
+        "message": {
+          "text": "/start",
+          "chat_id": 123456789
+        }
+      },
+      "context": {
+        "_type": "context",
+        "args": []
+      }
+    },
+    
+    "help_command": {
+      "update": {
+        "_type": "update",
+        "message": {
+          "text": "/help"
+        }
+      }
+    },
+    
+    "save_command": {
+      "context": {
+        "_type": "context",
+        "args": ["test.py", "#python", "#automation"]
+      }
+    },
+    
+    "search_command": {
+      "context": {
+        "_type": "context",
+        "args": ["python"]
+      }
+    },
+    
+    "stats_command": {
+      "update": {
+        "_type": "update",
+        "effective_user": {
+          "id": 123456789,
+          "username": "test_user",
+          "first_name": "Test"
+        }
+      }
+    },
+    
+    "handle_document": {
+      "update": {
+        "_type": "update",
+        "message": {
+          "document": {
+            "file_id": "file_123",
+            "file_name": "test.py",
+            "file_size": 1024,
+            "mime_type": "text/x-python"
+          }
+        }
+      }
+    },
+    
+    "handle_text_message": {
+      "update": {
+        "_type": "update",
+        "message": {
+          "text": "def hello():\n    print('Hello')"
+        }
+      },
+      "context": {
+        "_type": "context",
+        "user_data": {}
+      }
+    },
+    
+    "error_handler": {
+      "update": {
+        "_type": "update"
+      },
+      "context": {
+        "_type": "context",
+        "error": "Test error message"
+      }
+    }
+  },
+  
+  "test_data": {
+    "sample_code": {
+      "python": "def hello_world():\n    print('Hello, World!')\n    return True",
+      "javascript": "function helloWorld() {\n    console.log('Hello, World!');\n    return true;\n}",
+      "html": "<!DOCTYPE html>\n<html>\n<head><title>Test</title></head>\n<body><h1>Hello</h1></body>\n</html>",
+      "sql": "SELECT * FROM users WHERE active = true;",
+      "bash": "#!/bin/bash\necho 'Hello, World!'"
+    },
+    
+    "sample_files": {
+      "small_file": {
+        "name": "small.py",
+        "content": "print('small file')",
+        "size": 20
+      },
+      "large_file": {
+        "name": "large.py",
+        "content_pattern": "x = 1\n",
+        "repeat": 5000
+      },
+      "binary_file": {
+        "name": "image.jpg",
+        "mime_type": "image/jpeg",
+        "size": 102400
+      }
+    },
+    
+    "sample_users": {
+      "regular_user": {
+        "id": 123456789,
+        "username": "regular_user",
+        "first_name": "משתמש",
+        "last_name": "רגיל",
+        "is_bot": false,
+        "language_code": "he"
+      },
+      "admin_user": {
+        "id": 6865105071,
+        "username": "moominAmir",
+        "first_name": "אמיר",
+        "last_name": "בירון",
+        "is_bot": false,
+        "is_admin": true,
+        "language_code": "he"
+      },
+      "bot_user": {
+        "id": 987654321,
+        "username": "test_bot",
+        "first_name": "Test",
+        "last_name": "Bot",
+        "is_bot": true
+      }
+    },
+    
+    "sample_messages": {
+      "text_message": {
+        "message_id": 1001,
+        "text": "Hello, this is a test message",
+        "date": "2024-01-01T12:00:00Z"
+      },
+      "command_message": {
+        "message_id": 1002,
+        "text": "/start",
+        "entities": [{
+          "type": "bot_command",
+          "offset": 0,
+          "length": 6
+        }]
+      },
+      "code_message": {
+        "message_id": 1003,
+        "text": "```python\nprint('Hello')\n```",
+        "entities": [{
+          "type": "pre",
+          "offset": 0,
+          "length": 25,
+          "language": "python"
+        }]
+      }
+    },
+    
+    "github_data": {
+      "test_token": "ghp_test_token_123456789",
+      "test_repos": [
+        {
+          "name": "test-repo-1",
+          "full_name": "user/test-repo-1",
+          "private": false,
+          "default_branch": "main"
+        },
+        {
+          "name": "test-repo-2",
+          "full_name": "user/test-repo-2",
+          "private": true,
+          "default_branch": "master"
+        }
+      ],
+      "test_files": [
+        {
+          "path": "src/main.py",
+          "content": "print('test')",
+          "sha": "abc123"
+        }
+      ]
+    },
+    
+    "database_data": {
+      "test_snippets": [
+        {
+          "user_id": 123456789,
+          "file_name": "test1.py",
+          "code": "print('test1')",
+          "programming_language": "python",
+          "tags": ["test", "python"],
+          "version": 1
+        },
+        {
+          "user_id": 123456789,
+          "file_name": "test2.js",
+          "code": "console.log('test2');",
+          "programming_language": "javascript",
+          "tags": ["test", "js"],
+          "version": 1
+        }
+      ],
+      "test_stats": {
+        "total_files": 10,
+        "total_versions": 25,
+        "languages": ["python", "javascript", "html"],
+        "latest_activity": "2024-01-01T12:00:00Z"
+      }
+    },
+    
+    "callback_data": {
+      "main_menu": "main",
+      "files_menu": "files",
+      "file_select": "file_0",
+      "download_file": "download_test.py",
+      "delete_file": "delete_test.py",
+      "edit_file": "edit_test.py",
+      "github_menu": "github",
+      "select_repo": "select_repo",
+      "upload_file": "upload_file",
+      "large_files": "show_large_files"
+    }
+  },
+  
+  "mock_configs": {
+    "telegram_bot": {
+      "token": "test_bot_token_123456789",
+      "username": "test_bot",
+      "first_name": "Test",
+      "last_name": "Bot",
+      "can_join_groups": true,
+      "can_read_all_group_messages": false,
+      "supports_inline_queries": false
+    },
+    
+    "mongodb": {
+      "uri": "mongodb://test:27017",
+      "database": "test_code_keeper",
+      "collections": {
+        "code_snippets": "code_snippets",
+        "large_files": "large_files",
+        "users": "users",
+        "stats": "stats"
+      }
+    },
+    
+    "config": {
+      "MAX_CODE_SIZE": 100000,
+      "MAX_FILES_PER_USER": 1000,
+      "SUPPORTED_LANGUAGES": [
+        "python", "javascript", "html", "css", "java", 
+        "cpp", "c", "php", "ruby", "go", "rust", 
+        "typescript", "sql", "bash", "json", "xml", "yaml"
+      ],
+      "HIGHLIGHT_THEME": "github-dark",
+      "GITHUB_TOKEN": "ghp_test_token",
+      "PASTEBIN_API_KEY": "test_pastebin_key"
+    },
+    
+    "limits": {
+      "max_message_length": 4096,
+      "max_caption_length": 1024,
+      "max_file_size": 52428800,
+      "max_inline_results": 50,
+      "rate_limit_messages": 30,
+      "rate_limit_seconds": 1
+    }
+  },
+  
+  "timeout_seconds": 10,
+  "max_test_depth": 3,
+  "auto_mock": true,
+  "verbose": false,
+  
+  "test_scenarios": {
+    "user_flows": [
+      {
+        "name": "complete_save_flow",
+        "steps": [
+          {"command": "/start"},
+          {"command": "/save", "args": ["test.py"]},
+          {"text": "print('Hello')"},
+          {"expect": "saved_successfully"}
+        ]
+      },
+      {
+        "name": "search_and_download",
+        "steps": [
+          {"command": "/search", "args": ["python"]},
+          {"callback": "file_0"},
+          {"callback": "download_test.py"},
+          {"expect": "file_sent"}
+        ]
+      },
+      {
+        "name": "github_upload",
+        "steps": [
+          {"command": "/github"},
+          {"callback": "set_token"},
+          {"text": "ghp_test_token"},
+          {"callback": "select_repo"},
+          {"callback": "repo_0"},
+          {"callback": "upload_file"},
+          {"document": "test.py"},
+          {"expect": "upload_success"}
+        ]
+      }
+    ],
+    
+    "error_scenarios": [
+      {
+        "name": "oversized_file",
+        "document_size": 11000000,
+        "expect_error": "file_too_large"
+      },
+      {
+        "name": "invalid_encoding",
+        "file_content": "\\xff\\xfe\\xfd",
+        "expect_error": "encoding_error"
+      },
+      {
+        "name": "database_failure",
+        "mock_error": "DatabaseError",
+        "expect_error": "save_failed"
+      }
+    ],
+    
+    "performance_scenarios": [
+      {
+        "name": "large_file_processing",
+        "file_size": 1048576,
+        "max_time_seconds": 2
+      },
+      {
+        "name": "concurrent_users",
+        "user_count": 10,
+        "max_time_seconds": 5
+      },
+      {
+        "name": "search_performance",
+        "file_count": 1000,
+        "query": "test",
+        "max_time_seconds": 1
+      }
+    ]
+  },
+  
+  "assertions": {
+    "default_timeout": 5,
+    "retry_count": 3,
+    "strict_mode": false,
+    "check_mock_calls": true,
+    "validate_responses": true,
+    "check_database_state": true
+  },
+  
+  "reporting": {
+    "generate_html": true,
+    "generate_json": true,
+    "include_coverage": true,
+    "include_performance": true,
+    "output_directory": "test_reports",
+    "timestamp_format": "%Y-%m-%d_%H-%M-%S"
+  }
+}
