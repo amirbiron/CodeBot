@@ -33,3 +33,10 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+.mypy_cache/
+.pytest_cache/
+.pyrightcache/
+.venv/
+.cache/
+.coverage
+htmlcov/
