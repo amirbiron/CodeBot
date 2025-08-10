@@ -636,16 +636,201 @@ class GitHubMenuHandler:
             context.user_data['browse_page'] = max(0, page_index)
             await self.show_repo_browser(update, context)
         
-        elif query.data == 'confirm_delete_repo_step1':
-            # שלב שני: אתה בטוח?
-            keyboard = [
-                [InlineKeyboardButton("🧨 כן, מחק ריפו סופית", callback_data="confirm_delete_repo")],
-                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]
-            ]
-            await query.edit_message_text(
-                "❗ אתה בטוח? פעולה זו תמחק את הריפו לצמיתות.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+        elif query.data == 'multi_toggle':
+            # הפעל/בטל מצב בחירה מרובה
+            current = context.user_data.get('multi_mode', False)
+            context.user_data['multi_mode'] = not current
+            if not context.user_data['multi_mode']:
+                context.user_data['multi_selection'] = []
+            context.user_data['browse_page'] = 0
+            await self.show_repo_browser(update, context)
+        
+        elif query.data.startswith('browse_toggle_select:'):
+            # הוסף/הסר בחירה של קובץ
+            path = query.data.split(':', 1)[1]
+            selection = set(context.user_data.get('multi_selection', []))
+            if path in selection:
+                selection.remove(path)
+            else:
+                selection.add(path)
+            context.user_data['multi_selection'] = list(selection)
+            await self.show_repo_browser(update, context)
+        
+        elif query.data == 'multi_clear':
+            # נקה בחירות
+            context.user_data['multi_selection'] = []
+            await self.show_repo_browser(update, context)
+        
+        elif query.data == 'safe_toggle':
+            # החלף מצב מחיקה בטוחה
+            context.user_data['safe_delete'] = not context.user_data.get('safe_delete', True)
+            await self.show_repo_browser(update, context)
+        
+        elif query.data == 'multi_execute':
+            # בצע פעולה על הבחירה (ZIP בהורדה | מחיקה במצב מחיקה)
+            selection = list(dict.fromkeys(context.user_data.get('multi_selection', [])))
+            if not selection:
+                await query.answer("לא נבחרו קבצים", show_alert=True)
+                return
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים")
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            action = context.user_data.get('browse_action')
+            if action == 'download':
+                # ארוז את הבחירה ל-ZIP
+                try:
+                    zip_buffer = BytesIO()
+                    total_bytes = 0
+                    total_files = 0
+                    skipped_large = 0
+                    with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+                        for path in selection:
+                            await self.apply_rate_limit_delay(user_id)
+                            try:
+                                file_obj = repo.get_contents(path)
+                                if getattr(file_obj, 'type', 'file') != 'file':
+                                    continue
+                                file_size = getattr(file_obj, 'size', 0) or 0
+                                if file_size > MAX_INLINE_FILE_BYTES:
+                                    skipped_large += 1
+                                    continue
+                                if total_files >= MAX_ZIP_FILES:
+                                    continue
+                                if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                    continue
+                                data = file_obj.decoded_content
+                                arcname = file_obj.path  # שמור מבנה נתיב
+                                zipf.writestr(arcname, data)
+                                total_bytes += len(data)
+                                total_files += 1
+                            except Exception:
+                                continue
+                    if total_files == 0:
+                        await query.answer("אין קבצים מתאימים לאריזה", show_alert=True)
+                    else:
+                        zip_buffer.seek(0)
+                        filename = f"{repo.name}-selected.zip"
+                        caption = f"📦 ZIP לקבצים נבחרים — {total_files} קבצים, {format_bytes(total_bytes)}."
+                        if skipped_large:
+                            caption += f"\n⚠️ דילג על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
+                        await query.message.reply_document(document=zip_buffer, filename=filename, caption=caption)
+                except Exception as e:
+                    logger.error(f"Multi ZIP error: {e}")
+                    await query.edit_message_text(f"❌ שגיאה באריזת ZIP: {e}")
+                    return
+                finally:
+                    # לאחר פעולה, שמור בדפדפן
+                    pass
+                # השאר בדפדפן
+                await self.show_repo_browser(update, context)
+            else:
+                # מחיקה של נבחרים
+                safe_delete = context.user_data.get('safe_delete', True)
+                default_branch = repo.default_branch or "main"
+                successes = 0
+                failures = 0
+                pr_url = None
+                if safe_delete:
+                    # צור סניף חדש ומחוק בו, ואז פתח PR
+                    try:
+                        base_ref = repo.get_git_ref(f"heads/{default_branch}")
+                        new_branch = f"delete-bot-{int(time.time())}"
+                        repo.create_git_ref(ref=f"refs/heads/{new_branch}", sha=base_ref.object.sha)
+                        for path in selection:
+                            await self.apply_rate_limit_delay(user_id)
+                            try:
+                                contents = repo.get_contents(path, ref=new_branch)
+                                repo.delete_file(contents.path, f"Delete via bot: {path}", contents.sha, branch=new_branch)
+                                successes += 1
+                            except Exception:
+                                failures += 1
+                        pr = repo.create_pull(title=f"Delete {successes} files via bot", body="Automated deletion", base=default_branch, head=new_branch)
+                        pr_url = pr.html_url
+                    except Exception as e:
+                        logger.error(f"Safe delete failed: {e}")
+                        await query.edit_message_text(f"❌ שגיאה במחיקה בטוחה: {e}")
+                        return
+                else:
+                    # מחיקה ישירה בבראנץ' ברירת המחדל
+                    for path in selection:
+                        await self.apply_rate_limit_delay(user_id)
+                        try:
+                            contents = repo.get_contents(path)
+                            repo.delete_file(contents.path, f"Delete via bot: {path}", contents.sha, branch=default_branch)
+                            successes += 1
+                        except Exception as e:
+                            logger.error(f"Delete file failed: {e}")
+                            failures += 1
+                # סכם והצג
+                summary = f"✅ נמחקו {successes} | ❌ נכשלו {failures}"
+                if pr_url:
+                    summary += f"\n🔗 נפתח PR: <a href=\"{pr_url}\">קישור</a>"
+                try:
+                    await query.message.reply_text(summary, parse_mode='HTML')
+                except Exception:
+                    pass
+                # אפס מצב מרובה וחזור לתפריט הדפדפן
+                context.user_data['multi_mode'] = False
+                context.user_data['multi_selection'] = []
+                await self.show_repo_browser(update, context)
+        
+        elif query.data.startswith('share_folder_link:'):
+            # שיתוף קישור לתיקייה
+            path = query.data.split(':', 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.answer("❌ חסרים נתונים", show_alert=True)
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            branch = repo.default_branch or 'main'
+            clean_path = (path or '').strip('/')
+            url = f"https://github.com/{repo.full_name}/tree/{branch}/{clean_path}" if clean_path else f"https://github.com/{repo.full_name}/tree/{branch}"
+            try:
+                await query.message.reply_text(f"🔗 קישור לתיקייה:\n{url}")
+            except Exception:
+                await query.answer("הקישור נשלח בהודעה חדשה")
+            # הישאר בדפדפן
+            await self.show_repo_browser(update, context)
+        
+        elif query.data == 'share_selected_links':
+            # שיתוף קישורים לקבצים נבחרים
+            selection = list(dict.fromkeys(context.user_data.get('multi_selection', [])))
+            if not selection:
+                await query.answer("לא נבחרו קבצים", show_alert=True)
+                return
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get('selected_repo')
+            if not (token and repo_name):
+                await query.answer("❌ חסרים נתונים", show_alert=True)
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            branch = repo.default_branch or 'main'
+            lines = []
+            for p in selection[:50]:
+                clean = p.strip('/')
+                url = f"https://github.com/{repo.full_name}/blob/{branch}/{clean}"
+                lines.append(f"• {clean}: {url}")
+            text = "🔗 קישורים לקבצים נבחרים:\n" + "\n".join(lines)
+            try:
+                await query.message.reply_text(text)
+            except Exception as e:
+                logger.error(f"share_selected_links error: {e}")
+                await query.answer("שגיאה בשיתוף קישורים", show_alert=True)
+            # השאר בדפדפן
+            await self.show_repo_browser(update, context)
         
         elif query.data == 'notifications_menu':
             await self.show_notifications_menu(update, context)
@@ -2133,19 +2318,19 @@ class GitHubMenuHandler:
 
     async def notifications_check_now(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
-        await self._notifications_job(context)
+        await self._notifications_job(context, user_id=query.from_user.id)
         try:
             await self.show_notifications_menu(update, context)
         except BadRequest as e:
             if 'Message is not modified' not in str(e):
                 raise
 
-    async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE):
+    async def _notifications_job(self, context: ContextTypes.DEFAULT_TYPE, user_id: int | None = None):
         try:
-            data = getattr(context.job, 'data', {}) if hasattr(context, 'job') else context.user_data
-            user_id = data.get('user_id') if isinstance(data, dict) else None
-            if not user_id and context._chat_id_and_data:
-                user_id = context._chat_id_and_data[0]
+            if user_id is None:
+                job = getattr(context, 'job', None)
+                if job and getattr(job, 'data', None):
+                    user_id = job.data.get('user_id')
             if not user_id:
                 return
             session = self.get_user_session(user_id)
@@ -2188,9 +2373,10 @@ class GitHubMenuHandler:
                     count += 1
                     if count >= 10:
                         break
-                session['notifications_last'] = session.get('notifications_last', {})
-                session['notifications_last']['issues'] = datetime.utcnow()
-            # שלח
+                if count:
+                    session['notifications_last'] = session.get('notifications_last', {})
+                    session['notifications_last']['issues'] = datetime.utcnow()
+            # שלח הודעה אם יש
             if messages:
                 text = "\n".join(messages)
                 await context.bot.send_message(chat_id=user_id, text=text, parse_mode='HTML', disable_web_page_preview=True)
