@@ -2612,46 +2612,53 @@ class GitHubMenuHandler:
             messages = []
             # PRs
             if settings.get("pr", True):
-                pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
-                for pr in pulls[:10]:
-                    updated = pr.updated_at
-                    if last.get("pr") and updated <= last["pr"]:
-                        break
-                    status = (
-                        "נפתח"
-                        if pr.state == "open" and pr.created_at == pr.updated_at
-                        else (
-                            "מוזג" if pr.merged else ("נסגר" if pr.state == "closed" else "עודכן")
+                last_pr_check_time = last.get("pr")
+                # If this is the first run (no baseline), set a baseline without sending backlog
+                if last_pr_check_time is None:
+                    session["notifications_last"] = session.get("notifications_last", {})
+                    session["notifications_last"]["pr"] = datetime.utcnow()
+                else:
+                    pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
+                    for pr in pulls[:10]:
+                        updated = pr.updated_at
+                        if updated <= last_pr_check_time:
+                            break
+                        status = (
+                            "נפתח"
+                            if pr.state == "open" and pr.created_at == pr.updated_at
+                            else ("מוזג" if pr.merged else ("נסגר" if pr.state == "closed" else "עודכן"))
                         )
-                    )
-                    messages.append(
-                        f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
-                    )
-                if pulls.totalCount:
+                        messages.append(
+                            f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
+                        )
                     session["notifications_last"] = session.get("notifications_last", {})
                     session["notifications_last"]["pr"] = datetime.utcnow()
             # Issues
             if settings.get("issues", True):
-                issues = repo.get_issues(state="all", sort="updated", direction="desc")
-                count = 0
-                for issue in issues:
-                    if issue.pull_request is not None:
-                        continue
-                    updated = issue.updated_at
-                    if last.get("issues") and updated <= last["issues"]:
-                        break
-                    status = (
-                        "נפתח"
-                        if issue.state == "open" and issue.created_at == issue.updated_at
-                        else ("נסגר" if issue.state == "closed" else "עודכן")
-                    )
-                    messages.append(
-                        f'🔔 Issue {status}: <a href="{issue.html_url}">{safe_html_escape(issue.title)}</a>'
-                    )
-                    count += 1
-                    if count >= 10:
-                        break
-                if count:
+                last_issues_check_time = last.get("issues")
+                if last_issues_check_time is None:
+                    session["notifications_last"] = session.get("notifications_last", {})
+                    session["notifications_last"]["issues"] = datetime.utcnow()
+                else:
+                    issues = repo.get_issues(state="all", sort="updated", direction="desc")
+                    count = 0
+                    for issue in issues:
+                        if issue.pull_request is not None:
+                            continue
+                        updated = issue.updated_at
+                        if updated <= last_issues_check_time:
+                            break
+                        status = (
+                            "נפתח"
+                            if issue.state == "open" and issue.created_at == issue.updated_at
+                            else ("נסגר" if issue.state == "closed" else "עודכן")
+                        )
+                        messages.append(
+                            f'🔔 Issue {status}: <a href="{issue.html_url}">{safe_html_escape(issue.title)}</a>'
+                        )
+                        count += 1
+                        if count >= 10:
+                            break
                     session["notifications_last"] = session.get("notifications_last", {})
                     session["notifications_last"]["issues"] = datetime.utcnow()
             # שלח הודעה אם יש
