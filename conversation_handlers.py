@@ -608,7 +608,7 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
         )
         
@@ -832,9 +832,8 @@ async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{current_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:\n"
-            f"🚫 לביטול: `/cancel`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]]),
+            f"✏️ שלח שם חדש לקובץ:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
         )
         
@@ -1284,7 +1283,7 @@ async def handle_edit_code_direct(update: Update, context: ContextTypes.DEFAULT_
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
             parse_mode='Markdown'
         )
         
@@ -1318,9 +1317,8 @@ async def handle_edit_name_direct(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{file_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:\n"
-            f"🚫 לביטול: `/cancel`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]]),
+            f"✏️ שלח שם חדש לקובץ:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
             parse_mode='Markdown'
         )
         
