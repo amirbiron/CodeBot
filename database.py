@@ -500,6 +500,44 @@ class DatabaseManager:
             logger.error(f"שגיאה בקבלת טוקן GitHub: {e}")
             return None
     
+    def save_selected_repo(self, user_id: int, repo_name: str) -> bool:
+        """שומר את הריפו הנבחר של המשתמש במסד הנתונים"""
+        try:
+            users_collection = self.db.users
+            
+            result = users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "selected_repo": repo_name,
+                        "updated_at": datetime.now()
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.now()
+                    }
+                },
+                upsert=True
+            )
+            
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"שגיאה בשמירת ריפו נבחר: {e}")
+            return False
+    
+    def get_selected_repo(self, user_id: int) -> str:
+        """מחזיר את הריפו הנבחר של המשתמש מהמסד נתונים"""
+        try:
+            users_collection = self.db.users
+            user = users_collection.find_one({"user_id": user_id})
+            
+            if user and "selected_repo" in user:
+                return user["selected_repo"]
+            
+            return None
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת ריפו נבחר: {e}")
+            return None
+    
     def save_user(self, user_id: int, username: str = None) -> bool:
         """שומר משתמש במסד הנתונים (INSERT OR IGNORE)"""
         try:
