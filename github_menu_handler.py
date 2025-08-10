@@ -139,6 +139,13 @@ class GitHubMenuHandler:
         if token:
             logger.info(f"[GitHub] Token length: {len(token)}")
         
+        # אם אין טוקן, נקה בחירות כדי למנוע הצגת מידע ישן
+        if not token:
+            session['selected_repo'] = None
+            session['selected_folder'] = None
+            context.user_data.pop('repos', None)
+            context.user_data.pop('repos_cache_time', None)
+        
         # בנה הודעת סטטוס
         status_msg = "🔧 <b>GitHub Integration Menu</b>\n\n"
         
@@ -147,7 +154,7 @@ class GitHubMenuHandler:
         else:
             status_msg += "❌ טוקן לא מוגדר\n"
         
-        if session.get('selected_repo'):
+        if token and session.get('selected_repo'):
             status_msg += f"📁 ריפו: <code>{session['selected_repo']}</code>\n"
             folder_display = session.get('selected_folder') or 'root'
             status_msg += f"📂 תיקייה: <code>{folder_display}</code>\n"
@@ -160,11 +167,12 @@ class GitHubMenuHandler:
         if not token:
             keyboard.append([InlineKeyboardButton("🔑 הגדר טוקן GitHub", callback_data="set_token")])
         
-        # כפתור בחירת ריפו
-        keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
+        # כפתור בחירת ריפו - זמין רק עם טוקן
+        if token:
+            keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
         
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
-        if session.get('selected_repo'):
+        if token and session.get('selected_repo'):
             keyboard.append([
                 InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")
             ])
@@ -265,10 +273,16 @@ class GitHubMenuHandler:
             removed = db.delete_github_token(user_id)
             try:
                 session["github_token"] = None
+                # נקה גם בחירות קודמות כאשר מתנתקים
+                session['selected_repo'] = None
+                session['selected_folder'] = None
             except Exception:
                 pass
+            # נקה קאש ריפוזיטוריז
+            context.user_data.pop('repos', None)
+            context.user_data.pop('repos_cache_time', None)
             if removed:
-                await query.edit_message_text("🔐 הטוקן נמחק.⏳ מרענן תפריט...")
+                await query.edit_message_text("🔐 התנתקת מ-GitHub והטוקן נמחק.⏳ מרענן תפריט...")
             else:
                 await query.edit_message_text("ℹ️ לא נמצא טוקן או שאירעה שגיאה.⏳ מרענן תפריט...")
             # refresh the menu after logout
