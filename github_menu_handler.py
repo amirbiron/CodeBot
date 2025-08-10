@@ -1,4 +1,8 @@
+# FIXED: Changed from Markdown to HTML parsing (2025-01-10)
+# This fixes Telegram parsing errors with special characters in suggestions
+
 import os
+from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
 from github import Github
@@ -91,7 +95,7 @@ class GitHubMenuHandler:
             logger.info(f"[GitHub] Token length: {len(token)}")
         
         # בנה הודעת סטטוס
-        status_msg = "🔧 *GitHub Integration Menu*\n\n"
+        status_msg = "🔧 <b>GitHub Integration Menu</b>\n\n"
         
         if session.get('github_token'):
             status_msg += "✅ טוקן מוגדר\n"
@@ -99,9 +103,9 @@ class GitHubMenuHandler:
             status_msg += "❌ טוקן לא מוגדר\n"
         
         if session.get('selected_repo'):
-            status_msg += f"📁 ריפו: `{session['selected_repo']}`\n"
+            status_msg += f"📁 ריפו: <code>{session['selected_repo']}</code>\n"
             folder_display = session.get('selected_folder') or 'root'
-            status_msg += f"📂 תיקייה: `{folder_display}`\n"
+            status_msg += f"📂 תיקייה: <code>{folder_display}</code>\n"
         else:
             status_msg += "❌ ריפו לא נבחר\n"
         
@@ -139,13 +143,13 @@ class GitHubMenuHandler:
             await update.callback_query.edit_message_text(
                 status_msg, 
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             await update.message.reply_text(
                 status_msg, 
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
     
     async def handle_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -175,12 +179,12 @@ class GitHubMenuHandler:
                 ]
                 
                 await query.edit_message_text(
-                    f"📤 *העלאת קובץ לריפו:*\n"
-                    f"`{session['selected_repo']}`\n"
-                    f"📂 תיקייה: `{folder_display}`\n\n"
+                    f"📤 <b>העלאת קובץ לריפו:</b>\n"
+                    f"<code>{session['selected_repo']}</code>\n"
+                    f"📂 תיקייה: <code>{folder_display}</code>\n\n"
                     f"שלח קובץ או לחץ לפתיחת מנהל קבצים:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 
                 # סמן שאנחנו במצב העלאה לגיטהאב
@@ -257,13 +261,13 @@ class GitHubMenuHandler:
             has_token = "✅" if session.get('github_token') else "❌"
             
             await query.edit_message_text(
-                f"📊 *הגדרות נוכחיות:*\n\n"
-                f"📁 ריפו: `{current_repo}`\n"
-                f"📂 תיקייה: `{current_folder}`\n"
+                f"📊 <b>הגדרות נוכחיות:</b>\n\n"
+                f"📁 ריפו: <code>{current_repo}</code>\n"
+                f"📂 תיקייה: <code>{current_folder}</code>\n"
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
                 f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
                 f"⏳ חוזר לתפריט בעוד מספר שניות...",
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             
             # המתן 3 שניות ואז הצג את התפריט
@@ -307,8 +311,8 @@ class GitHubMenuHandler:
             elif folder == 'root':
                 session['selected_folder'] = None
                 await query.edit_message_text(
-                    "✅ תיקייה עודכנה ל: `root` (ראשי)\n\n⏳ חוזר לתפריט...", 
-                    parse_mode='Markdown'
+                    "✅ תיקייה עודכנה ל: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...", 
+                    parse_mode='HTML'
                 )
                 # המתן שנייה ואז הצג את התפריט
                 await asyncio.sleep(1.5)
@@ -316,8 +320,8 @@ class GitHubMenuHandler:
             else:
                 session['selected_folder'] = folder.replace('_', '/')
                 await query.edit_message_text(
-                    f"✅ תיקייה עודכנה ל: `{session['selected_folder']}`\n\n⏳ חוזר לתפריט...", 
-                    parse_mode='Markdown'
+                    f"✅ תיקייה עודכנה ל: <code>{session['selected_folder']}</code>\n\n⏳ חוזר לתפריט...", 
+                    parse_mode='HTML'
                 )
                 # המתן שנייה ואז הצג את התפריט
                 await asyncio.sleep(1.5)
@@ -339,9 +343,9 @@ class GitHubMenuHandler:
             if query.data == 'repo_manual':
                 await query.edit_message_text(
                     "✏️ הקלד שם ריפו בפורמט:\n"
-                    "`owner/repository`\n\n"
-                    "לדוגמה: `amirbiron/CodeBot`",
-                    parse_mode='Markdown'
+                    "<code>owner/repository</code>\n\n"
+                    "לדוגמה: <code>amirbiron/CodeBot</code>",
+                    parse_mode='HTML'
                 )
                 return REPO_SELECT
             else:
@@ -650,11 +654,11 @@ class GitHubMenuHandler:
             
             await update.callback_query.edit_message_text(
                 f"✅ הקובץ {action} בהצלחה!\n\n"
-                f"📁 ריפו: `{session['selected_repo']}`\n"
-                f"📂 מיקום: `{file_path}`\n"
+                f"📁 ריפו: <code>{session['selected_repo']}</code>\n"
+                f"📂 מיקום: <code>{file_path}</code>\n"
                 f"🔗 קישור ישיר:\n{raw_url}\n\n"
                 f"שלח /github כדי לחזור לתפריט.",
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             
         except Exception as e:
@@ -768,11 +772,11 @@ class GitHubMenuHandler:
                     
                     await update.message.reply_text(
                         f"✅ הקובץ {action} בהצלחה לגיטהאב!\n\n"
-                        f"📁 ריפו: `{repo_name}`\n"
-                        f"📂 מיקום: `{file_path}`\n"
+                        f"📁 ריפו: <code>{repo_name}</code>\n"
+                        f"📂 מיקום: <code>{file_path}</code>\n"
                         f"🔗 קישור ישיר:\n{raw_url}\n\n"
                         f"שלח /github כדי לחזור לתפריט.",
-                        parse_mode='Markdown'
+                        parse_mode='HTML'
                     )
                     
                     # נקה את הסטטוס
@@ -846,16 +850,16 @@ class GitHubMenuHandler:
             if text.strip() in ['/', '']:
                 session['selected_folder'] = None
                 await update.message.reply_text(
-                    "✅ תיקייה הוגדרה: `root` (ראשי)\n\n⏳ חוזר לתפריט...",
-                    parse_mode='Markdown'
+                    "✅ תיקייה הוגדרה: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...",
+                    parse_mode='HTML'
                 )
             else:
                 # הסר / מיותרים
                 folder = text.strip().strip('/')
                 session['selected_folder'] = folder
                 await update.message.reply_text(
-                    f"✅ תיקייה הוגדרה: `{folder}`\n\n⏳ חוזר לתפריט...",
-                    parse_mode='Markdown'
+                    f"✅ תיקייה הוגדרה: <code>{folder}</code>\n\n⏳ חוזר לתפריט...",
+                    parse_mode='HTML'
                 )
             
             # המתן שנייה ואז הצג את התפריט
@@ -881,10 +885,10 @@ class GitHubMenuHandler:
             ]
             
             await query.edit_message_text(
-                "🔍 *ניתוח ריפוזיטורי*\n\n"
+                "🔍 <b>ניתוח ריפוזיטורי</b>\n\n"
                 "בחר אפשרות:",
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             # אם אין ריפו נבחר, בקש URL
@@ -900,9 +904,9 @@ class GitHubMenuHandler:
         ]
         
         message_text = (
-            "🔍 *ניתוח ריפוזיטורי*\n\n"
+            "🔍 <b>ניתוח ריפוזיטורי</b>\n\n"
             "שלח URL של ריפו ציבורי ב-GitHub:\n"
-            "לדוגמה: `https://github.com/owner/repo`\n\n"
+            "לדוגמה: <code>https://github.com/owner/repo</code>\n\n"
             "💡 הריפו חייב להיות ציבורי או שיש לך גישה אליו עם הטוקן"
         )
         
@@ -910,13 +914,13 @@ class GitHubMenuHandler:
             await query.edit_message_text(
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             await update.message.reply_text(
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         
         # סמן שאנחנו מחכים ל-URL
@@ -980,7 +984,7 @@ class GitHubMenuHandler:
             await status_message.edit_text(
                 summary,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
             
         except Exception as e:
@@ -999,25 +1003,30 @@ class GitHubMenuHandler:
     
     def _create_analysis_summary(self, analysis: Dict[str, Any]) -> str:
         """יוצר סיכום של הניתוח"""
-        summary = f"📊 *ניתוח הריפו {analysis['repo_name']}*\n\n"
+        # Escape HTML special characters
+        repo_name = escape(analysis['repo_name'])
+        language = escape(analysis.get('language', '')) if analysis.get('language') else None
+        
+        summary = f"📊 <b>ניתוח הריפו {repo_name}</b>\n\n"
         
         # סטטוס קבצים בסיסיים
-        summary += "*קבצים בסיסיים:*\n"
+        summary += "<b>קבצים בסיסיים:</b>\n"
         summary += "✅ README\n" if analysis['has_readme'] else "❌ חסר README\n"
         summary += "✅ LICENSE\n" if analysis['has_license'] else "❌ חסר LICENSE\n"
         summary += "✅ .gitignore\n" if analysis['has_gitignore'] else "❌ חסר .gitignore\n"
         
         # מידע על הפרויקט
-        summary += f"\n*מידע כללי:*\n"
-        if analysis.get('language'):
-            summary += f"🔤 שפה עיקרית: {analysis['language']}\n"
+        summary += f"\n<b>מידע כללי:</b>\n"
+        if language:
+            summary += f"🔤 שפה עיקרית: {language}\n"
         summary += f"📁 {analysis['file_count']} קבצי קוד\n"
         
         # קבצים לפי סוג
         if analysis['files_by_type']:
             top_types = sorted(analysis['files_by_type'].items(), key=lambda x: x[1], reverse=True)[:3]
             for ext, count in top_types:
-                summary += f"   • {count} קבצי {ext}\n"
+                ext_escaped = escape(ext)
+                summary += f"   • {count} קבצי {ext_escaped}\n"
         
         # תלויות
         if analysis['dependencies']:
@@ -1044,7 +1053,7 @@ class GitHubMenuHandler:
             emoji = "💫"
             text = "דורש שיפור"
         
-        summary += f"\n*ציון איכות: {emoji} {quality_score}/100 ({text})*"
+        summary += f"\n<b>ציון איכות: {emoji} {quality_score}/100 ({text})</b>"
         
         return summary
     
@@ -1093,7 +1102,10 @@ class GitHubMenuHandler:
         
         keyboard.append([InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")])
         
-        message = f"💡 *הצעות לשיפור לריפו {session['last_analysis']['repo_name']}*\n\n"
+        # Escape HTML special characters
+        repo_name = escape(session['last_analysis']['repo_name'])
+        
+        message = f"💡 <b>הצעות לשיפור לריפו {repo_name}</b>\n\n"
         message += f"נמצאו {len(suggestions)} הצעות לשיפור.\n"
         message += "בחר הצעה לפרטים נוספים:\n\n"
         message += "🔴 = השפעה גבוהה | 🟡 = בינונית | 🟢 = נמוכה"
@@ -1101,7 +1113,7 @@ class GitHubMenuHandler:
         await query.edit_message_text(
             message,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     
     async def show_suggestion_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE, suggestion_index: int):
@@ -1123,11 +1135,18 @@ class GitHubMenuHandler:
         impact_map = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
         effort_map = {'high': 'גבוה', 'medium': 'בינוני', 'low': 'נמוך'}
         
-        message = f"*{suggestion['title']}*\n\n"
-        message += f"❓ *למה:* {suggestion['why']}\n\n"
-        message += f"💡 *איך:* {suggestion['how']}\n\n"
-        message += f"📊 *השפעה:* {impact_map.get(suggestion['impact'], suggestion['impact'])}\n"
-        message += f"⚡ *מאמץ:* {effort_map.get(suggestion['effort'], suggestion['effort'])}\n"
+        # Escape HTML special characters
+        title = escape(suggestion['title'])
+        why = escape(suggestion['why'])
+        how = escape(suggestion['how'])
+        impact = escape(impact_map.get(suggestion['impact'], suggestion['impact']))
+        effort = escape(effort_map.get(suggestion['effort'], suggestion['effort']))
+        
+        message = f"<b>{title}</b>\n\n"
+        message += f"❓ <b>למה:</b> {why}\n\n"
+        message += f"💡 <b>איך:</b> {how}\n\n"
+        message += f"📊 <b>השפעה:</b> {impact}\n"
+        message += f"⚡ <b>מאמץ:</b> {effort}\n"
         
         keyboard = []
         
@@ -1144,7 +1163,7 @@ class GitHubMenuHandler:
         await query.edit_message_text(
             message,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     
     async def show_full_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1160,20 +1179,25 @@ class GitHubMenuHandler:
             await query.answer("❌ לא נמצא ניתוח", show_alert=True)
             return
         
-        # צור דוח מפורט
-        report = f"📊 *דוח מלא - {analysis['repo_name']}*\n\n"
+        # צור דוח מפורט - Escape HTML special characters
+        repo_name = escape(analysis['repo_name'])
+        repo_url = escape(analysis['repo_url'])
+        description = escape(analysis.get('description', '')) if analysis.get('description') else None
+        language = escape(analysis.get('language', 'לא זוהתה'))
+        
+        report = f"📊 <b>דוח מלא - {repo_name}</b>\n\n"
         
         # מידע בסיסי
-        report += "*📌 מידע כללי:*\n"
-        report += f"• URL: {analysis['repo_url']}\n"
-        if analysis.get('description'):
-            report += f"• תיאור: {analysis['description']}\n"
-        report += f"• שפה: {analysis.get('language', 'לא זוהתה')}\n"
+        report += "<b>📌 מידע כללי:</b>\n"
+        report += f"• URL: {repo_url}\n"
+        if description:
+            report += f"• תיאור: {description}\n"
+        report += f"• שפה: {language}\n"
         report += f"• כוכבים: ⭐ {analysis.get('stars', 0)}\n"
         report += f"• Forks: 🍴 {analysis.get('forks', 0)}\n"
         
         # קבצים
-        report += f"\n*📁 קבצים:*\n"
+        report += f"\n<b>📁 קבצים:</b>\n"
         report += f"• סה״כ קבצי קוד: {analysis['file_count']}\n"
         if analysis['files_by_type']:
             report += "• לפי סוג:\n"
@@ -1182,7 +1206,7 @@ class GitHubMenuHandler:
         
         # בעיות
         if analysis['large_files'] or analysis['long_functions']:
-            report += f"\n*⚠️ בעיות פוטנציאליות:*\n"
+            report += f"\n<b>⚠️ בעיות פוטנציאליות:</b>\n"
             if analysis['large_files']:
                 report += f"• {len(analysis['large_files'])} קבצים גדולים (500+ שורות)\n"
             if analysis['long_functions']:
@@ -1190,10 +1214,12 @@ class GitHubMenuHandler:
         
         # תלויות
         if analysis['dependencies']:
-            report += f"\n*📦 תלויות ({len(analysis['dependencies'])}):*\n"
+            report += f"\n<b>📦 תלויות ({len(analysis['dependencies'])}):</b>\n"
             # הצג רק 10 הראשונות
             for dep in analysis['dependencies'][:10]:
-                report += f"• {dep['name']} ({dep['type']})\n"
+                dep_name = escape(dep['name'])
+                dep_type = escape(dep['type'])
+                report += f"• {dep_name} ({dep_type})\n"
             if len(analysis['dependencies']) > 10:
                 report += f"• ... ועוד {len(analysis['dependencies']) - 10}\n"
         
@@ -1209,7 +1235,7 @@ class GitHubMenuHandler:
         await query.edit_message_text(
             report,
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
     
     async def download_analysis_json(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1275,21 +1301,21 @@ class GitHubMenuHandler:
             await update.callback_query.edit_message_text(
                 summary,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         else:
             await update.message.reply_text(
                 summary,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
     
-    async def _send_or_edit_message(self, update: Update, text: str, **kwargs):
+    async def _send_or_edit_message(self, update: Update, text: str, <b></b>kwargs):
         """שולח או עורך הודעה בהתאם לסוג ה-update"""
         if update.callback_query:
-            return await update.callback_query.edit_message_text(text, **kwargs)
+            return await update.callback_query.edit_message_text(text, <b></b>kwargs)
         else:
-            return await update.message.reply_text(text, **kwargs)
+            return await update.message.reply_text(text, <b></b>kwargs)
     
     async def handle_repo_url_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מטפל בקלט של URL לניתוח"""
