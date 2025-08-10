@@ -18,6 +18,7 @@ from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional
+from html import escape as html_escape
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -46,8 +47,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(user_id, username)
     
+    safe_user_name = html_escape(user_name) if user_name else ""
+    
     welcome_text = (
-        f"🤖 שלום {user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
+        f"🤖 שלום {safe_user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
         "🔹 שמור ונהל קטעי קוד בחכמה\n"
         "🔹 עריכה מתקדמת עם גרסאות\n"
         "🔹 חיפוש והצגה חכמה\n"
@@ -118,14 +121,12 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(
                 f"📚 *המרכז הדיגיטלי שלך* {files_count_text}\n\n"
                 "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
+                reply_markup=reply_markup
             )
-            
     except Exception as e:
-        logger.error(f"Failed to get files for user {user_id}: {e}")
+        logger.error(f"שגיאה בהצגת כל הקבצים: {e}")
         await update.message.reply_text(
-            "❌ שגיאה זמנית בטעינת הקבצים. הטכנולוגיה מתקדמת - ננסה שוב!",
+            "❌ אירעה שגיאה בעת ניסיון לשלוף את הקבצים שלך. נסה שוב מאוחר יותר.",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
     
