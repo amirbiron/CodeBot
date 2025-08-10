@@ -62,8 +62,8 @@ logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
 
 # יצירת אובייקט reporter גלובלי
 reporter = create_reporter(
-    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-    service_id="srv-d29d72adbo4c73bcuep0",
+    mongodb_uri=os.getenv('REPORTER_MONGODB_URI', config.MONGODB_URL),
+    service_id=os.getenv('REPORTER_SERVICE_ID', 'srv-d29d72adbo4c73bcuep0'),
     service_name="CodeBot"
 )
 
