@@ -37,6 +37,7 @@ from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
+from html import escape as html_escape
 
 # (Lock mechanism constants removed)
 
