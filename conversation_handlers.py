@@ -16,6 +16,7 @@ from telegram.ext import (
 from database import DatabaseManager
 from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
+from user_stats import user_stats
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # שמור משתמש במסד נתונים (INSERT OR IGNORE)
     from database import db
     db.save_user(user_id, username)
+    # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
+    user_stats.log_user(user_id, username)
     
     welcome_text = (
         f"🤖 שלום {user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
@@ -61,6 +64,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג את כל הקבצים השמורים עם ממשק אינטראקטיבי מתקדם"""
     user_id = update.effective_user.id
+    # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
+    user_stats.log_user(user_id, update.effective_user.username)
     from database import db
     
     try:
@@ -127,6 +132,8 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def show_large_files_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הצגת קבצים גדולים ישירות מהתפריט הראשי"""
+    # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
+    user_stats.log_user(update.effective_user.id, update.effective_user.username)
     from large_files_handler import large_files_handler
     await large_files_handler.show_large_files_menu(update, context)
     reporter.report_activity(update.effective_user.id)
@@ -138,6 +145,9 @@ async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if 'github_handler' not in context.bot_data:
         from github_menu_handler import GitHubMenuHandler
         context.bot_data['github_handler'] = GitHubMenuHandler()
+    
+    # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
+    user_stats.log_user(update.effective_user.id, update.effective_user.username)
     
     github_handler = context.bot_data['github_handler']
     await github_handler.github_menu_command(update, context)

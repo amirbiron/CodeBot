@@ -130,10 +130,8 @@ class GitHubMenuHandler:
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
         
-        if user_id not in self.user_sessions:
-            self.user_sessions[user_id] = {}
-        
-        session = self.user_sessions[user_id]
+        # ודא שהסשן של המשתמש נטען מהמסד (כולל selected_repo)
+        session = self.get_user_session(user_id)
         
         # בדיקת טוקן - גם מהסשן וגם מהמסד נתונים
         token = self.get_user_token(user_id)
