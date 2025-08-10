@@ -850,6 +850,17 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
             "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir", 
             reply_markup=reply_markup
         )
+        
+        # Track user
+        try:
+            user_id = update.effective_user.id
+            username = update.effective_user.username or "Unknown"
+            db.execute_query(
+                "INSERT OR IGNORE INTO users (user_id, username, first_use) VALUES (?, ?, datetime('now'))",
+                (user_id, username)
+            )
+        except Exception as e:
+            logger.error(f"Error tracking user: {e}")
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
         reporter.report_activity(update.effective_user.id)
