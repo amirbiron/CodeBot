@@ -38,6 +38,7 @@ from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
 from cache_commands import setup_cache_handlers
+from enhanced_commands import setup_enhanced_handlers
 from html import escape as html_escape
 
 # (Lock mechanism constants removed)
@@ -305,6 +306,20 @@ class CodeKeeperBot:
         # הוספת פקודות cache
         setup_cache_handlers(self.application)
         
+        # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה)
+        setup_enhanced_handlers(self.application)
+        
+        # הוספת handlers לכפתורים החדשים במקלדת הראשית
+        from conversation_handlers import handle_preview_button, handle_autocomplete_button
+        self.application.add_handler(MessageHandler(
+            filters.Regex("^👁️ תצוגה מקדימה$"), 
+            handle_preview_button
+        ))
+        self.application.add_handler(MessageHandler(
+            filters.Regex("^🔍 אוטו-השלמה$"), 
+            handle_autocomplete_button
+        ))
+        
         # --- שלב 3: רישום handler לקבצים ---
         self.application.add_handler(
             MessageHandler(filters.Document.ALL, self.handle_document)
@@ -344,6 +359,11 @@ class CodeKeeperBot:
 • <code>/tags &lt;filename&gt; &lt;tag1&gt;,&lt;tag2&gt;</code> - הוספת תגיות לקובץ.
 • <code>/search &lt;query&gt;</code> - חיפוש טקסטואלי בקוד שלך.
     
+<b>פיצ'רים חדשים:</b>
+• <code>/autocomplete &lt;חלק_משם&gt;</code> - אוטו-השלמה לשמות קבצים.
+• <code>/preview &lt;filename&gt;</code> - תצוגה מקדימה של קוד (15 שורות ראשונות).
+• <code>/info &lt;filename&gt;</code> - מידע מהיר על קובץ ללא פתיחה.
+
 <b>ביצועים ותחזוקה:</b>
 • <code>/cache_stats</code> - סטטיסטיקות ביצועי cache.
 • <code>/clear_cache</code> - ניקוי cache אישי לשיפור ביצועים.

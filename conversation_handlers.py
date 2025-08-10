@@ -27,7 +27,12 @@ logger = logging.getLogger(__name__)
 GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
 # כפתורי המקלדת הראשית
-MAIN_KEYBOARD = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי"], ["📂 קבצים גדולים"], ["🔧 GitHub"]]
+MAIN_KEYBOARD = [
+    ["➕ הוסף קוד חדש"], 
+    ["📚 הצג את כל הקבצים שלי", "👁️ תצוגה מקדימה"], 
+    ["📂 קבצים גדולים", "🔍 אוטו-השלמה"], 
+    ["🔧 GitHub"]
+]
 
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
@@ -1604,3 +1609,57 @@ async def handle_revert_version(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("❌ שגיאה בשחזור גרסה")
     
     return ConversationHandler.END
+
+async def handle_preview_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """טיפול בכפתור 'תצוגה מקדימה'"""
+    user_id = update.effective_user.id
+    
+    # הצגת קבצים אחרונים לתצוגה מקדימה
+    from autocomplete_manager import autocomplete
+    recent_files = autocomplete.get_recent_files(user_id, limit=8)
+    
+    if not recent_files:
+        await update.message.reply_text(
+            "📂 אין קבצים זמינים לתצוגה מקדימה\n\n"
+            "💡 צור קבצים חדשים כדי להשתמש בפיצ'ר זה",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    # יצירת כפתורים לקבצים אחרונים
+    keyboard = []
+    for filename in recent_files:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"👁️ {filename}",
+                callback_data=f"preview_file:{filename}"
+            )
+        ])
+    
+    # כפתור חזרה
+    keyboard.append([
+        InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main_menu")
+    ])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "👁️ <b>תצוגה מקדימה מהירה</b>\n\n"
+        "בחר קובץ לתצוגה מקדימה (15 שורות ראשונות):",
+        parse_mode=ParseMode.HTML,
+        reply_markup=reply_markup
+    )
+
+async def handle_autocomplete_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """טיפול בכפתור 'אוטו-השלמה'"""
+    await update.message.reply_text(
+        "🔍 <b>אוטו-השלמה חכמה</b>\n\n"
+        "השתמש בפקודה: <code>/autocomplete &lt;תחילת_שם&gt;</code>\n\n"
+        "דוגמאות:\n"
+        "• <code>/autocomplete scr</code> - יציע script.py, scraper.js\n"
+        "• <code>/autocomplete api</code> - יציע api.py, api_client.js\n"
+        "• <code>/autocomplete test</code> - יציע test_utils.py, testing.js\n\n"
+        "💡 <b>טיפ:</b> ככל שתכתוב יותר תווים, ההצעות יהיו מדויקות יותר!",
+        parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )

@@ -224,6 +224,9 @@ class DatabaseManager:
             if result.inserted_id:
                 # ביטול cache של המשתמש אחרי שמירה
                 cache.invalidate_user_cache(snippet.user_id)
+                # ביטול cache של אוטו-השלמה
+                from autocomplete_manager import autocomplete
+                autocomplete.invalidate_cache(snippet.user_id)
                 logger.info(f"קטע קוד נשמר: {snippet.file_name} (גרסה {snippet.version})")
                 return True
             
