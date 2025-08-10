@@ -12,16 +12,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cairosvg
 import textstat
+
 # Language detection
 from langdetect import DetectorFactory, detect
+
 # Image processing
 from PIL import Image, ImageDraw, ImageFont
+
 # Syntax highlighting
 from pygments import highlight
-from pygments.formatters import (HtmlFormatter, ImageFormatter,
-                                 TerminalFormatter)
-from pygments.lexers import (get_lexer_by_name, get_lexer_for_filename,
-                             guess_lexer)
+from pygments.formatters import HtmlFormatter, ImageFormatter, TerminalFormatter
+from pygments.lexers import get_lexer_by_name, get_lexer_for_filename, guess_lexer
 from pygments.styles import get_style_by_name
 from pygments.util import ClassNotFound
 
@@ -32,22 +33,23 @@ logger = logging.getLogger(__name__)
 # קביעת זרע לשחזור תוצאות זיהוי שפה
 DetectorFactory.seed = 0
 
+
 class CodeProcessor:
     """מחלקה לעיבוד קטעי קוד"""
-    
+
     def __init__(self):
         self.language_patterns = self._init_language_patterns()
         self.common_extensions = self._init_extensions()
         self.style = get_style_by_name(config.HIGHLIGHT_THEME)
-        
+
         # הגדרת לוגר ייעודי לטיפול בשגיאות קוד
-        self.code_logger = logging.getLogger('code_handler')
+        self.code_logger = logging.getLogger("code_handler")
         if not self.code_logger.handlers:
             handler = logging.StreamHandler()  # שימוש ב-StreamHandler במקום FileHandler לסביבת פרודקשן
-            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
             self.code_logger.addHandler(handler)
             self.code_logger.setLevel(logging.INFO)
-    
+
     def sanitize_code_blocks(self, text: str) -> str:
         """
         מנקה וטיפול בקטעי קוד עם סימוני markdown (```)
@@ -57,46 +59,46 @@ class CodeProcessor:
             if not text or not isinstance(text, str):
                 self.code_logger.warning("קלט לא תקין לסניטציה")
                 return text or ""
-            
+
             # בדיקה אם יש בלוקי קוד עם סימוני ```
-            if '```' in text:
+            if "```" in text:
                 self.code_logger.info("מזוהים בלוקי קוד עם סימוני ```")
-                
+
                 # טיפול בבלוקי קוד עם שפה מוגדרת (```python, ```javascript וכו')
-                pattern = r'```(\w+)?\s*([\s\S]*?)```'
-                
+                pattern = r"```(\w+)?\s*([\s\S]*?)```"
+
                 def replace_code_block(match):
                     language_hint = match.group(1) or ""
                     code_content = match.group(2) or ""
-                    
+
                     # ניקוי הקוד מרווחים מיותרים
                     cleaned_code = code_content.strip()
-                    
+
                     # רישום הפעולה
                     self.code_logger.info(f"מעבד בלוק קוד: {language_hint}, אורך: {len(cleaned_code)}")
-                    
+
                     # החזרת הקוד הנקי בלבד (ללא סימוני ```)
                     return cleaned_code
-                
+
                 # החלפת כל בלוקי הקוד
                 processed_text = re.sub(pattern, replace_code_block, text, flags=re.DOTALL)
-                
+
                 # אם לא נמצאו התאמות עם שפה, נסה בלי שפה
                 if processed_text == text:
-                    simple_pattern = r'```([\s\S]*?)```'
+                    simple_pattern = r"```([\s\S]*?)```"
                     processed_text = re.sub(simple_pattern, lambda m: m.group(1).strip(), text, flags=re.DOTALL)
-                
+
                 self.code_logger.info("סניטציית קוד הושלמה בהצלחה")
                 return processed_text
-            
+
             # אם אין בלוקי קוד, החזר את הטקסט כמו שהוא
             return text
-            
+
         except Exception as e:
             self.code_logger.error(f"שגיאה בסניטציית קוד: {str(e)}")
             # במקרה של שגיאה, החזר את הטקסט המקורי
             return text
-    
+
     def validate_code_input(self, code: str, filename: str = None, user_id: int = None) -> Tuple[bool, str, str]:
         """
         מאמת קלט קוד ומחזיר תוקף, קוד מנוקה והודעת שגיאה אם יש
@@ -105,254 +107,237 @@ class CodeProcessor:
             if not code or not isinstance(code, str):
                 if user_id:
                     from utils import code_error_logger
+
                     code_error_logger.log_validation_failure(user_id, 0, "קלט קוד לא תקין או ריק")
                 return False, "", "קלט קוד לא תקין או ריק"
-            
+
             original_length = len(code)
-            
+
             # סניטציה ראשונית
             cleaned_code = self.sanitize_code_blocks(code)
             cleaned_length = len(cleaned_code)
-            
+
             # רישום הצלחת סניטציה
             if user_id and original_length != cleaned_length:
                 from utils import code_error_logger
+
                 code_error_logger.log_sanitization_success(user_id, original_length, cleaned_length)
-            
+
             # בדיקות נוספות
             if len(cleaned_code.strip()) == 0:
                 if user_id:
                     from utils import code_error_logger
+
                     code_error_logger.log_validation_failure(user_id, original_length, "הקוד ריק לאחר עיבוד")
                 return False, "", "הקוד ריק לאחר עיבוד"
-            
+
             # בדיקה אם הקוד ארוך מדי
             if len(cleaned_code) > 50000:  # 50KB limit
                 if user_id:
                     from utils import code_error_logger
+
                     code_error_logger.log_validation_failure(user_id, cleaned_length, "הקוד ארוך מדי (מעל 50KB)")
                 return False, "", "הקוד ארוך מדי (מעל 50KB)"
-            
+
             # בדיקה לתווים לא חוקיים
             try:
-                cleaned_code.encode('utf-8')
+                cleaned_code.encode("utf-8")
             except UnicodeEncodeError:
                 if user_id:
                     from utils import code_error_logger
+
                     code_error_logger.log_validation_failure(user_id, cleaned_length, "הקוד מכיל תווים לא חוקיים")
                 return False, "", "הקוד מכיל תווים לא חוקיים"
-            
+
             # רישום הצלחה
             self.code_logger.info(f"אימות קוד הצליח, אורך: {len(cleaned_code)}")
             if user_id:
                 from utils import code_error_logger
-                code_error_logger.log_code_activity(user_id, "validation_success", {
-                    "original_length": original_length,
-                    "cleaned_length": cleaned_length,
-                    "filename": filename
-                })
-            
+
+                code_error_logger.log_code_activity(
+                    user_id,
+                    "validation_success",
+                    {"original_length": original_length, "cleaned_length": cleaned_length, "filename": filename},
+                )
+
             return True, cleaned_code, ""
-            
+
         except Exception as e:
             error_msg = f"שגיאה באימות קוד: {str(e)}"
             self.code_logger.error(error_msg)
             if user_id:
                 from utils import code_error_logger
+
                 code_error_logger.log_code_processing_error(user_id, "validation_exception", str(e))
             return False, "", error_msg
-        
+
     def _init_language_patterns(self) -> Dict[str, List[str]]:
         """אתחול דפוסי זיהוי שפות תכנות"""
         return {
-            'python': [
-                r'\bdef\s+\w+\s*\(',
-                r'\bimport\s+\w+',
-                r'\bfrom\s+\w+\s+import',
-                r'\bclass\s+\w+\s*\(',
+            "python": [
+                r"\bdef\s+\w+\s*\(",
+                r"\bimport\s+\w+",
+                r"\bfrom\s+\w+\s+import",
+                r"\bclass\s+\w+\s*\(",
                 r'\bif\s+__name__\s*==\s*["\']__main__["\']',
-                r'\bprint\s*\(',
-                r'\belif\b',
-                r'\btry\s*:',
-                r'\bexcept\b',
-                r'#.*$'
+                r"\bprint\s*\(",
+                r"\belif\b",
+                r"\btry\s*:",
+                r"\bexcept\b",
+                r"#.*$",
             ],
-            'javascript': [
-                r'\bfunction\s+\w+\s*\(',
-                r'\bvar\s+\w+',
-                r'\blet\s+\w+',
-                r'\bconst\s+\w+',
-                r'\bconsole\.log\s*\(',
-                r'\b=>\s*{',
-                r'\brequire\s*\(',
-                r'\bexport\s+',
-                r'//.*$',
-                r'/\*.*?\*/'
+            "javascript": [
+                r"\bfunction\s+\w+\s*\(",
+                r"\bvar\s+\w+",
+                r"\blet\s+\w+",
+                r"\bconst\s+\w+",
+                r"\bconsole\.log\s*\(",
+                r"\b=>\s*{",
+                r"\brequire\s*\(",
+                r"\bexport\s+",
+                r"//.*$",
+                r"/\*.*?\*/",
             ],
-            'java': [
-                r'\bpublic\s+class\s+\w+',
-                r'\bpublic\s+static\s+void\s+main',
-                r'\bSystem\.out\.println\s*\(',
-                r'\bprivate\s+\w+',
-                r'\bprotected\s+\w+',
-                r'\bimport\s+java\.',
-                r'\b@\w+',
-                r'\bthrows\s+\w+'
+            "java": [
+                r"\bpublic\s+class\s+\w+",
+                r"\bpublic\s+static\s+void\s+main",
+                r"\bSystem\.out\.println\s*\(",
+                r"\bprivate\s+\w+",
+                r"\bprotected\s+\w+",
+                r"\bimport\s+java\.",
+                r"\b@\w+",
+                r"\bthrows\s+\w+",
             ],
-            'cpp': [
-                r'#include\s*<.*>',
-                r'\bstd::\w+',
-                r'\busing\s+namespace\s+std',
-                r'\bint\s+main\s*\(',
-                r'\bcout\s*<<',
-                r'\bcin\s*>>',
-                r'\bclass\s+\w+\s*{',
-                r'\btemplate\s*<'
+            "cpp": [
+                r"#include\s*<.*>",
+                r"\bstd::\w+",
+                r"\busing\s+namespace\s+std",
+                r"\bint\s+main\s*\(",
+                r"\bcout\s*<<",
+                r"\bcin\s*>>",
+                r"\bclass\s+\w+\s*{",
+                r"\btemplate\s*<",
             ],
-            'c': [
-                r'#include\s*<.*\.h>',
-                r'\bint\s+main\s*\(',
-                r'\bprintf\s*\(',
-                r'\bscanf\s*\(',
-                r'\bmalloc\s*\(',
-                r'\bfree\s*\(',
-                r'\bstruct\s+\w+\s*{',
-                r'\btypedef\s+'
+            "c": [
+                r"#include\s*<.*\.h>",
+                r"\bint\s+main\s*\(",
+                r"\bprintf\s*\(",
+                r"\bscanf\s*\(",
+                r"\bmalloc\s*\(",
+                r"\bfree\s*\(",
+                r"\bstruct\s+\w+\s*{",
+                r"\btypedef\s+",
             ],
-            'php': [
-                r'<\?php',
-                r'\$\w+',
-                r'\becho\s+',
-                r'\bprint\s+',
-                r'\bfunction\s+\w+\s*\(',
-                r'\bclass\s+\w+\s*{',
-                r'\b->\w+',
-                r'\brequire_once\s*\('
+            "php": [
+                r"<\?php",
+                r"\$\w+",
+                r"\becho\s+",
+                r"\bprint\s+",
+                r"\bfunction\s+\w+\s*\(",
+                r"\bclass\s+\w+\s*{",
+                r"\b->\w+",
+                r"\brequire_once\s*\(",
             ],
-            'html': [
-                r'<!DOCTYPE\s+html>',
-                r'<html.*?>',
-                r'<head.*?>',
-                r'<body.*?>',
-                r'<div.*?>',
-                r'<p.*?>',
-                r'<script.*?>',
-                r'<style.*?>'
+            "html": [
+                r"<!DOCTYPE\s+html>",
+                r"<html.*?>",
+                r"<head.*?>",
+                r"<body.*?>",
+                r"<div.*?>",
+                r"<p.*?>",
+                r"<script.*?>",
+                r"<style.*?>",
             ],
-            'css': [
-                r'\w+\s*{[^}]*}',
-                r'@media\s+',
-                r'@import\s+',
-                r'@font-face\s*{',
-                r':\s*\w+\s*;',
-                r'#\w+\s*{',
-                r'\.\w+\s*{'
+            "css": [
+                r"\w+\s*{[^}]*}",
+                r"@media\s+",
+                r"@import\s+",
+                r"@font-face\s*{",
+                r":\s*\w+\s*;",
+                r"#\w+\s*{",
+                r"\.\w+\s*{",
             ],
-            'sql': [
-                r'\bSELECT\s+',
-                r'\bFROM\s+\w+',
-                r'\bWHERE\s+',
-                r'\bINSERT\s+INTO',
-                r'\bUPDATE\s+\w+',
-                r'\bDELETE\s+FROM',
-                r'\bCREATE\s+TABLE',
-                r'\bALTER\s+TABLE'
+            "sql": [
+                r"\bSELECT\s+",
+                r"\bFROM\s+\w+",
+                r"\bWHERE\s+",
+                r"\bINSERT\s+INTO",
+                r"\bUPDATE\s+\w+",
+                r"\bDELETE\s+FROM",
+                r"\bCREATE\s+TABLE",
+                r"\bALTER\s+TABLE",
             ],
-            'bash': [
-                r'#!/bin/bash',
-                r'#!/bin/sh',
-                r'\becho\s+',
-                r'\bif\s*\[.*\]',
-                r'\bfor\s+\w+\s+in',
-                r'\bwhile\s*\[.*\]',
-                r'\$\{\w+\}',
-                r'\$\w+'
+            "bash": [
+                r"#!/bin/bash",
+                r"#!/bin/sh",
+                r"\becho\s+",
+                r"\bif\s*\[.*\]",
+                r"\bfor\s+\w+\s+in",
+                r"\bwhile\s*\[.*\]",
+                r"\$\{\w+\}",
+                r"\$\w+",
             ],
-            'json': [
-                r'^\s*{',
-                r'^\s*\[',
-                r'"\w+"\s*:',
-                r':\s*"[^"]*"',
-                r':\s*\d+',
-                r':\s*true|false|null'
-            ],
-            'xml': [
-                r'<\?xml\s+version',
-                r'<\w+.*?/>',
-                r'<\w+.*?>.*?</\w+>',
-                r'<!--.*?-->',
-                r'\sxmlns\s*='
-            ],
-            'yaml': [
-                r'^\s*\w+\s*:',
-                r'^\s*-\s+\w+',
-                r'---\s*$',
-                r'^\s*#.*$'
-            ],
-            'markdown': [
-                r'^#.*$',
-                r'^\*.*\*$',
-                r'^```.*$',
-                r'^\[.*\]\(.*\)$',
-                r'^!\[.*\]\(.*\)$'
-            ]
+            "json": [r"^\s*{", r"^\s*\[", r'"\w+"\s*:', r':\s*"[^"]*"', r":\s*\d+", r":\s*true|false|null"],
+            "xml": [r"<\?xml\s+version", r"<\w+.*?/>", r"<\w+.*?>.*?</\w+>", r"<!--.*?-->", r"\sxmlns\s*="],
+            "yaml": [r"^\s*\w+\s*:", r"^\s*-\s+\w+", r"---\s*$", r"^\s*#.*$"],
+            "markdown": [r"^#.*$", r"^\*.*\*$", r"^```.*$", r"^\[.*\]\(.*\)$", r"^!\[.*\]\(.*\)$"],
         }
-    
+
     def _init_extensions(self) -> Dict[str, str]:
         """מיפוי סיומות קבצים לשפות"""
         return {
-            '.py': 'python',
-            '.js': 'javascript',
-            '.jsx': 'javascript',
-            '.ts': 'typescript',
-            '.tsx': 'typescript',
-            '.java': 'java',
-            '.cpp': 'cpp',
-            '.cxx': 'cpp',
-            '.cc': 'cpp',
-            '.c': 'c',
-            '.h': 'c',
-            '.hpp': 'cpp',
-            '.php': 'php',
-            '.html': 'html',
-            '.htm': 'html',
-            '.css': 'css',
-            '.scss': 'scss',
-            '.sass': 'sass',
-            '.less': 'less',
-            '.sql': 'sql',
-            '.sh': 'bash',
-            '.bash': 'bash',
-            '.zsh': 'bash',
-            '.fish': 'fish',
-            '.ps1': 'powershell',
-            '.json': 'json',
-            '.xml': 'xml',
-            '.yaml': 'yaml',
-            '.yml': 'yaml',
-            '.md': 'markdown',
-            '.rst': 'rst',
-            '.go': 'go',
-            '.rs': 'rust',
-            '.rb': 'ruby',
-            '.pl': 'perl',
-            '.r': 'r',
-            '.m': 'matlab',
-            '.swift': 'swift',
-            '.kt': 'kotlin',
-            '.scala': 'scala',
-            '.cs': 'csharp',
-            '.vb': 'vbnet',
-            '.lua': 'lua',
-            '.dart': 'dart',
-            '.dockerfile': 'dockerfile',
-            '.tf': 'hcl',
-            '.hcl': 'hcl'
+            ".py": "python",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".java": "java",
+            ".cpp": "cpp",
+            ".cxx": "cpp",
+            ".cc": "cpp",
+            ".c": "c",
+            ".h": "c",
+            ".hpp": "cpp",
+            ".php": "php",
+            ".html": "html",
+            ".htm": "html",
+            ".css": "css",
+            ".scss": "scss",
+            ".sass": "sass",
+            ".less": "less",
+            ".sql": "sql",
+            ".sh": "bash",
+            ".bash": "bash",
+            ".zsh": "bash",
+            ".fish": "fish",
+            ".ps1": "powershell",
+            ".json": "json",
+            ".xml": "xml",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".md": "markdown",
+            ".rst": "rst",
+            ".go": "go",
+            ".rs": "rust",
+            ".rb": "ruby",
+            ".pl": "perl",
+            ".r": "r",
+            ".m": "matlab",
+            ".swift": "swift",
+            ".kt": "kotlin",
+            ".scala": "scala",
+            ".cs": "csharp",
+            ".vb": "vbnet",
+            ".lua": "lua",
+            ".dart": "dart",
+            ".dockerfile": "dockerfile",
+            ".tf": "hcl",
+            ".hcl": "hcl",
         }
-    
+
     def detect_language(self, code: str, filename: str = None) -> str:
         """זיהוי שפת התכנות של הקוד"""
-        
+
         # סניטציה ראשונית של הקוד
         try:
             sanitized_code = self.sanitize_code_blocks(code)
@@ -360,7 +345,7 @@ class CodeProcessor:
         except Exception as e:
             self.code_logger.error(f"שגיאה בסניטציה לזיהוי שפה: {e}")
             sanitized_code = code
-        
+
         # בדיקה ראשונה - לפי סיומת הקובץ
         if filename:
             ext = Path(filename).suffix.lower()
@@ -368,104 +353,103 @@ class CodeProcessor:
                 detected = self.common_extensions[ext]
                 logger.info(f"זוהתה שפה לפי סיומת: {detected}")
                 return detected
-        
+
         # בדיקה שנייה - לפי דפוסי קוד
         language_scores = {}
-        
+
         for language, patterns in self.language_patterns.items():
             score = 0
             for pattern in patterns:
                 matches = re.findall(pattern, sanitized_code, re.MULTILINE | re.IGNORECASE)
                 score += len(matches)
-            
+
             if score > 0:
                 language_scores[language] = score
-        
+
         if language_scores:
             detected = max(language_scores, key=language_scores.get)
             logger.info(f"זוהתה שפה לפי דפוסים: {detected} (ניקוד: {language_scores[detected]})")
             return detected
-        
+
         # בדיקה שלישית - באמצעות Pygments
         try:
             lexer = guess_lexer(sanitized_code)
             detected = lexer.name.lower()
-            
+
             # נרמול שמות שפות
-            if 'python' in detected:
-                return 'python'
-            elif 'javascript' in detected or 'js' in detected:
-                return 'javascript'
-            elif 'java' in detected:
-                return 'java'
-            elif 'html' in detected:
-                return 'html'
-            elif 'css' in detected:
-                return 'css'
-            elif 'sql' in detected:
-                return 'sql'
-            elif 'bash' in detected or 'shell' in detected:
-                return 'bash'
-            
+            if "python" in detected:
+                return "python"
+            elif "javascript" in detected or "js" in detected:
+                return "javascript"
+            elif "java" in detected:
+                return "java"
+            elif "html" in detected:
+                return "html"
+            elif "css" in detected:
+                return "css"
+            elif "sql" in detected:
+                return "sql"
+            elif "bash" in detected or "shell" in detected:
+                return "bash"
+
             logger.info(f"זוהתה שפה באמצעות Pygments: {detected}")
             return detected
-            
+
         except ClassNotFound:
             logger.warning("לא הצלחתי לזהות שפה באמצעות Pygments")
-        
+
         # בדיקה רביעית - ניתוח כללי של הטקסט
         detected = self._analyze_code_structure(sanitized_code)
-        if detected != 'text':
+        if detected != "text":
             logger.info(f"זוהתה שפה לפי מבנה: {detected}")
             return detected
-        
+
         # ברירת מחדל
         logger.info("לא הצלחתי לזהות שפה, משתמש ב-text")
-        return 'text'
-    
+        return "text"
+
     def _analyze_code_structure(self, code: str) -> str:
         """ניתוח מבנה הקוד לזיהוי שפה"""
-        
+
         # ספירת סימנים מיוחדים
-        braces = code.count('{') + code.count('}')
-        brackets = code.count('[') + code.count(']')
-        parens = code.count('(') + code.count(')')
-        semicolons = code.count(';')
-        colons = code.count(':')
-        indentation_lines = len([line for line in code.split('\n') if line.startswith('    ') or line.startswith('\t')])
-        
-        total_lines = len(code.split('\n'))
-        
+        braces = code.count("{") + code.count("}")
+        brackets = code.count("[") + code.count("]")
+        parens = code.count("(") + code.count(")")
+        semicolons = code.count(";")
+        colons = code.count(":")
+        indentation_lines = len([line for line in code.split("\n") if line.startswith("    ") or line.startswith("\t")])
+
+        total_lines = len(code.split("\n"))
+
         # חישוב יחסים
         if total_lines > 0:
             brace_ratio = braces / total_lines
             semicolon_ratio = semicolons / total_lines
             indent_ratio = indentation_lines / total_lines
-            
+
             # כללי זיהוי
             if indent_ratio > 0.3 and brace_ratio < 0.1:
-                return 'python'
+                return "python"
             elif brace_ratio > 0.2 and semicolon_ratio > 0.2:
-                return 'javascript'
-            elif '<' in code and '>' in code and 'html' in code.lower():
-                return 'html'
-            elif code.strip().startswith('{') or code.strip().startswith('['):
-                return 'json'
-        
-        return 'text'
-    
-    def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
+                return "javascript"
+            elif "<" in code and ">" in code and "html" in code.lower():
+                return "html"
+            elif code.strip().startswith("{") or code.strip().startswith("["):
+                return "json"
+
+        return "text"
+
+    def highlight_code(self, code: str, programming_language: str, output_format: str = "html") -> str:
         """Placeholder function. No longer performs highlighting to avoid Telegram API errors. Returns the original code unchanged."""
         return code
-    
-    def create_code_image(self, code: str, programming_language: str, 
-                         width: int = 800, font_size: int = 12) -> bytes:
+
+    def create_code_image(self, code: str, programming_language: str, width: int = 800, font_size: int = 12) -> bytes:
         """יצירת תמונה של קוד עם הדגשת תחביר"""
-        
+
         try:
             # הדגשת הקוד
-            highlighted_html = self.highlight_code(code, programming_language, 'html')
-            
+            highlighted_html = self.highlight_code(code, programming_language, "html")
+
             # יצירת HTML מלא
             full_html = f"""
             <!DOCTYPE html>
@@ -494,236 +478,228 @@ class CodeProcessor:
             </body>
             </html>
             """
-            
+
             # המרה לתמונה (זה ידרוש התקנת wkhtmltopdf או כלי דומה)
             # כרגע נחזיר placeholder
-            
+
             # יצירת תמונה פשוטה עם הקוד
-            img = Image.new('RGB', (width, max(400, len(code.split('\n')) * 20)), 'white')
+            img = Image.new("RGB", (width, max(400, len(code.split("\n")) * 20)), "white")
             draw = ImageDraw.Draw(img)
-            
+
             try:
                 font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
             except:
                 font = ImageFont.load_default()
-            
+
             # כתיבת הקוד
             y_position = 10
-            for line in code.split('\n'):
-                draw.text((10, y_position), line, fill='black', font=font)
+            for line in code.split("\n"):
+                draw.text((10, y_position), line, fill="black", font=font)
                 y_position += font_size + 2
-            
+
             # המרה לבייטים
             img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='PNG')
+            img.save(img_byte_arr, format="PNG")
             img_byte_arr = img_byte_arr.getvalue()
-            
+
             logger.info(f"נוצרה תמונת קוד בגודל {width}px")
             return img_byte_arr
-            
+
         except Exception as e:
             logger.error(f"שגיאה ביצירת תמונת קוד: {e}")
             return None
-    
+
     def get_code_stats(self, code: str) -> Dict[str, Any]:
         """חישוב סטטיסטיקות קוד"""
-        
-        lines = code.split('\n')
-        
+
+        lines = code.split("\n")
+
         stats = {
-            'total_lines': len(lines),
-            'non_empty_lines': len([line for line in lines if line.strip()]),
-            'comment_lines': 0,
-            'code_lines': 0,
-            'blank_lines': 0,
-            'characters': len(code),
-            'characters_no_spaces': len(code.replace(' ', '').replace('\t', '').replace('\n', '')),
-            'words': len(code.split()),
-            'functions': 0,
-            'classes': 0,
-            'complexity_score': 0
+            "total_lines": len(lines),
+            "non_empty_lines": len([line for line in lines if line.strip()]),
+            "comment_lines": 0,
+            "code_lines": 0,
+            "blank_lines": 0,
+            "characters": len(code),
+            "characters_no_spaces": len(code.replace(" ", "").replace("\t", "").replace("\n", "")),
+            "words": len(code.split()),
+            "functions": 0,
+            "classes": 0,
+            "complexity_score": 0,
         }
-        
+
         # ספירת סוגי שורות
         for line in lines:
             stripped = line.strip()
             if not stripped:
-                stats['blank_lines'] += 1
-            elif stripped.startswith('#') or stripped.startswith('//') or stripped.startswith('/*'):
-                stats['comment_lines'] += 1
+                stats["blank_lines"] += 1
+            elif stripped.startswith("#") or stripped.startswith("//") or stripped.startswith("/*"):
+                stats["comment_lines"] += 1
             else:
-                stats['code_lines'] += 1
-        
+                stats["code_lines"] += 1
+
         # זיהוי פונקציות ומחלקות
-        stats['functions'] = len(re.findall(r'\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\(', code, re.IGNORECASE))
-        stats['classes'] = len(re.findall(r'\bclass\s+\w+\s*[:\{]', code, re.IGNORECASE))
-        
+        stats["functions"] = len(re.findall(r"\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\(", code, re.IGNORECASE))
+        stats["classes"] = len(re.findall(r"\bclass\s+\w+\s*[:\{]", code, re.IGNORECASE))
+
         # חישוב מורכבות בסיסית
         complexity_indicators = [
-            'if ', 'elif ', 'else:', 'for ', 'while ', 'try:', 'except:', 'catch',
-            'switch', 'case:', 'break', 'continue', 'return', '&&', '||', '?:'
+            "if ",
+            "elif ",
+            "else:",
+            "for ",
+            "while ",
+            "try:",
+            "except:",
+            "catch",
+            "switch",
+            "case:",
+            "break",
+            "continue",
+            "return",
+            "&&",
+            "||",
+            "?:",
         ]
-        
+
         for indicator in complexity_indicators:
-            stats['complexity_score'] += code.lower().count(indicator.lower())
-        
+            stats["complexity_score"] += code.lower().count(indicator.lower())
+
         # ניקוד קריאות (באמצעות textstat)
         try:
-            stats['readability_score'] = textstat.flesch_reading_ease(code)
+            stats["readability_score"] = textstat.flesch_reading_ease(code)
         except:
-            stats['readability_score'] = 0
-        
+            stats["readability_score"] = 0
+
         logger.info(f"חושבו סטטיסטיקות לקוד: {stats['total_lines']} שורות, {stats['characters']} תווים")
         return stats
-    
+
     def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, str]]:
         """חילוץ רשימת פונקציות מהקוד"""
-        
+
         functions = []
-        
+
         patterns = {
-            'python': r'def\s+(\w+)\s*\([^)]*\)\s*:',
-            'javascript': r'function\s+(\w+)\s*\([^)]*\)\s*{',
-            'java': r'(?:public|private|protected)?\s*(?:static)?\s*\w+\s+(\w+)\s*\([^)]*\)\s*{',
-            'cpp': r'\w+\s+(\w+)\s*\([^)]*\)\s*{',
-            'c': r'\w+\s+(\w+)\s*\([^)]*\)\s*{',
-            'php': r'function\s+(\w+)\s*\([^)]*\)\s*{'
+            "python": r"def\s+(\w+)\s*\([^)]*\)\s*:",
+            "javascript": r"function\s+(\w+)\s*\([^)]*\)\s*{",
+            "java": r"(?:public|private|protected)?\s*(?:static)?\s*\w+\s+(\w+)\s*\([^)]*\)\s*{",
+            "cpp": r"\w+\s+(\w+)\s*\([^)]*\)\s*{",
+            "c": r"\w+\s+(\w+)\s*\([^)]*\)\s*{",
+            "php": r"function\s+(\w+)\s*\([^)]*\)\s*{",
         }
-        
+
         if programming_language in patterns:
             matches = re.finditer(patterns[programming_language], code, re.MULTILINE)
-            
+
             for match in matches:
                 func_name = match.group(1)
                 start_pos = match.start()
-                
+
                 # מצא את השורה
-                lines_before = code[:start_pos].split('\n')
+                lines_before = code[:start_pos].split("\n")
                 line_number = len(lines_before)
-                
-                functions.append({
-                    'name': func_name,
-                    'line': line_number,
-                    'signature': match.group(0)
-                })
-        
+
+                functions.append({"name": func_name, "line": line_number, "signature": match.group(0)})
+
         logger.info(f"נמצאו {len(functions)} פונקציות בקוד")
         return functions
-    
+
     def validate_syntax(self, code: str, programming_language: str) -> Dict[str, Any]:
         """בדיקת תחביר של הקוד"""
-        
-        result = {
-            'is_valid': True,
-            'errors': [],
-            'warnings': [],
-            'suggestions': []
-        }
-        
+
+        result = {"is_valid": True, "errors": [], "warnings": [], "suggestions": []}
+
         # בדיקות בסיסיות לפי שפה
-        if programming_language == 'python':
+        if programming_language == "python":
             try:
-                compile(code, '<string>', 'exec')
+                compile(code, "<string>", "exec")
             except SyntaxError as e:
-                result['is_valid'] = False
-                result['errors'].append({
-                    'line': e.lineno,
-                    'message': str(e),
-                    'type': 'SyntaxError'
-                })
-        
-        elif programming_language == 'json':
+                result["is_valid"] = False
+                result["errors"].append({"line": e.lineno, "message": str(e), "type": "SyntaxError"})
+
+        elif programming_language == "json":
             try:
                 import json
+
                 json.loads(code)
             except json.JSONDecodeError as e:
-                result['is_valid'] = False
-                result['errors'].append({
-                    'line': e.lineno,
-                    'message': str(e),
-                    'type': 'JSONDecodeError'
-                })
-        
+                result["is_valid"] = False
+                result["errors"].append({"line": e.lineno, "message": str(e), "type": "JSONDecodeError"})
+
         # בדיקות כלליות
-        lines = code.split('\n')
-        
+        lines = code.split("\n")
+
         # בדיקת סוגריים מאוזנים
-        brackets_balance = {'(': 0, '[': 0, '{': 0}
+        brackets_balance = {"(": 0, "[": 0, "{": 0}
         for i, line in enumerate(lines, 1):
             for char in line:
-                if char in '([{':
+                if char in "([{":
                     brackets_balance[char] += 1
-                elif char in ')]}':
-                    opening_map = {')': '(', ']': '[', '}': '{'}
+                elif char in ")]}":
+                    opening_map = {")": "(", "]": "[", "}": "{"}
                     opening_bracket = opening_map.get(char)
                     if opening_bracket and brackets_balance[opening_bracket] > 0:
                         brackets_balance[opening_bracket] -= 1
                     else:
-                        result['warnings'].append({
-                            'line': i,
-                            'message': f'סוגריים לא מאוזנים: {char}',
-                            'type': 'UnbalancedBrackets'
-                        })
-        
+                        result["warnings"].append(
+                            {"line": i, "message": f"סוגריים לא מאוזנים: {char}", "type": "UnbalancedBrackets"}
+                        )
+
         # בדיקה אם נותרו סוגריים פתוחים
         for bracket, count in brackets_balance.items():
             if count > 0:
-                result['warnings'].append({
-                    'line': len(lines),
-                    'message': f'סוגריים לא סגורים: {bracket}',
-                    'type': 'UnclosedBrackets'
-                })
-        
+                result["warnings"].append(
+                    {"line": len(lines), "message": f"סוגריים לא סגורים: {bracket}", "type": "UnclosedBrackets"}
+                )
+
         # הצעות לשיפור
-        if programming_language == 'python':
+        if programming_language == "python":
             # בדיקת import לא בשימוש
-            imports = re.findall(r'import\s+(\w+)', code)
+            imports = re.findall(r"import\s+(\w+)", code)
             for imp in imports:
                 if code.count(imp) == 1:  # מופיע רק ב-import
-                    result['suggestions'].append({
-                        'message': f'ייבוא לא בשימוש: {imp}',
-                        'type': 'UnusedImport'
-                    })
-        
+                    result["suggestions"].append({"message": f"ייבוא לא בשימוש: {imp}", "type": "UnusedImport"})
+
         logger.info(f"נבדק תחביר עבור {programming_language}: {'תקין' if result['is_valid'] else 'לא תקין'}")
         return result
-    
+
     def minify_code(self, code: str, programming_language: str) -> str:
         """דחיסת קוד (הסרת רווחים מיותרים והערות)"""
-        
-        if programming_language == 'javascript':
+
+        if programming_language == "javascript":
             # הסרת הערות חד-שורתיות
-            code = re.sub(r'//.*$', '', code, flags=re.MULTILINE)
+            code = re.sub(r"//.*$", "", code, flags=re.MULTILINE)
             # הסרת הערות רב-שורתיות
-            code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+            code = re.sub(r"/\*.*?\*/", "", code, flags=re.DOTALL)
             # הסרת רווחים מיותרים
-            code = re.sub(r'\s+', ' ', code)
-            
-        elif programming_language == 'python':
-            lines = code.split('\n')
+            code = re.sub(r"\s+", " ", code)
+
+        elif programming_language == "python":
+            lines = code.split("\n")
             minified_lines = []
-            
+
             for line in lines:
                 # הסרת הערות
-                if '#' in line:
-                    line = line[:line.index('#')]
-                
+                if "#" in line:
+                    line = line[: line.index("#")]
+
                 stripped = line.strip()
                 if stripped:  # רק שורות לא ריקות
                     minified_lines.append(stripped)
-            
-            code = '\n'.join(minified_lines)
-        
-        elif programming_language == 'css':
+
+            code = "\n".join(minified_lines)
+
+        elif programming_language == "css":
             # הסרת הערות
-            code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+            code = re.sub(r"/\*.*?\*/", "", code, flags=re.DOTALL)
             # הסרת רווחים מיותרים
-            code = re.sub(r'\s+', ' ', code)
+            code = re.sub(r"\s+", " ", code)
             # הסרת רווחים סביב סימנים
-            code = re.sub(r'\s*([{}:;,])\s*', r'\1', code)
-        
+            code = re.sub(r"\s*([{}:;,])\s*", r"\1", code)
+
         logger.info(f"דחוס קוד בשפה {programming_language}")
         return code.strip()
+
 
 # יצירת אינסטנס גלובלי
 code_processor = CodeProcessor()

@@ -2,8 +2,9 @@
 import logging
 from io import BytesIO
 
-from telegram import Update, InputFile
-from telegram.ext import Application, ContextTypes, CallbackQueryHandler
+from telegram import InputFile, Update
+from telegram.ext import Application, CallbackQueryHandler, ContextTypes
+
 from activity_reporter import create_reporter
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
     service_id="srv-d29d72adbo4c73bcuep0",
-    service_name="CodeBot"
+    service_name="CodeBot",
 )
 
 
@@ -29,7 +30,7 @@ class AdvancedBotHandlers:
         await query.answer()
 
         try:
-            file_id = query.data.split('_')[1]
+            file_id = query.data.split("_")[1]
             # נניח שקיימת פונקציה כזו במנהל מסד הנתונים שלך
             deleted_count = self.db.delete_file_by_id(file_id)  # type: ignore[attr-defined]
 
@@ -50,22 +51,22 @@ class AdvancedBotHandlers:
         await query.answer()
 
         try:
-            file_id = query.data.split('_')[1]
+            file_id = query.data.split("_")[1]
             file_data = self.db.get_file_by_id(file_id)  # type: ignore[attr-defined]
 
             if not file_data:
                 await query.edit_message_text("⚠️ הקובץ לא נמצא.")
                 return
 
-            file_name = file_data.get('file_name', 'file.txt')
-            code_content = file_data.get('code', '')
+            file_name = file_data.get("file_name", "file.txt")
+            code_content = file_data.get("code", "")
 
-            file_in_memory = BytesIO(code_content.encode('utf-8'))
+            file_in_memory = BytesIO(code_content.encode("utf-8"))
 
             await context.bot.send_document(
                 chat_id=query.message.chat_id,
                 document=InputFile(file_in_memory, filename=file_name),
-                caption=f"הקובץ '{file_name}' מוכן להורדה."
+                caption=f"הקובץ '{file_name}' מוכן להורדה.",
             )
         except Exception as e:
             logger.error(f"Error in _download_file: {e}")

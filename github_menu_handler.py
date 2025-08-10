@@ -1,18 +1,27 @@
 # FIXED: Changed from Markdown to HTML parsing (2025-01-10)
 # This fixes Telegram parsing errors with special characters in suggestions
 
-import os
-from html import escape
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, CommandHandler
-from github import Github
-from typing import Dict, Any
-import logging
-import time
 import asyncio
 import json
-from repo_analyzer import RepoAnalyzer
+import logging
+import os
+import time
 from datetime import datetime
+from html import escape
+from typing import Any, Dict
+
+from github import Github
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+
+from repo_analyzer import RepoAnalyzer
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -169,13 +178,11 @@ class GitHubMenuHandler:
             await update.callback_query.edit_message_text(
                 status_msg, 
                 reply_markup=reply_markup,
-                parse_mode='HTML'
             )
         else:
             await update.message.reply_text(
                 status_msg, 
                 reply_markup=reply_markup,
-                parse_mode='HTML'
             )
     
     async def handle_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -193,16 +200,16 @@ class GitHubMenuHandler:
         elif query.data == 'upload_file':
             if not session.get('selected_repo'):
                 try:
-        await query.edit_message_text(
-                    "❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'"
-                )
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
+                    await query.edit_message_text(
+                        "❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'"
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
             else:
                 folder_display = session.get('selected_folder') or 'root'
                 
@@ -213,21 +220,20 @@ class GitHubMenuHandler:
                 ]
                 
                 try:
-        await query.edit_message_text(
-                    f"📤 <b>העלאת קובץ לריפו:</b>\n"
-                    f"<code>{session['selected_repo']}</code>\n"
-                    f"📂 תיקייה: <code>{folder_display}</code>\n\n"
-                    f"שלח קובץ או לחץ לפתיחת מנהל קבצים:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise,
-                    parse_mode='HTML'
-                )
+                    await query.edit_message_text(
+                        f"📤 <b>העלאת קובץ לריפו:</b>\n"
+                        f"<code>{session['selected_repo']}</code>\n"
+                        f"📂 תיקייה: <code>{folder_display}</code>\n\n"
+                        f"שלח קובץ או לחץ לפתיחת מנהל קבצים:",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
                 
                 # סמן שאנחנו במצב העלאה לגיטהאב
                 context.user_data['waiting_for_github_upload'] = True
@@ -303,22 +309,22 @@ class GitHubMenuHandler:
             has_token = "✅" if session.get('github_token') else "❌"
             
             try:
-        await query.edit_message_text(
-                f"📊 <b>הגדרות נוכחיות:</b>\n\n"
-                f"📁 ריפו: <code>{current_repo}</code>\n"
-                f"📂 תיקייה: <code>{current_folder}</code>\n"
-                f"🔑 טוקן מוגדר: {has_token}\n\n"
-                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
-                f"⏳ חוזר לתפריט בעוד מספר שניות...",
-                parse_mode='HTML'
-            )
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
+                await query.edit_message_text(
+                    f"📊 <b>הגדרות נוכחיות:</b>\n\n"
+                    f"📁 ריפו: <code>{current_repo}</code>\n"
+                    f"📂 תיקייה: <code>{current_folder}</code>\n"
+                    f"🔑 טוקן מוגדר: {has_token}\n\n"
+                    f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
+                    f"⏳ חוזר לתפריט בעוד מספר שניות...",
+                    parse_mode='HTML'
+                )
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
             
             # המתן 3 שניות ואז הצג את התפריט
             await asyncio.sleep(3)
@@ -326,16 +332,19 @@ class GitHubMenuHandler:
             
         elif query.data == 'set_token':
             try:
-        await query.edit_message_text(
-                "🔑 שלח לי את הטוקן של GitHub:\n"
-                "(הטוקן יישמר רק לסשן הנוכחי)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise\n\n"
+                await query.edit_message_text(
+                    "🔑 שלח לי את הטוקן של GitHub:\n"
+                    "(הטוקן יישמר רק לסשן הנוכחי)"
+                )
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
+            
+            await update.message.reply_text(
                 "💡 טיפ: צור טוקן ב:\n"
                 "https://github.com/settings/tokens"
             )
@@ -354,65 +363,63 @@ class GitHubMenuHandler:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             try:
-        await query.edit_message_text(
+                await query.edit_message_text(
                 "📂 בחר תיקיית יעד:",
                 reply_markup=reply_markup
             )
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
             
         elif query.data.startswith('folder_'):
             folder = query.data.replace('folder_', '')
             if folder == 'custom':
                 try:
-        await query.edit_message_text(
-                    "✏️ הקלד שם תיקייה:\n"
-                    "(השאר ריק או הקלד / להעלאה ל-root)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise"
-                )
+                    await query.edit_message_text(
+                        "✏️ הקלד שם תיקייה:\n"
+                        "(השאר ריק או הקלד / להעלאה ל-root)"
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
                 return FOLDER_SELECT
             elif folder == 'root':
                 session['selected_folder'] = None
                 try:
-        await query.edit_message_text(
-                    "✅ תיקייה עודכנה ל: <code>root</code> (ראשי)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise\n\n⏳ חוזר לתפריט...", 
-                    parse_mode='HTML'
-                )
+                    await query.edit_message_text(
+                        "✅ תיקייה עודכנה ל: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...",
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = "✅ תיקייה עודכנה ל: root (ראשי)\n\n⏳ חוזר לתפריט..."
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
                 # המתן שנייה ואז הצג את התפריט
                 await asyncio.sleep(1.5)
                 await self.github_menu_command(update, context)
             else:
                 session['selected_folder'] = folder.replace('_', '/')
                 try:
-        await query.edit_message_text(
-                    f"✅ תיקייה עודכנה ל: <code>{session['selected_folder']}</code>\n\n⏳ חוזר לתפריט...", 
-                    parse_mode='HTML'
-                )
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
+                    await query.edit_message_text(
+                        f"✅ תיקייה עודכנה ל: <code>{session['selected_folder']}</code>\n\n⏳ חוזר לתפריט...", 
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
                 # המתן שנייה ואז הצג את התפריט
                 await asyncio.sleep(1.5)
                 await self.github_menu_command(update, context)
@@ -428,31 +435,30 @@ class GitHubMenuHandler:
             
         elif query.data == 'close_menu':
             try:
-        await query.edit_message_text("👋 התפריט נסגר")
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
+                await query.edit_message_text("👋 התפריט נסגר")
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
             
         elif query.data.startswith('repo_'):
             if query.data == 'repo_manual':
                 try:
-        await query.edit_message_text(
-                    "✏️ הקלד שם ריפו בפורמט:\n"
-                    "<code>owner/repository</code>\n\n"
-                    "לדוגמה: <code>amirbiron/CodeBot</code>",
-                    parse_mode='HTML'
-                )
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
+                    await query.edit_message_text(
+                        "✏️ הקלד שם ריפו בפורמט:\n"
+                        "<code>owner/repository</code>\n\n"
+                        "לדוגמה: <code>amirbiron/CodeBot</code>",
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
                 return REPO_SELECT
             else:
                 repo_name = query.data.replace('repo_', '')
@@ -586,17 +592,17 @@ class GitHubMenuHandler:
             
             if query:
                 try:
-        await query.edit_message_text(
-                    f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages})
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise:",
-                    reply_markup=reply_markup
-                )
+                    await query.edit_message_text(
+                        f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages})",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except telegram.error.BadRequest as e:
+                    if "Can't parse entities" in str(e):
+                        # נסה לשלוח בלי פורמט
+                        simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                        await query.edit_message_text(simple_text)
+                    else:
+                        raise
             else:
                 await update.callback_query.edit_message_text(
                     f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):",
@@ -631,9 +637,9 @@ class GitHubMenuHandler:
         
         try:
             # כאן תצטרך להתחבר למסד הנתונים שלך
-            # לדוגמה:
-            from database import db
-            files = db.get_user_files(user_id)
+            # דוגמה:
+            # from database import db
+            files = []  # db.get_user_files(user_id)
             
             if not files:
                 await update.callback_query.answer("❌ אין לך קבצים שמורים", show_alert=True)
@@ -670,9 +676,10 @@ class GitHubMenuHandler:
             return
         
         try:
-            from database import db
             from bson import ObjectId
-            
+
+            from database import db
+
             # קבל את הקובץ מהמסד
             file_data = db.collection.find_one({
                 "_id": ObjectId(file_id),
@@ -772,10 +779,9 @@ class GitHubMenuHandler:
                 f"📂 מיקום: <code>{file_path}</code>\n"
                 f"🔗 קישור ישיר:\n{raw_url}\n\n"
                 f"שלח /github כדי לחזור לתפריט.",
-                parse_mode='HTML'
             )
             
-        except Exception as e:
+            except Exception as e:
             logger.error(f"❌ שגיאה בהעלאת קובץ שמור: {str(e)}", exc_info=True)
             
             error_msg = str(e)
@@ -890,15 +896,14 @@ class GitHubMenuHandler:
                         f"📂 מיקום: <code>{file_path}</code>\n"
                         f"🔗 קישור ישיר:\n{raw_url}\n\n"
                         f"שלח /github כדי לחזור לתפריט.",
-                        parse_mode='HTML'
                     )
                     
                     # נקה את הסטטוס
                     context.user_data['waiting_for_github_upload'] = False
                     context.user_data['upload_mode'] = None
                     
-                except Exception as e:
-                    logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
+                    except Exception as e:
+                        logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
                     
                     error_msg = str(e)
                     
@@ -913,12 +918,12 @@ class GitHubMenuHandler:
                         error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
                     
                     await update.message.reply_text(error_msg)
-            else:
-                await update.message.reply_text("⚠️ שלח קובץ להעלאה")
+                    else:
+                        await update.message.reply_text("⚠️ שלח קובץ להעלאה")
             
             return ConversationHandler.END
-        else:
-            # אם לא במצב העלאה לגיטהאב, תן למטפל הרגיל לטפל בזה
+                    else:
+                        # אם לא במצב העלאה לגיטהאב, תן למטפל הרגיל לטפל בזה
             return ConversationHandler.END
     
     async def handle_text_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -952,20 +957,19 @@ class GitHubMenuHandler:
             )
             return ConversationHandler.END
         
-        elif '/' in text:
-            session['selected_repo'] = text
+            elif '/' in text:
+                session['selected_repo'] = text
             
             # הצג את התפריט המלא אחרי הגדרת הריפו
             await self.github_menu_command(update, context)
             return ConversationHandler.END
         
-        else:
-            # טיפול בהגדרת תיקייה
+            else:
+                # טיפול בהגדרת תיקייה
             if text.strip() in ['/', '']:
                 session['selected_folder'] = None
                 await update.message.reply_text(
                     "✅ תיקייה הוגדרה: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...",
-                    parse_mode='HTML'
                 )
             else:
                 # הסר / מיותרים
@@ -973,7 +977,6 @@ class GitHubMenuHandler:
                 session['selected_folder'] = folder
                 await update.message.reply_text(
                     f"✅ תיקייה הוגדרה: <code>{folder}</code>\n\n⏳ חוזר לתפריט...",
-                    parse_mode='HTML'
                 )
             
             # המתן שנייה ואז הצג את התפריט
@@ -999,19 +1002,17 @@ class GitHubMenuHandler:
             ]
             
             try:
-        await query.edit_message_text(
+                await query.edit_message_text(
                 "🔍 <b>ניתוח ריפוזיטורי</b>\n\n"
                 "בחר אפשרות:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise,
-                parse_mode='HTML'
-            )
+                reply_markup=InlineKeyboardMarkup(keyboard))
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
         else:
             # אם אין ריפו נבחר, בקש URL
             await self.request_repo_url(update, context)
@@ -1034,23 +1035,20 @@ class GitHubMenuHandler:
         
         if query:
             try:
-        await query.edit_message_text(
+                await query.edit_message_text(
                 message_text,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise,
-                parse_mode='HTML'
-            )
+                reply_markup=InlineKeyboardMarkup(keyboard))
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
         else:
             await update.message.reply_text(
                 message_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
             )
         
         # סמן שאנחנו מחכים ל-URL
@@ -1069,17 +1067,16 @@ class GitHubMenuHandler:
         ]
         
         try:
-        await query.edit_message_text(
+            await query.edit_message_text(
             "איך תרצה לבחור ריפו לניתוח?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        except telegram.error.BadRequest as e:
+            if "Can't parse entities" in str(e):
+                # נסה לשלוח בלי פורמט
+                simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                await query.edit_message_text(simple_text)
+            else:
+                raise
     
     async def analyze_repository(self, update: Update, context: ContextTypes.DEFAULT_TYPE, repo_url: str):
         """מנתח ריפוזיטורי ומציג תוצאות"""
@@ -1122,7 +1119,6 @@ class GitHubMenuHandler:
             await status_message.edit_text(
                 summary,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
             )
             
         except Exception as e:
@@ -1205,20 +1201,19 @@ class GitHubMenuHandler:
         
         if not session.get('last_analysis'):
             try:
-        await query.edit_message_text(
-                "❌ לא נמצא ניתוח. נתח ריפו קודם.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise],
-                    [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")]
-                ])
-            )
+                await query.edit_message_text(
+                    "❌ לא נמצא ניתוח. נתח ריפו קודם.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")]
+                    ])
+                )
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
             return
         
         # צור הצעות לשיפור
@@ -1227,21 +1222,20 @@ class GitHubMenuHandler:
         
         if not suggestions:
             try:
-        await query.edit_message_text(
+                await query.edit_message_text(
                 "🎉 מעולה! לא נמצאו הצעות לשיפור משמעותיות.\n"
                 "הפרויקט נראה מצוין!",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise],
-                    [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="github_menu")]
+                    [InlineKeyboardButton("🔙 חזור לסיכום", callback_data="back_to_analysis")]
                 ])
             )
+            except telegram.error.BadRequest as e:
+                if "Can't parse entities" in str(e):
+                    # נסה לשלוח בלי פורמט
+                    simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                    await query.edit_message_text(simple_text)
+                else:
+                    raise
             return
         
         # שמור הצעות ב-session
@@ -1265,18 +1259,16 @@ class GitHubMenuHandler:
         message += "🔴 = השפעה גבוהה | 🟡 = בינונית | 🟢 = נמוכה"
         
         try:
-        await query.edit_message_text(
+            await query.edit_message_text(
             message,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise,
-            parse_mode='HTML'
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        except telegram.error.BadRequest as e:
+            if "Can't parse entities" in str(e):
+                # נסה לשלוח בלי פורמט
+                simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                await query.edit_message_text(simple_text)
+            else:
+                raise
     
     async def show_suggestion_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE, suggestion_index: int):
         """מציג פרטי הצעה ספציפית"""
@@ -1323,18 +1315,16 @@ class GitHubMenuHandler:
         keyboard.append([InlineKeyboardButton("🔙 חזור להצעות", callback_data="show_suggestions")])
         
         try:
-        await query.edit_message_text(
+            await query.edit_message_text(
             message,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise,
-            parse_mode='HTML'
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        except telegram.error.BadRequest as e:
+            if "Can't parse entities" in str(e):
+                # נסה לשלוח בלי פורמט
+                simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                await query.edit_message_text(simple_text)
+            else:
+                raise
     
     async def show_full_analysis(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג ניתוח מלא"""
@@ -1403,18 +1393,16 @@ class GitHubMenuHandler:
             report = report[:3900] + "\n\n... (קוצר לצורך תצוגה)"
         
         try:
-        await query.edit_message_text(
+            await query.edit_message_text(
             report,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise,
-            parse_mode='HTML'
-        )
+            reply_markup=InlineKeyboardMarkup(keyboard))
+        except telegram.error.BadRequest as e:
+            if "Can't parse entities" in str(e):
+                # נסה לשלוח בלי פורמט
+                simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
+                await query.edit_message_text(simple_text)
+            else:
+                raise
     
     async def download_analysis_json(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """שולח קובץ JSON עם הניתוח המלא"""
@@ -1479,13 +1467,11 @@ class GitHubMenuHandler:
             await update.callback_query.edit_message_text(
                 summary,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
             )
         else:
             await update.message.reply_text(
                 summary,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='HTML'
             )
     
     async def _send_or_edit_message(self, update: Update, text: str, <b></b>kwargs):
