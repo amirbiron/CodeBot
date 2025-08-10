@@ -51,7 +51,7 @@ from telegram.ext import (
 from telegram.error import NetworkError, TelegramError, TimedOut
 
 # Project imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import CodeKeeperBot, setup_bot_data, log_user_activity
 from config import BotConfig, config
 from database import CodeSnippet, DatabaseManager, LargeFile
