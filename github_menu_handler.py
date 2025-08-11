@@ -1376,8 +1376,8 @@ class GitHubMenuHandler:
             # הוסף delay בין בקשות
             await self.apply_rate_limit_delay(user_id)
 
-                        logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
-            repo = g.get_repo(session["selected_repo"]) 
+            logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
+            repo = g.get_repo(session["selected_repo"])
 
             # Resolve target branch and folder
             branch = context.user_data.get("upload_target_branch") or repo.default_branch or "main"
