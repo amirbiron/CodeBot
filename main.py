@@ -127,11 +127,21 @@ def ensure_lock_indexes() -> None:
 def cleanup_mongo_lock():
     """Runs on script exit to remove the lock document."""
     try:
+        # If DB client is not available, skip quietly
+        try:
+            if 'db' in globals() and getattr(db, "client", None) is None:
+                logger.debug("Mongo client not available during lock cleanup; skipping.")
+                return
+        except Exception:
+            pass
+
         lock_collection = get_lock_collection()
         pid = os.getpid()
         result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
         if result.deleted_count > 0:
             logger.info(f"Lock '{LOCK_ID}' released successfully by PID: {pid}.")
+    except pymongo.errors.InvalidOperation:
+        logger.warning("Mongo client already closed; skipping lock cleanup.")
     except Exception as e:
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
@@ -981,7 +991,11 @@ class CodeKeeperBot:
         await self.application.stop()
         await self.application.shutdown()
         
-        # סגירת חיבור למסד נתונים
+        # שחרור נעילה וסגירת חיבור למסד נתונים
+        try:
+            cleanup_mongo_lock()
+        except Exception:
+            pass
         db.close()
         
         logger.info("הבוט נעצר.")
@@ -1057,7 +1071,11 @@ def main() -> None:
         logger.error(f"שגיאה: {e}")
         raise
     finally:
-        logger.info("Bot polling stopped. Closing database connection.")
+        logger.info("Bot polling stopped. Releasing lock and closing database connection.")
+        try:
+            cleanup_mongo_lock()
+        except Exception:
+            pass
         if 'db' in globals():
             db.close_connection()
 
