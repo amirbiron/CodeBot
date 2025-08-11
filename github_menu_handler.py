@@ -389,13 +389,11 @@ class GitHubMenuHandler:
                 f"📁 ריפו: <code>{current_repo}</code>\n"
                 f"📂 תיקייה: <code>{current_folder}</code>\n"
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
-                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
-                f"⏳ חוזר לתפריט בעוד מספר שניות...",
+                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
                 parse_mode="HTML",
             )
 
-            # המתן 5 שניות ואז הצג את התפריט
-            await asyncio.sleep(5)
+            # חזרה מיידית לתפריט
             await self.github_menu_command(update, context)
 
         elif query.data == "set_token":
@@ -431,21 +429,11 @@ class GitHubMenuHandler:
                 return FOLDER_SELECT
             elif folder == "root":
                 session["selected_folder"] = None
-                await query.edit_message_text(
-                    "✅ תיקייה עודכנה ל: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...",
-                    parse_mode="HTML",
-                )
-                # המתן שנייה ואז הצג את התפריט
-                await asyncio.sleep(1.5)
+                await query.answer("✅ תיקייה עודכנה ל-root", show_alert=False)
                 await self.github_menu_command(update, context)
             else:
                 session["selected_folder"] = folder.replace("_", "/")
-                await query.edit_message_text(
-                    f"✅ תיקייה עודכנה ל: <code>{session['selected_folder']}</code>\n\n⏳ חוזר לתפריט...",
-                    parse_mode="HTML",
-                )
-                # המתן שנייה ואז הצג את התפריט
-                await asyncio.sleep(1.5)
+                await query.answer(f"✅ תיקייה עודכנה ל-{session['selected_folder']}", show_alert=False)
                 await self.github_menu_command(update, context)
 
         elif query.data == "github_menu":
