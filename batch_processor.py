@@ -146,7 +146,8 @@ class BatchProcessor:
             except Exception as e:
                 return {'error': str(e)}
         
-        await self.process_files_batch(job_id, analyze_single_file)
+        # הרצה ברקע כדי לא לחסום את הלולאה הראשית
+        asyncio.create_task(self.process_files_batch(job_id, analyze_single_file))
         return job_id
     
     async def validate_files_batch(self, user_id: int, file_names: List[str]) -> str:
@@ -176,7 +177,8 @@ class BatchProcessor:
             except Exception as e:
                 return {'error': str(e)}
         
-        await self.process_files_batch(job_id, validate_single_file)
+        # הרצה ברקע כדי לא לחסום את הלולאה הראשית
+        asyncio.create_task(self.process_files_batch(job_id, validate_single_file))
         return job_id
     
     async def export_files_batch(self, user_id: int, file_names: List[str], export_format: str = "zip") -> str:
@@ -201,7 +203,8 @@ class BatchProcessor:
             except Exception as e:
                 return {'error': str(e)}
         
-        await self.process_files_batch(job_id, export_single_file, format=export_format)
+        # הרצה ברקע כדי לא לחסום את הלולאה הראשית
+        asyncio.create_task(self.process_files_batch(job_id, export_single_file, format=export_format))
         return job_id
     
     def get_job_status(self, job_id: str) -> Optional[BatchJob]:
