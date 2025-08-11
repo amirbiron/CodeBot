@@ -13,7 +13,7 @@ from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
 
-from github import Github
+from github import Github, GithubException
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -445,30 +445,7 @@ class GitHubMenuHandler:
             return ConversationHandler.END
         
         elif query.data == "git_checkpoint":
-            # יצירת tag על HEAD של הריפו הנבחר
-            session = self.get_user_session(query.from_user.id)
-            repo_full = session.get("selected_repo")
-            token = self.get_user_token(query.from_user.id)
-            if not token or not repo_full:
-                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
-                return
-            try:
-                import datetime
-                g = Github(login_or_token=token)
-                repo = g.get_repo(repo_full)
-                ref = repo.get_git_ref("heads/" + repo.get_branch(repo.default_branch).name)
-                sha = ref.object.sha
-                ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-                tag_name = f"checkpoint-{ts}"
-                # Create lightweight tag by creating a ref refs/tags/<tag>
-                repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
-                await query.edit_message_text(
-                    f"✅ נוצר tag: <code>{tag_name}</code> על HEAD\nSHA: <code>{sha[:7]}</code>",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logger.error(f"Failed to create git checkpoint: {e}")
-                await query.edit_message_text("❌ יצירת נקודת שמירה בגיט נכשלה")
+            await self.git_checkpoint(update, context)
 
         elif query.data == "close_menu":
             await query.edit_message_text("👋 התפריט נסגר")
@@ -3043,17 +3020,25 @@ class GitHubMenuHandler:
             import datetime
             g = Github(login_or_token=token)
             repo = g.get_repo(repo_full)
-            ref = repo.get_git_ref("heads/" + repo.get_branch(repo.default_branch).name)
+            default_branch = repo.get_branch(repo.default_branch).name
+            ref = repo.get_git_ref("heads/" + default_branch)
             sha = ref.object.sha
             ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
             tag_name = f"checkpoint-{ts}"
-            tag_message = f"Checkpoint created by bot at {ts}Z"
             # Create lightweight tag by creating a ref refs/tags/<tag>
-            repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+            try:
+                repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+            except GithubException as ge:
+                # אם ה-tag כבר קיים, הוסף סיומת ייחודית קצרה
+                if getattr(ge, 'status', None) == 422:
+                    tag_name = f"{tag_name}-{sha[:7]}"
+                    repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+                else:
+                    raise
             await query.edit_message_text(
-                f"✅ נוצר tag: <code>{tag_name}</code> על HEAD\nSHA: <code>{sha[:7]}</code>",
+                f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\nSHA: <code>{sha[:7]}</code>",
                 parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Failed to create git checkpoint: {e}")
-            await query.edit_message_text("❌ יצירת נקודת שמירה בגיט נכשלה")
+            await query.edit_message_text(f"❌ יצירת נקודת שמירה בגיט נכשלה: {safe_html_escape(e)}", parse_mode="HTML")
