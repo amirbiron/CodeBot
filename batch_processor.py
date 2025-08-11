@@ -13,6 +13,9 @@ from database import db
 from code_processor import code_processor
 from cache_manager import cache
 from html import escape as html_escape
+import tempfile
+import subprocess
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +157,36 @@ class BatchProcessor:
         """בדיקת תקינות batch של קבצים"""
         job_id = self.create_job(user_id, "validate", file_names)
         
+        def _run_local_cmd(args_list, cwd: str, timeout_sec: int = 10) -> Dict[str, Any]:
+            try:
+                completed = subprocess.run(
+                    args_list,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_sec
+                )
+                output = (completed.stdout or "") + (completed.stderr or "")
+                return {"returncode": completed.returncode, "output": output.strip()}
+            except subprocess.TimeoutExpired as e:
+                return {"returncode": 124, "output": "Timeout"}
+            except FileNotFoundError:
+                return {"returncode": 127, "output": "Tool not installed"}
+            except Exception as e:
+                return {"returncode": 1, "output": str(e)}
+
+        def _advanced_python_checks(temp_dir: str, filename: str) -> Dict[str, Any]:
+            results: Dict[str, Any] = {}
+            # flake8
+            results["flake8"] = _run_local_cmd(["flake8", filename, "--max-line-length=120"], temp_dir)
+            # mypy (type check). Use --ignore-missing-imports for robustness
+            results["mypy"] = _run_local_cmd(["mypy", "--ignore-missing-imports", filename], temp_dir)
+            # bandit (security) - only for .py
+            results["bandit"] = _run_local_cmd(["bandit", "-q", "-r", filename], temp_dir)
+            # black --check
+            results["black"] = _run_local_cmd(["black", "--check", filename], temp_dir)
+            return results
+
         def validate_single_file(user_id: int, file_name: str) -> Dict[str, Any]:
             """בדיקת תקינות קובץ יחיד"""
             try:
@@ -166,13 +199,26 @@ class BatchProcessor:
                 
                 # בדיקת תקינות
                 is_valid, error_msg, warnings = code_processor.validate_code_input(code, file_name, user_id)
-                
-                return {
+                result: Dict[str, Any] = {
                     'is_valid': is_valid,
                     'error_message': error_msg,
                     'warnings': warnings,
-                    'language': language
+                    'language': language,
+                    'advanced_checks': {}
                 }
+
+                # בדיקות מתקדמות לפי שפה
+                if language and language.lower() == 'python':
+                    # כתיבת הקוד לקובץ זמני בספרייה זמנית וביצוע כלים לוקליים עם timeout
+                    with tempfile.TemporaryDirectory(prefix="validate_") as temp_dir:
+                        temp_file = os.path.join(temp_dir, file_name if file_name.endswith('.py') else f"{file_name}.py")
+                        # הבטח שהדירקטורי קיים
+                        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
+                        with open(temp_file, 'w', encoding='utf-8') as f:
+                            f.write(code)
+                        result['advanced_checks'] = _advanced_python_checks(temp_dir, os.path.basename(temp_file))
+
+                return result
                 
             except Exception as e:
                 return {'error': str(e)}
