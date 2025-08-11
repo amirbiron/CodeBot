@@ -303,8 +303,18 @@ class GitHubMenuHandler:
 
         elif query.data.startswith("upload_saved_"):
             file_id = query.data.split("_")[2]
-            await self.handle_saved_file_upload(update, context, file_id)
+            # Show pre-upload check screen before actual upload
+            context.user_data["pending_saved_file_id"] = file_id
+            await self.show_pre_upload_check(update, context)
 
+        elif query.data == "confirm_saved_upload":
+            file_id = context.user_data.get("pending_saved_file_id")
+            if not file_id:
+                await query.edit_message_text("❌ לא נמצא קובץ ממתין להעלאה")
+            else:
+                await self.handle_saved_file_upload(update, context, file_id)
+        elif query.data == "refresh_saved_checks":
+            await self.show_pre_upload_check(update, context)
         elif query.data == "back_to_menu":
             await self.github_menu_command(update, context)
 
@@ -3196,3 +3206,77 @@ class GitHubMenuHandler:
         except Exception as e:
             logger.error(f"Failed to create git checkpoint: {e}")
             await query.edit_message_text(f"❌ יצירת נקודת שמירה בגיט נכשלה: {safe_html_escape(e)}", parse_mode="HTML")
+
+    async def show_pre_upload_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג בדיקות לפני העלאת קובץ שמור (הרשאות/קיום קובץ/ענף/תיקייה)."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get("selected_repo")
+        file_id = context.user_data.get("pending_saved_file_id")
+        if not (token and repo_name and file_id):
+            await query.edit_message_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
+            return
+        from database import db
+        try:
+            from bson import ObjectId
+            file_data = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+            if not file_data:
+                await query.edit_message_text("❌ קובץ לא נמצא")
+                return
+            filename = file_data.get("file_name") or "file"
+            folder = session.get("selected_folder")
+            if folder and folder.strip():
+                folder = folder.strip("/")
+                file_path = f"{folder}/{filename}"
+            else:
+                file_path = filename
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            # Basic repo flags
+            archived = getattr(repo, "archived", False)
+            perms = repo.raw_data.get("permissions") if hasattr(repo, "raw_data") else None
+            push_allowed = True if not isinstance(perms, dict) else bool(perms.get("push"))
+            # Check target branch
+            default_branch = repo.default_branch or "main"
+            # Check if file exists
+            exists = False
+            try:
+                repo.get_contents(file_path, ref=default_branch)
+                exists = True
+            except Exception:
+                exists = False
+            # Build summary text
+            checks = []
+            checks.append(f"ענף יעד: {default_branch}")
+            checks.append(f"תיקייה: {folder or 'root'}")
+            checks.append(f"הרשאת push: {'כן' if push_allowed else 'לא'}")
+            checks.append(f"Archived: {'כן' if archived else 'לא'}")
+            checks.append(f"הקובץ קיים כבר: {'כן (יעודכן)' if exists else 'לא (ייווצר חדש)'}")
+            txt = (
+                "בדיקות לפני העלאה:\n"
+                f"ריפו: <code>{repo_name}</code>\n"
+                f"קובץ: <code>{file_path}</code>\n\n"
+                + "\n".join(f"• {c}" for c in checks)
+            )
+            # Build keyboard
+            kb = []
+            kb.append([InlineKeyboardButton("🔄 רענן בדיקות", callback_data="refresh_saved_checks")])
+            if push_allowed and not archived:
+                kb.append([InlineKeyboardButton("✅ אשר והעלה", callback_data="confirm_saved_upload")])
+            kb.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")])
+            await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בבדיקות לפני העלאה: {safe_html_escape(str(e))}", parse_mode="HTML")
+
+    async def confirm_saved_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Proceed with the actual upload of the saved file after checks
+        file_id = context.user_data.get("pending_saved_file_id")
+        if not file_id:
+            await update.edit_message_text("❌ לא נמצא קובץ ממתין להעלאה")
+        else:
+            await self.handle_saved_file_upload(update, context, file_id)
+
+    async def refresh_saved_checks(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.show_pre_upload_check(update, context)
