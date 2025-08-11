@@ -211,19 +211,30 @@ class DatabaseManager:
                 try:
                     existing = list(self.collection.list_indexes())
                     for idx in existing:
-                        name = idx.get('name')
-                        if name in {
-                            'user_lang_date_idx',
-                            'user_tags_updated_idx',
-                            'user_active_lang_idx',
-                            'user_active_recent_idx',
-                            'lang_tags_date_idx',
-                            'full_text_search_idx'
-                        } or name.startswith('user_id_') or name.startswith('file_name_'):
+                        name = idx.get('name', '')
+                        # זיהוי אינדקסי טקסט קיימים (כולל שמות אוטומטיים המסתיימים ב-_text)
+                        is_text_index = ('textIndexVersion' in idx) or name.endswith('_text')
+                        if (
+                            is_text_index or
+                            name in {
+                                'user_lang_date_idx',
+                                'user_tags_updated_idx',
+                                'user_active_lang_idx',
+                                'user_active_recent_idx',
+                                'lang_tags_date_idx',
+                                'full_text_search_idx'
+                            } or
+                            name.startswith('user_id_') or name.startswith('file_name_')
+                        ):
                             try:
                                 self.collection.drop_index(name)
                             except Exception:
                                 pass
+                    # ניסיון נוסף להסרת אינדקס טקסט לפי מפתח (למקרה של שם אוטומטי זהה)
+                    try:
+                        self.collection.drop_index([('code', 'text'), ('description', 'text'), ('file_name', 'text')])
+                    except Exception:
+                        pass
                     self.collection.create_indexes(indexes)
                     self.large_files_collection.create_indexes(large_files_indexes)
                     logger.info("אינדקסים עודכנו בהצלחה לאחר הסרת קונפליקטים")
