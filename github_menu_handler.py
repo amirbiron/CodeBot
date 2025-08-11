@@ -1660,7 +1660,6 @@ class GitHubMenuHandler:
             # צור כפתורים
             keyboard = [
                 [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
-                [InlineKeyboardButton("📋 פרטים מלאים", callback_data="show_full_analysis")],
                 [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
                 [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
                 [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
@@ -2027,7 +2026,6 @@ class GitHubMenuHandler:
 
         keyboard = [
             [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
-            [InlineKeyboardButton("📋 פרטים מלאים", callback_data="show_full_analysis")],
             [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
             [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
             [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
