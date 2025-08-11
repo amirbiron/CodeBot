@@ -485,6 +485,9 @@ class GitHubMenuHandler:
         elif query.data == "confirm_delete_file":
             await self.confirm_delete_file(update, context)
 
+        elif query.data == "confirm_delete_repo_step1":
+            await self.confirm_delete_repo_step1(update, context)
+
         elif query.data == "confirm_delete_repo":
             await self.confirm_delete_repo(update, context)
 
@@ -1229,7 +1232,7 @@ class GitHubMenuHandler:
     async def upload_saved_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג רשימת קבצים שמורים להעלאה"""
         user_id = update.effective_user.id
-        session = self.user_sessions.get(user_id, {})
+        session = self.get_user_session(user_id)
 
         if not session.get("selected_repo"):
             await update.callback_query.answer("❌ נא לבחור ריפו קודם")
@@ -2158,6 +2161,26 @@ class GitHubMenuHandler:
             context.user_data.pop("pending_delete_file_path", None)
             await self.github_menu_command(update, context)
 
+    async def confirm_delete_repo_step1(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מסך אישור סופי לפני מחיקת ריפו, מפנה ללחצן מחיקה סופי"""
+        query = update.callback_query
+        session = self.get_user_session(query.from_user.id)
+        repo = session.get("selected_repo")
+        if not repo:
+            await query.edit_message_text("❌ לא נבחר ריפו")
+            return
+        keyboard = [
+            [InlineKeyboardButton("🧨 כן, מחק לצמיתות", callback_data="confirm_delete_repo")],
+            [InlineKeyboardButton("🔙 ביטול", callback_data="github_menu")],
+        ]
+        await query.edit_message_text(
+            f"⚠️ אישור סופי למחיקת <code>{repo}</code>\n\n"
+            "פעולה זו תמחק לצמיתות את הריפו וכל התוכן המשויך אליו.\n"
+            "אין דרך לשחזר לאחר מכן.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML",
+        )
+
     async def confirm_delete_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מבצע מחיקת ריפו שלם לאחר אישור"""
         query = update.callback_query
@@ -3023,6 +3046,11 @@ class GitHubMenuHandler:
         if not token or not repo_full:
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
+        # Acknowledge the callback early to avoid Telegram timeout spinner
+        try:
+            await query.answer("יוצר נקודת שמירה...", show_alert=False)
+        except Exception:
+            pass
         try:
             import datetime
             g = Github(login_or_token=token)
