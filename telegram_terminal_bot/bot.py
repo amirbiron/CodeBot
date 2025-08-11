@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shlex
+import logging
 from pathlib import Path
 
 from telegram import Update
@@ -9,6 +10,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 # Configuration via environment variables
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 ALLOWED_USER_IDS = {uid.strip() for uid in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",") if uid.strip()}
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Basic safe command whitelist and working directory
 WORKDIR = Path("/workspace").resolve()
@@ -96,6 +99,9 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, run_command))
+
+    allowed_info = "all users" if not ALLOWED_USER_IDS else ", ".join(sorted(ALLOWED_USER_IDS))
+    logging.info(f"Starting bot. Allowed users: {allowed_info}")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
