@@ -272,7 +272,7 @@ async def large_file_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """טיפול בcallbacks של batch operations"""
     query = update.callback_query
-    await query.answer()
+    await query.answer(cache_time=0)
     
     user_id = update.effective_user.id
     data = query.data

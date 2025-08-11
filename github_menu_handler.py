@@ -308,7 +308,7 @@ class GitHubMenuHandler:
             await self.github_menu_command(update, context)
 
         elif query.data == "noop":
-            await query.answer()  # לא עושה כלום, רק לכפתור התצוגה
+            await query.answer(cache_time=0)  # לא עושה כלום, רק לכפתור התצוגה
 
         # --- New: logout GitHub token from menu ---
         elif query.data == "logout_github":
