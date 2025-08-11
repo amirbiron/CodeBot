@@ -927,6 +927,8 @@ class GitHubMenuHandler:
             pr_number = int(query.data.split(":", 1)[1])
             context.user_data["pr_to_merge"] = pr_number
             await self.show_confirm_merge_pr(update, context)
+        elif query.data == "refresh_merge_pr":
+            await self.show_confirm_merge_pr(update, context)
         elif query.data == "confirm_merge_pr":
             await self.confirm_merge_pr(update, context)
 
@@ -2998,11 +3000,60 @@ class GitHubMenuHandler:
         g = Github(token)
         repo = g.get_repo(repo_name)
         pr = repo.get_pull(pr_number)
-        txt = f"למזג PR?\n" f"#{pr.number}: <b>{safe_html_escape(pr.title)}</b>\n" f"{pr.html_url}"
-        kb = [
-            [InlineKeyboardButton("✅ אשר מיזוג", callback_data="confirm_merge_pr")],
-            [InlineKeyboardButton("🔙 חזור", callback_data="merge_pr_menu")],
-        ]
+        try:
+            pr.update()
+        except Exception:
+            pass
+        checks = []
+        can_merge = True
+        try:
+            # Try to read permissions from repo API result
+            perms = repo.raw_data.get("permissions") if hasattr(repo, "raw_data") else None
+            if isinstance(perms, dict):
+                push_allowed = bool(perms.get("push"))
+            else:
+                push_allowed = True
+            checks.append(f"הרשאת push: {'כן' if push_allowed else 'לא'}")
+            if not push_allowed:
+                can_merge = False
+        except Exception:
+            pass
+        mergeable = pr.mergeable
+        mergeable_state = getattr(pr, "mergeable_state", None)
+        if mergeable is False:
+            can_merge = False
+        checks.append(f"מצב mergeable: {mergeable_state or ('כן' if mergeable else 'לא ידוע')}")
+        try:
+            statuses = list(repo.get_commit(pr.head.sha).get_statuses())
+            if statuses:
+                latest_state = statuses[0].state
+                checks.append(f"סטטוסים: {latest_state}")
+        except Exception:
+            pass
+        if getattr(pr, "draft", False):
+            checks.append("Draft: כן")
+            can_merge = False
+        else:
+            checks.append("Draft: לא")
+        try:
+            reviews = list(pr.get_reviews())
+            need_changes = any(r.state == 'CHANGES_REQUESTED' for r in reviews)
+            if need_changes:
+                checks.append("בקשות שינוי פתוחות: כן")
+                can_merge = False
+        except Exception:
+            pass
+        txt = (
+            f"למזג PR?\n"
+            f"#{pr.number}: <b>{safe_html_escape(pr.title)}</b>\n"
+            f"{pr.html_url}\n\n"
+            f"בדיקות לפני מיזוג:\n" + "\n".join(f"• {c}" for c in checks)
+        )
+        kb = []
+        kb.append([InlineKeyboardButton("🔄 רענן בדיקות", callback_data="refresh_merge_pr")])
+        if can_merge:
+            kb.append([InlineKeyboardButton("✅ אשר מיזוג", callback_data="confirm_merge_pr")])
+        kb.append([InlineKeyboardButton("🔙 חזור", callback_data="merge_pr_menu")])
         await query.edit_message_text(
             txt,
             reply_markup=InlineKeyboardMarkup(kb),
