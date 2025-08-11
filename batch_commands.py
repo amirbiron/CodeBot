@@ -82,6 +82,17 @@ async def batch_analyze_command(update: Update, context: ContextTypes.DEFAULT_TY
             parse_mode=ParseMode.HTML,
             reply_markup=reply_markup
         )
+        try:
+            # יצירת רענון אוטומטי להודעת הסטטוס (אם conversation_handlers זמין)
+            from conversation_handlers import _auto_update_batch_status
+            sent = await update.message.reply_text(
+                f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+            )
+            asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
+        except Exception:
+            pass
         
     except Exception as e:
         logger.error(f"שגיאה בהתחלת ניתוח batch: {e}")
@@ -139,9 +150,19 @@ async def batch_validate_command(update: Update, context: ContextTypes.DEFAULT_T
             parse_mode=ParseMode.HTML,
             reply_markup=reply_markup
         )
+        try:
+            from conversation_handlers import _auto_update_batch_status
+            sent = await update.message.reply_text(
+                f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+            )
+            asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
+        except Exception:
+            pass
         
     except Exception as e:
-        logger.error(f"שגיאה בהתחלת בדיקה batch: {e}")
+        logger.error(f"שגיאה בהתחלת בדיקת batch: {e}")
         await update.message.reply_text("❌ שגיאה בהתחלת הבדיקה")
 
 async def job_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,14 +286,14 @@ async def large_file_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             f"📄 <b>{html_escape(file_name)}</b>\n\n"
             f"ℹ️ קובץ זה אינו גדול ({len(code.splitlines())} שורות)\n"
-            f"השתמש ב-<code>{show_command}</code> להצגה רגילה",
+            f"השתמש ב-<code>{html_escape(show_command)}</code> להצגה רגילה",
             parse_mode=ParseMode.HTML
         )
 
 async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """טיפול בcallbacks של batch operations"""
     query = update.callback_query
-    await query.answer()
+    await query.answer(cache_time=0)
     
     user_id = update.effective_user.id
     data = query.data

@@ -37,8 +37,8 @@ from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
-from cache_commands import setup_cache_handlers
-from enhanced_commands import setup_enhanced_handlers
+# from cache_commands import setup_cache_handlers  # disabled
+# from enhanced_commands import setup_enhanced_handlers  # disabled
 from batch_commands import setup_batch_handlers
 from html import escape as html_escape
 
@@ -126,9 +126,44 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """מושבת זמנית"""
-    logger.info("🚫 מנגנון נעילה מושבת")
-    return True
+    """Acquire a distributed lock in MongoDB to ensure a single bot instance runs."""
+    try:
+        lock_collection = get_lock_collection()
+        pid = os.getpid()
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
+
+        # Try to create the lock document
+        try:
+            lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "expires_at": expires_at})
+            logger.info(f"✅ MongoDB lock acquired by PID {pid}")
+        except DuplicateKeyError:
+            # A lock already exists
+            doc = lock_collection.find_one({"_id": LOCK_ID})
+            if doc and doc.get("expires_at") and doc["expires_at"] < now:
+                # Attempt to take over an expired lock
+                result = lock_collection.find_one_and_update(
+                    {"_id": LOCK_ID, "expires_at": {"$lt": now}},
+                    {"$set": {"pid": pid, "expires_at": expires_at}},
+                    return_document=True,
+                )
+                if result:
+                    logger.info(f"✅ MongoDB lock re-acquired by PID {pid} (expired lock)")
+                else:
+                    logger.warning("Another bot instance is already running (lock present).")
+                    return False
+            else:
+                logger.warning("Another bot instance is already running (lock present).")
+                return False
+
+        # Ensure lock is released on exit
+        atexit.register(cleanup_mongo_lock)
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to acquire MongoDB lock: {e}", exc_info=True)
+        # Fail-open to not crash the app, but log loudly
+        return True
 
 # =============================================================================
 
@@ -312,11 +347,11 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         
-        # הוספת פקודות cache
-        setup_cache_handlers(self.application)
+        # הוספת פקודות cache - disabled
+        # setup_cache_handlers(self.application)
         
-        # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה)
-        setup_enhanced_handlers(self.application)
+        # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה) - disabled
+        # setup_enhanced_handlers(self.application)
 
         # הטרמינל הוסר בסביבת Render (Docker לא זמין)
 

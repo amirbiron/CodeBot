@@ -950,6 +950,8 @@ class SensitiveDataFilter(logging.Filter):
                 redacted = _re.sub(pat, repl, redacted)
             # עדכן רק את message הפורמטי
             record.msg = redacted
+            # חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError
+            record.args = ()
         except Exception:
             pass
         return True

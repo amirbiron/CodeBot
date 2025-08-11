@@ -308,7 +308,7 @@ class GitHubMenuHandler:
             await self.github_menu_command(update, context)
 
         elif query.data == "noop":
-            await query.answer()  # לא עושה כלום, רק לכפתור התצוגה
+            await query.answer(cache_time=0)  # לא עושה כלום, רק לכפתור התצוגה
 
         # --- New: logout GitHub token from menu ---
         elif query.data == "logout_github":
@@ -384,6 +384,7 @@ class GitHubMenuHandler:
             current_folder = session.get("selected_folder") or "root"
             has_token = "✅" if self.get_user_token(user_id) else "❌"
 
+            keyboard = [[InlineKeyboardButton("🔙 חזרה לתפריט", callback_data="github_menu")]]
             await query.edit_message_text(
                 f"📊 <b>הגדרות נוכחיות:</b>\n\n"
                 f"📁 ריפו: <code>{current_repo}</code>\n"
@@ -391,10 +392,8 @@ class GitHubMenuHandler:
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
                 f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
                 parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(keyboard),
             )
-
-            # חזרה מיידית לתפריט
-            await self.github_menu_command(update, context)
 
         elif query.data == "set_token":
             await query.edit_message_text(
@@ -959,53 +958,60 @@ class GitHubMenuHandler:
                 if not repo_full:
                     await query.edit_message_text("❌ קודם בחר ריפו!")
                     return
-                repo = g.get_repo(repo_full)
-                url = repo.get_archive_link("zipball")
-                with tempfile.TemporaryDirectory(prefix="repo_val_") as tmp:
-                    zip_path = os.path.join(tmp, "repo.zip")
-                    r = requests.get(url, timeout=60)
-                    r.raise_for_status()
-                    with open(zip_path, "wb") as f:
-                        f.write(r.content)
-                    extract_dir = os.path.join(tmp, "repo")
-                    os.makedirs(extract_dir, exist_ok=True)
-                    with zipfile.ZipFile(zip_path, "r") as zf:
-                        zf.extractall(extract_dir)
-                    # GitHub zip יוצר תיקיית-שורש יחידה
-                    entries = [os.path.join(extract_dir, d) for d in os.listdir(extract_dir)]
-                    root = next((p for p in entries if os.path.isdir(p)), extract_dir)
-                    # העתק קבצי קונפיג אם יש
-                    try:
-                        for name in (".flake8", "pyproject.toml", "mypy.ini", "bandit.yaml"):
-                            src = os.path.join(os.getcwd(), name)
-                            dst = os.path.join(root, name)
-                            if os.path.isfile(src) and not os.path.isfile(dst):
-                                with open(src, "rb") as s, open(dst, "wb") as d:
-                                    d.write(s.read())
-                    except Exception:
-                        pass
-                    # הרצת כלים על כל הריפו
-                    def _run(cmd, timeout=60):
-                        import subprocess
+
+                def do_validate():
+                    repo = g.get_repo(repo_full)
+                    url = repo.get_archive_link("zipball")
+                    with tempfile.TemporaryDirectory(prefix="repo_val_") as tmp:
+                        zip_path = os.path.join(tmp, "repo.zip")
+                        r = requests.get(url, timeout=60)
+                        r.raise_for_status()
+                        with open(zip_path, "wb") as f:
+                            f.write(r.content)
+                        extract_dir = os.path.join(tmp, "repo")
+                        os.makedirs(extract_dir, exist_ok=True)
+                        with zipfile.ZipFile(zip_path, "r") as zf:
+                            zf.extractall(extract_dir)
+                        # GitHub zip יוצר תיקיית-שורש יחידה
+                        entries = [os.path.join(extract_dir, d) for d in os.listdir(extract_dir)]
+                        root = next((p for p in entries if os.path.isdir(p)), extract_dir)
+                        # העתק קבצי קונפיג אם יש
                         try:
-                            cp = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout)
-                            out = (cp.stdout or "") + (cp.stderr or "")
-                            return cp.returncode, out.strip()
-                        except subprocess.TimeoutExpired:
-                            return 124, "Timeout"
-                        except FileNotFoundError:
-                            return 127, "Tool not installed"
-                        except Exception as e:
-                            return 1, str(e)
-                    results = {}
-                    results["flake8"] = _run(["flake8", "."])
-                    results["mypy"] = _run(["mypy", "."])
-                    results["bandit"] = _run(["bandit", "-q", "-r", "."])
-                    results["black"] = _run(["black", "--check", "."])
+                            for name in (".flake8", "pyproject.toml", "mypy.ini", "bandit.yaml"):
+                                src = os.path.join(os.getcwd(), name)
+                                dst = os.path.join(root, name)
+                                if os.path.isfile(src) and not os.path.isfile(dst):
+                                    with open(src, "rb") as s, open(dst, "wb") as d:
+                                        d.write(s.read())
+                        except Exception:
+                            pass
+                        # הרצת כלים על כל הריפו
+                        def _run(cmd, timeout=60):
+                            import subprocess
+                            try:
+                                cp = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout)
+                                out = (cp.stdout or "") + (cp.stderr or "")
+                                return cp.returncode, out.strip()
+                            except subprocess.TimeoutExpired:
+                                return 124, "Timeout"
+                            except FileNotFoundError:
+                                return 127, "Tool not installed"
+                            except Exception as e:
+                                return 1, str(e)
+                        results = {}
+                        results["flake8"] = _run(["flake8", "."]) 
+                        results["mypy"] = _run(["mypy", "."]) 
+                        results["bandit"] = _run(["bandit", "-q", "-r", "."]) 
+                        results["black"] = _run(["black", "--check", "."]) 
+                        return results, repo_full
+
+                # הריץ ברקע כדי לא לחסום את לולאת האירועים
+                results, repo_name_for_msg = await asyncio.to_thread(do_validate)
+
                 # פורמט תוצאות
                 def label(rc):
                     return "OK" if rc == 0 else ("MISSING" if rc == 127 else ("TIMEOUT" if rc == 124 else "FAIL"))
-                lines = [f"🧪 בדיקות מתקדמות לריפו <code>{repo_full}</code>:"]
+                lines = [f"🧪 בדיקות מתקדמות לריפו <code>{repo_name_for_msg}</code>:"]
                 for tool, (rc, output) in results.items():
                     first = (output.splitlines() or [""])[0][:120]
                     suffix = f" — {escape(first)}" if label(rc) != "OK" and first else ""
