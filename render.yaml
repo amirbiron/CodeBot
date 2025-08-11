@@ -72,6 +72,31 @@ services:
       minInstances: 1
       maxInstances: 1
 
+  # ===================================
+  # Terminal Bot - Background Worker
+  # מריץ את הבוט MyTerminal66Bot עם Polling
+  # ===================================
+  - type: worker
+    name: terminal-bot
+    env: python
+    region: oregon
+    plan: free
+
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+
+    startCommand: python telegram_terminal_bot/bot.py
+
+    runtime: python3.11
+
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: 1
+      # משתני רגישים - להגדיר ב-Render Dashboard עבור ה-worker הזה:
+      # TELEGRAM_BOT_TOKEN = הטוקן של MyTerminal66Bot
+      # TELEGRAM_ALLOWED_USER_IDS = רשימת user ids מופרדת בפסיקים (לא חובה)
+
 # ===================================
 # אפשרויות נוספות לעתיד
 # ===================================
