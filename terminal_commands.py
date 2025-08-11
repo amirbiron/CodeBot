@@ -142,24 +142,6 @@ async def terminal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 def setup_terminal_handlers(application: Application):
-    """Register terminal conversation handlers and commands."""
-    # store main keyboard for exit handler
-    application.bot_data['MAIN_KEYBOARD'] = [["➕ הוסף קוד חדש"], ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"], ["⚡ עיבוד Batch", "🔧 GitHub"], ["💻 טרמינל"]]
-
-    conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("terminal", terminal_command),
-            MessageHandler(filters.Regex("^💻 טרמינל$"), terminal_enter),
-        ],
-        states={
-            TERMINAL_ACTIVE: [
-                MessageHandler(filters.Regex("^🚪 יציאה מטרמינל$"), terminal_exit),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, terminal_run_command),
-            ]
-        },
-        fallbacks=[MessageHandler(filters.Regex("^🚪 יציאה מטרמינל$"), terminal_exit)],
-        allow_reentry=True,
-        per_message=False,
-    )
-    application.add_handler(conv)
-    logger.info("Terminal handlers הוגדרו בהצלחה")
+    """Register terminal conversation handlers and commands (disabled on Render)."""
+    # Disabled: no handlers or buttons registered when Docker is unavailable
+    return

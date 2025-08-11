@@ -311,12 +311,7 @@ class CodeKeeperBot:
         # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה)
         setup_enhanced_handlers(self.application)
 
-        # הוספת טרמינל מבודד
-        try:
-            from terminal_commands import setup_terminal_handlers
-            setup_terminal_handlers(self.application)
-        except Exception as e:
-            logger.warning(f"Terminal handlers not loaded: {e}")
+        # הטרמינל הוסר בסביבת Render (Docker לא זמין)
 
 
         # הוספת handlers לכפתורים החדשים במקלדת הראשית
