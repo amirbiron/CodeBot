@@ -71,7 +71,7 @@ logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
 
 # יצירת אובייקט reporter גלובלי
 reporter = create_reporter(
-    mongodb_uri=os.getenv('REPORTER_MONGODB_URI', config.MONGODB_URL),
+    mongodb_uri=(os.getenv('REPORTER_MONGODB_URL') or os.getenv('REPORTER_MONGODB_URI') or config.MONGODB_URL),
     service_id=os.getenv('REPORTER_SERVICE_ID', 'srv-d29d72adbo4c73bcuep0'),
     service_name="CodeBot"
 )
@@ -127,11 +127,21 @@ def ensure_lock_indexes() -> None:
 def cleanup_mongo_lock():
     """Runs on script exit to remove the lock document."""
     try:
+        # If DB client is not available, skip quietly
+        try:
+            if 'db' in globals() and getattr(db, "client", None) is None:
+                logger.debug("Mongo client not available during lock cleanup; skipping.")
+                return
+        except Exception:
+            pass
+
         lock_collection = get_lock_collection()
         pid = os.getpid()
         result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
         if result.deleted_count > 0:
             logger.info(f"Lock '{LOCK_ID}' released successfully by PID: {pid}.")
+    except pymongo.errors.InvalidOperation:
+        logger.warning("Mongo client already closed; skipping lock cleanup.")
     except Exception as e:
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
@@ -252,7 +262,7 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
             CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr)')
+                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo)')
         )
 
         # Inline query handler
@@ -981,7 +991,11 @@ class CodeKeeperBot:
         await self.application.stop()
         await self.application.shutdown()
         
-        # סגירת חיבור למסד נתונים
+        # שחרור נעילה וסגירת חיבור למסד נתונים
+        try:
+            cleanup_mongo_lock()
+        except Exception:
+            pass
         db.close()
         
         logger.info("הבוט נעצר.")
@@ -1057,7 +1071,11 @@ def main() -> None:
         logger.error(f"שגיאה: {e}")
         raise
     finally:
-        logger.info("Bot polling stopped. Closing database connection.")
+        logger.info("Bot polling stopped. Releasing lock and closing database connection.")
+        try:
+            cleanup_mongo_lock()
+        except Exception:
+            pass
         if 'db' in globals():
             db.close_connection()
 
