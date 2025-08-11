@@ -1008,15 +1008,29 @@ class GitHubMenuHandler:
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
                 results, repo_name_for_msg = await asyncio.to_thread(do_validate)
 
-                # פורמט תוצאות
-                def label(rc):
+                # פורמט תוצאות מעוצב
+                def status_label(rc):
                     return "OK" if rc == 0 else ("MISSING" if rc == 127 else ("TIMEOUT" if rc == 124 else "FAIL"))
-                lines = [f"🧪 בדיקות מתקדמות לריפו <code>{repo_name_for_msg}</code>:"]
+
+                def status_emoji(rc):
+                    return "✅" if rc == 0 else ("⛔" if rc == 127 else ("⏱️" if rc == 124 else "❌"))
+
+                counts = {"OK": 0, "FAIL": 0, "TIMEOUT": 0, "MISSING": 0}
+                max_tool_len = max((len(t) for t in results.keys()), default=0)
+                rows = []
                 for tool, (rc, output) in results.items():
-                    first = (output.splitlines() or [""])[0][:120]
-                    suffix = f" — {escape(first)}" if label(rc) != "OK" and first else ""
-                    lines.append(f"• {tool}: <b>{label(rc)}</b>{suffix}")
-                await query.edit_message_text("\n".join(lines), parse_mode="HTML")
+                    label = status_label(rc)
+                    counts[label] += 1
+                    first_line = (output.splitlines() or [""])[0][:120]
+                    suffix = f" — {escape(first_line)}" if label != "OK" and first_line else ""
+                    rows.append(f"{tool.ljust(max_tool_len)} | {status_emoji(rc)} {label}{suffix}")
+
+                header = f"🧪 בדיקות מתקדמות לריפו <code>{safe_html_escape(repo_name_for_msg)}</code>\n"
+                summary = f"סיכום: ✅ {counts['OK']}  ❌ {counts['FAIL']}  ⏱️ {counts['TIMEOUT']}  ⛔ {counts['MISSING']}"
+                body = "\n".join(rows)
+                message = f"{header}{summary}\n<pre>{body}</pre>"
+
+                await query.edit_message_text(message, parse_mode="HTML")
             except Exception as e:
                 logger.exception("Repo validation failed")
                 await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
