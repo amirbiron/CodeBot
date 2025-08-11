@@ -572,17 +572,17 @@ class DatabaseManager:
             return {"regular_files": [], "large_files": []}
     
     def save_github_token(self, user_id: int, token: str) -> bool:
-        """שומר טוקן GitHub למשתמש במסד הנתונים"""
+        """שומר טוקן GitHub למשתמש במסד הנתונים (מוצפן אם יש מפתח)."""
         try:
-            # יצירת קולקשן users אם לא קיים
+            from secret_manager import encrypt_secret
+            enc = encrypt_secret(token)
+            stored = enc if enc else token
             users_collection = self.db.users
-            
-            # עדכון או יצירת רשומת משתמש
             result = users_collection.update_one(
                 {"user_id": user_id},
                 {
                     "$set": {
-                        "github_token": token,
+                        "github_token": stored,
                         "updated_at": datetime.now()
                     },
                     "$setOnInsert": {
@@ -591,21 +591,24 @@ class DatabaseManager:
                 },
                 upsert=True
             )
-            
             return result.acknowledged
         except Exception as e:
             logger.error(f"שגיאה בשמירת טוקן GitHub: {e}")
             return False
     
     def get_github_token(self, user_id: int) -> str:
-        """מחזיר טוקן GitHub של משתמש מהמסד נתונים"""
+        """מחזיר טוקן GitHub של משתמש (מפוענח אם אפשר)."""
         try:
             users_collection = self.db.users
             user = users_collection.find_one({"user_id": user_id})
-            
             if user and "github_token" in user:
-                return user["github_token"]
-            
+                stored = user["github_token"]
+                try:
+                    from secret_manager import decrypt_secret
+                    dec = decrypt_secret(stored)
+                    return dec if dec else stored
+                except Exception:
+                    return stored
             return None
         except Exception as e:
             logger.error(f"שגיאה בקבלת טוקן GitHub: {e}")

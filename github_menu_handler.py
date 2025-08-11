@@ -221,6 +221,7 @@ class GitHubMenuHandler:
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
             keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
+            keyboard.append([InlineKeyboardButton("✅ בדוק תקינות ריפו", callback_data="validate_repo")])
             # כפתור יציאה (מחיקת טוקן) כאשר יש טוקן
             keyboard.append(
                 [InlineKeyboardButton("🚪 התנתק מגיטהאב", callback_data="logout_github")]
@@ -465,7 +466,6 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
                 return
             try:
-                from github import Github
                 import datetime
                 g = Github(login_or_token=token)
                 repo = g.get_repo(repo_full)
@@ -540,6 +540,9 @@ class GitHubMenuHandler:
             # הורדה מיידית
             token = self.get_user_token(user_id)
             repo_name = session.get("selected_repo")
+            if not token or not repo_name:
+                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+                return
             g = Github(token)
             repo = g.get_repo(repo_name)
             contents = repo.get_contents(path)
@@ -958,6 +961,71 @@ class GitHubMenuHandler:
         elif query.data == "confirm_merge_pr":
             await self.confirm_merge_pr(update, context)
 
+        elif query.data == "validate_repo":
+            await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
+            try:
+                import tempfile, requests, zipfile, os
+                g = Github(self.get_user_token(user_id))
+                repo_full = session.get("selected_repo")
+                if not repo_full:
+                    await query.edit_message_text("❌ קודם בחר ריפו!")
+                    return
+                repo = g.get_repo(repo_full)
+                url = repo.get_archive_link("zipball")
+                with tempfile.TemporaryDirectory(prefix="repo_val_") as tmp:
+                    zip_path = os.path.join(tmp, "repo.zip")
+                    r = requests.get(url, timeout=60)
+                    r.raise_for_status()
+                    with open(zip_path, "wb") as f:
+                        f.write(r.content)
+                    extract_dir = os.path.join(tmp, "repo")
+                    os.makedirs(extract_dir, exist_ok=True)
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        zf.extractall(extract_dir)
+                    # GitHub zip יוצר תיקיית-שורש יחידה
+                    entries = [os.path.join(extract_dir, d) for d in os.listdir(extract_dir)]
+                    root = next((p for p in entries if os.path.isdir(p)), extract_dir)
+                    # העתק קבצי קונפיג אם יש
+                    try:
+                        for name in (".flake8", "pyproject.toml", "mypy.ini", "bandit.yaml"):
+                            src = os.path.join(os.getcwd(), name)
+                            dst = os.path.join(root, name)
+                            if os.path.isfile(src) and not os.path.isfile(dst):
+                                with open(src, "rb") as s, open(dst, "wb") as d:
+                                    d.write(s.read())
+                    except Exception:
+                        pass
+                    # הרצת כלים על כל הריפו
+                    def _run(cmd, timeout=60):
+                        import subprocess
+                        try:
+                            cp = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout)
+                            out = (cp.stdout or "") + (cp.stderr or "")
+                            return cp.returncode, out.strip()
+                        except subprocess.TimeoutExpired:
+                            return 124, "Timeout"
+                        except FileNotFoundError:
+                            return 127, "Tool not installed"
+                        except Exception as e:
+                            return 1, str(e)
+                    results = {}
+                    results["flake8"] = _run(["flake8", "."])
+                    results["mypy"] = _run(["mypy", "."])
+                    results["bandit"] = _run(["bandit", "-q", "-r", "."])
+                    results["black"] = _run(["black", "--check", "."])
+                # פורמט תוצאות
+                def label(rc):
+                    return "OK" if rc == 0 else ("MISSING" if rc == 127 else ("TIMEOUT" if rc == 124 else "FAIL"))
+                lines = [f"🧪 בדיקות מתקדמות לריפו <code>{repo_full}</code>:"]
+                for tool, (rc, output) in results.items():
+                    first = (output.splitlines() or [""])[0][:120]
+                    suffix = f" — {escape(first)}" if label(rc) != "OK" and first else ""
+                    lines.append(f"• {tool}: <b>{label(rc)}</b>{suffix}")
+                await query.edit_message_text("\n".join(lines), parse_mode="HTML")
+            except Exception as e:
+                logger.exception("Repo validation failed")
+                await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
+
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
         await self.show_repos(query.message, context, query=query)
@@ -995,7 +1063,6 @@ class GitHubMenuHandler:
                 )
 
                 # אם אין cache או שהוא ישן, בצע בקשה ל-API
-                from github import Github
 
                 g = Github(self.get_user_token(user_id))
 
@@ -1205,7 +1272,6 @@ class GitHubMenuHandler:
             logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
 
             # התחבר ל-GitHub
-            from github import Github
 
             g = Github(self.get_user_token(user_id))
 
@@ -2910,7 +2976,6 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
         try:
-            from github import Github
             import datetime
             g = Github(login_or_token=token)
             repo = g.get_repo(repo_full)

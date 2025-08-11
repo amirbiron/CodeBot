@@ -932,3 +932,32 @@ def get_language_emoji(language: str) -> str:
     }
     
     return emoji_map.get(language.lower(), '📄')
+
+class SensitiveDataFilter(logging.Filter):
+    """מסנן שמטשטש טוקנים ונתונים רגישים בלוגים."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = str(record.getMessage())
+            # זיהוי בסיסי של טוקנים: ghp_..., github_pat_..., Bearer ...
+            patterns = [
+                (r"ghp_[A-Za-z0-9]{20,}", "ghp_***REDACTED***"),
+                (r"github_pat_[A-Za-z0-9_]{20,}", "github_pat_***REDACTED***"),
+                (r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}", "Bearer ***REDACTED***"),
+            ]
+            redacted = msg
+            import re as _re
+            for pat, repl in patterns:
+                redacted = _re.sub(pat, repl, redacted)
+            # עדכן רק את message הפורמטי
+            record.msg = redacted
+        except Exception:
+            pass
+        return True
+
+
+def install_sensitive_filter():
+    """התקנת המסנן על כל ה-handlers הקיימים."""
+    root = logging.getLogger()
+    f = SensitiveDataFilter()
+    for h in root.handlers:
+        h.addFilter(f)

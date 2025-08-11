@@ -157,7 +157,7 @@ class BatchProcessor:
         """בדיקת תקינות batch של קבצים"""
         job_id = self.create_job(user_id, "validate", file_names)
         
-        def _run_local_cmd(args_list, cwd: str, timeout_sec: int = 10) -> Dict[str, Any]:
+        def _run_local_cmd(args_list, cwd: str, timeout_sec: int = 20) -> Dict[str, Any]:
             try:
                 completed = subprocess.run(
                     args_list,
@@ -177,15 +177,29 @@ class BatchProcessor:
 
         def _advanced_python_checks(temp_dir: str, filename: str) -> Dict[str, Any]:
             results: Dict[str, Any] = {}
-            # flake8
-            results["flake8"] = _run_local_cmd(["flake8", filename, "--max-line-length=120"], temp_dir)
-            # mypy (type check). Use --ignore-missing-imports for robustness
-            results["mypy"] = _run_local_cmd(["mypy", "--ignore-missing-imports", filename], temp_dir)
-            # bandit (security) - only for .py
+            # Prefer project configs if present in temp_dir (copied beforehand)
+            results["flake8"] = _run_local_cmd(["flake8", filename], temp_dir)
+            results["mypy"] = _run_local_cmd(["mypy", filename], temp_dir)
             results["bandit"] = _run_local_cmd(["bandit", "-q", "-r", filename], temp_dir)
-            # black --check
             results["black"] = _run_local_cmd(["black", "--check", filename], temp_dir)
             return results
+
+        def _copy_lint_configs(temp_dir: str) -> None:
+            """Copy lint/type/security config files into temp_dir if they exist in project root."""
+            project_root = os.getcwd()
+            configs = [
+                (os.path.join(project_root, ".flake8"), os.path.join(temp_dir, ".flake8")),
+                (os.path.join(project_root, "pyproject.toml"), os.path.join(temp_dir, "pyproject.toml")),
+                (os.path.join(project_root, "mypy.ini"), os.path.join(temp_dir, "mypy.ini")),
+                (os.path.join(project_root, "bandit.yaml"), os.path.join(temp_dir, "bandit.yaml")),
+            ]
+            for src, dst in configs:
+                try:
+                    if os.path.isfile(src):
+                        with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+                            fdst.write(fsrc.read())
+                except Exception:
+                    continue
 
         def validate_single_file(user_id: int, file_name: str) -> Dict[str, Any]:
             """בדיקת תקינות קובץ יחיד"""
@@ -216,6 +230,8 @@ class BatchProcessor:
                         os.makedirs(os.path.dirname(temp_file), exist_ok=True)
                         with open(temp_file, 'w', encoding='utf-8') as f:
                             f.write(code)
+                        # Copy configs into temp_dir
+                        _copy_lint_configs(temp_dir)
                         result['advanced_checks'] = _advanced_python_checks(temp_dir, os.path.basename(temp_file))
 
                 return result

@@ -355,7 +355,12 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                     for tool, tool_res in adv.items():
                         rc = tool_res.get('returncode')
                         status = 'OK' if rc == 0 else ('MISSING' if rc == 127 else ('TIMEOUT' if rc == 124 else 'FAIL'))
-                        parts.append(f"{tool}:{status}")
+                        snippet = ''
+                        if status != 'OK':
+                            out = (tool_res.get('output') or '').splitlines()
+                            if out:
+                                snippet = f" ({html_escape(out[0][:80])})"
+                        parts.append(f"{tool}:{status}{snippet}")
                     if parts:
                         detailed_advanced.append(f"• {html_escape(file_name)} — " + ", ".join(parts))
             if detailed_advanced:
