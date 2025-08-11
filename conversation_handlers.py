@@ -31,8 +31,7 @@ GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
-    ["⚡ עיבוד Batch", "🔧 GitHub"],
-    ["💻 טרמינל"]
+    ["⚡ עיבוד Batch", "🔧 GitHub"]
 ]
 
 reporter = create_reporter(

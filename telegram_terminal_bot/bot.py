@@ -14,27 +14,75 @@ ALLOWED_USER_IDS = {uid.strip() for uid in os.getenv("TELEGRAM_ALLOWED_USER_IDS"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Basic safe command whitelist and working directory
-WORKDIR = Path("/workspace").resolve()
+
+def _resolve_workdir() -> Path:
+    env_dir = os.getenv("WORKDIR")
+    candidates = []
+    if env_dir:
+        candidates.append(env_dir)
+    candidates.extend(["/app", "/workspace"]) 
+    for p in candidates:
+        try:
+            if p and Path(p).exists():
+                return Path(p).resolve()
+        except Exception:
+            continue
+    return Path.cwd().resolve()
+
+WORKDIR = _resolve_workdir()
+logging.info(f"Working directory: {WORKDIR}")
 SAFE_PREFIXES = [
+    # Filesystem
     "pwd",
     "ls",
+    "ls ",
+    "cd ",
+    "find ",
     "cat ",
-    "echo ",
+    "tail ",
+    "head ",
+    "du -sh",
+    "df -h",
+
+    # System
     "whoami",
     "id",
-    "df -h",
+    "ps aux",
+    "top -b -n 1",
+    "uptime",
     "free -h",
     "uname -a",
+
+    # Network
+    "curl ",
+    "wget ",
+    "ping -c ",
+
+    # Dev & tooling (Render env may not have all)
+    "git ",
+    "pip ",
+    "pip3 ",
+    "python ",
+    "python3 ",
+
+    # Text processing
+    "grep ",
+    "sed ",
+    "awk ",
+
+    # Docker (likely unavailable on Render)
     "docker version",
     "docker images",
     "docker ps",
     "docker run ",
     "docker build ",
-    "sudo docker ",  # allow sudo docker usage
+    "sudo docker ",
 ]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Bot is up. Send a shell command (limited whitelist). Example: 'docker version'")
+    await update.message.reply_text(
+        f"Bot is up. Working dir: {WORKDIR}. Try: 'pwd', 'ls -la', 'whoami'"
+    )
 
 
 def is_authorized(update: Update) -> bool:
@@ -65,9 +113,10 @@ async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # Execute command using bash -lc to support shell features safely
     try:
+        cwd_path = WORKDIR if WORKDIR.exists() else Path.cwd()
         proc = await asyncio.create_subprocess_shell(
             text,
-            cwd=str(WORKDIR),
+            cwd=str(cwd_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -85,8 +134,21 @@ async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Send a shell command from the whitelist. Examples:\n"
-        "- docker version\n- docker images\n- docker run --rm hello-world\n- ls -la\n- cat README.md\n"
+        "פקודות מותרות (דוגמאות):\n"
+        "- קבצים: pwd, ls -la, cd DIR && ls, find . -maxdepth 2 -type f\n"
+        "- קריאה: cat README.md, head -n 50 file.txt, tail -n 100 file.txt\n"
+        "- מערכת: whoami, id, ps aux, top -b -n 1, uptime, free -h, uname -a\n"
+        "- רשת: curl https://example.com, ping -c 3 8.8.8.8\n"
+        "- קוד: git status, pip --version, python --version\n"
+        "- טקסט: grep 'pattern' file.txt, sed 's/a/b/g' file.txt, awk '{print $1}' file.txt\n"
+        "הערה: ב-Render יתכן שכלי מסוימים לא מותקנים (למשל docker).\n"
+    )
+
+
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_info = "all users" if not ALLOWED_USER_IDS else ", ".join(sorted(ALLOWED_USER_IDS))
+    await update.message.reply_text(
+        f"Working dir: {WORKDIR}\nAllowed: {allowed_info}"
     )
 
 
@@ -98,6 +160,7 @@ def main() -> None:
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, run_command))
 
     allowed_info = "all users" if not ALLOWED_USER_IDS else ", ".join(sorted(ALLOWED_USER_IDS))
