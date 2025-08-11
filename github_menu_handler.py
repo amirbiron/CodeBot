@@ -33,6 +33,7 @@ from telegram.ext import (
 )
 
 from repo_analyzer import RepoAnalyzer
+from config import config
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -1021,7 +1022,7 @@ class GitHubMenuHandler:
                         file_p = safe_html_escape(m.group("file"))
                         line_p = safe_html_escape(m.group("line"))
                         # לא תמיד אפשר לשלוף את השם בבטחה בטלגרם – משאירים כללי
-                        suggestions.append(f"flake8: הסר ייבוא שלא בשימוש בשורה {line_p} בקובץ <code>{file_p}</code>")
+                        suggestions.append(f"<b>flake8</b>: הסר ייבוא שלא בשימוש בשורה {line_p} בקובץ <code>{file_p}</code>")
 
                 # mypy – הצעה ל-Optional כאשר ברירת מחדל None לסוג לא-Optional
                 rc_mypy, out_mypy = results.get("mypy", (0, ""))
@@ -1031,7 +1032,7 @@ class GitHubMenuHandler:
                     if m:
                         arg_p = safe_html_escape(m.group("arg"))
                         typ_p = safe_html_escape(m.group("typ"))
-                        suggestions.append(f"mypy: הגדר Optional[{typ_p}] לפרמטר <code>{arg_p}</code> או שנה את ברירת המחדל מ-None")
+                        suggestions.append(f"<b>mypy</b>: הגדר Optional[{typ_p}] לפרמטר <code>{arg_p}</code> או שנה את ברירת המחדל מ-None")
 
                 # black – הצעה להריץ black על קבצים ספציפיים
                 rc_black, out_black = results.get("black", (0, ""))
@@ -1039,20 +1040,28 @@ class GitHubMenuHandler:
                     import re as _re
                     files = _re.findall(r"would reformat\s+(.+)", out_black)
                     if files:
-                        file1 = safe_html_escape(files[0])
-                        suggestions.append(f"black: הרץ black על <code>{file1}</code> או על הפרויקט כולו ליישור פורמט")
+                        raw_path = files[0]
+                        # נסה לקצר מסלול זמני של zip לנתיב יחסי בתוך הריפו
+                        try:
+                            _m = _re.search(r".*/repo/[^/]+/(.+)$", raw_path)
+                            short_path = _m.group(1) if _m else raw_path
+                        except Exception:
+                            short_path = raw_path
+                        file1 = safe_html_escape(short_path)
+                        suggestions.append(f"<b>black</b>: הרץ black על <code>{file1}</code> או על הפרויקט כולו ליישור פורמט")
 
                 # bandit – הצעות כלליות בהתאם לדפוסים נפוצים
                 rc_bandit, out_bandit = results.get("bandit", (0, ""))
                 if rc_bandit != 0 and out_bandit:
                     if "eval(" in out_bandit or "B307" in out_bandit:
-                        suggestions.append("bandit: החלף שימוש ב-eval בפתרון בטוח יותר (למשל ast.literal_eval)")
+                        suggestions.append("<b>bandit</b>: החלף שימוש ב-eval בפתרון בטוח יותר (למשל ast.literal_eval)")
                     elif "exec(" in out_bandit or "B102" in out_bandit:
-                        suggestions.append("bandit: הימנע מ-exec והשתמש באלטרנטיבות בטוחות")
+                        suggestions.append("<b>bandit</b>: הימנע מ-exec והשתמש באלטרנטיבות בטוחות")
 
                 message = f"{header}{summary}\n<pre>{body}</pre>"
                 if suggestions:
-                    sug_text = "\n".join(f"• {safe_html_escape(s)}" for s in suggestions[:4])
+                    # שימור תגיות HTML בתוך ההצעות תוך בריחה של תוכן דינמי נעשה כבר בשלב בניית ההצעות
+                    sug_text = "\n".join(f"• {s}" for s in suggestions[:4])
                     message += f"\n\n💡 הצעות ממוקדות:\n{sug_text}"
 
                 await query.edit_message_text(message, parse_mode="HTML")
@@ -3022,20 +3031,88 @@ class GitHubMenuHandler:
             ref = repo.get_git_ref("heads/" + default_branch)
             sha = ref.object.sha
             ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-            tag_name = f"checkpoint-{ts}"
+            prefix = (config.GIT_CHECKPOINT_PREFIX or "checkpoint").strip()
+            # שמור על תווים חוקיים לשמות refs בסיסיים
+            prefix = re.sub(r"[^A-Za-z0-9._/-]+", "-", prefix)
+            base_name = f"{prefix}-{ts}"
+            tag_name = base_name
             # Create lightweight tag by creating a ref refs/tags/<tag>
             try:
                 repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
             except GithubException as ge:
-                # אם ה-tag כבר קיים, הוסף סיומת ייחודית קצרה
-                if getattr(ge, 'status', None) == 422:
-                    tag_name = f"{tag_name}-{sha[:7]}"
-                    repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+                status = getattr(ge, 'status', None)
+                # נסה פעם נוספת עם סיומת SHA במקרה של התנגשויות בשם
+                if status == 422:
+                    try:
+                        tag_name = f"{base_name}-{sha[:7]}"
+                        repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+                    except GithubException as ge2:
+                        # fallback ל-branch
+                        branch_name = base_name
+                        try:
+                            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                        except GithubException as gbe:
+                            if getattr(gbe, 'status', None) == 422:
+                                branch_name = f"{base_name}-{sha[:7]}"
+                                repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                            else:
+                                raise ge  # שמור על הודעת השגיאה המקורית של ה-tag
+                        # הצלחת גיבוי לענף
+                        await query.edit_message_text(
+                            f"✅ נוצר branch (Fallback): <code>{branch_name}</code> על <code>{default_branch}</code>\n"
+                            f"סיבה: tag נחסם (HTTP {status or 'N/A'})\n"
+                            f"SHA: <code>{sha[:7]}</code>\n"
+                            f"שחזור מהיר: <code>git checkout {branch_name}</code>",
+                            parse_mode="HTML",
+                        )
+                        return
                 else:
-                    raise
+                    # לא 422: עבור ישירות לגיבוי לענף
+                    branch_name = base_name
+                    try:
+                        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                    except GithubException as gbe:
+                        if getattr(gbe, 'status', None) == 422:
+                            branch_name = f"{base_name}-{sha[:7]}"
+                            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                        else:
+                            raise ge
+                    await query.edit_message_text(
+                        f"✅ נוצר branch (Fallback): <code>{branch_name}</code> על <code>{default_branch}</code>\n"
+                        f"סיבה: יצירת tag נכשלה (HTTP {status or 'N/A'})\n"
+                        f"SHA: <code>{sha[:7]}</code>\n"
+                        f"שחזור מהיר: <code>git checkout {branch_name}</code>",
+                        parse_mode="HTML",
+                    )
+                    return
+            # הצלחת יצירת tag
             await query.edit_message_text(
-                f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\nSHA: <code>{sha[:7]}</code>",
+                f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\n"
+                f"SHA: <code>{sha[:7]}</code>\n"
+                f"שחזור מהיר: <code>git checkout tags/{tag_name}</code>",
                 parse_mode="HTML"
+            )
+        except GithubException as e:
+            status = getattr(e, 'status', None)
+            gh_message = ''
+            try:
+                gh_message = (e.data or {}).get('message')  # type: ignore[attr-defined]
+            except Exception:
+                gh_message = str(e)
+            help_lines = [
+                "בדוק את הרשאות ה-Token שלך:",
+                "• לטוקן קלאסי: <b>repo</b> (גישה מלאה) או לכל הפחות <b>public_repo</b> לריפו ציבורי.",
+                "• לטוקן מסוג Fine-grained: תחת Repository permissions, תן <b>Contents: Read and write</b> ו-<b>Metadata: Read-only</b> לריפו.",
+                "• ודא שיש לך גישת כתיבה לריפו (לא רק לקריאה/פורק).",
+                "• בארגונים, ייתכן שנדרש לאשר את האפליקציה/הטוקן בארגון.",
+            ]
+            extra = ""
+            if status in (403, 404):
+                extra = "\nייתכן שאין הרשאת כתיבה או שהטוקן מוגבל."
+            await query.edit_message_text(
+                f"❌ יצירת נקודת שמירה בגיט נכשלה (HTTP {status or 'N/A'}): <b>{safe_html_escape(gh_message)}</b>{extra}\n\n" +
+                "\n".join(help_lines),
+                parse_mode="HTML",
             )
         except Exception as e:
             logger.error(f"Failed to create git checkpoint: {e}")
