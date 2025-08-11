@@ -280,10 +280,11 @@ class CodeKeeperBot:
 
         self.application.add_handler(CommandHandler("github_logout", handle_github_logout))
 
-        # --- רק אחרי כל ה-handlers של GitHub, הוסף את ה-handler הגלובלי ---
-        # הוסף CallbackQueryHandler גלובלי לטיפול בכפתורים
+        # הוספת פקודות batch (עיבוד מרובה קבצים) לפני ההנדלר הגלובלי כדי שיתפוס את התבניות שלו
+        setup_batch_handlers(self.application)
+        
+        # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
         from conversation_handlers import handle_callback_query
-        # CallbackQueryHandler כבר מיובא בתחילת הקובץ!
         self.application.add_handler(CallbackQueryHandler(handle_callback_query))
         logger.info("CallbackQueryHandler גלובלי נוסף")
 
@@ -309,10 +310,15 @@ class CodeKeeperBot:
         
         # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה)
         setup_enhanced_handlers(self.application)
-        
-        # הוספת פקודות batch (עיבוד מרובה קבצים)
-        setup_batch_handlers(self.application)
-        
+
+        # הוספת טרמינל מבודד
+        try:
+            from terminal_commands import setup_terminal_handlers
+            setup_terminal_handlers(self.application)
+        except Exception as e:
+            logger.warning(f"Terminal handlers not loaded: {e}")
+
+
         # הוספת handlers לכפתורים החדשים במקלדת הראשית
         from conversation_handlers import handle_batch_button
         self.application.add_handler(MessageHandler(

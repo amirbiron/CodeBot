@@ -345,6 +345,21 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 results_text += f"\n❌ <b>נכשלו ({len(failed_files)}):</b>\n"
                 for file_name, error in failed_files[:5]:  # הצג עד 5 שגיאות
                     results_text += f"• {html_escape(file_name)}: {html_escape(error[:50])}...\n"
+
+            # תקציר בדיקות מתקדמות (אם קיימות)
+            detailed_advanced = []
+            for file_name, result in job.results.items():
+                adv = result.get('result', {}).get('advanced_checks') if result.get('result') else None
+                if adv:
+                    parts = []
+                    for tool, tool_res in adv.items():
+                        rc = tool_res.get('returncode')
+                        status = 'OK' if rc == 0 else ('MISSING' if rc == 127 else ('TIMEOUT' if rc == 124 else 'FAIL'))
+                        parts.append(f"{tool}:{status}")
+                    if parts:
+                        detailed_advanced.append(f"• {html_escape(file_name)} — " + ", ".join(parts))
+            if detailed_advanced:
+                results_text += "\n🧪 <b>בדיקות מתקדמות:</b>\n" + "\n".join(detailed_advanced[:10])
             
             await query.edit_message_text(
                 results_text,
