@@ -465,7 +465,6 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
                 return
             try:
-                from github import Github
                 import datetime
                 g = Github(login_or_token=token)
                 repo = g.get_repo(repo_full)
@@ -540,6 +539,9 @@ class GitHubMenuHandler:
             # הורדה מיידית
             token = self.get_user_token(user_id)
             repo_name = session.get("selected_repo")
+            if not token or not repo_name:
+                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+                return
             g = Github(token)
             repo = g.get_repo(repo_name)
             contents = repo.get_contents(path)
@@ -995,7 +997,6 @@ class GitHubMenuHandler:
                 )
 
                 # אם אין cache או שהוא ישן, בצע בקשה ל-API
-                from github import Github
 
                 g = Github(self.get_user_token(user_id))
 
@@ -1205,7 +1206,6 @@ class GitHubMenuHandler:
             logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
 
             # התחבר ל-GitHub
-            from github import Github
 
             g = Github(self.get_user_token(user_id))
 
@@ -2910,7 +2910,6 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
         try:
-            from github import Github
             import datetime
             g = Github(login_or_token=token)
             repo = g.get_repo(repo_full)
