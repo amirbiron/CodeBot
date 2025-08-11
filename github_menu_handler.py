@@ -3055,9 +3055,9 @@ class GitHubMenuHandler:
             import datetime
             g = Github(login_or_token=token)
             repo = g.get_repo(repo_full)
-            default_branch = repo.get_branch(repo.default_branch).name
-            ref = repo.get_git_ref("heads/" + default_branch)
-            sha = ref.object.sha
+            branch_obj = repo.get_branch(repo.default_branch)
+            default_branch = branch_obj.name
+            sha = branch_obj.commit.sha
             ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
             prefix = (config.GIT_CHECKPOINT_PREFIX or "checkpoint").strip()
             # שמור על תווים חוקיים לשמות refs בסיסיים
