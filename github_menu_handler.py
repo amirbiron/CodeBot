@@ -1015,6 +1015,9 @@ class GitHubMenuHandler:
                 def status_emoji(rc):
                     return "✅" if rc == 0 else ("⛔" if rc == 127 else ("⏱️" if rc == 124 else "❌"))
 
+                # תרגום סטטוסים לעברית להצגה
+                he_label = {"OK": "תקין", "FAIL": "נכשל", "TIMEOUT": "פג זמן", "MISSING": "לא מותקן"}
+
                 counts = {"OK": 0, "FAIL": 0, "TIMEOUT": 0, "MISSING": 0}
                 max_tool_len = max((len(t) for t in results.keys()), default=0)
                 rows = []
@@ -1023,7 +1026,7 @@ class GitHubMenuHandler:
                     counts[label] += 1
                     first_line = (output.splitlines() or [""])[0][:120]
                     suffix = f" — {escape(first_line)}" if label != "OK" and first_line else ""
-                    rows.append(f"{tool.ljust(max_tool_len)} | {status_emoji(rc)} {label}{suffix}")
+                    rows.append(f"{tool.ljust(max_tool_len)} | {status_emoji(rc)} {he_label.get(label, label)}{suffix}")
 
                 header = f"🧪 בדיקות מתקדמות לריפו <code>{safe_html_escape(repo_name_for_msg)}</code>\n"
                 summary = f"סיכום: ✅ {counts['OK']}  ❌ {counts['FAIL']}  ⏱️ {counts['TIMEOUT']}  ⛔ {counts['MISSING']}"
