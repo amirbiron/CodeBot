@@ -41,6 +41,7 @@ from cache_commands import setup_cache_handlers
 from enhanced_commands import setup_enhanced_handlers
 from batch_commands import setup_batch_handlers
 from html import escape as html_escape
+from file_manager import backup_manager
 
 # (Lock mechanism constants removed)
 
@@ -317,6 +318,32 @@ class CodeKeeperBot:
             setup_terminal_handlers(self.application)
         except Exception as e:
             logger.warning(f"Terminal handlers not loaded: {e}")
+
+        # פקודת /backup וכפתור '🛟 נקודת שמירה'
+        async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            user_id = update.effective_user.id
+            await update.message.reply_text("🔄 יוצר נקודת שמירה...")
+            info = await backup_manager.create_backup(user_id=user_id, backup_type="manual", include_versions=True)
+            if info:
+                await update.message.reply_text(
+                    f"✅ נקודת שמירה נוצרה בהצלחה\n🆔 {info.backup_id}\n📁 {info.file_count} קבצים\n📦 {info.total_size} bytes"
+                )
+            else:
+                await update.message.reply_text("❌ יצירת נקודת שמירה נכשלה")
+
+        async def backup_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            user_id = update.effective_user.id
+            await update.message.reply_text("🔄 יוצר נקודת שמירה...")
+            info = await backup_manager.create_backup(user_id=user_id, backup_type="manual", include_versions=True)
+            if info:
+                await update.message.reply_text(
+                    f"✅ נקודת שמירה נוצרה בהצלחה\n🆔 {info.backup_id}\n📁 {info.file_count} קבצים\n📦 {info.total_size} bytes"
+                )
+            else:
+                await update.message.reply_text("❌ יצירת נקודת שמירה נכשלה")
+
+        self.application.add_handler(CommandHandler("backup", backup_command))
+        self.application.add_handler(MessageHandler(filters.Regex("^🛟 נקודת שמירה$"), backup_button))
 
         # הוספת handlers לכפתורים החדשים במקלדת הראשית
         from conversation_handlers import handle_batch_button
