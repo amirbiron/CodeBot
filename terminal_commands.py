@@ -87,7 +87,12 @@ async def terminal_enter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await update.message.reply_text(
         "💻 נכנסת למצב טרמינל מוגבל\n\n"
-        "- ללא רשת\n- מגבלות זמן/משאבים\n- קבצי מערכת לא נגישים\n\n"
+        "מגבלות אבטחה ומשאבים:\n"
+        "• ללא רשת (--network none)\n"
+        "• זמן ריצה מקסימלי: 10 שניות\n"
+        "• זיכרון: 256MB, CPU: 0.5 vCPU\n"
+        "• מערכת קבצים לקריאה בלבד, עם /tmp ו-/sandbox זמניים\n"
+        "• פלט מקסימלי: 3500 תווים (נחתך אוטומטית)\n\n"
         "הקלד פקודה להרצה, או לחץ '🚪 יציאה מטרמינל' כדי לצאת.",
         reply_markup=TERMINAL_KEYBOARD,
         parse_mode=ParseMode.HTML
