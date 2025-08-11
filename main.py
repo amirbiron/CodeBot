@@ -114,6 +114,17 @@ def get_lock_collection():
         logger.critical(f"Failed to get default database or collection: {e}", exc_info=True)
         sys.exit(1)
 
+# New: ensure TTL index on expires_at so stale locks get auto-removed
+
+def ensure_lock_indexes() -> None:
+    try:
+        lock_collection = get_lock_collection()
+        # TTL based on the absolute expiration time in the document
+        lock_collection.create_index("expires_at", expireAfterSeconds=0, name="lock_expires_ttl")
+    except Exception as e:
+        # Non-fatal; continue without TTL if index creation fails
+        logger.warning(f"Could not ensure TTL index for lock collection: {e}")
+
 def cleanup_mongo_lock():
     """Runs on script exit to remove the lock document."""
     try:
@@ -128,6 +139,7 @@ def cleanup_mongo_lock():
 def manage_mongo_lock():
     """Acquire a distributed lock in MongoDB to ensure a single bot instance runs."""
     try:
+        ensure_lock_indexes()
         lock_collection = get_lock_collection()
         pid = os.getpid()
         now = datetime.now(timezone.utc)
@@ -139,23 +151,46 @@ def manage_mongo_lock():
             logger.info(f"✅ MongoDB lock acquired by PID {pid}")
         except DuplicateKeyError:
             # A lock already exists
-            doc = lock_collection.find_one({"_id": LOCK_ID})
-            if doc and doc.get("expires_at") and doc["expires_at"] < now:
-                # Attempt to take over an expired lock
-                result = lock_collection.find_one_and_update(
-                    {"_id": LOCK_ID, "expires_at": {"$lt": now}},
-                    {"$set": {"pid": pid, "expires_at": expires_at}},
-                    return_document=True,
-                )
-                if result:
-                    logger.info(f"✅ MongoDB lock re-acquired by PID {pid} (expired lock)")
-                else:
-                    logger.warning("Another bot instance is already running (lock present).")
-                    return False
-            else:
-                logger.warning("Another bot instance is already running (lock present).")
-                return False
+            # First, attempt immediate takeover if the lock is expired
+            while True:
+                now = datetime.now(timezone.utc)
+                expires_at = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
 
+                doc = lock_collection.find_one({"_id": LOCK_ID})
+                if doc and doc.get("expires_at") and doc["expires_at"] < now:
+                    # Attempt to take over an expired lock
+                    result = lock_collection.find_one_and_update(
+                        {"_id": LOCK_ID, "expires_at": {"$lt": now}},
+                        {"$set": {"pid": pid, "expires_at": expires_at}},
+                        return_document=True,
+                    )
+                    if result:
+                        logger.info(f"✅ MongoDB lock re-acquired by PID {pid} (expired lock)")
+                        break
+                else:
+                    # Not expired: wait and retry instead of exiting to support blue/green deploys
+                    max_wait_seconds = int(os.getenv("LOCK_MAX_WAIT_SECONDS", "0"))  # 0 = wait indefinitely
+                    retry_interval_seconds = int(os.getenv("LOCK_RETRY_INTERVAL_SECONDS", "5"))
+
+                    if max_wait_seconds > 0:
+                        deadline = time.time() + max_wait_seconds
+                        while time.time() < deadline:
+                            time.sleep(retry_interval_seconds)
+                            now = datetime.now(timezone.utc)
+                            doc = lock_collection.find_one({"_id": LOCK_ID})
+                            if not doc or (doc.get("expires_at") and doc["expires_at"] < now):
+                                break
+                        # loop will re-check and attempt takeover at the top
+                        if time.time() >= deadline:
+                            logger.warning("Timeout waiting for existing lock to release. Exiting gracefully.")
+                            return False
+                    else:
+                        # Infinite wait with periodic log
+                        logger.warning("Another bot instance is already running (lock present). Waiting for lock release…")
+                        time.sleep(retry_interval_seconds)
+                        continue
+                # If we reach here without breaking, loop will retry
+            
         # Ensure lock is released on exit
         atexit.register(cleanup_mongo_lock)
         return True
