@@ -25,7 +25,11 @@ class CacheManager:
     def connect(self):
         """התחברות ל-Redis"""
         try:
-            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+            redis_url = os.getenv('REDIS_URL')
+            if not redis_url or redis_url.strip() == "" or redis_url.startswith("disabled"):
+                self.is_enabled = False
+                logger.info("Redis אינו מוגדר - Cache מושבת")
+                return
             
             self.redis_client = redis.from_url(
                 redis_url,

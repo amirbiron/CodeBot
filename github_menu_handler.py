@@ -389,13 +389,11 @@ class GitHubMenuHandler:
                 f"📁 ריפו: <code>{current_repo}</code>\n"
                 f"📂 תיקייה: <code>{current_folder}</code>\n"
                 f"🔑 טוקן מוגדר: {has_token}\n\n"
-                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה\n\n"
-                f"⏳ חוזר לתפריט בעוד מספר שניות...",
+                f"💡 טיפ: השתמש ב-'בחר תיקיית יעד' כדי לשנות את מיקום ההעלאה",
                 parse_mode="HTML",
             )
 
-            # המתן 3 שניות ואז הצג את התפריט
-            await asyncio.sleep(3)
+            # חזרה מיידית לתפריט
             await self.github_menu_command(update, context)
 
         elif query.data == "set_token":
@@ -431,21 +429,11 @@ class GitHubMenuHandler:
                 return FOLDER_SELECT
             elif folder == "root":
                 session["selected_folder"] = None
-                await query.edit_message_text(
-                    "✅ תיקייה עודכנה ל: <code>root</code> (ראשי)\n\n⏳ חוזר לתפריט...",
-                    parse_mode="HTML",
-                )
-                # המתן שנייה ואז הצג את התפריט
-                await asyncio.sleep(1.5)
+                await query.answer("✅ תיקייה עודכנה ל-root", show_alert=False)
                 await self.github_menu_command(update, context)
             else:
                 session["selected_folder"] = folder.replace("_", "/")
-                await query.edit_message_text(
-                    f"✅ תיקייה עודכנה ל: <code>{session['selected_folder']}</code>\n\n⏳ חוזר לתפריט...",
-                    parse_mode="HTML",
-                )
-                # המתן שנייה ואז הצג את התפריט
-                await asyncio.sleep(1.5)
+                await query.answer(f"✅ תיקייה עודכנה ל-{session['selected_folder']}", show_alert=False)
                 await self.github_menu_command(update, context)
 
         elif query.data == "github_menu":
@@ -561,7 +549,8 @@ class GitHubMenuHandler:
                     )
             else:
                 data = contents.decoded_content
-                filename = os.path.basename(contents.path) or "downloaded_file"
+                base = __import__('os').path
+                filename = base.basename(contents.path) or "downloaded_file"
                 await query.message.reply_document(document=BytesIO(data), filename=filename)
             await self.github_menu_command(update, context)
         elif query.data.startswith("browse_select_delete:"):
@@ -694,7 +683,7 @@ class GitHubMenuHandler:
             except ValueError:
                 page_index = 0
             context.user_data["browse_page"] = max(0, page_index)
-            await self.show_repo_browser(update, context)
+            await self.show_repo_browser(update, context, only_keyboard=True)
 
         elif query.data == "multi_toggle":
             # הפעל/בטל מצב בחירה מרובה
@@ -703,7 +692,7 @@ class GitHubMenuHandler:
             if not context.user_data["multi_mode"]:
                 context.user_data["multi_selection"] = []
             context.user_data["browse_page"] = 0
-            await self.show_repo_browser(update, context)
+            await self.show_repo_browser(update, context, only_keyboard=True)
 
         elif query.data.startswith("browse_toggle_select:"):
             # הוסף/הסר בחירה של קובץ
@@ -714,17 +703,17 @@ class GitHubMenuHandler:
             else:
                 selection.add(path)
             context.user_data["multi_selection"] = list(selection)
-            await self.show_repo_browser(update, context)
+            await self.show_repo_browser(update, context, only_keyboard=True)
 
         elif query.data == "multi_clear":
             # נקה בחירות
             context.user_data["multi_selection"] = []
-            await self.show_repo_browser(update, context)
+            await self.show_repo_browser(update, context, only_keyboard=True)
 
         elif query.data == "safe_toggle":
             # החלף מצב מחיקה בטוחה
             context.user_data["safe_delete"] = not context.user_data.get("safe_delete", True)
-            await self.show_repo_browser(update, context)
+            await self.show_repo_browser(update, context, only_keyboard=True)
 
         elif query.data == "multi_execute":
             # בצע פעולה על הבחירה (ZIP בהורדה | מחיקה במצב מחיקה)
@@ -962,9 +951,9 @@ class GitHubMenuHandler:
             await self.confirm_merge_pr(update, context)
 
         elif query.data == "validate_repo":
-            await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
             try:
-                import tempfile, requests, zipfile, os
+                await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
+                import tempfile, requests, zipfile
                 g = Github(self.get_user_token(user_id))
                 repo_full = session.get("selected_repo")
                 if not repo_full:
@@ -2182,7 +2171,7 @@ class GitHubMenuHandler:
         context.user_data["multi_selection"] = []
         await self.show_repo_browser(update, context)
 
-    async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False):
         """מציג דפדפן ריפו לפי נתיב ושימוש (download/delete)"""
         query = update.callback_query
         user_id = query.from_user.id
@@ -2192,11 +2181,6 @@ class GitHubMenuHandler:
         if not (token and repo_name):
             await query.edit_message_text("❌ חסרים נתונים")
             return
-        # חיווי טעינה
-        try:
-            await query.edit_message_text("⏳ טוען תכולה...")
-        except Exception:
-            pass
         g = Github(token)
         repo = g.get_repo(repo_name)
         path = context.user_data.get("browse_path", "")
@@ -2349,13 +2333,25 @@ class GitHubMenuHandler:
             keyboard.append(bottom)
         # טקסט
         action = "הורדה" if context.user_data.get("browse_action") == "download" else "מחיקה"
-        await query.edit_message_text(
-            f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-            f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-            f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML",
-        )
+        if only_keyboard:
+            try:
+                await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+            except Exception:
+                await query.edit_message_text(
+                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                    f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                )
+        else:
+            await query.edit_message_text(
+                f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+            )
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""
