@@ -696,11 +696,14 @@ print('זיכרון:', get_memory_usage())
 
 ## 🔒 אבטחה
 
-- **הצפנת נתונים** - כל הנתונים מוצפנים
-- **אימות משתמשים** - מבוסס Telegram ID
-- **הגבלות rate limiting** - מניעת spam
-- **ולידציית קלט** - הגנה מפני injection
-- **גיבויים מאובטחים** - encryption של קבצי גיבוי
+- **טוקנים מוצפנים**: אם מוגדר משתנה סביבה `TOKEN_ENC_KEY` (מפתח Fernet), טוקני GitHub נשמרים מוצפנים במסד הנתונים ומפוענחים רק בעת שימוש. ראו: `docs/SECURITY_TOKENS.md`.
+- **טשטוש בלוגים**: המסנן מסיר טוקנים וערכים רגישים מכל הודעות הלוג.
+- **מחיקה קלה**: ניתן למחוק את הטוקן בכל עת מהתפריט.
+- **שקיפות**: הקוד פתוח; אין שליחה של הטוקן לשירותים חיצוניים פרט ל-GitHub API הנדרש לפעולה שביקשת.
+
+המלצות:
+- הפעלו את הבוט בסביבה משלכם והגדירו `TOKEN_ENC_KEY` (מפתח באורך 32 בתים base64 או מפתח Fernet).
+- העניקו לטוקן ההרשאות המינימליות הנדרשות.
 
 ## 📊 אנליטיקה
 
