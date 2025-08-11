@@ -14,7 +14,10 @@ ALLOWED_USER_IDS = {uid.strip() for uid in os.getenv("TELEGRAM_ALLOWED_USER_IDS"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Basic safe command whitelist and working directory
-WORKDIR = Path("/workspace").resolve()
+WORKDIR = Path(
+    os.getenv("WORKDIR") or ("/app" if Path("/app").exists() else "/workspace")
+).resolve()
+logging.info(f"Working directory: {WORKDIR}")
 SAFE_PREFIXES = [
     "pwd",
     "ls",
