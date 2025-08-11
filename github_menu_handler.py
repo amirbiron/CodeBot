@@ -516,6 +516,10 @@ class GitHubMenuHandler:
             tag_name = query.data.split(":", 1)[1]
             await self.create_branch_from_tag(update, context, tag_name)
 
+        elif query.data.startswith("open_pr_from_branch:"):
+            branch_name = query.data.split(":", 1)[1]
+            await self.open_pr_from_branch(update, context, branch_name)
+
         elif query.data == "close_menu":
             await query.edit_message_text("👋 התפריט נסגר")
 
@@ -3618,11 +3622,55 @@ class GitHubMenuHandler:
                     repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                 else:
                     raise
+            kb = [
+                [InlineKeyboardButton("🔀 פתח PR מהענף", callback_data=f"open_pr_from_branch:{branch_name}")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
+            ]
             await query.edit_message_text(
                 f"✅ נוצר ענף שחזור: <code>{branch_name}</code> מתוך <code>{tag_name}</code>\n\n"
                 f"שחזור מקומי מהיר:\n"
                 f"<code>git fetch origin && git checkout {branch_name}</code>",
+                reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="HTML",
             )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}")
+
+    async def open_pr_from_branch(self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch_name: str):
+        """פותח Pull Request מהענף שנוצר אל הענף הראשי של הריפו"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            base_branch = repo.default_branch or "main"
+            title = f"Restore from checkpoint: {branch_name}"
+            body = (
+                f"Automated PR to restore state from branch `{branch_name}`.\n\n"
+                f"Created via Telegram bot."
+            )
+            pr = repo.create_pull(title=title, body=body, head=branch_name, base=base_branch)
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+            await query.edit_message_text(
+                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{branch_name}</code>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+        except GithubException as ge:
+            # ייתכן שכבר יש PR קיים מאותו ענף
+            msg = str(ge)
+            try:
+                data = ge.data or {}
+                if isinstance(data, dict) and data.get('message'):
+                    msg = data['message']
+            except Exception:
+                pass
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(msg)}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
