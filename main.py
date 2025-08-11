@@ -314,15 +314,7 @@ class CodeKeeperBot:
         setup_batch_handlers(self.application)
         
         # הוספת handlers לכפתורים החדשים במקלדת הראשית
-        from conversation_handlers import handle_preview_button, handle_autocomplete_button, handle_batch_button
-        self.application.add_handler(MessageHandler(
-            filters.Regex("^👁️ תצוגה מקדימה$"), 
-            handle_preview_button
-        ))
-        self.application.add_handler(MessageHandler(
-            filters.Regex("^🔍 אוטו-השלמה$"), 
-            handle_autocomplete_button
-        ))
+        from conversation_handlers import handle_batch_button
         self.application.add_handler(MessageHandler(
             filters.Regex("^⚡ עיבוד Batch$"), 
             handle_batch_button

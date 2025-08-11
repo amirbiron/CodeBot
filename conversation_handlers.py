@@ -29,9 +29,8 @@ GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [
-    ["➕ הוסף קוד חדש"], 
-    ["📚 הצג את כל הקבצים שלי", "👁️ תצוגה מקדימה"], 
-    ["📂 קבצים גדולים", "🔍 אוטו-השלמה"], 
+    ["➕ הוסף קוד חדש"],
+    ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
     ["⚡ עיבוד Batch", "🔧 GitHub"]
 ]
 
@@ -1377,7 +1376,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_file_info(update, context)
         elif data == "files" or data == "refresh_files":
             return await show_all_files_callback(update, context)
-        elif data == "main":
+        elif data == "main" or data == "main_menu":
             await query.edit_message_text("🏠 חוזר לבית החכם:")
             await query.message.reply_text(
                 "🎮 בחר פעולה מתקדמת:",
@@ -1427,6 +1426,70 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("lf_info_"):
             from large_files_handler import large_files_handler
             await large_files_handler.show_file_info(update, context)
+        elif data in ("batch_analyze_all", "batch_analyze_python", "batch_analyze_javascript", "batch_analyze_java", "batch_analyze_cpp"):
+            from database import db
+            from batch_processor import batch_processor
+            user_id = update.effective_user.id
+            language_map = {
+                "batch_analyze_python": "python",
+                "batch_analyze_javascript": "javascript",
+                "batch_analyze_java": "java",
+                "batch_analyze_cpp": "cpp",
+            }
+            if data == "batch_analyze_all":
+                all_files = db.get_user_files(user_id, limit=1000)
+                files = [f['file_name'] for f in all_files]
+            else:
+                language = language_map[data]
+                all_files = db.get_user_files(user_id, limit=1000)
+                files = [f['file_name'] for f in all_files if f.get('programming_language', '').lower() == language]
+            if not files:
+                await query.answer("❌ לא נמצאו קבצים", show_alert=True)
+                return ConversationHandler.END
+            job_id = await batch_processor.analyze_files_batch(user_id, files)
+            keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                f"⚡ <b>ניתוח Batch התחיל!</b>\n\n"
+                f"📁 מנתח {len(files)} קבצים\n"
+                f"🆔 Job ID: <code>{job_id}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+        elif data == "batch_validate_all":
+            from database import db
+            from batch_processor import batch_processor
+            user_id = update.effective_user.id
+            all_files = db.get_user_files(user_id, limit=1000)
+            files = [f['file_name'] for f in all_files]
+            if not files:
+                await query.answer("❌ לא נמצאו קבצים", show_alert=True)
+                return ConversationHandler.END
+            job_id = await batch_processor.validate_files_batch(user_id, files)
+            keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                f"✅ <b>בדיקת תקינות Batch התחילה!</b>\n\n"
+                f"📁 בודק {len(files)} קבצים\n"
+                f"🆔 Job ID: <code>{job_id}</code>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
+        elif data == "show_jobs":
+            from batch_processor import batch_processor
+            active_jobs = [job for job in batch_processor.active_jobs.values() if job.user_id == update.effective_user.id]
+            if not active_jobs:
+                await query.answer("אין עבודות פעילות", show_alert=True)
+                return ConversationHandler.END
+            keyboard = []
+            for job in active_jobs[-5:]:
+                keyboard.append([InlineKeyboardButton(f"{job.operation} - {job.status}", callback_data=f"job_status:{job.job_id}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                f"📋 <b>עבודות Batch פעילות ({len(active_jobs)}):</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup
+            )
         elif data == "noop":
             # כפתור שלא עושה כלום (לתצוגה בלבד)
             await query.answer()
