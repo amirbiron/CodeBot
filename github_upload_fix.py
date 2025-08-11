@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes, Application
 from github import Github, GithubException
 from datetime import datetime
 import logging
+from html import escape as html_escape
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +31,15 @@ async def github_upload_new_file(update, context):
     
     # הודעה עם הוראות ברורות
     message = (
-        f"📤 **העלאת קובץ לגיטהאב**\n\n"
-        f"🔗 ריפו: `{repo_name}`\n"
-        f"📂 תיקייה: `{folder}`\n\n"
-        f"**כדי להעלות קובץ מהמכשיר:**\n"
-        f"1️⃣ לחץ על 📎 (הסיכה) בשורת ההודעה\n"
-        f"2️⃣ בחר 'Document' או 'File'\n"
-        f"3️⃣ בחר את הקובץ מהמכשיר\n"
-        f"4️⃣ שלח אותו\n\n"
-        f"⏳ ממתין לקובץ..."
+        "📤 <b>העלאת קובץ לגיטהאב</b>\n\n"
+        f"🔗 ריפו: <code>{repo_name}</code>\n"
+        f"📂 תיקייה: <code>{folder}</code>\n\n"
+        "<b>כדי להעלות קובץ מהמכשיר:</b>\n"
+        "1) לחץ על 📎 בשורת ההודעה\n"
+        "2) בחר 'Document' או 'File'\n"
+        "3) בחר את הקובץ מהמכשיר\n"
+        "4) שלח אותו\n\n"
+        "⏳ ממתין לקובץ..."
     )
     
     keyboard = [
@@ -48,7 +49,7 @@ async def github_upload_new_file(update, context):
     
     await query.edit_message_text(
         message,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -278,17 +279,13 @@ async def check_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
         scope=BotCommandScopeChat(chat_id=6865105071)
     )
     
-    message = "📋 **סטטוס פקודות:**\n\n"
-    message += f"**ציבוריות:** {len(public_cmds)} פקודות\n"
-    
+    message = "📋 <b>סטטוס פקודות</b>\n\n"
+    message += f"סיכום: ציבוריות {len(public_cmds)} | אישיות {len(personal_cmds)}\n\n"
     if public_cmds:
-        for cmd in public_cmds:
-            message += f"  • /{cmd.command}\n"
-    
-    message += f"\n**אישיות לך:** {len(personal_cmds)} פקודות\n"
-    
+        public_list = "\n".join(f"/{cmd.command}" for cmd in public_cmds)
+        message += "<b>ציבוריות:</b>\n" + f"<pre>{html_escape(public_list)}</pre>\n"
     if personal_cmds:
-        for cmd in personal_cmds:
-            message += f"  • /{cmd.command} - {cmd.description}\n"
+        personal_list = "\n".join(f"/{cmd.command} — {cmd.description}" for cmd in personal_cmds)
+        message += "<b>אישיות:</b>\n" + f"<pre>{html_escape(personal_list)}</pre>"
     
-    await update.message.reply_text(message, parse_mode='Markdown')
+    await update.message.reply_text(message, parse_mode='HTML')

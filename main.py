@@ -619,20 +619,18 @@ class CodeKeeperBot:
             scope=BotCommandScopeChat(chat_id=6865105071)
         )
         
-        message = "📋 **סטטוס פקודות:**\n\n"
-        message += f"**ציבוריות:** {len(public_cmds)} פקודות\n"
-        
+        from html import escape as html_escape
+
+        message = "📋 <b>סטטוס פקודות</b>\n\n"
+        message += f"סיכום: ציבוריות {len(public_cmds)} | אישיות {len(personal_cmds)}\n\n"
         if public_cmds:
-            for cmd in public_cmds:
-                message += f"  • /{cmd.command}\n"
-        
-        message += f"\n**אישיות לך:** {len(personal_cmds)} פקודות\n"
-        
+            public_list = "\n".join(f"/{cmd.command}" for cmd in public_cmds)
+            message += "<b>ציבוריות:</b>\n" + f"<pre>{html_escape(public_list)}</pre>\n"
         if personal_cmds:
-            for cmd in personal_cmds:
-                message += f"  • /{cmd.command} - {cmd.description}\n"
+            personal_list = "\n".join(f"/{cmd.command} — {cmd.description}" for cmd in personal_cmds)
+            message += "<b>אישיות:</b>\n" + f"<pre>{html_escape(personal_list)}</pre>"
         
-        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש או מנהל"""
