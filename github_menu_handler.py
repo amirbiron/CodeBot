@@ -13,7 +13,7 @@ from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
 
-from github import Github
+from github import Github, GithubException
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -445,30 +445,7 @@ class GitHubMenuHandler:
             return ConversationHandler.END
         
         elif query.data == "git_checkpoint":
-            # יצירת tag על HEAD של הריפו הנבחר
-            session = self.get_user_session(query.from_user.id)
-            repo_full = session.get("selected_repo")
-            token = self.get_user_token(query.from_user.id)
-            if not token or not repo_full:
-                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
-                return
-            try:
-                import datetime
-                g = Github(login_or_token=token)
-                repo = g.get_repo(repo_full)
-                ref = repo.get_git_ref("heads/" + repo.get_branch(repo.default_branch).name)
-                sha = ref.object.sha
-                ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-                tag_name = f"checkpoint-{ts}"
-                # Create lightweight tag by creating a ref refs/tags/<tag>
-                repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
-                await query.edit_message_text(
-                    f"✅ נוצר tag: <code>{tag_name}</code> על HEAD\nSHA: <code>{sha[:7]}</code>",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logger.error(f"Failed to create git checkpoint: {e}")
-                await query.edit_message_text("❌ יצירת נקודת שמירה בגיט נכשלה")
+            await self.git_checkpoint(update, context)
 
         elif query.data == "close_menu":
             await query.edit_message_text("👋 התפריט נסגר")
@@ -1008,15 +985,77 @@ class GitHubMenuHandler:
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
                 results, repo_name_for_msg = await asyncio.to_thread(do_validate)
 
-                # פורמט תוצאות
-                def label(rc):
+                # פורמט תוצאות מעוצב
+                def status_label(rc):
                     return "OK" if rc == 0 else ("MISSING" if rc == 127 else ("TIMEOUT" if rc == 124 else "FAIL"))
-                lines = [f"🧪 בדיקות מתקדמות לריפו <code>{repo_name_for_msg}</code>:"]
+
+                def status_emoji(rc):
+                    return "✅" if rc == 0 else ("⛔" if rc == 127 else ("⏱️" if rc == 124 else "❌"))
+
+                # תרגום סטטוסים לעברית להצגה
+                he_label = {"OK": "תקין", "FAIL": "נכשל", "TIMEOUT": "פג זמן", "MISSING": "לא מותקן"}
+
+                counts = {"OK": 0, "FAIL": 0, "TIMEOUT": 0, "MISSING": 0}
+                max_tool_len = max((len(t) for t in results.keys()), default=0)
+                rows = []
                 for tool, (rc, output) in results.items():
-                    first = (output.splitlines() or [""])[0][:120]
-                    suffix = f" — {escape(first)}" if label(rc) != "OK" and first else ""
-                    lines.append(f"• {tool}: <b>{label(rc)}</b>{suffix}")
-                await query.edit_message_text("\n".join(lines), parse_mode="HTML")
+                    label = status_label(rc)
+                    counts[label] += 1
+                    first_line = (output.splitlines() or [""])[0][:120]
+                    suffix = f" — {escape(first_line)}" if label != "OK" and first_line else ""
+                    rows.append(f"{tool.ljust(max_tool_len)} | {status_emoji(rc)} {he_label.get(label, label)}{suffix}")
+
+                header = f"🧪 בדיקות מתקדמות לריפו <code>{safe_html_escape(repo_name_for_msg)}</code>\n"
+                summary = f"סיכום: ✅ {counts['OK']}  ❌ {counts['FAIL']}  ⏱️ {counts['TIMEOUT']}  ⛔ {counts['MISSING']}"
+                body = "\n".join(rows)
+
+                # יצירת הצעות ממוקדות
+                suggestions: list[str] = []
+
+                # flake8 – הצעה להסרת ייבוא שלא בשימוש
+                rc_flake8, out_flake8 = results.get("flake8", (0, ""))
+                if rc_flake8 != 0 and out_flake8:
+                    import re as _re
+                    m = _re.search(r"^(?P<file>[^:\n]+):(?P<line>\d+):\d+:\s*F401\s+'([^']+)'\s+imported but unused", out_flake8, _re.M)
+                    if m:
+                        file_p = safe_html_escape(m.group("file"))
+                        line_p = safe_html_escape(m.group("line"))
+                        # לא תמיד אפשר לשלוף את השם בבטחה בטלגרם – משאירים כללי
+                        suggestions.append(f"flake8: הסר ייבוא שלא בשימוש בשורה {line_p} בקובץ <code>{file_p}</code>")
+
+                # mypy – הצעה ל-Optional כאשר ברירת מחדל None לסוג לא-Optional
+                rc_mypy, out_mypy = results.get("mypy", (0, ""))
+                if rc_mypy != 0 and out_mypy:
+                    import re as _re
+                    m = _re.search(r"Incompatible default for argument \"(?P<arg>[^\"]+)\" \(default has type \"None\", argument has type \"(?P<typ>[^\"]+)\"", out_mypy)
+                    if m:
+                        arg_p = safe_html_escape(m.group("arg"))
+                        typ_p = safe_html_escape(m.group("typ"))
+                        suggestions.append(f"mypy: הגדר Optional[{typ_p}] לפרמטר <code>{arg_p}</code> או שנה את ברירת המחדל מ-None")
+
+                # black – הצעה להריץ black על קבצים ספציפיים
+                rc_black, out_black = results.get("black", (0, ""))
+                if rc_black != 0 and out_black:
+                    import re as _re
+                    files = _re.findall(r"would reformat\s+(.+)", out_black)
+                    if files:
+                        file1 = safe_html_escape(files[0])
+                        suggestions.append(f"black: הרץ black על <code>{file1}</code> או על הפרויקט כולו ליישור פורמט")
+
+                # bandit – הצעות כלליות בהתאם לדפוסים נפוצים
+                rc_bandit, out_bandit = results.get("bandit", (0, ""))
+                if rc_bandit != 0 and out_bandit:
+                    if "eval(" in out_bandit or "B307" in out_bandit:
+                        suggestions.append("bandit: החלף שימוש ב-eval בפתרון בטוח יותר (למשל ast.literal_eval)")
+                    elif "exec(" in out_bandit or "B102" in out_bandit:
+                        suggestions.append("bandit: הימנע מ-exec והשתמש באלטרנטיבות בטוחות")
+
+                message = f"{header}{summary}\n<pre>{body}</pre>"
+                if suggestions:
+                    sug_text = "\n".join(f"• {safe_html_escape(s)}" for s in suggestions[:4])
+                    message += f"\n\n💡 הצעות ממוקדות:\n{sug_text}"
+
+                await query.edit_message_text(message, parse_mode="HTML")
             except Exception as e:
                 logger.exception("Repo validation failed")
                 await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
@@ -1621,7 +1660,6 @@ class GitHubMenuHandler:
             # צור כפתורים
             keyboard = [
                 [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
-                [InlineKeyboardButton("📋 פרטים מלאים", callback_data="show_full_analysis")],
                 [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
                 [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
                 [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
@@ -1988,7 +2026,6 @@ class GitHubMenuHandler:
 
         keyboard = [
             [InlineKeyboardButton("🎯 הצג הצעות לשיפור", callback_data="show_suggestions")],
-            [InlineKeyboardButton("📋 פרטים מלאים", callback_data="show_full_analysis")],
             [InlineKeyboardButton("📥 הורד דוח JSON", callback_data="download_analysis_json")],
             [InlineKeyboardButton("🔍 נתח ריפו אחר", callback_data="analyze_other_repo")],
             [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
@@ -2981,17 +3018,25 @@ class GitHubMenuHandler:
             import datetime
             g = Github(login_or_token=token)
             repo = g.get_repo(repo_full)
-            ref = repo.get_git_ref("heads/" + repo.get_branch(repo.default_branch).name)
+            default_branch = repo.get_branch(repo.default_branch).name
+            ref = repo.get_git_ref("heads/" + default_branch)
             sha = ref.object.sha
             ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
             tag_name = f"checkpoint-{ts}"
-            tag_message = f"Checkpoint created by bot at {ts}Z"
             # Create lightweight tag by creating a ref refs/tags/<tag>
-            repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+            try:
+                repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+            except GithubException as ge:
+                # אם ה-tag כבר קיים, הוסף סיומת ייחודית קצרה
+                if getattr(ge, 'status', None) == 422:
+                    tag_name = f"{tag_name}-{sha[:7]}"
+                    repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+                else:
+                    raise
             await query.edit_message_text(
-                f"✅ נוצר tag: <code>{tag_name}</code> על HEAD\nSHA: <code>{sha[:7]}</code>",
+                f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\nSHA: <code>{sha[:7]}</code>",
                 parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Failed to create git checkpoint: {e}")
-            await query.edit_message_text("❌ יצירת נקודת שמירה בגיט נכשלה")
+            await query.edit_message_text(f"❌ יצירת נקודת שמירה בגיט נכשלה: {safe_html_escape(e)}", parse_mode="HTML")
