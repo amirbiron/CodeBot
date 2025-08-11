@@ -1449,13 +1449,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             job_id = await batch_processor.analyze_files_batch(user_id, files)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text(
-                f"⚡ <b>ניתוח Batch התחיל!</b>\n\n"
-                f"📁 מנתח {len(files)} קבצים\n"
-                f"🆔 Job ID: <code>{job_id}</code>",
+            sent = await query.message.reply_text(
+                f"⚡ <b>ניתוח Batch התחיל!</b>\n\n📁 מנתח {len(files)} קבצים\n🆔 Job ID: <code>{job_id}</code>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup
             )
+            asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
         elif data == "batch_validate_all":
             from database import db
             from batch_processor import batch_processor
@@ -1468,13 +1467,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             job_id = await batch_processor.validate_files_batch(user_id, files)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text(
-                f"✅ <b>בדיקת תקינות Batch התחילה!</b>\n\n"
-                f"📁 בודק {len(files)} קבצים\n"
-                f"🆔 Job ID: <code>{job_id}</code>",
+            sent = await query.message.reply_text(
+                f"✅ <b>בדיקת תקינות Batch התחילה!</b>\n\n📁 בודק {len(files)} קבצים\n🆔 Job ID: <code>{job_id}</code>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup
             )
+            # Auto refresh
+            asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
         elif data == "show_jobs":
             from batch_processor import batch_processor
             active_jobs = [job for job in batch_processor.active_jobs.values() if job.user_id == update.effective_user.id]
@@ -1762,3 +1761,35 @@ async def handle_batch_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode=ParseMode.HTML,
         reply_markup=reply_markup
     )
+
+async def _auto_update_batch_status(application, chat_id: int, message_id: int, job_id: str, user_id: int):
+    from batch_processor import batch_processor
+    from telegram.constants import ParseMode
+    try:
+        for _ in range(150):  # עד ~5 דקות, כל 2 שניות
+            job = batch_processor.get_job_status(job_id)
+            if not job or job.user_id != user_id:
+                return
+            summary = batch_processor.format_job_summary(job)
+            keyboard = []
+            if job.status == "completed":
+                keyboard.append([InlineKeyboardButton("📋 הצג תוצאות", callback_data=f"job_results:{job_id}")])
+                await application.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>\n🔧 <b>פעולה:</b> {job.operation}\n\n{summary}",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+            else:
+                await application.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>\n🔧 <b>פעולה:</b> {job.operation}\n\n{summary}",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+                )
+            await asyncio.sleep(2)
+    except Exception:
+        return
