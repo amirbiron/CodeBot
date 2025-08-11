@@ -1452,7 +1452,7 @@ class GitHubMenuHandler:
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
         if context.user_data.get("waiting_for_upload_folder"):
             # Capture folder path from user text and return to pre-upload check
-            folder_text = (text or "").strip()
+            folder_text = (update.message.text or "").strip()
             # normalize: remove leading/trailing slashes
             folder_norm = folder_text.strip("/")
             context.user_data["upload_target_folder"] = folder_norm
