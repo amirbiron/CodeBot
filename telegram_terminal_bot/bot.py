@@ -14,9 +14,22 @@ ALLOWED_USER_IDS = {uid.strip() for uid in os.getenv("TELEGRAM_ALLOWED_USER_IDS"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Basic safe command whitelist and working directory
-WORKDIR = Path(
-    os.getenv("WORKDIR") or ("/app" if Path("/app").exists() else "/workspace")
-).resolve()
+
+def _resolve_workdir() -> Path:
+    env_dir = os.getenv("WORKDIR")
+    candidates = []
+    if env_dir:
+        candidates.append(env_dir)
+    candidates.extend(["/app", "/workspace"]) 
+    for p in candidates:
+        try:
+            if p and Path(p).exists():
+                return Path(p).resolve()
+        except Exception:
+            continue
+    return Path.cwd().resolve()
+
+WORKDIR = _resolve_workdir()
 logging.info(f"Working directory: {WORKDIR}")
 SAFE_PREFIXES = [
     # Filesystem
@@ -98,9 +111,10 @@ async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # Execute command using bash -lc to support shell features safely
     try:
+        cwd_path = WORKDIR if WORKDIR.exists() else Path.cwd()
         proc = await asyncio.create_subprocess_shell(
             text,
-            cwd=str(WORKDIR),
+            cwd=str(cwd_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
