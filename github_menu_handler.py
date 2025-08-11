@@ -306,7 +306,29 @@ class GitHubMenuHandler:
             # Show pre-upload check screen before actual upload
             context.user_data["pending_saved_file_id"] = file_id
             await self.show_pre_upload_check(update, context)
-
+        elif query.data == "choose_upload_branch":
+            await self.show_upload_branch_menu(update, context)
+        elif query.data.startswith("upload_branches_page_"):
+            try:
+                p = int(query.data.split("_")[-1])
+            except Exception:
+                p = 0
+            context.user_data["upload_branches_page"] = max(0, p)
+            await self.show_upload_branch_menu(update, context)
+        elif query.data.startswith("upload_select_branch:"):
+            br = query.data.split(":", 1)[1]
+            context.user_data["upload_target_branch"] = br
+            await self.show_pre_upload_check(update, context)
+        elif query.data == "choose_upload_folder":
+            await self.show_upload_folder_menu(update, context)
+        elif query.data == "upload_folder_root":
+            context.user_data["upload_target_folder"] = ""
+            await self.show_pre_upload_check(update, context)
+        elif query.data == "upload_folder_current":
+            context.user_data["upload_target_folder"] = (session.get("selected_folder") or "")
+            await self.show_pre_upload_check(update, context)
+        elif query.data == "upload_folder_custom":
+            await self.ask_upload_folder(update, context)
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:
@@ -1354,30 +1376,30 @@ class GitHubMenuHandler:
             # הוסף delay בין בקשות
             await self.apply_rate_limit_delay(user_id)
 
-            logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
-            repo = g.get_repo(session["selected_repo"])
+                        logger.info(f"[GitHub API] Getting repo: {session['selected_repo']}")
+            repo = g.get_repo(session["selected_repo"]) 
 
-            # הגדר נתיב הקובץ
-            folder = session.get("selected_folder")
+            # Resolve target branch and folder
+            branch = context.user_data.get("upload_target_branch") or repo.default_branch or "main"
+            folder = context.user_data.get("upload_target_folder") or session.get("selected_folder")
             if folder and folder.strip():
-                # הסר / מיותרים
                 folder = folder.strip("/")
                 file_path = f"{folder}/{file_data['file_name']}"
             else:
-                # העלה ל-root
                 file_path = file_data["file_name"]
-            logger.info(f"📁 נתיב יעד: {file_path}")
+            logger.info(f"📁 נתיב יעד: {file_path} (branch: {branch})")
 
             # נסה להעלות או לעדכן את הקובץ
             try:
-                logger.info(f"[GitHub API] Checking if file exists: {file_path}")
-                existing = repo.get_contents(file_path)
+                logger.info(f"[GitHub API] Checking if file exists: {file_path} @ {branch}")
+                existing = repo.get_contents(file_path, ref=branch)
                 logger.info(f"[GitHub API] File exists, updating: {file_path}")
                 result = repo.update_file(
                     path=file_path,
                     message=f"Update {file_data['file_name']} via Telegram bot",
                     content=content,  # PyGithub יקודד אוטומטית
                     sha=existing.sha,
+                    branch=branch,
                 )
                 action = "עודכן"
                 logger.info(f"✅ קובץ עודכן בהצלחה")
@@ -1387,12 +1409,13 @@ class GitHubMenuHandler:
                     path=file_path,
                     message=f"Upload {file_data['file_name']} via Telegram bot",
                     content=content,  # PyGithub יקודד אוטומטית
+                    branch=branch,
                 )
                 action = "הועלה"
                 logger.info(f"[GitHub API] File created successfully: {file_path}")
 
             raw_url = (
-                f"https://raw.githubusercontent.com/{session['selected_repo']}/main/{file_path}"
+                f"https://raw.githubusercontent.com/{session['selected_repo']}/{branch}/{file_path}"
             )
 
             await update.callback_query.edit_message_text(
@@ -1427,6 +1450,17 @@ class GitHubMenuHandler:
         session = self.get_user_session(user_id)
 
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
+        if context.user_data.get("waiting_for_upload_folder"):
+            # Capture folder path from user text and return to pre-upload check
+            folder_text = (text or "").strip()
+            # normalize: remove leading/trailing slashes
+            folder_norm = folder_text.strip("/")
+            context.user_data["upload_target_folder"] = folder_norm
+            context.user_data["waiting_for_upload_folder"] = False
+            await update.message.reply_text("✅ תיקיית יעד עודכנה. חוזר לבדיקות...")
+            await self.show_pre_upload_check(update, context)
+            return True
+
         if (
             context.user_data.get("waiting_for_github_upload")
             or context.user_data.get("upload_mode") == "github"
@@ -3209,48 +3243,59 @@ class GitHubMenuHandler:
 
     async def show_pre_upload_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג בדיקות לפני העלאת קובץ שמור (הרשאות/קיום קובץ/ענף/תיקייה)."""
-        query = update.callback_query
-        user_id = query.from_user.id
+        query = update.callback_query if hasattr(update, "callback_query") else None
+        user_id = (query.from_user.id if query else update.effective_user.id)
         session = self.get_user_session(user_id)
         token = self.get_user_token(user_id)
         repo_name = session.get("selected_repo")
         file_id = context.user_data.get("pending_saved_file_id")
         if not (token and repo_name and file_id):
-            await query.edit_message_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
+            if query:
+                await query.edit_message_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
+            else:
+                await update.message.reply_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
             return
         from database import db
         try:
             from bson import ObjectId
             file_data = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
             if not file_data:
-                await query.edit_message_text("❌ קובץ לא נמצא")
+                if query:
+                    await query.edit_message_text("❌ קובץ לא נמצא")
+                else:
+                    await update.message.reply_text("❌ קובץ לא נמצא")
                 return
             filename = file_data.get("file_name") or "file"
-            folder = session.get("selected_folder")
-            if folder and folder.strip():
-                folder = folder.strip("/")
-                file_path = f"{folder}/{filename}"
-            else:
-                file_path = filename
+            # Resolve target folder/branch (overrides take precedence)
+            override_folder = (context.user_data.get("upload_target_folder") or "").strip()
+            target_folder = override_folder if override_folder != "" else (session.get("selected_folder") or "")
             g = Github(token)
             repo = g.get_repo(repo_name)
+            override_branch = context.user_data.get("upload_target_branch")
+            default_branch = repo.default_branch or "main"
+            target_branch = override_branch or default_branch
+            # Build file path
+            if target_folder:
+                folder_clean = target_folder.strip("/")
+                file_path = f"{folder_clean}/{filename}"
+            else:
+                folder_clean = ""
+                file_path = filename
             # Basic repo flags
             archived = getattr(repo, "archived", False)
             perms = repo.raw_data.get("permissions") if hasattr(repo, "raw_data") else None
             push_allowed = True if not isinstance(perms, dict) else bool(perms.get("push"))
-            # Check target branch
-            default_branch = repo.default_branch or "main"
-            # Check if file exists
+            # Check if file exists on target branch
             exists = False
             try:
-                repo.get_contents(file_path, ref=default_branch)
+                repo.get_contents(file_path, ref=target_branch)
                 exists = True
             except Exception:
                 exists = False
             # Build summary text
             checks = []
-            checks.append(f"ענף יעד: {default_branch}")
-            checks.append(f"תיקייה: {folder or 'root'}")
+            checks.append(f"ענף יעד: {target_branch}")
+            checks.append(f"תיקייה: {folder_clean or 'root'}")
             checks.append(f"הרשאת push: {'כן' if push_allowed else 'לא'}")
             checks.append(f"Archived: {'כן' if archived else 'לא'}")
             checks.append(f"הקובץ קיים כבר: {'כן (יעודכן)' if exists else 'לא (ייווצר חדש)'}")
@@ -3262,13 +3307,22 @@ class GitHubMenuHandler:
             )
             # Build keyboard
             kb = []
+            kb.append([InlineKeyboardButton("🌿 בחר ענף יעד", callback_data="choose_upload_branch")])
+            kb.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="choose_upload_folder")])
             kb.append([InlineKeyboardButton("🔄 רענן בדיקות", callback_data="refresh_saved_checks")])
             if push_allowed and not archived:
                 kb.append([InlineKeyboardButton("✅ אשר והעלה", callback_data="confirm_saved_upload")])
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")])
-            await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            if query:
+                await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            else:
+                await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         except Exception as e:
-            await query.edit_message_text(f"❌ שגיאה בבדיקות לפני העלאה: {safe_html_escape(str(e))}", parse_mode="HTML")
+            msg = f"❌ שגיאה בבדיקות לפני העלאה: {safe_html_escape(str(e))}"
+            if query:
+                await query.edit_message_text(msg, parse_mode="HTML")
+            else:
+                await update.message.reply_text(msg, parse_mode="HTML")
 
     async def confirm_saved_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Proceed with the actual upload of the saved file after checks
@@ -3280,3 +3334,54 @@ class GitHubMenuHandler:
 
     async def refresh_saved_checks(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self.show_pre_upload_check(update, context)
+
+    async def show_upload_branch_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_name = session.get("selected_repo")
+        if not (token and repo_name):
+            await query.edit_message_text("❌ חסרים נתונים")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_name)
+        branches = list(repo.get_branches())
+        page = context.user_data.get("upload_branches_page", 0)
+        page_size = 10
+        total_pages = max(1, (len(branches) + page_size - 1) // page_size)
+        page = min(max(0, page), total_pages - 1)
+        start = page * page_size
+        end = start + page_size
+        keyboard = []
+        for br in branches[start:end]:
+            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"upload_select_branch:{br.name}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"upload_branches_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"upload_branches_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")])
+        await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        current = session.get("selected_folder") or "root"
+        kb = [
+            [InlineKeyboardButton("📁 root (ראשי)", callback_data="upload_folder_root")],
+            [InlineKeyboardButton(f"📂 השתמש בתיקייה שנבחרה: {current}", callback_data="upload_folder_current")],
+            [InlineKeyboardButton("✏️ הזן נתיב ידנית", callback_data="upload_folder_custom")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")],
+        ]
+        await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+
+    async def ask_upload_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        context.user_data["waiting_for_upload_folder"] = True
+        await query.edit_message_text(
+            "✏️ הקלד נתיב תיקייה יעד (למשל: src/utils או ריק ל-root).\nשלח טקסט חופשי עכשיו.")
