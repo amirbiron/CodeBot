@@ -52,6 +52,12 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
+# התקנת מסנן טשטוש נתונים רגישים
+try:
+    from utils import install_sensitive_filter
+    install_sensitive_filter()
+except Exception:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -238,9 +244,10 @@ class CodeKeeperBot:
                 user_id = update.message.from_user.id
                 if user_id not in github_handler.user_sessions:
                     github_handler.user_sessions[user_id] = {}
+                # שמירה בזיכרון בלבד לשימוש שוטף
                 github_handler.user_sessions[user_id]['github_token'] = text
                 
-                # שמור גם במסד נתונים
+                # שמור גם במסד נתונים (עם הצפנה אם מוגדר מפתח)
                 db.save_github_token(user_id, text)
                 
                 await update.message.reply_text(

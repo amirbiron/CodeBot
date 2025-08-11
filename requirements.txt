@@ -110,6 +110,7 @@ python-levenshtein==0.23.0
 mypy==1.7.1
 bandit==1.7.5
 safety>=3.0.0
+cryptography==42.0.5
 
 # CLI Tools
 rich==13.7.0
