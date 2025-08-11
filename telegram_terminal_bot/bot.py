@@ -80,7 +80,9 @@ SAFE_PREFIXES = [
 ]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Bot is up. Send a shell command (limited whitelist). Example: 'docker version'")
+    await update.message.reply_text(
+        f"Bot is up. Working dir: {WORKDIR}. Try: 'pwd', 'ls -la', 'whoami'"
+    )
 
 
 def is_authorized(update: Update) -> bool:
@@ -143,6 +145,13 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    allowed_info = "all users" if not ALLOWED_USER_IDS else ", ".join(sorted(ALLOWED_USER_IDS))
+    await update.message.reply_text(
+        f"Working dir: {WORKDIR}\nAllowed: {allowed_info}"
+    )
+
+
 def main() -> None:
     token = BOT_TOKEN
     if not token:
@@ -151,6 +160,7 @@ def main() -> None:
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, run_command))
 
     allowed_info = "all users" if not ALLOWED_USER_IDS else ", ".join(sorted(ALLOWED_USER_IDS))
