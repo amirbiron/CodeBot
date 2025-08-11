@@ -91,7 +91,7 @@ class DatabaseManager:
                 retryReads=True,                # חזרה אוטומטית על קריאות כושלות
                 
                 # הגדרות נוספות
-                compressors='snappy,zlib',      # דחיסת נתונים לחיסכון ברוחב פס
+                compressors='zlib',             # השבתת snappy למניעת אזהרות ללא מודול
                 zlibCompressionLevel=6          # רמת דחיסה מאוזנת
             )
             
@@ -204,7 +204,33 @@ class DatabaseManager:
             self.large_files_collection.create_indexes(large_files_indexes)
             logger.info("אינדקסים נוצרו בהצלחה")
         except Exception as e:
-            logger.warning(f"שגיאה ביצירת אינדקסים: {e}")
+            # התמודדות חכמה עם קונפליקט שמות אינדקסים קיימים
+            msg = str(e)
+            if 'IndexOptionsConflict' in msg or 'already exists with a different name' in msg:
+                logger.warning("זוהה קונפליקט אינדקסים. מנסה להסיר ולהגדיר מחדש שמות עקביים…")
+                try:
+                    existing = list(self.collection.list_indexes())
+                    for idx in existing:
+                        name = idx.get('name')
+                        if name in {
+                            'user_lang_date_idx',
+                            'user_tags_updated_idx',
+                            'user_active_lang_idx',
+                            'user_active_recent_idx',
+                            'lang_tags_date_idx',
+                            'full_text_search_idx'
+                        } or name.startswith('user_id_') or name.startswith('file_name_'):
+                            try:
+                                self.collection.drop_index(name)
+                            except Exception:
+                                pass
+                    self.collection.create_indexes(indexes)
+                    self.large_files_collection.create_indexes(large_files_indexes)
+                    logger.info("אינדקסים עודכנו בהצלחה לאחר הסרת קונפליקטים")
+                except Exception as inner:
+                    logger.warning(f"נכשל עדכון אינדקסים לאחר קונפליקט: {inner}")
+            else:
+                logger.warning(f"שגיאה ביצירת אינדקסים: {e}")
     
     def save_code_snippet(self, snippet: CodeSnippet) -> bool:
         """שומר קטע קוד חדש או מעדכן קיים"""
