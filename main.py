@@ -37,8 +37,8 @@ from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from large_files_handler import large_files_handler
 from user_stats import user_stats
-from cache_commands import setup_cache_handlers
-from enhanced_commands import setup_enhanced_handlers
+# from cache_commands import setup_cache_handlers  # disabled
+# from enhanced_commands import setup_enhanced_handlers  # disabled
 from batch_commands import setup_batch_handlers
 from html import escape as html_escape
 
@@ -347,11 +347,11 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         
-        # הוספת פקודות cache
-        setup_cache_handlers(self.application)
+        # הוספת פקודות cache - disabled
+        # setup_cache_handlers(self.application)
         
-        # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה)
-        setup_enhanced_handlers(self.application)
+        # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה) - disabled
+        # setup_enhanced_handlers(self.application)
 
         # הטרמינל הוסר בסביבת Render (Docker לא זמין)
 
