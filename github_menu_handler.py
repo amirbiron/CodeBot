@@ -33,6 +33,7 @@ from telegram.ext import (
 )
 
 from repo_analyzer import RepoAnalyzer
+from config import config
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -3030,19 +3031,65 @@ class GitHubMenuHandler:
             ref = repo.get_git_ref("heads/" + default_branch)
             sha = ref.object.sha
             ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-            tag_name = f"checkpoint-{ts}"
+            prefix = (config.GIT_CHECKPOINT_PREFIX or "checkpoint").strip()
+            # שמור על תווים חוקיים לשמות refs בסיסיים
+            prefix = re.sub(r"[^A-Za-z0-9._/-]+", "-", prefix)
+            base_name = f"{prefix}-{ts}"
+            tag_name = base_name
             # Create lightweight tag by creating a ref refs/tags/<tag>
             try:
                 repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
             except GithubException as ge:
-                # אם ה-tag כבר קיים, הוסף סיומת ייחודית קצרה
-                if getattr(ge, 'status', None) == 422:
-                    tag_name = f"{tag_name}-{sha[:7]}"
-                    repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+                status = getattr(ge, 'status', None)
+                # נסה פעם נוספת עם סיומת SHA במקרה של התנגשויות בשם
+                if status == 422:
+                    try:
+                        tag_name = f"{base_name}-{sha[:7]}"
+                        repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
+                    except GithubException as ge2:
+                        # fallback ל-branch
+                        branch_name = base_name
+                        try:
+                            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                        except GithubException as gbe:
+                            if getattr(gbe, 'status', None) == 422:
+                                branch_name = f"{base_name}-{sha[:7]}"
+                                repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                            else:
+                                raise ge  # שמור על הודעת השגיאה המקורית של ה-tag
+                        # הצלחת גיבוי לענף
+                        await query.edit_message_text(
+                            f"✅ נוצר branch (Fallback): <code>{branch_name}</code> על <code>{default_branch}</code>\n"
+                            f"סיבה: tag נחסם (HTTP {status or 'N/A'})\n"
+                            f"SHA: <code>{sha[:7]}</code>\n"
+                            f"שחזור מהיר: <code>git checkout {branch_name}</code>",
+                            parse_mode="HTML",
+                        )
+                        return
                 else:
-                    raise
+                    # לא 422: עבור ישירות לגיבוי לענף
+                    branch_name = base_name
+                    try:
+                        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                    except GithubException as gbe:
+                        if getattr(gbe, 'status', None) == 422:
+                            branch_name = f"{base_name}-{sha[:7]}"
+                            repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                        else:
+                            raise ge
+                    await query.edit_message_text(
+                        f"✅ נוצר branch (Fallback): <code>{branch_name}</code> על <code>{default_branch}</code>\n"
+                        f"סיבה: יצירת tag נכשלה (HTTP {status or 'N/A'})\n"
+                        f"SHA: <code>{sha[:7]}</code>\n"
+                        f"שחזור מהיר: <code>git checkout {branch_name}</code>",
+                        parse_mode="HTML",
+                    )
+                    return
+            # הצלחת יצירת tag
             await query.edit_message_text(
-                f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\nSHA: <code>{sha[:7]}</code>",
+                f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\n"
+                f"SHA: <code>{sha[:7]}</code>\n"
+                f"שחזור מהיר: <code>git checkout tags/{tag_name}</code>",
                 parse_mode="HTML"
             )
         except GithubException as e:
