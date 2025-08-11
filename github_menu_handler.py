@@ -1031,7 +1031,52 @@ class GitHubMenuHandler:
                 header = f"🧪 בדיקות מתקדמות לריפו <code>{safe_html_escape(repo_name_for_msg)}</code>\n"
                 summary = f"סיכום: ✅ {counts['OK']}  ❌ {counts['FAIL']}  ⏱️ {counts['TIMEOUT']}  ⛔ {counts['MISSING']}"
                 body = "\n".join(rows)
+
+                # יצירת הצעות ממוקדות
+                suggestions: list[str] = []
+
+                # flake8 – הצעה להסרת ייבוא שלא בשימוש
+                rc_flake8, out_flake8 = results.get("flake8", (0, ""))
+                if rc_flake8 != 0 and out_flake8:
+                    import re as _re
+                    m = _re.search(r"^(?P<file>[^:\n]+):(?P<line>\d+):\d+:\s*F401\s+'([^']+)'\s+imported but unused", out_flake8, _re.M)
+                    if m:
+                        file_p = safe_html_escape(m.group("file"))
+                        line_p = safe_html_escape(m.group("line"))
+                        # לא תמיד אפשר לשלוף את השם בבטחה בטלגרם – משאירים כללי
+                        suggestions.append(f"flake8: הסר ייבוא שלא בשימוש בשורה {line_p} בקובץ <code>{file_p}</code>")
+
+                # mypy – הצעה ל-Optional כאשר ברירת מחדל None לסוג לא-Optional
+                rc_mypy, out_mypy = results.get("mypy", (0, ""))
+                if rc_mypy != 0 and out_mypy:
+                    import re as _re
+                    m = _re.search(r"Incompatible default for argument \"(?P<arg>[^\"]+)\" \(default has type \"None\", argument has type \"(?P<typ>[^\"]+)\"", out_mypy)
+                    if m:
+                        arg_p = safe_html_escape(m.group("arg"))
+                        typ_p = safe_html_escape(m.group("typ"))
+                        suggestions.append(f"mypy: הגדר Optional[{typ_p}] לפרמטר <code>{arg_p}</code> או שנה את ברירת המחדל מ-None")
+
+                # black – הצעה להריץ black על קבצים ספציפיים
+                rc_black, out_black = results.get("black", (0, ""))
+                if rc_black != 0 and out_black:
+                    import re as _re
+                    files = _re.findall(r"would reformat\s+(.+)", out_black)
+                    if files:
+                        file1 = safe_html_escape(files[0])
+                        suggestions.append(f"black: הרץ black על <code>{file1}</code> או על הפרויקט כולו ליישור פורמט")
+
+                # bandit – הצעות כלליות בהתאם לדפוסים נפוצים
+                rc_bandit, out_bandit = results.get("bandit", (0, ""))
+                if rc_bandit != 0 and out_bandit:
+                    if "eval(" in out_bandit or "B307" in out_bandit:
+                        suggestions.append("bandit: החלף שימוש ב-eval בפתרון בטוח יותר (למשל ast.literal_eval)")
+                    elif "exec(" in out_bandit or "B102" in out_bandit:
+                        suggestions.append("bandit: הימנע מ-exec והשתמש באלטרנטיבות בטוחות")
+
                 message = f"{header}{summary}\n<pre>{body}</pre>"
+                if suggestions:
+                    sug_text = "\n".join(f"• {safe_html_escape(s)}" for s in suggestions[:4])
+                    message += f"\n\n💡 הצעות ממוקדות:\n{sug_text}"
 
                 await query.edit_message_text(message, parse_mode="HTML")
             except Exception as e:
