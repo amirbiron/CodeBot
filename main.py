@@ -94,24 +94,23 @@ LOCK_TIMEOUT_MINUTES = 5
 
 def get_lock_collection():
     """
-    Gets the lock collection by asking the client for its default database.
-    This relies on the DatabaseManager's established connection.
+    Returns the lock collection from the same database the app uses
+    via DatabaseManager, avoiding reliance on the URI's default database.
     """
     try:
-        # בקש מה-client את מסד הנתונים הדיפולטיבי שהוגדר בחיבור
-        default_db = db.client.get_default_database()
-        
-        if default_db is None:
-            logger.critical("Could not determine default database from MongoDB connection!")
+        # Use the already-selected database from DatabaseManager
+        selected_db = db.db
+        if selected_db is None:
+            logger.critical("DatabaseManager.db is not initialized!")
             sys.exit(1)
-            
-        return default_db[LOCK_COLLECTION]
-        
-    except AttributeError:
-        logger.critical("'db.client' object not found or does not have 'get_default_database'. The structure of DatabaseManager might be different.")
-        sys.exit(1)
+        # Optional: small debug to help diagnose DB mismatches
+        try:
+            logger.debug(f"Using DB for locks: {selected_db.name}")
+        except Exception:
+            pass
+        return selected_db[LOCK_COLLECTION]
     except Exception as e:
-        logger.critical(f"Failed to get default database or collection: {e}", exc_info=True)
+        logger.critical(f"Failed to get lock collection from DatabaseManager: {e}", exc_info=True)
         sys.exit(1)
 
 # New: ensure TTL index on expires_at so stale locks get auto-removed
