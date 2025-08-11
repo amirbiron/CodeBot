@@ -218,6 +218,10 @@ class GitHubMenuHandler:
             keyboard.append(
                 [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")]
             )
+            # חזרה לנקודת שמירה קיימת (בחירת תגית)
+            keyboard.append(
+                [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")]
+            )
 
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
@@ -479,6 +483,42 @@ class GitHubMenuHandler:
         
         elif query.data == "git_checkpoint":
             await self.git_checkpoint(update, context)
+        
+        elif query.data.startswith("git_checkpoint_doc:"):
+            parts = query.data.split(":", 2)
+            kind = parts[1] if len(parts) > 1 else ""
+            name = parts[2] if len(parts) > 2 else ""
+            await self.create_checkpoint_doc(update, context, kind, name)
+        
+        elif query.data == "git_checkpoint_doc_skip":
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")]]
+            await query.edit_message_text(
+                "✅ נקודת שמירה נוצרה. ניתן לחזור לתפריט או להעלות קבצים שמורים.",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+        
+        elif query.data == "restore_checkpoint_menu":
+            await self.show_restore_checkpoint_menu(update, context)
+        
+        elif query.data.startswith("restore_tags_page_"):
+            try:
+                p = int(query.data.split("_")[-1])
+            except Exception:
+                p = 0
+            context.user_data["restore_tags_page"] = max(0, p)
+            await self.show_restore_checkpoint_menu(update, context)
+        
+        elif query.data.startswith("restore_select_tag:"):
+            tag_name = query.data.split(":", 1)[1]
+            await self.show_restore_tag_actions(update, context, tag_name)
+        
+        elif query.data.startswith("restore_branch_from_tag:"):
+            tag_name = query.data.split(":", 1)[1]
+            await self.create_branch_from_tag(update, context, tag_name)
+
+        elif query.data.startswith("open_pr_from_branch:"):
+            branch_name = query.data.split(":", 1)[1]
+            await self.open_pr_from_branch(update, context, branch_name)
 
         elif query.data == "close_menu":
             await query.edit_message_text("👋 התפריט נסגר")
@@ -1452,7 +1492,7 @@ class GitHubMenuHandler:
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
         if context.user_data.get("waiting_for_upload_folder"):
             # Capture folder path from user text and return to pre-upload check
-            folder_text = (text or "").strip()
+            folder_text = (update.message.text or "").strip()
             # normalize: remove leading/trailing slashes
             folder_norm = folder_text.strip("/")
             context.user_data["upload_target_folder"] = folder_norm
@@ -3181,13 +3221,18 @@ class GitHubMenuHandler:
                             else:
                                 raise ge  # שמור על הודעת השגיאה המקורית של ה-tag
                         # הצלחת גיבוי לענף
-                        await query.edit_message_text(
+                        text = (
                             f"✅ נוצר branch (Fallback): <code>{branch_name}</code> על <code>{default_branch}</code>\n"
                             f"סיבה: tag נחסם (HTTP {status or 'N/A'})\n"
                             f"SHA: <code>{sha[:7]}</code>\n"
-                            f"שחזור מהיר: <code>git checkout {branch_name}</code>",
-                            parse_mode="HTML",
+                            f"שחזור מהיר: <code>git checkout {branch_name}</code>\n\n"
+                            f"רוצה שאיצור עבורך קובץ הוראות לשחזור?"
                         )
+                        kb = [
+                            [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:branch:{branch_name}")],
+                            [InlineKeyboardButton("לא תודה", callback_data="git_checkpoint_doc_skip")],
+                        ]
+                        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
                         return
                 else:
                     # לא 422: עבור ישירות לגיבוי לענף
@@ -3200,21 +3245,31 @@ class GitHubMenuHandler:
                             repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                         else:
                             raise ge
-                    await query.edit_message_text(
+                    text = (
                         f"✅ נוצר branch (Fallback): <code>{branch_name}</code> על <code>{default_branch}</code>\n"
                         f"סיבה: יצירת tag נכשלה (HTTP {status or 'N/A'})\n"
                         f"SHA: <code>{sha[:7]}</code>\n"
-                        f"שחזור מהיר: <code>git checkout {branch_name}</code>",
-                        parse_mode="HTML",
+                        f"שחזור מהיר: <code>git checkout {branch_name}</code>\n\n"
+                        f"רוצה שאיצור עבורך קובץ הוראות לשחזור?"
                     )
+                    kb = [
+                        [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:branch:{branch_name}")],
+                        [InlineKeyboardButton("לא תודה", callback_data="git_checkpoint_doc_skip")],
+                    ]
+                    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
                     return
             # הצלחת יצירת tag
-            await query.edit_message_text(
+            text = (
                 f"✅ נוצר tag: <code>{tag_name}</code> על <code>{default_branch}</code>\n"
                 f"SHA: <code>{sha[:7]}</code>\n"
-                f"שחזור מהיר: <code>git checkout tags/{tag_name}</code>",
-                parse_mode="HTML"
+                f"שחזור מהיר: <code>git checkout tags/{tag_name}</code>\n\n"
+                f"רוצה שאיצור עבורך קובץ הוראות לשחזור?"
             )
+            kb = [
+                [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}")],
+                [InlineKeyboardButton("לא תודה", callback_data="git_checkpoint_doc_skip")],
+            ]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
         except GithubException as e:
             status = getattr(e, 'status', None)
             gh_message = ''
@@ -3385,3 +3440,237 @@ class GitHubMenuHandler:
         context.user_data["waiting_for_upload_folder"] = True
         await query.edit_message_text(
             "✏️ הקלד נתיב תיקייה יעד (למשל: src/utils או ריק ל-root).\nשלח טקסט חופשי עכשיו.")
+
+    async def create_checkpoint_doc(self, update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str, name: str):
+        """יוצר קובץ הוראות שחזור לנקודת שמירה ושולח ל-flow של העלאה"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        repo_full = session.get("selected_repo") or ""
+        from datetime import datetime
+        # בנה תוכן Markdown
+        is_tag = (kind == "tag")
+        title = "# 🏷️ נקודת שמירה בגיט\n\n"
+        what = (f"נוצר tag בשם `{name}`" if is_tag else f"נוצר branch בשם `{name}`")
+        repo_line = f"בריפו: `{repo_full}`\n\n" if repo_full else "\n"
+        intro = (
+            f"{what}.\n{repo_line}"
+            "כך ניתן לשחזר לאותה נקודה במחשב המקומי:\n\n"
+        )
+        if is_tag:
+            commands = (
+                "1. עדכן תגיות מהריפו:\n\n"
+                "```bash\n"
+                "git fetch --tags\n"
+                "```\n\n"
+                "2. מעבר לקריאה בלבד ל-tag (מצב detached):\n\n"
+                f"```bash\n"
+                f"git checkout tags/{name}\n"
+                "```\n\n"
+                "3. לחזרה לענף הראשי לאחר מכן:\n\n"
+                "```bash\n"
+                "git checkout -\n"
+                "```\n"
+            )
+        else:
+            commands = (
+                "1. עדכן רפרנסים מהריפו:\n\n"
+                "```bash\n"
+                "git fetch origin\n"
+                "```\n\n"
+                "2. מעבר לענף שנוצר:\n\n"
+                f"```bash\n"
+                f"git checkout {name}\n"
+                "```\n"
+            )
+        notes = (
+            "\n> הערות:\n"
+            "> - נקודת שמירה היא רפרנס ל-commit (tag או branch).\n"
+            "> - ניתן למחוק את הקובץ הזה לאחר השחזור.\n"
+        )
+        content = title + intro + commands + notes
+        file_name = f"RESTORE_{name}.md"
+        # שמירה במסד והמשך ל-flow של העלאה
+        from database import db
+        doc = {
+            "user_id": user_id,
+            "file_name": file_name,
+            "content": content,
+            "programming_language": "markdown",
+            "description": "הוראות שחזור לנקודת שמירה",
+            "tags": ["checkpoint", "instructions"],
+            "version": 1,
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "is_active": True,
+        }
+        try:
+            res = db.collection.insert_one(doc)
+            context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+            # פתח את בדיקות ההעלאה (בחירת ענף/תיקייה ואישור)
+            await self.show_pre_upload_check(update, context)
+        except Exception as e:
+            await query.edit_message_text(f"❌ נכשל ביצירת קובץ הוראות: {safe_html_escape(str(e))}")
+
+    async def show_restore_checkpoint_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג רשימת תגיות נקודות שמירה לבחירה לשחזור"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            # משוך תגיות (נחתוך לכמות סבירה, למשל 100)
+            tags = list(repo.get_tags())[:100]
+            prefix = (config.GIT_CHECKPOINT_PREFIX or "checkpoint").strip()
+            # שמות חוקיים
+            prefix = re.sub(r"[^A-Za-z0-9._/-]+", "-", prefix)
+            checkpoint_tags = [t for t in tags if (t.name or "").startswith(prefix + "-")]
+            if not checkpoint_tags:
+                await query.edit_message_text("ℹ️ לא נמצאו תגיות נקודת שמירה בריפו.")
+                return
+            # עימוד
+            page = int(context.user_data.get("restore_tags_page", 0) or 0)
+            per_page = 10
+            total = len(checkpoint_tags)
+            total_pages = max(1, (total + per_page - 1) // per_page)
+            page = min(max(0, page), total_pages - 1)
+            start = page * per_page
+            end = start + per_page
+            page_tags = checkpoint_tags[start:end]
+            # בנה מקלדת
+            keyboard = []
+            for t in page_tags:
+                keyboard.append([InlineKeyboardButton(f"🏷 {t.name}", callback_data=f"restore_select_tag:{t.name}")])
+            nav = []
+            if page > 0:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"restore_tags_page_{page-1}"))
+            nav.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop"))
+            if page < total_pages - 1:
+                nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"restore_tags_page_{page+1}"))
+            if nav:
+                keyboard.append(nav)
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
+            await query.edit_message_text(
+                "בחר תגית נקודת שמירה לשחזור:", reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת תגיות: {safe_html_escape(str(e))}")
+
+    async def show_restore_tag_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
+        """מציג פעולות אפשריות לשחזור מתגית נתונה"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        repo_full = session.get("selected_repo")
+        if not repo_full:
+            await query.edit_message_text("❌ לא נבחר ריפו")
+            return
+        # הצג אפשרויות: צור קובץ הוראות / צור ענף מהתגית
+        text = (
+            f"🏷 תגית נבחרה: <code>{tag_name}</code>\n\n"
+            f"בחר פעולה לשחזור:" 
+        )
+        kb = [
+            [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}")],
+            [InlineKeyboardButton("🌿 צור ענף מהתגית", callback_data=f"restore_branch_from_tag:{tag_name}")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+
+    async def create_branch_from_tag(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
+        """יוצר ענף חדש שמצביע ל-commit של התגית לשחזור נוח"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            sha = None
+            # נסה להשיג SHA מה-ref של התגית
+            try:
+                ref = repo.get_git_ref(f"tags/{tag_name}")
+                sha = ref.object.sha
+            except GithubException:
+                # נפילה חזרה לחיפוש ברשימת תגיות
+                for t in repo.get_tags():
+                    if t.name == tag_name:
+                        sha = t.commit.sha
+                        break
+            if not sha:
+                await query.edit_message_text("❌ לא נמצאה התגית המבוקשת")
+                return
+            # שם ברירת מחדל לענף שחזור
+            base_branch = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"restore-{tag_name}")
+            branch_name = base_branch
+            # צור את ה-ref, עם ניסיון לשמור על ייחודיות
+            try:
+                repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+            except GithubException as gbe:
+                if getattr(gbe, 'status', None) == 422:
+                    branch_name = f"{base_branch}-{sha[:7]}"
+                    repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
+                else:
+                    raise
+            kb = [
+                [InlineKeyboardButton("🔀 פתח PR מהענף", callback_data=f"open_pr_from_branch:{branch_name}")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
+            ]
+            await query.edit_message_text(
+                f"✅ נוצר ענף שחזור: <code>{branch_name}</code> מתוך <code>{tag_name}</code>\n\n"
+                f"שחזור מקומי מהיר:\n"
+                f"<code>git fetch origin && git checkout {branch_name}</code>",
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}")
+
+    async def open_pr_from_branch(self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch_name: str):
+        """פותח Pull Request מהענף שנוצר אל הענף הראשי של הריפו"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            base_branch = repo.default_branch or "main"
+            title = f"Restore from checkpoint: {branch_name}"
+            body = (
+                f"Automated PR to restore state from branch `{branch_name}`.\n\n"
+                f"Created via Telegram bot."
+            )
+            pr = repo.create_pull(title=title, body=body, head=branch_name, base=base_branch)
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+            await query.edit_message_text(
+                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{branch_name}</code>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+        except GithubException as ge:
+            # ייתכן שכבר יש PR קיים מאותו ענף
+            msg = str(ge)
+            try:
+                data = ge.data or {}
+                if isinstance(data, dict) and data.get('message'):
+                    msg = data['message']
+            except Exception:
+                pass
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(msg)}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
