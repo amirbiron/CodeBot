@@ -16,6 +16,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+# הימנע מדיאלוגים אינטראקטיביים בזמן build
+ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות מערכת לבילד
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -43,9 +45,13 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/home/botuser/.local/bin:$PATH"
 ENV PYTHONPATH="/app:$PYTHONPATH"
+# הימנע מדיאלוגים אינטראקטיביים בזמן build
+ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && echo "Etc/UTC" > /etc/timezone \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     # עבור עיבוד תמונות
     libcairo2 \
     libpango-1.0-0 \
@@ -54,10 +60,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # עבור fontconfig
     fontconfig \
     fonts-dejavu-core \
-    # עבור ניקוי זמני
+    # כלים בסיסיים
     curl \
+    ca-certificates \
     # עבור timezone
     tzdata \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -113,6 +121,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     vim \
     htop \
+    ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # התקנת dev dependencies
