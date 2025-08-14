@@ -20,11 +20,14 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות מערכת לבילד
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     g++ \
-    && rm -rf /var/lib/apt/lists/*
+    ; \
+    rm -rf /var/lib/apt/lists/*
 
 # יצירת משתמש לא-root
 RUN groupadd -r botuser && useradd -r -g botuser botuser
@@ -49,25 +52,24 @@ ENV PYTHONPATH="/app:$PYTHONPATH"
 ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות runtime
-RUN ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && echo "Etc/UTC" > /etc/timezone \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    # עבור עיבוד תמונות
+RUN set -eux; \
+    apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
+    echo "tzdata tzdata/Areas select Etc" | debconf-set-selections; \
+    echo "tzdata tzdata/Zones/Etc select UTC" | debconf-set-selections; \
+    apt-get install -y --no-install-recommends \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    # עבור fontconfig
+    libgdk-pixbuf-2.0-0 \
     fontconfig \
     fonts-dejavu-core \
-    # כלים בסיסיים
     curl \
     ca-certificates \
-    # עבור timezone
     tzdata \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    ; \
+    update-ca-certificates; \
+    rm -rf /var/lib/apt/lists/*; \
+    apt-get clean
 
 # יצירת משתמש לא-root
 RUN groupadd -r botuser && useradd -r -g botuser botuser
@@ -117,13 +119,16 @@ FROM production as development
 USER root
 
 # התקנת כלי פיתוח
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN set -eux; \
+    apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
+    apt-get install -y --no-install-recommends \
     git \
     vim \
     htop \
     ca-certificates \
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    ; \
+    update-ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
 
 # התקנת dev dependencies
 COPY requirements-dev.txt* ./
