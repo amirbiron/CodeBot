@@ -21,7 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות מערכת לבילד
 RUN set -eux; \
-    apt-get update; \
+    apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
     apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
