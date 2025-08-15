@@ -3645,7 +3645,20 @@ class GitHubMenuHandler:
                 parse_mode="HTML",
             )
         except Exception as e:
-            await query.edit_message_text(f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}")
+            # הצג אפשרות להמשיך ליצירת PR לשחזור למרות הכישלון ביצירת ענף
+            try:
+                kb = [
+                    [InlineKeyboardButton("🔁 צור PR לשחזור (Revert)", callback_data=f"restore_revert_pr_from_tag:{tag_name}")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
+                ]
+                await query.edit_message_text(
+                    f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}\n\n"
+                    f"תוכל עדיין ליצור PR לשחזור ישירות מהתגית <code>{tag_name}</code>.",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                await query.edit_message_text(f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}")
 
     async def open_pr_from_branch(self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch_name: str):
         """פותח Pull Request מהענף שנוצר אל הענף הראשי של הריפו"""
