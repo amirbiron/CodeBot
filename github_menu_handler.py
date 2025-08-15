@@ -520,6 +520,10 @@ class GitHubMenuHandler:
             branch_name = query.data.split(":", 1)[1]
             await self.open_pr_from_branch(update, context, branch_name)
 
+        elif query.data.startswith("restore_revert_pr_from_tag:"):
+            tag_name = query.data.split(":", 1)[1]
+            await self.create_revert_pr_from_tag(update, context, tag_name)
+
         elif query.data == "close_menu":
             await query.edit_message_text("👋 התפריט נסגר")
 
@@ -3168,7 +3172,7 @@ class GitHubMenuHandler:
             result = pr.merge(merge_method="merge")
             if result.merged:
                 await query.edit_message_text(
-                    f'✅ PR מוזג בהצלחה: <a href="{pr.html_url}">#{pr.number}</a>',
+                    f"✅ PR מוזג בהצלחה: <a href=\"{pr.html_url}\">#{pr.number}</a>",
                     parse_mode="HTML",
                 )
             else:
@@ -3585,6 +3589,7 @@ class GitHubMenuHandler:
         kb = [
             [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}")],
             [InlineKeyboardButton("🌿 צור ענף מהתגית", callback_data=f"restore_branch_from_tag:{tag_name}")],
+            [InlineKeyboardButton("🔁 צור PR לשחזור (Revert)", callback_data=f"restore_revert_pr_from_tag:{tag_name}")],
             [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
@@ -3656,6 +3661,50 @@ class GitHubMenuHandler:
             g = Github(token)
             repo = g.get_repo(repo_full)
             base_branch = repo.default_branch or "main"
+            owner_login = repo.owner.login if getattr(repo, "owner", None) else repo_full.split("/")[0]
+
+            # 1) אם כבר קיים PR פתוח מהענף הזה לבסיס – הצג אותו במקום ליצור חדש
+            try:
+                existing_prs = list(
+                    repo.get_pulls(state="open", base=base_branch, head=f"{owner_login}:{branch_name}")
+                )
+                if existing_prs:
+                    pr = existing_prs[0]
+                    kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+                    await query.edit_message_text(
+                        f"ℹ️ כבר קיים PR פתוח מהענף <code>{branch_name}</code> ל-<code>{base_branch}</code>: "
+                        f"<a href=\"{pr.html_url}\">#{pr.number}</a>",
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(kb),
+                    )
+                    return
+            except Exception:
+                # נמשיך לנסות ליצור PR אם לא הצלחנו לבדוק קיום
+                pass
+
+            # 2) בדוק שיש הבדלים בין HEAD ל-base (אחרת GitHub יחזיר Validation Failed)
+            try:
+                cmp = repo.compare(base_branch, branch_name)
+                if getattr(cmp, "ahead_by", 0) == 0 and getattr(cmp, "behind_by", 0) == 0:
+                    kb = [
+                        [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")],
+                        [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+                    ]
+                    await query.edit_message_text(
+                        (
+                            "❌ לא ניתן לפתוח PR: אין שינויים בין הענף "
+                            f"<code>{branch_name}</code> ל- <code>{base_branch}</code>\n\n"
+                            "נסה לבחור תגית אחרת לשחזור, או בצע שינוי/commit בענף לפני פתיחת PR."
+                        ),
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(kb),
+                    )
+                    return
+            except Exception:
+                # אם ההשוואה נכשלה, ננסה בכל זאת ליצור PR – ייתכן שהענף חדש מאוד
+                pass
+
+            # 3) צור PR
             title = f"Restore from checkpoint: {branch_name}"
             body = (
                 f"Automated PR to restore state from branch `{branch_name}`.\n\n"
@@ -3669,14 +3718,141 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(kb),
             )
         except GithubException as ge:
-            # ייתכן שכבר יש PR קיים מאותו ענף
-            msg = str(ge)
+            # פרשנות מפורטת יותר לשגיאות Validation Failed
+            message_text = "Validation Failed"
+            try:
+                data = ge.data or {}
+                if isinstance(data, dict):
+                    # הודעת על
+                    if data.get("message"):
+                        message_text = data["message"]
+                    # בדוק פירוט שגיאות נפוצות
+                    errors = data.get("errors") or []
+                    if isinstance(errors, list) and errors:
+                        details = []
+                        for err in errors:
+                            # err יכול להיות dict עם מפתחות code/message
+                            code = err.get("code") if isinstance(err, dict) else None
+                            msg = err.get("message") if isinstance(err, dict) else None
+                            if code == "custom" and msg:
+                                details.append(msg)
+                            elif msg:
+                                details.append(msg)
+                        if details:
+                            message_text += ": " + "; ".join(details)
+            except Exception:
+                pass
+
+            # נסה לזהות במפורש "No commits between" או PR קיים ולהציע פתרון
+            lower_msg = (message_text or "").lower()
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+            if "no commits between" in lower_msg or "no commits" in lower_msg:
+                kb.insert(0, [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")])
+                await query.edit_message_text(
+                    (
+                        "❌ שגיאה בפתיחת PR: אין שינויים בין הענפים.\n\n"
+                        f"ענף: <code>{branch_name}</code> → בסיס: <code>{base_branch}</code>\n\n"
+                        "בחר נקודת שמירה מוקדמת יותר או בצע שינוי/commit בענף ואז נסה שוב."
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                )
+                return
+            if "already exists" in lower_msg or "a pull request already exists" in lower_msg:
+                # נסה למצוא את ה-PR הקיים ולהציג קישור
+                try:
+                    prs = list(repo.get_pulls(state="open", base=base_branch, head=f"{owner_login}:{branch_name}"))
+                    if prs:
+                        pr = prs[0]
+                        await query.edit_message_text(
+                            f"ℹ️ כבר קיים PR פתוח: <a href=\"{pr.html_url}\">#{pr.number}</a>",
+                            parse_mode="HTML",
+                            reply_markup=InlineKeyboardMarkup(kb),
+                        )
+                        return
+                except Exception:
+                    pass
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(message_text)}", parse_mode="HTML")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
+
+    async def create_revert_pr_from_tag(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
+        """יוצר PR שמשחזר את מצב הריפו לתגית ע"י יצירת commit חדש עם עץ התגית על גבי base.
+        כך תמיד יהיה diff וה-PR ייפתח בהצלחה.
+        """
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            base_branch = repo.default_branch or "main"
+
+            # מצא את ה-SHA של התגית וה-Tree שלה
+            ref = None
+            sha = None
+            try:
+                ref = repo.get_git_ref(f"tags/{tag_name}")
+                sha = ref.object.sha
+            except GithubException:
+                for t in repo.get_tags():
+                    if t.name == tag_name:
+                        sha = t.commit.sha
+                        break
+            if not sha:
+                await query.edit_message_text("❌ לא נמצאה התגית המבוקשת")
+                return
+
+            target_commit = repo.get_commit(sha)
+            tag_tree_sha = target_commit.commit.tree.sha
+
+            # צור ענף עבודה חדש משם ברור
+            safe_branch = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"restore-from-{tag_name}")
+            work_branch = safe_branch
+            try:
+                repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=repo.get_branch(base_branch).commit.sha)
+            except GithubException as gbe:
+                if getattr(gbe, 'status', None) == 422:
+                    work_branch = f"{safe_branch}-{int(time.time())}"
+                    repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=repo.get_branch(base_branch).commit.sha)
+                else:
+                    raise
+
+            # צור commit חדש בעבודה עם tree של התגית והורה מה-base
+            base_head = repo.get_branch(base_branch).commit.sha
+            parent = repo.get_git_commit(base_head)
+            new_tree = repo.get_git_tree(tag_tree_sha)
+            new_commit_message = f"Restore repository state from tag {tag_name}"
+            new_commit = repo.create_git_commit(new_commit_message, new_tree, [parent])
+            # עדכן את ה-ref של הענף החדש ל-commit החדש
+            repo.get_git_ref(f"heads/{work_branch}").edit(new_commit.sha, force=True)
+
+            # פתח PR
+            title = f"Restore to checkpoint: {tag_name}"
+            body = (
+                f"This PR restores the repository state to tag `{tag_name}` by creating a new commit with the tag's tree on top of `{base_branch}`.\n\n"
+                f"Created via Telegram bot."
+            )
+            pr = repo.create_pull(title=title, body=body, head=work_branch, base=base_branch)
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+            await query.edit_message_text(
+                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{work_branch}</code>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+        except GithubException as ge:
+            msg = "Validation Failed"
             try:
                 data = ge.data or {}
                 if isinstance(data, dict) and data.get('message'):
                     msg = data['message']
             except Exception:
                 pass
-            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(msg)}")
+            await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(msg)}")
         except Exception as e:
-            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
+            await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(str(e))}")
