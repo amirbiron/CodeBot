@@ -3656,6 +3656,50 @@ class GitHubMenuHandler:
             g = Github(token)
             repo = g.get_repo(repo_full)
             base_branch = repo.default_branch or "main"
+            owner_login = repo.owner.login if getattr(repo, "owner", None) else repo_full.split("/")[0]
+
+            # 1) אם כבר קיים PR פתוח מהענף הזה לבסיס – הצג אותו במקום ליצור חדש
+            try:
+                existing_prs = list(
+                    repo.get_pulls(state="open", base=base_branch, head=f"{owner_login}:{branch_name}")
+                )
+                if existing_prs:
+                    pr = existing_prs[0]
+                    kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+                    await query.edit_message_text(
+                        f"ℹ️ כבר קיים PR פתוח מהענף <code>{branch_name}</code> ל-<code>{base_branch}</code>: "
+                        f"<a href=\"{pr.html_url}\">#{pr.number}</a>",
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(kb),
+                    )
+                    return
+            except Exception:
+                # נמשיך לנסות ליצור PR אם לא הצלחנו לבדוק קיום
+                pass
+
+            # 2) בדוק שיש הבדלים בין HEAD ל-base (אחרת GitHub יחזיר Validation Failed)
+            try:
+                cmp = repo.compare(base_branch, branch_name)
+                if getattr(cmp, "ahead_by", 0) == 0 and getattr(cmp, "behind_by", 0) == 0:
+                    kb = [
+                        [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")],
+                        [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+                    ]
+                    await query.edit_message_text(
+                        (
+                            "❌ לא ניתן לפתוח PR: אין שינויים בין הענף "
+                            f"<code>{branch_name}</code> ל- <code>{base_branch}</code>\n\n"
+                            "נסה לבחור תגית אחרת לשחזור, או בצע שינוי/commit בענף לפני פתיחת PR."
+                        ),
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(kb),
+                    )
+                    return
+            except Exception:
+                # אם ההשוואה נכשלה, ננסה בכל זאת ליצור PR – ייתכן שהענף חדש מאוד
+                pass
+
+            # 3) צור PR
             title = f"Restore from checkpoint: {branch_name}"
             body = (
                 f"Automated PR to restore state from branch `{branch_name}`.\n\n"
@@ -3669,14 +3713,60 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(kb),
             )
         except GithubException as ge:
-            # ייתכן שכבר יש PR קיים מאותו ענף
-            msg = str(ge)
+            # פרשנות מפורטת יותר לשגיאות Validation Failed
+            message_text = "Validation Failed"
             try:
                 data = ge.data or {}
-                if isinstance(data, dict) and data.get('message'):
-                    msg = data['message']
+                if isinstance(data, dict):
+                    # הודעת על
+                    if data.get("message"):
+                        message_text = data["message"]
+                    # בדוק פירוט שגיאות נפוצות
+                    errors = data.get("errors") or []
+                    if isinstance(errors, list) and errors:
+                        details = []
+                        for err in errors:
+                            # err יכול להיות dict עם מפתחות code/message
+                            code = err.get("code") if isinstance(err, dict) else None
+                            msg = err.get("message") if isinstance(err, dict) else None
+                            if code == "custom" and msg:
+                                details.append(msg)
+                            elif msg:
+                                details.append(msg)
+                        if details:
+                            message_text += ": " + "; ".join(details)
             except Exception:
                 pass
-            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(msg)}")
+
+            # נסה לזהות במפורש "No commits between" או PR קיים ולהציע פתרון
+            lower_msg = (message_text or "").lower()
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+            if "no commits between" in lower_msg or "no commits" in lower_msg:
+                kb.insert(0, [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")])
+                await query.edit_message_text(
+                    (
+                        "❌ שגיאה בפתיחת PR: אין שינויים בין הענפים.\n\n"
+                        f"ענף: <code>{branch_name}</code> → בסיס: <code>{base_branch}</code>\n\n"
+                        "בחר נקודת שמירה מוקדמת יותר או בצע שינוי/commit בענף ואז נסה שוב."
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                )
+                return
+            if "already exists" in lower_msg or "a pull request already exists" in lower_msg:
+                # נסה למצוא את ה-PR הקיים ולהציג קישור
+                try:
+                    prs = list(repo.get_pulls(state="open", base=base_branch, head=f"{owner_login}:{branch_name}"))
+                    if prs:
+                        pr = prs[0]
+                        await query.edit_message_text(
+                            f"ℹ️ כבר קיים PR פתוח: <a href=\"{pr.html_url}\">#{pr.number}</a>",
+                            parse_mode="HTML",
+                            reply_markup=InlineKeyboardMarkup(kb),
+                        )
+                        return
+                except Exception:
+                    pass
+            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(message_text)}", parse_mode="HTML")
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
