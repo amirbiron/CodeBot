@@ -222,6 +222,10 @@ class GitHubMenuHandler:
             keyboard.append(
                 [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")]
             )
+            # תפריט גיבוי/שחזור מרוכז
+            keyboard.append(
+                [InlineKeyboardButton("🧰 גיבוי ושחזור", callback_data="github_backup_menu")]
+            )
 
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
@@ -397,8 +401,19 @@ class GitHubMenuHandler:
         elif query.data == "download_analysis_json":
             await self.download_analysis_json(update, context)
 
+        elif query.data == "github_backup_menu":
+            await self.show_github_backup_menu(update, context)
+
+        elif query.data == "backup_menu":
+            # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
+            backup_handler = context.bot_data.get('backup_handler')
+            if backup_handler:
+                await backup_handler.show_backup_menu(update, context)
+            else:
+                await query.edit_message_text("❌ רכיב גיבוי לא זמין")
+
         elif query.data == "back_to_analysis":
-            await self.show_analyze_results_menu(update, context)
+            await self.show_full_analysis(update, context)
 
         elif query.data == "back_to_analysis_menu":
             await self.show_analyze_results_menu(update, context)
@@ -3911,3 +3926,26 @@ class GitHubMenuHandler:
         except Exception as e:
             logger.exception("[create_revert_pr_from_tag] Unexpected error: %s", e)
             await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(str(e))}")
+
+    async def show_github_backup_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט גיבוי/שחזור עבור הריפו הנבחר"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        kb = [
+            [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
+            [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
+            [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
+            [InlineKeyboardButton("💾 גיבוי קבצים שמורים (DB)", callback_data="backup_menu")],
+            [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+        ]
+        await query.edit_message_text(
+            f"🧰 תפריט גיבוי ושחזור לריפו:\n<code>{repo_full}</code>",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="HTML",
+        )
