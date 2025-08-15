@@ -31,7 +31,6 @@ GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
-    ["📦 גיבוי מלא", "♻️ שחזור מגיבוי"],
     ["⚡ עיבוד Batch", "🔧 GitHub"]
 ]
 
