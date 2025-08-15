@@ -1,6 +1,6 @@
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import pymongo
@@ -29,9 +29,9 @@ class CodeSnippet:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
-            self.updated_at = datetime.now()
+            self.updated_at = datetime.now(timezone.utc)
 
 @dataclass
 class LargeFile:
@@ -52,9 +52,9 @@ class LargeFile:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
-            self.updated_at = datetime.now()
+            self.updated_at = datetime.now(timezone.utc)
         # חישוב אוטומטי של גודל ומספר שורות
         if self.content:
             self.file_size = len(self.content.encode('utf-8'))
@@ -92,7 +92,9 @@ class DatabaseManager:
                 
                 # הגדרות נוספות
                 compressors='zlib',             # השבתת snappy למניעת אזהרות ללא מודול
-                zlibCompressionLevel=6          # רמת דחיסה מאוזנת
+                zlibCompressionLevel=6,         # רמת דחיסה מאוזנת
+                tz_aware=True,
+                tzinfo=timezone.utc
             )
             
             self.db = self.client[config.DATABASE_NAME]
@@ -253,7 +255,7 @@ class DatabaseManager:
                 # יצירת גרסה חדשה
                 snippet.version = existing['version'] + 1
             
-            snippet.updated_at = datetime.now()
+            snippet.updated_at = datetime.now(timezone.utc)
             
             # שמירה במסד הנתונים
             result = self.collection.insert_one(asdict(snippet))
@@ -392,7 +394,7 @@ class DatabaseManager:
         try:
             result = self.collection.update_many(
                 {"user_id": user_id, "file_name": file_name},
-                {"$set": {"is_active": False, "updated_at": datetime.now()}}
+                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}}
             )
             
             if result.modified_count > 0:
@@ -486,7 +488,7 @@ class DatabaseManager:
             # עדכון שם הקובץ בכל הגרסאות
             result = self.collection.update_many(
                 {"user_id": user_id, "file_name": old_name, "is_active": True},
-                {"$set": {"file_name": new_name, "updated_at": datetime.now()}}
+                {"$set": {"file_name": new_name, "updated_at": datetime.now(timezone.utc)}}
             )
             
             if result.modified_count > 0:
@@ -571,7 +573,7 @@ class DatabaseManager:
         try:
             result = self.large_files_collection.update_many(
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
-                {"$set": {"is_active": False, "updated_at": datetime.now()}}
+                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}}
             )
             
             if result.modified_count > 0:
@@ -620,10 +622,10 @@ class DatabaseManager:
                 {
                     "$set": {
                         "github_token": stored,
-                        "updated_at": datetime.now()
+                        "updated_at": datetime.now(timezone.utc)
                     },
                     "$setOnInsert": {
-                        "created_at": datetime.now()
+                        "created_at": datetime.now(timezone.utc)
                     }
                 },
                 upsert=True
@@ -659,7 +661,7 @@ class DatabaseManager:
                 {"user_id": user_id},
                 {
                     "$unset": {"github_token": ""},
-                    "$set": {"updated_at": datetime.now()}
+                    "$set": {"updated_at": datetime.now(timezone.utc)}
                 }
             )
             return result.acknowledged
@@ -677,10 +679,10 @@ class DatabaseManager:
                 {
                     "$set": {
                         "selected_repo": repo_name,
-                        "updated_at": datetime.now()
+                        "updated_at": datetime.now(timezone.utc)
                     },
                     "$setOnInsert": {
-                        "created_at": datetime.now()
+                        "created_at": datetime.now(timezone.utc)
                     }
                 },
                 upsert=True
@@ -717,10 +719,10 @@ class DatabaseManager:
                     "$setOnInsert": {
                         "user_id": user_id,
                         "username": username,
-                        "created_at": datetime.now()
+                        "created_at": datetime.now(timezone.utc)
                     },
                     "$set": {
-                        "last_activity": datetime.now()
+                        "last_activity": datetime.now(timezone.utc)
                     }
                 },
                 upsert=True

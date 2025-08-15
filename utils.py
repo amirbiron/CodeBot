@@ -17,7 +17,7 @@ import tempfile
 import time
 import zipfile
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -65,7 +65,7 @@ class CodeErrorLogger:
         """רישום שגיאות עיבוד קוד"""
         context = context or {}
         log_entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_id": user_id,
             "error_type": error_type,
             "message": error_message,
@@ -78,7 +78,7 @@ class CodeErrorLogger:
         """רישום פעילות עיבוד קוד"""
         details = details or {}
         log_entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_id": user_id,
             "activity": activity_type,
             "details": details
@@ -117,7 +117,7 @@ class TimeUtils:
     def format_relative_time(dt: datetime) -> str:
         """פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')"""
         
-        now = datetime.now()
+        now = datetime.now(timezone.utc) if dt.tzinfo else datetime.now()
         diff = now - dt
         
         if diff.days > 365:
@@ -171,16 +171,16 @@ class TimeUtils:
         date_str_lower = date_str.lower()
         
         if date_str_lower in ['today', 'היום']:
-            return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         
         elif date_str_lower in ['yesterday', 'אתמול']:
-            return (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return (datetime.now(timezone.utc) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         
         elif date_str_lower in ['week', 'שבוע']:
-            return datetime.now() - timedelta(weeks=1)
+            return datetime.now(timezone.utc) - timedelta(weeks=1)
         
         elif date_str_lower in ['month', 'חודש']:
-            return datetime.now() - timedelta(days=30)
+            return datetime.now(timezone.utc) - timedelta(days=30)
         
         return None
     
@@ -188,7 +188,7 @@ class TimeUtils:
     def get_time_ranges(period: str) -> Tuple[datetime, datetime]:
         """קבלת טווח זמנים לפי תקופה"""
         
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         
         if period == 'today':
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)

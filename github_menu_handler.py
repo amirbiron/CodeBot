@@ -8,7 +8,7 @@ import os
 import re
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -2094,7 +2094,7 @@ class GitHubMenuHandler:
         full_report = {
             "analysis": analysis,
             "suggestions": suggestions,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
         # צור קובץ JSON
@@ -2880,7 +2880,7 @@ class GitHubMenuHandler:
                 # If this is the first run (no baseline), set a baseline without sending backlog
                 if last_pr_check_time is None:
                     session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["pr"] = datetime.utcnow()
+                    session["notifications_last"]["pr"] = datetime.now(timezone.utc)
                 else:
                     pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
                     for pr in pulls[:10]:
@@ -2896,13 +2896,13 @@ class GitHubMenuHandler:
                             f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
                         )
                     session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["pr"] = datetime.utcnow()
+                    session["notifications_last"]["pr"] = datetime.now(timezone.utc)
             # Issues
             if settings.get("issues", True):
                 last_issues_check_time = last.get("issues")
                 if last_issues_check_time is None:
                     session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["issues"] = datetime.utcnow()
+                    session["notifications_last"]["issues"] = datetime.now(timezone.utc)
                 else:
                     issues = repo.get_issues(state="all", sort="updated", direction="desc")
                     count = 0
@@ -2924,7 +2924,7 @@ class GitHubMenuHandler:
                         if count >= 10:
                             break
                     session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["issues"] = datetime.utcnow()
+                    session["notifications_last"]["issues"] = datetime.now(timezone.utc)
             # שלח הודעה אם יש
             if messages:
                 text = "\n".join(messages)
@@ -3203,7 +3203,7 @@ class GitHubMenuHandler:
             branch_obj = repo.get_branch(repo.default_branch)
             default_branch = branch_obj.name
             sha = branch_obj.commit.sha
-            ts = datetime.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+            ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
             prefix = (config.GIT_CHECKPOINT_PREFIX or "checkpoint").strip()
             # שמור על תווים חוקיים לשמות refs בסיסיים
             prefix = re.sub(r"[^A-Za-z0-9._/-]+", "-", prefix)
@@ -3510,8 +3510,8 @@ class GitHubMenuHandler:
             "description": "הוראות שחזור לנקודת שמירה",
             "tags": ["checkpoint", "instructions"],
             "version": 1,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
             "is_active": True,
         }
         try:

@@ -8,7 +8,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -75,7 +75,7 @@ class SearchIndex:
         self.function_index: Dict[str, Set[str]] = defaultdict(set)  # פונקציה -> קבצים
         self.language_index: Dict[str, Set[str]] = defaultdict(set)  # שפה -> קבצים
         self.tag_index: Dict[str, Set[str]] = defaultdict(set)  # תגית -> קבצים
-        self.last_update = datetime.min
+        self.last_update = datetime.min.replace(tzinfo=timezone.utc)
         
     def rebuild_index(self, user_id: int):
         """בניית האינדקס מחדש"""
@@ -115,12 +115,12 @@ class SearchIndex:
             for tag in file_data.get('tags', []):
                 self.tag_index[tag.lower()].add(file_key)
         
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
         logger.info(f"אינדקס נבנה: {len(self.word_index)} מילים, {len(self.function_index)} פונקציות")
     
     def should_rebuild(self, max_age_minutes: int = 30) -> bool:
         """בדיקה אם צריך לבנות אינדקס מחדש"""
-        age = datetime.now() - self.last_update
+        age = datetime.now(timezone.utc) - self.last_update
         return age.total_seconds() > (max_age_minutes * 60)
 
 class AdvancedSearchEngine:

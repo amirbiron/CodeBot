@@ -14,7 +14,7 @@ import tarfile
 import tempfile
 import zipfile
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple
@@ -96,7 +96,7 @@ class VersionManager:
                 content=content,
                 hash=content_hash,
                 size=len(content),
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 changes_summary=changes_summary,
                 author_note=author_note
             )
@@ -211,7 +211,7 @@ class VersionManager:
                         cleaned_count += 1
             else:
                 # ניקוי כללי של גרסאות ישנות
-                cutoff_date = datetime.now() - timedelta(days=self.auto_cleanup_days)
+                cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.auto_cleanup_days)
                 # כאן היה שאילתת מחיקה למסד הנתונים
                 pass
             
@@ -237,7 +237,7 @@ class BackupManager:
         """יצירת גיבוי מלא"""
         
         try:
-            backup_id = f"backup_{user_id}_{int(datetime.now().timestamp())}"
+            backup_id = f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}"
             backup_path = self.backup_dir / f"{backup_id}.zip"
             
             # קבלת כל הקבצים של המשתמש
@@ -257,7 +257,7 @@ class BackupManager:
                 metadata = {
                     "backup_id": backup_id,
                     "user_id": user_id,
-                    "created_at": datetime.now().isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                     "backup_type": backup_type,
                     "include_versions": include_versions,
                     "file_count": len(files),
@@ -294,7 +294,7 @@ class BackupManager:
             backup_info = BackupInfo(
                 backup_id=backup_id,
                 user_id=user_id,
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 file_count=file_count,
                 total_size=total_size,
                 backup_type=backup_type,
@@ -529,7 +529,7 @@ class FileExporter:
         
         export_data = {
             "export_info": {
-                "created_at": datetime.now().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "format": "json",
                 "file_count": len(files_data),
                 "exported_by": "Code Keeper Bot"
@@ -631,7 +631,7 @@ class FileExporter:
             files_html += file_html
         
         html_content = html_template.format(
-            export_date=datetime.now().strftime('%d/%m/%Y %H:%M'),
+            export_date=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
             file_count=len(files_data),
             files_html=files_html
         )
