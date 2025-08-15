@@ -13,7 +13,9 @@ on:
   
   # הפעלה על Pull Requests
   pull_request:
-    branches: [ main, develop ]
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - '**'
   
   # הפעלה ידנית
   workflow_dispatch:
