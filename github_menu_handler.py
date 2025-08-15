@@ -214,14 +214,6 @@ class GitHubMenuHandler:
             keyboard.append(
                 [InlineKeyboardButton("🔔 התראות חכמות", callback_data="notifications_menu")]
             )
-            # נקודת שמירה בגיט (Tag על HEAD)
-            keyboard.append(
-                [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")]
-            )
-            # חזרה לנקודת שמירה קיימת (בחירת תגית)
-            keyboard.append(
-                [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")]
-            )
             # תפריט גיבוי/שחזור מרוכז
             keyboard.append(
                 [InlineKeyboardButton("🧰 גיבוי ושחזור", callback_data="github_backup_menu")]
@@ -654,6 +646,35 @@ class GitHubMenuHandler:
                 )
                 g = Github(token)
                 repo = g.get_repo(repo_name)
+                # Fast path: הורדת ZIP מלא של הריפו דרך zipball
+                if not current_path:
+                    try:
+                        import requests
+                        url = repo.get_archive_link("zipball")
+                        r = requests.get(url, timeout=60)
+                        r.raise_for_status()
+                        content_length = int(r.headers.get("Content-Length", "0") or 0)
+                        if content_length and content_length > MAX_ZIP_TOTAL_BYTES:
+                            await query.message.reply_text(
+                                f"⚠️ הקובץ גדול מדי לשליחה בבוט ({format_bytes(content_length)}). להורדה ישירה: <a href=\"{url}\">קישור</a>",
+                                parse_mode="HTML",
+                            )
+                        else:
+                            zip_buffer = BytesIO(r.content)
+                            zip_buffer.seek(0)
+                            filename = f"{repo.name}.zip"
+                            zip_buffer.name = filename
+                            caption = f"📦 ריפו מלא — {format_bytes(len(r.content))}."
+                            await query.message.reply_document(
+                                document=zip_buffer, filename=filename, caption=caption
+                            )
+                    except Exception as e:
+                        logger.error(f"Error fetching repo zipball: {e}")
+                        await query.edit_message_text(f"❌ שגיאה בהורדת ZIP של הריפו: {e}")
+                    # חזרה לתפריט הגיבוי/שחזור של GitHub
+                    await self.show_github_backup_menu(update, context)
+                    return
+
                 zip_buffer = BytesIO()
                 total_bytes = 0
                 total_files = 0
@@ -3941,7 +3962,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
-            [InlineKeyboardButton("💾 גיבוי קבצים שמורים (DB)", callback_data="backup_menu")],
+            [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
         await query.edit_message_text(

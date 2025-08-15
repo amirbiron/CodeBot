@@ -32,8 +32,6 @@ class BackupMenuHandler:
 		keyboard = [
 			[InlineKeyboardButton("📦 צור גיבוי מלא", callback_data="backup_create_full")],
 			[InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
-			[InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="backup_git_checkpoint")],
-			[InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="backup_git_restore_menu")],
 		]
 		reply_markup = InlineKeyboardMarkup(keyboard)
 		await message("בחר פעולה מתפריט הגיבוי/שחזור:", reply_markup=reply_markup)
@@ -47,10 +45,6 @@ class BackupMenuHandler:
 			await self._create_full_backup(update, context)
 		elif data == "backup_restore_full_start":
 			await self._start_full_restore(update, context)
-		elif data == "backup_git_checkpoint":
-			await self._delegate_git_checkpoint(update, context)
-		elif data == "backup_git_restore_menu":
-			await self._delegate_git_restore_menu(update, context)
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
