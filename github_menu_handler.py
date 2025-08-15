@@ -2286,6 +2286,9 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ ניתן למחוק רק ריפו שאתה בעליו")
                 return
             repo.delete()
+            # נקה קאש ריפוזיטוריז כדי שהרשימה תרוענן ולא תציג פריטים שנמחקו
+            context.user_data.pop("repos", None)
+            context.user_data.pop("repos_cache_time", None)
             await query.edit_message_text(
                 f"✅ הריפו נמחק בהצלחה: <code>{repo_name}</code>", parse_mode="HTML"
             )
@@ -2295,6 +2298,9 @@ class GitHubMenuHandler:
             logger.error(f"Error deleting repository: {e}")
             await query.edit_message_text(f"❌ שגיאה במחיקת ריפו: {e}")
         finally:
+            # לאחר מחיקה, ודא שקאש הרשימות אינו משאיר את הריפו הישן
+            context.user_data.pop("repos", None)
+            context.user_data.pop("repos_cache_time", None)
             await self.github_menu_command(update, context)
 
     async def show_danger_delete_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
