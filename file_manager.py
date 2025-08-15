@@ -310,7 +310,7 @@ class BackupManager:
             return None
     
     def restore_from_backup(self, user_id: int, backup_path: str, 
-                           overwrite: bool = False) -> Dict[str, Any]:
+                           overwrite: bool = False, purge: bool = False) -> Dict[str, Any]:
         """שחזור מגיבוי"""
         
         try:
@@ -339,6 +339,26 @@ class BackupManager:
                 except KeyError:
                     results["errors"].append("גיבוי לא תקין - חסרה מטאדטה")
                     return results
+                
+                # אם נבחר שחזור מלא (מוחק הכל) - בצע ניקוי לפני השחזור
+                if purge:
+                    try:
+                        # מחיקת קבצים רגילים
+                        existing_files = db.get_user_files(user_id, limit=1000)
+                        for f in existing_files:
+                            try:
+                                db.delete_file(user_id, f.get('file_name'))
+                            except Exception:
+                                pass
+                        # מחיקת קבצים גדולים
+                        large_files, _ = db.get_user_large_files(user_id, page=1, per_page=1000)
+                        for lf in large_files:
+                            try:
+                                db.delete_large_file(user_id, lf.get('file_name'))
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        results["errors"].append(f"שגיאה בניקוי לפני שחזור: {str(e)}")
                 
                 # שחזור קבצים נוכחיים
                 current_files = [name for name in zip_file.namelist() 

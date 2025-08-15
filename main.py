@@ -749,7 +749,7 @@ class CodeKeeperBot:
                 with open(tmp_path, 'wb') as f:
                     f.write(buf.getvalue())
                 # בצע שחזור
-                results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True)
+                results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True, purge=True)
                 restored = results.get('restored_files', 0)
                 errors = results.get('errors', [])
                 msg = f"✅ שוחזרו {restored} קבצים בהצלחה"
