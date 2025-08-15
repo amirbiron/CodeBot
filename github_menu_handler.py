@@ -3793,23 +3793,46 @@ class GitHubMenuHandler:
             repo = g.get_repo(repo_full)
             base_branch = repo.default_branch or "main"
 
-            # מצא את ה-SHA של התגית וה-Tree שלה
-            ref = None
-            sha = None
+            # מצא את ה-SHA של עץ התגית (מתמודד גם עם תגיות מוכללות)
+            tag_tree_sha = None
             try:
                 ref = repo.get_git_ref(f"tags/{tag_name}")
-                sha = ref.object.sha
+                ref_obj = getattr(ref, "object", None)
+                ref_type = getattr(ref_obj, "type", None)
+                ref_sha = getattr(ref_obj, "sha", None)
+                if ref_type == "commit" and ref_sha:
+                    commit = repo.get_commit(ref_sha)
+                    tag_tree_sha = commit.commit.tree.sha
+                elif ref_type == "tag" and ref_sha:
+                    # תגית מוכללת — נפרק לאובייקט היעד
+                    tag_obj = repo.get_git_tag(ref_sha)
+                    while getattr(getattr(tag_obj, "object", None), "type", None) == "tag":
+                        tag_obj = repo.get_git_tag(tag_obj.object.sha)
+                    target_type = getattr(tag_obj.object, "type", None)
+                    target_sha = getattr(tag_obj.object, "sha", None)
+                    if target_type == "commit" and target_sha:
+                        commit = repo.get_commit(target_sha)
+                        tag_tree_sha = commit.commit.tree.sha
+                    elif target_type == "tree" and target_sha:
+                        tag_tree_sha = target_sha
+                elif ref_type == "tree" and ref_sha:
+                    tag_tree_sha = ref_sha
             except GithubException:
+                pass
+
+            # נפילה ל-backup: מעבר על get_tags (עובד לרוב על תגיות קלילות)
+            if not tag_tree_sha:
                 for t in repo.get_tags():
                     if t.name == tag_name:
-                        sha = t.commit.sha
+                        try:
+                            commit = repo.get_commit(t.commit.sha)
+                            tag_tree_sha = commit.commit.tree.sha
+                        except Exception:
+                            pass
                         break
-            if not sha:
+            if not tag_tree_sha:
                 await query.edit_message_text("❌ לא נמצאה התגית המבוקשת")
                 return
-
-            target_commit = repo.get_commit(sha)
-            tag_tree_sha = target_commit.commit.tree.sha
 
             # צור ענף עבודה חדש משם ברור
             safe_branch = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"restore-from-{tag_name}")
