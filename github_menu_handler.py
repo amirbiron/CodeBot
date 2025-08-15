@@ -3793,33 +3793,69 @@ class GitHubMenuHandler:
             repo = g.get_repo(repo_full)
             base_branch = repo.default_branch or "main"
 
-            # מצא את ה-SHA של התגית וה-Tree שלה
-            ref = None
-            sha = None
+            logger.info("[create_revert_pr_from_tag] repo=%s base=%s tag=%s user=%s", repo_full, base_branch, tag_name, user_id)
+
+            # מצא את ה-SHA של עץ התגית (מתמודד גם עם תגיות מוכללות)
+            tag_tree_sha = None
             try:
                 ref = repo.get_git_ref(f"tags/{tag_name}")
-                sha = ref.object.sha
-            except GithubException:
+                ref_obj = getattr(ref, "object", None)
+                ref_type = getattr(ref_obj, "type", None)
+                ref_sha = getattr(ref_obj, "sha", None)
+                logger.info("[create_revert_pr_from_tag] ref_type=%s ref_sha=%s", ref_type, ref_sha)
+                if ref_type == "commit" and ref_sha:
+                    commit = repo.get_commit(ref_sha)
+                    tag_tree_sha = commit.commit.tree.sha
+                elif ref_type == "tag" and ref_sha:
+                    # תגית מוכללת — נפרק לאובייקט היעד
+                    tag_obj = repo.get_git_tag(ref_sha)
+                    logger.info("[create_revert_pr_from_tag] annotated tag sha=%s", ref_sha)
+                    while getattr(getattr(tag_obj, "object", None), "type", None) == "tag":
+                        logger.info("[create_revert_pr_from_tag] peeling nested tag sha=%s", tag_obj.object.sha)
+                        tag_obj = repo.get_git_tag(tag_obj.object.sha)
+                    target_type = getattr(tag_obj.object, "type", None)
+                    target_sha = getattr(tag_obj.object, "sha", None)
+                    logger.info("[create_revert_pr_from_tag] tag target_type=%s target_sha=%s", target_type, target_sha)
+                    if target_type == "commit" and target_sha:
+                        commit = repo.get_commit(target_sha)
+                        tag_tree_sha = commit.commit.tree.sha
+                    elif target_type == "tree" and target_sha:
+                        tag_tree_sha = target_sha
+                elif ref_type == "tree" and ref_sha:
+                    tag_tree_sha = ref_sha
+            except GithubException as ge:
+                logger.warning("[create_revert_pr_from_tag] get_git_ref failed: %s", getattr(ge, 'data', None) or str(ge))
+                pass
+
+            # נפילה ל-backup: מעבר על get_tags (עובד לרוב על תגיות קלילות)
+            if not tag_tree_sha:
+                logger.info("[create_revert_pr_from_tag] fallback to repo.get_tags() for %s", tag_name)
                 for t in repo.get_tags():
                     if t.name == tag_name:
-                        sha = t.commit.sha
+                        try:
+                            commit = repo.get_commit(t.commit.sha)
+                            tag_tree_sha = commit.commit.tree.sha
+                            logger.info("[create_revert_pr_from_tag] fallback resolved tree=%s via commit=%s", tag_tree_sha, t.commit.sha)
+                        except Exception as inner_e:
+                            logger.exception("[create_revert_pr_from_tag] fallback resolving tag failed: %s", inner_e)
                         break
-            if not sha:
+            if not tag_tree_sha:
                 await query.edit_message_text("❌ לא נמצאה התגית המבוקשת")
                 return
-
-            target_commit = repo.get_commit(sha)
-            tag_tree_sha = target_commit.commit.tree.sha
 
             # צור ענף עבודה חדש משם ברור
             safe_branch = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"restore-from-{tag_name}")
             work_branch = safe_branch
             try:
-                repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=repo.get_branch(base_branch).commit.sha)
+                base_sha = repo.get_branch(base_branch).commit.sha
+                logger.info("[create_revert_pr_from_tag] creating work branch=%s from base_sha=%s", work_branch, base_sha)
+                repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
             except GithubException as gbe:
                 if getattr(gbe, 'status', None) == 422:
                     work_branch = f"{safe_branch}-{int(time.time())}"
-                    repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=repo.get_branch(base_branch).commit.sha)
+                    base_sha = repo.get_branch(base_branch).commit.sha
+                    logger.info("[create_revert_pr_from_tag] branch exists, retry with %s", work_branch)
+                    repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
                 else:
                     raise
 
@@ -3828,9 +3864,11 @@ class GitHubMenuHandler:
             parent = repo.get_git_commit(base_head)
             new_tree = repo.get_git_tree(tag_tree_sha)
             new_commit_message = f"Restore repository state from tag {tag_name}"
+            logger.info("[create_revert_pr_from_tag] creating git commit on %s with tree=%s parent=%s", work_branch, tag_tree_sha, base_head)
             new_commit = repo.create_git_commit(new_commit_message, new_tree, [parent])
             # עדכן את ה-ref של הענף החדש ל-commit החדש
             repo.get_git_ref(f"heads/{work_branch}").edit(new_commit.sha, force=True)
+            logger.info("[create_revert_pr_from_tag] updated ref heads/%s -> %s", work_branch, new_commit.sha)
 
             # פתח PR
             title = f"Restore to checkpoint: {tag_name}"
@@ -3847,12 +3885,16 @@ class GitHubMenuHandler:
             )
         except GithubException as ge:
             msg = "Validation Failed"
+            details = None
             try:
                 data = ge.data or {}
                 if isinstance(data, dict) and data.get('message'):
                     msg = data['message']
+                details = json.dumps(data, ensure_ascii=False)
             except Exception:
                 pass
+            logger.error("[create_revert_pr_from_tag] GithubException: %s data=%s", msg, details)
             await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(msg)}")
         except Exception as e:
+            logger.exception("[create_revert_pr_from_tag] Unexpected error: %s", e)
             await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(str(e))}")
