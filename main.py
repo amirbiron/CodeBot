@@ -737,26 +737,43 @@ class CodeKeeperBot:
             try:
                 document = update.message.document
                 user_id = update.effective_user.id
+                logger.info(f"Backup restore upload received: file_name={document.file_name}, mime_type={document.mime_type}, size={document.file_size}")
                 await update.message.reply_text("⏳ מוריד קובץ גיבוי...")
                 file = await context.bot.get_file(document.file_id)
                 buf = BytesIO()
                 await file.download_to_memory(buf)
                 buf.seek(0)
                 # שמור זמנית לדיסק
-                import tempfile, os
+                import tempfile, os, zipfile
                 tmp_dir = tempfile.gettempdir()
-                tmp_path = os.path.join(tmp_dir, document.file_name or 'backup.zip')
+                safe_name = (document.file_name or 'backup.zip')
+                if not safe_name.lower().endswith('.zip'):
+                    safe_name += '.zip'
+                tmp_path = os.path.join(tmp_dir, safe_name)
                 with open(tmp_path, 'wb') as f:
                     f.write(buf.getvalue())
+                # בדיקת ZIP תקין
+                if not zipfile.is_zipfile(tmp_path):
+                    logger.warning(f"Uploaded backup is not a valid ZIP: {tmp_path}")
+                    await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
+                    return
                 # בצע שחזור
                 results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True, purge=True)
                 restored = results.get('restored_files', 0)
                 errors = results.get('errors', [])
-                msg = f"✅ שוחזרו {restored} קבצים בהצלחה"
                 if errors:
-                    msg += f"\n⚠️ שגיאות: {len(errors)}"
+                    # הצג תקציר שגיאות כדי לעזור באבחון
+                    preview = "\n".join([str(e) for e in errors[:3]])
+                    msg = (
+                        f"⚠️ השחזור הושלם חלקית: {restored} קבצים שוחזרו\n"
+                        f"שגיאות: {len(errors)}\n"
+                        f"דוגמאות:\n{preview}"
+                    )
+                else:
+                    msg = f"✅ שוחזרו {restored} קבצים בהצלחה"
                 await update.message.reply_text(msg)
             except Exception as e:
+                logger.exception(f"Restore from uploaded backup failed: {e}")
                 await update.message.reply_text(f"❌ שגיאה בשחזור: {e}")
             finally:
                 context.user_data['upload_mode'] = None

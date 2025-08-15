@@ -310,7 +310,7 @@ class BackupManager:
             return None
     
     def restore_from_backup(self, user_id: int, backup_path: str, 
-                           overwrite: bool = False, purge: bool = False) -> Dict[str, Any]:
+                               overwrite: bool = False, purge: bool = False) -> Dict[str, Any]:
         """שחזור מגיבוי"""
         
         try:
@@ -328,17 +328,19 @@ class BackupManager:
             with zipfile.ZipFile(backup_path, 'r') as zip_file:
                 
                 # קריאת מטאדטה
+                metadata = None
                 try:
                     metadata_content = zip_file.read("metadata.json")
                     metadata = json.loads(metadata_content)
-                    
-                    if metadata["user_id"] != user_id:
+                    # אימות בעלות משתמש אם קיימת
+                    if metadata.get("user_id") is not None and metadata["user_id"] != user_id:
                         results["errors"].append("הגיבוי לא שייך למשתמש זה")
                         return results
-                        
                 except KeyError:
-                    results["errors"].append("גיבוי לא תקין - חסרה מטאדטה")
-                    return results
+                    # אין מטאדטה - ננסה נפילה לגיבוי כללי
+                    metadata = {"backup_type": "generic_zip"}
+                    # אל תציין שגיאה מוקדמת; ננסה לשחזר באופן כללי
+                    pass
                 
                 # אם נבחר שחזור מלא (מוחק הכל) - בצע ניקוי לפני השחזור
                 if purge:
@@ -360,42 +362,111 @@ class BackupManager:
                     except Exception as e:
                         results["errors"].append(f"שגיאה בניקוי לפני שחזור: {str(e)}")
                 
-                # שחזור קבצים נוכחיים
-                current_files = [name for name in zip_file.namelist() 
-                               if name.startswith("current/")]
+                # קבע אסטרטגיית שחזור על פי מבנה ה-ZIP
+                backup_type = metadata.get("backup_type") if metadata else None
+                restored_any = False
                 
-                for file_path in current_files:
-                    try:
-                        file_name = file_path.replace("current/", "")
-                        content = zip_file.read(file_path).decode('utf-8')
-                        
-                        # בדיקה אם הקובץ קיים
-                        existing = db.get_latest_version(user_id, file_name)
-                        
-                        if existing and not overwrite:
-                            results["skipped_files"] += 1
+                def _decode_bytes(data: bytes) -> str:
+                    for enc in ['utf-8', 'windows-1255', 'iso-8859-8', 'cp1255', 'utf-16', 'latin-1']:
+                        try:
+                            return data.decode(enc)
+                        except Exception:
                             continue
-                        
-                        # זיהוי שפה
-                        language = code_processor.detect_language(content, file_name)
-                        
-                        # יצירת קטע קוד חדש
-                        snippet = CodeSnippet(
-                            user_id=user_id,
-                            file_name=file_name,
-                            code=content,
-                            programming_language=language,
-                            description="שוחזר מגיבוי"
-                        )
-                        
-                        if db.save_code_snippet(snippet):
-                            results["restored_files"] += 1
-                            results["files"].append(file_name)
-                        else:
-                            results["errors"].append(f"שגיאה בשחזור {file_name}")
-                            
-                    except Exception as e:
-                        results["errors"].append(f"שגיאה בעיבוד {file_path}: {str(e)}")
+                    # אם לא הצליחו קידודים - הרם חריגה למעלה
+                    return data.decode('utf-8', errors='replace')
+                
+                def _sanitize_name(path: str) -> str:
+                    # שמור את שם הקובץ עם נתיב יחסית אך בטוח
+                    name = path.strip('/')
+                    # הסר תיקיית-שורש יחידה (נפוץ ב-GitHub zips)
+                    parts = name.split('/')
+                    if len(parts) > 1 and all('/' not in p for p in parts[:1]):
+                        # נניח שחלק ראשון הוא תיקיית-שורש
+                        name = '/'.join(parts[1:]) or parts[-1]
+                    # החלף מפרידים לשם קובץ חוקי אחיד
+                    return name.replace('/', '__')
+                
+                try:
+                    if backup_type == 'github_repo_zip' or backup_type == 'generic_zip':
+                        # שחזור מכל הקבצים שאינם תיקיות
+                        all_files = [n for n in zip_file.namelist() if not n.endswith('/')]
+                        for file_path in all_files:
+                            try:
+                                data = zip_file.read(file_path)
+                                text = _decode_bytes(data)
+                                file_name = _sanitize_name(file_path) or 'restored_file.txt'
+                                language = code_processor.detect_language(text, file_name)
+                                snippet = CodeSnippet(
+                                    user_id=user_id,
+                                    file_name=file_name,
+                                    code=text,
+                                    programming_language=language,
+                                    description="שוחזר מ-GitHub ZIP" if backup_type == 'github_repo_zip' else "שוחזר מ-ZIP"
+                                )
+                                if db.save_code_snippet(snippet):
+                                    results["restored_files"] += 1
+                                    results["files"].append(file_name)
+                                    restored_any = True
+                                else:
+                                    results["errors"].append(f"שגיאה בשחזור {file_name}")
+                            except Exception as inner_e:
+                                results["errors"].append(f"שגיאה בעיבוד {file_path}: {str(inner_e)}")
+                    else:
+                        # שחזור קבצים נוכחיים מתוך current/
+                        current_files = [name for name in zip_file.namelist() 
+                                       if name.startswith("current/")]
+                        for file_path in current_files:
+                            try:
+                                file_name = file_path.replace("current/", "")
+                                content = _decode_bytes(zip_file.read(file_path))
+                                # בדיקה אם הקובץ קיים
+                                existing = db.get_latest_version(user_id, file_name)
+                                if existing and not overwrite:
+                                    results["skipped_files"] += 1
+                                    continue
+                                # זיהוי שפה
+                                language = code_processor.detect_language(content, file_name)
+                                # יצירת קטע קוד חדש
+                                snippet = CodeSnippet(
+                                    user_id=user_id,
+                                    file_name=file_name,
+                                    code=content,
+                                    programming_language=language,
+                                    description="שוחזר מגיבוי"
+                                )
+                                if db.save_code_snippet(snippet):
+                                    results["restored_files"] += 1
+                                    results["files"].append(file_name)
+                                else:
+                                    results["errors"].append(f"שגיאה בשחזור {file_name}")
+                            except Exception as e:
+                                results["errors"].append(f"שגיאה בעיבוד {file_path}: {str(e)}")
+                        # אם לא נמצאו קבצים ב-current/ וגם אין backup_type מיוחד, ננסה נפילה כללית
+                        if not current_files:
+                            all_files = [n for n in zip_file.namelist() if not n.endswith('/')]
+                            for file_path in all_files:
+                                try:
+                                    data = zip_file.read(file_path)
+                                    text = _decode_bytes(data)
+                                    file_name = _sanitize_name(file_path) or 'restored_file.txt'
+                                    language = code_processor.detect_language(text, file_name)
+                                    snippet = CodeSnippet(
+                                        user_id=user_id,
+                                        file_name=file_name,
+                                        code=text,
+                                        programming_language=language,
+                                        description="שוחזר מ-ZIP"
+                                    )
+                                    if db.save_code_snippet(snippet):
+                                        results["restored_files"] += 1
+                                        results["files"].append(file_name)
+                                        restored_any = True
+                                    else:
+                                        results["errors"].append(f"שגיאה בשחזור {file_name}")
+                                except Exception as inner_e:
+                                    results["errors"].append(f"שגיאה בעיבוד {file_path}: {str(inner_e)}")
+                except Exception as e:
+                    results["errors"].append(f"שגיאה בעיבוד ה-ZIP: {str(e)}")
             
             logger.info(f"שוחזרו {results['restored_files']} קבצים מגיבוי")
             return results
