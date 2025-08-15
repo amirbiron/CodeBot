@@ -8,7 +8,7 @@ import io
 import logging
 import re
 import html
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
@@ -525,7 +525,7 @@ class AdvancedBotHandlers:
             days_back = int(context.args[0])
         
         # חיפוש קבצים אחרונים
-        since_date = datetime.now() - timedelta(days=days_back)
+        since_date = datetime.now(timezone.utc) - timedelta(days=days_back)
         
         files = db.get_user_files(user_id, limit=50)
         recent_files = [
@@ -542,7 +542,8 @@ class AdvancedBotHandlers:
         response = f"📅 **קבצים מ-{days_back} הימים האחרונים:**\n\n"
         
         for file_data in recent_files[:15]:  # מקסימום 15 קבצים
-            days_ago = (datetime.now() - file_data['updated_at']).days
+            dt_now = datetime.now(timezone.utc) if file_data['updated_at'].tzinfo else datetime.now()
+            days_ago = (dt_now - file_data['updated_at']).days
             time_str = f"היום" if days_ago == 0 else f"לפני {days_ago} ימים"
             
             response += f"📄 **{file_data['file_name']}**\n"

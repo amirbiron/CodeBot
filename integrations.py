@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -119,7 +119,7 @@ class GitHubGistIntegration:
             return {
                 "id": gist.id,
                 "url": gist.html_url,
-                "updated_at": datetime.now().isoformat()
+                "updated_at": datetime.now(timezone.utc).isoformat()
             }
             
         except GithubException as e:
@@ -235,7 +235,7 @@ class PastebinIntegration:
                             "id": paste_id,
                             "url": result,
                             "raw_url": f"https://pastebin.com/raw/{paste_id}",
-                            "created_at": datetime.now().isoformat(),
+                            "created_at": datetime.now(timezone.utc).isoformat(),
                             "private": private,
                             "expire": expire,
                             "language": pastebin_format
@@ -321,9 +321,9 @@ class CodeSharingService:
             "code": code,
             "language": language,
             "description": description,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "views": 0,
-            "expires_at": (datetime.now().timestamp() + (7 * 24 * 60 * 60))  # שבוע
+            "expires_at": (datetime.now(timezone.utc).timestamp() + (7 * 24 * 60 * 60))  # שבוע
         }
         
         self.internal_shares[share_id] = share_data
@@ -351,7 +351,7 @@ class CodeSharingService:
         share_data = self.internal_shares[share_id]
         
         # בדיקת תפוגה
-        if datetime.now().timestamp() > share_data["expires_at"]:
+        if datetime.now(timezone.utc).timestamp() > share_data["expires_at"]:
             del self.internal_shares[share_id]
             return None
         
@@ -456,7 +456,7 @@ class WebhookIntegration:
             "user_id": user_id,
             "url": webhook_url,
             "events": events,
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "active": True
         }
         
@@ -478,7 +478,7 @@ class WebhookIntegration:
         # שליחת נתונים לכל webhook
         payload = {
             "event": event,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "user_id": user_id,
             "data": data
         }

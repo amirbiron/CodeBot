@@ -2,7 +2,7 @@ import logging
 import re
 import asyncio
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 import telegram.error
@@ -31,6 +31,7 @@ GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
+    ["📦 גיבוי מלא", "♻️ שחזור מגיבוי"],
     ["⚡ עיבוד Batch", "🔧 GitHub"]
 ]
 
@@ -758,7 +759,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     entry['code'] = cleaned_code
                     entry['programming_language'] = detected_language
                     entry['version'] = version_num
-                    entry['updated_at'] = datetime.now()
+                    entry['updated_at'] = datetime.now(timezone.utc)
             except Exception as e:
                 logger.warning(f"Failed to refresh files_cache after edit: {e}")
             

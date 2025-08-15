@@ -12,7 +12,7 @@ class SimpleActivityReporter:
         service_name: שם הבוט (אופציונלי)
         """
         try:
-            self.client = MongoClient(mongodb_uri)
+            self.client = MongoClient(mongodb_uri, tz_aware=True, tzinfo=timezone.utc)
             self.db = self.client["render_bot_monitor"]
             self.service_id = service_id
             self.service_name = service_name or service_id
