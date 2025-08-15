@@ -125,12 +125,16 @@ class BackupMenuHandler:
 		lines = ["בחר גיבוי לשחזור או להורדה:\n"]
 		keyboard = []
 		for info in items:
-			line = f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — {_format_bytes(info.total_size)} — {info.file_count} קבצים"
+			btype = getattr(info, 'backup_type', 'unknown')
+			line = f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — {_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
 			lines.append(line)
-			keyboard.append([
-				InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"),
-				InlineKeyboardButton("⬇️ הורד", callback_data=f"backup_download_id:{info.backup_id}"),
-			])
+			row = []
+			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
+			if btype not in {"github_repo_zip"}:
+				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
+			# כפתור הורדה תמיד זמין
+			row.append(InlineKeyboardButton("⬇️ הורד", callback_data=f"backup_download_id:{info.backup_id}"))
+			keyboard.append(row)
 		# פעולות נוספות
 		keyboard.append([InlineKeyboardButton("⬆️ העלה ZIP לשחזור", callback_data="backup_upload_zip")])
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")])
