@@ -35,6 +35,8 @@ from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
+from backup_menu_handler import BackupMenuHandler
+from file_manager import backup_manager
 from large_files_handler import large_files_handler
 from user_stats import user_stats
 # from cache_commands import setup_cache_handlers  # disabled
@@ -255,9 +257,18 @@ class CodeKeeperBot:
         github_handler = GitHubMenuHandler()
         self.application.bot_data['github_handler'] = github_handler
         logger.info("✅ GitHubMenuHandler instance created and stored in bot_data")
+        # יצירת BackupMenuHandler ושמירה
+        backup_handler = BackupMenuHandler()
+        self.application.bot_data['backup_handler'] = backup_handler
+        logger.info("✅ BackupMenuHandler instance created and stored in bot_data")
         
         # הוסף פקודת github
         self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
+        # הוסף תפריט גיבוי/שחזור
+        async def show_backup_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await backup_handler.show_backup_menu(update, context)
+        self.application.add_handler(CommandHandler("backup", show_backup_menu))
+        self.application.add_handler(CallbackQueryHandler(backup_handler.handle_callback_query, pattern=r'^backup_'))
         
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
@@ -405,6 +416,11 @@ class CodeKeeperBot:
         self.application.add_handler(MessageHandler(
             filters.Regex("^⚡ עיבוד Batch$"), 
             handle_batch_button
+        ))
+        # כפתור חדש לתפריט גיבוי/שחזור
+        self.application.add_handler(MessageHandler(
+            filters.Regex("^(📦 גיבוי מלא|♻️ שחזור מגיבוי|🧰 גיבוי/שחזור)$"),
+            show_backup_menu
         ))
         
         # --- שלב 3: רישום handler לקבצים ---
@@ -713,6 +729,36 @@ class CodeKeeperBot:
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
         if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
             # תן ל-GitHub handler לטפל בזה
+            return
+
+        # שחזור מגיבוי מלא: קבלת ZIP
+        if context.user_data.get('upload_mode') == 'backup_restore':
+            try:
+                document = update.message.document
+                user_id = update.effective_user.id
+                await update.message.reply_text("⏳ מוריד קובץ גיבוי...")
+                file = await context.bot.get_file(document.file_id)
+                buf = BytesIO()
+                await file.download_to_memory(buf)
+                buf.seek(0)
+                # שמור זמנית לדיסק
+                import tempfile, os
+                tmp_dir = tempfile.gettempdir()
+                tmp_path = os.path.join(tmp_dir, document.file_name or 'backup.zip')
+                with open(tmp_path, 'wb') as f:
+                    f.write(buf.getvalue())
+                # בצע שחזור
+                results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True)
+                restored = results.get('restored_files', 0)
+                errors = results.get('errors', [])
+                msg = f"✅ שוחזרו {restored} קבצים בהצלחה"
+                if errors:
+                    msg += f"\n⚠️ שגיאות: {len(errors)}"
+                await update.message.reply_text(msg)
+            except Exception as e:
+                await update.message.reply_text(f"❌ שגיאה בשחזור: {e}")
+            finally:
+                context.user_data['upload_mode'] = None
             return
         
         await log_user_activity(update, context)
