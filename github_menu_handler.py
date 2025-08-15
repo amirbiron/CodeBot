@@ -34,6 +34,7 @@ from telegram.ext import (
 
 from repo_analyzer import RepoAnalyzer
 from config import config
+from file_manager import backup_manager
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -650,31 +651,64 @@ class GitHubMenuHandler:
                 if not current_path:
                     try:
                         import requests
+                        from io import BytesIO
+                        import zipfile as _zip
+                        from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
                         r = requests.get(url, timeout=60)
                         r.raise_for_status()
-                        content_length = int(r.headers.get("Content-Length", "0") or 0)
-                        if content_length and content_length > MAX_ZIP_TOTAL_BYTES:
-                            await query.message.reply_text(
-                                f"⚠️ הקובץ גדול מדי לשליחה בבוט ({format_bytes(content_length)}). להורדה ישירה: <a href=\"{url}\">קישור</a>",
-                                parse_mode="HTML",
-                            )
-                        else:
-                            zip_buffer = BytesIO(r.content)
-                            zip_buffer.seek(0)
+                        # בנה ZIP חדש עם metadata.json משולב כדי לאפשר רישום בגיבויים
+                        src_buf = BytesIO(r.content)
+                        with _zip.ZipFile(src_buf, "r") as zin:
+                            # ספר קבצים (דלג על תיקיות)
+                            file_names = [n for n in zin.namelist() if not n.endswith("/")]
+                            file_count = len(file_names)
+                            total_bytes = len(r.content)
+                            # צור ZIP חדש עם metadata
+                            out_buf = BytesIO()
+                            with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
+                                metadata = {
+                                    "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
+                                    "user_id": user_id,
+                                    "created_at": _dt.now(_tz.utc).isoformat(),
+                                    "backup_type": "github_repo_zip",
+                                    "include_versions": False,
+                                    "file_count": file_count,
+                                    "created_by": "Code Keeper Bot",
+                                    "repo": repo.full_name,
+                                    "path": current_path or ""
+                                }
+                                zout.writestr("metadata.json", json.dumps(metadata, indent=2))
+                                for name in file_names:
+                                    zout.writestr(name, zin.read(name))
+                            out_buf.seek(0)
+                            # שמור לדיסק בגיבויים
+                            backup_path = backup_manager.backup_dir / f"{metadata['backup_id']}.zip"
+                            with open(backup_path, "wb") as fsave:
+                                fsave.write(out_buf.getvalue())
+                            # שלח למשתמש
                             filename = f"{repo.name}.zip"
-                            zip_buffer.name = filename
-                            caption = f"📦 ריפו מלא — {format_bytes(len(r.content))}."
+                            out_buf.name = filename
+                            caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
                             await query.message.reply_document(
-                                document=zip_buffer, filename=filename, caption=caption
+                                document=out_buf, filename=filename, caption=caption
                             )
                     except Exception as e:
                         logger.error(f"Error fetching repo zipball: {e}")
-                        await query.edit_message_text(f"❌ שגיאה בהורדת ZIP של הריפו: {e}")
+                        try:
+                            await query.edit_message_text(f"❌ שגיאה בהורדת ZIP של הריפו: {e}")
+                        except BadRequest as br:
+                            if "message is not modified" not in str(br).lower():
+                                raise
                     # חזרה לתפריט הגיבוי/שחזור של GitHub
-                    await self.show_github_backup_menu(update, context)
+                    try:
+                        await self.show_github_backup_menu(update, context)
+                    except BadRequest as br:
+                        if "message is not modified" not in str(br).lower():
+                            raise
                     return
 
+                from io import BytesIO
                 zip_buffer = BytesIO()
                 total_bytes = 0
                 total_files = 0
@@ -711,6 +745,20 @@ class GitHubMenuHandler:
                                 total_files += 1
 
                     await add_path_to_zip(current_path, "")
+                # הוסף metadata.json
+                metadata = {
+                    "backup_id": f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                    "user_id": user_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "backup_type": "github_repo_zip",
+                    "include_versions": False,
+                    "file_count": total_files,
+                    "created_by": "Code Keeper Bot",
+                    "repo": repo.full_name,
+                    "path": current_path or ""
+                }
+                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED) as zipf:
+                    zipf.writestr("metadata.json", json.dumps(metadata, indent=2))
 
                 zip_buffer.seek(0)
                 filename = (
@@ -719,19 +767,35 @@ class GitHubMenuHandler:
                 zip_buffer.name = filename
                 caption = (
                     f"📦 קובץ ZIP לתיקייה: /{current_path or ''}\n"
-                    f"מכיל {total_files} קבצים, {format_bytes(total_bytes)}."
+                    f"מכיל {total_files} קבצים, {format_bytes(total_bytes)}.\n"
+                    f"💾 נשמר ברשימת הגיבויים."
                 )
                 if skipped_large:
                     caption += f"\n⚠️ דילג על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
+                # שמור לגיבויים בדיסק
+                try:
+                    backup_path = backup_manager.backup_dir / f"{metadata['backup_id']}.zip"
+                    with open(backup_path, "wb") as fsave:
+                        fsave.write(zip_buffer.getvalue())
+                except Exception as e:
+                    logger.warning(f"Failed to persist GitHub ZIP to backups dir: {e}")
                 await query.message.reply_document(
                     document=zip_buffer, filename=filename, caption=caption
                 )
             except Exception as e:
                 logger.error(f"Error creating ZIP: {e}")
-                await query.edit_message_text(f"❌ שגיאה בהכנת ZIP: {e}")
+                try:
+                    await query.edit_message_text(f"❌ שגיאה בהכנת ZIP: {e}")
+                except BadRequest as br:
+                    if "message is not modified" not in str(br).lower():
+                        raise
                 return
             # החזר לדפדפן באותו מקום
-            await self.show_repo_browser(update, context)
+            try:
+                await self.show_repo_browser(update, context)
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
 
         elif query.data.startswith("inline_download_file:"):
             # הורדת קובץ שנבחר דרך אינליין
@@ -3962,6 +4026,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
+            [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="backup_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
