@@ -731,7 +731,99 @@ class CodeKeeperBot:
         if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
             # תן ל-GitHub handler לטפל בזה
             return
-
+        
+        # שחזור ZIP ישירות לריפו בגיטהאב (פריסה והחלפה)
+        if context.user_data.get('upload_mode') == 'github_restore_zip_to_repo':
+            try:
+                document = update.message.document
+                user_id = update.effective_user.id
+                logger.info(f"GitHub restore-to-repo ZIP received: file_name={document.file_name}, size={document.file_size}")
+                await update.message.reply_text("⏳ מוריד קובץ ZIP...")
+                file = await context.bot.get_file(document.file_id)
+                buf = BytesIO()
+                await file.download_to_memory(buf)
+                buf.seek(0)
+                import zipfile
+                if not zipfile.is_zipfile(buf):
+                    await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
+                    return
+                # חלץ את ה-ZIP לזיכרון לרשימת קבצים
+                zf = zipfile.ZipFile(buf, 'r')
+                members = [n for n in zf.namelist() if not n.endswith('/')]
+                # נקה תיקיית root של GitHub zip אם קיימת
+                def strip_root(path: str) -> str:
+                    parts = path.split('/')
+                    if len(parts) > 1 and parts[0] and all('/' not in p for p in parts[:1]):
+                        return '/'.join(parts[1:])
+                    return path
+                files = []
+                for name in members:
+                    raw = zf.read(name)
+                    clean = strip_root(name)
+                    if not clean:
+                        continue
+                    files.append((clean, raw))
+                if not files:
+                    await update.message.reply_text("❌ לא נמצאו קבצים בתוך ה-ZIP")
+                    return
+                # העלאה לגיטהאב באמצעות Trees API לעדכון מרובה קבצים
+                from github import Github
+                from github.InputGitTreeElement import InputGitTreeElement
+                github_handler = context.bot_data.get('github_handler')
+                session = github_handler.get_user_session(user_id)
+                token = github_handler.get_user_token(user_id)
+                repo_full = session.get('selected_repo')
+                if not (token and repo_full):
+                    await update.message.reply_text("❌ אין טוקן או ריפו נבחר")
+                    return
+                g = Github(token)
+                repo = g.get_repo(repo_full)
+                target_branch = repo.default_branch or 'main'
+                purge_first = bool(context.user_data.get('github_restore_zip_purge'))
+                await update.message.reply_text(
+                    ("🧹 מנקה קבצים קיימים...\n" if purge_first else "") +
+                    f"📤 מעלה {len(files)} קבצים לריפו {repo_full} (branch: {target_branch})..."
+                )
+                # בסיס לעץ
+                base_ref = repo.get_git_ref(f"heads/{target_branch}")
+                base_commit = repo.get_git_commit(base_ref.object.sha)
+                base_tree = base_commit.tree
+                new_tree_elements = []
+                # אם purge: ניצור נקודת התחלה ריקה באמצעות עץ ללא קבצים
+                if purge_first:
+                    base_tree = repo.create_git_tree([])
+                # בנה עצי קלט
+                for path, raw in files:
+                    # שמור על קידוד נכון: טקסט כ-utf-8, בינארי כ-base64
+                    import base64
+                    text_exts = ('.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh', '.gitignore')
+                    is_text = path.lower().endswith(text_exts)
+                    try:
+                        if is_text:
+                            text = raw.decode('utf-8')
+                            blob = repo.create_git_blob(text, 'utf-8')
+                        else:
+                            b64 = base64.b64encode(raw).decode('ascii')
+                            blob = repo.create_git_blob(b64, 'base64')
+                    except Exception:
+                        # נפילה לבינארי אם כשל פענוח
+                        b64 = base64.b64encode(raw).decode('ascii')
+                        blob = repo.create_git_blob(b64, 'base64')
+                    elem = InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha)
+                    new_tree_elements.append(elem)
+                new_tree = repo.create_git_tree(new_tree_elements, base_tree)
+                commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
+                new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
+                base_ref.edit(new_commit.sha)
+                await update.message.reply_text("✅ השחזור הועלה לריפו בהצלחה")
+            except Exception as e:
+                logger.exception(f"GitHub restore-to-repo failed: {e}")
+                await update.message.reply_text(f"❌ שגיאה בשחזור לריפו: {e}")
+            finally:
+                context.user_data['upload_mode'] = None
+                context.user_data.pop('github_restore_zip_purge', None)
+            return
+        
         # שחזור מגיבוי מלא: קבלת ZIP
         if context.user_data.get('upload_mode') == 'backup_restore':
             try:
@@ -807,12 +899,12 @@ class CodeKeeperBot:
             detected_encoding = None
             encodings_to_try = ['utf-8', 'windows-1255', 'iso-8859-8', 'cp1255', 'utf-16', 'latin-1']
             
+            # לוג פרטי הקובץ
+            logger.info(f"📄 קובץ נשלח: {document.file_name}, גודל: {document.file_size} bytes")
+            
             # קרא את הבייטים
             raw_bytes = file_bytes.read()
             file_size_bytes = len(raw_bytes)
-            
-            # לוג פרטי הקובץ
-            logger.info(f"📄 קובץ נשלח: {document.file_name}, גודל: {file_size_bytes} bytes")
             
             # נסה קידודים שונים
             for encoding in encodings_to_try:

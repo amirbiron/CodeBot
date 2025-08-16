@@ -58,6 +58,9 @@ class BackupInfo:
     backup_type: str  # "manual", "automatic", "scheduled"
     status: str  # "completed", "in_progress", "failed"
     file_path: Optional[str] = None
+    repo: Optional[str] = None
+    path: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 class VersionManager:
     """מנהל גרסאות מתקדם"""
@@ -499,7 +502,10 @@ class BackupManager:
                             total_size=backup_file.stat().st_size,
                             backup_type=metadata.get("backup_type", "unknown"),
                             status="completed",
-                            file_path=str(backup_file)
+                            file_path=str(backup_file),
+                            repo=metadata.get("repo"),
+                            path=metadata.get("path"),
+                            metadata=metadata,
                         )
                         
                         backups.append(backup_info)

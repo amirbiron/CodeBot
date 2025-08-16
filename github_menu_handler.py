@@ -14,6 +14,7 @@ from io import BytesIO
 from typing import Any, Dict, Optional
 
 from github import Github, GithubException
+from github.InputGitTreeElement import InputGitTreeElement
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -199,6 +200,7 @@ class GitHubMenuHandler:
 
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if token and session.get("selected_repo"):
+            keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             keyboard.append(
                 [InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")]
             )
@@ -482,10 +484,13 @@ class GitHubMenuHandler:
 
         elif query.data == "github_menu":
             # חזרה לתפריט הראשי של GitHub
-            await query.answer()
             context.user_data["waiting_for_github_upload"] = False
-            context.user_data["upload_mode"] = None  # נקה גם את המשתנה החדש
             context.user_data["in_github_menu"] = False
+            # נקה דגל סינון גיבויים לפי ריפו, אם קיים
+            try:
+                context.user_data.pop("github_backup_context_repo", None)
+            except Exception:
+                pass
             await self.github_menu_command(update, context)
             return ConversationHandler.END
         
@@ -4022,8 +4027,12 @@ class GitHubMenuHandler:
         if not (token and repo_full):
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
+        # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
+        context.user_data["github_backup_context_repo"] = repo_full
         kb = [
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
+            [InlineKeyboardButton("♻️ שחזר ZIP לריפו (פריסה והחלפה)", callback_data="github_restore_zip_to_repo")],
+            [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="backup_list")],
@@ -4035,3 +4044,140 @@ class GitHubMenuHandler:
             reply_markup=InlineKeyboardMarkup(kb),
             parse_mode="HTML",
         )
+        return
+
+        # Unreachable guard to satisfy linters if parser confuses block ends
+        if False and (query and query.data == "github_restore_zip_to_repo"):
+            pass
+        elif query.data.startswith("github_restore_zip_setpurge:"):
+            purge_flag = query.data.split(":", 1)[1] == "1"
+            context.user_data["github_restore_zip_purge"] = purge_flag
+            await query.edit_message_text(
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
+                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+            )
+            return
+        elif query.data == "github_restore_zip_list":
+            # הצג רשימת גיבויים (ZIP) של הריפו הנוכחי לצורך שחזור לריפו
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            repo_full = session.get("selected_repo")
+            if not repo_full:
+                await query.edit_message_text("❌ קודם בחר ריפו!")
+                return
+            from file_manager import backup_manager
+            backups = backup_manager.list_backups(user_id)
+            # סנן רק גיבויים עם metadata של אותו ריפו
+            backups = [b for b in backups if getattr(b, 'repo', None) == repo_full]
+            if not backups:
+                await query.edit_message_text(
+                    f"ℹ️ אין גיבויי ZIP שמורים עבור הריפו:\n<code>{repo_full}</code>",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]])
+                )
+                return
+            # הצג עד 10 אחרונים
+            items = backups[:10]
+            lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
+            kb = []
+            for b in items:
+                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
+                kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
+            kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
+            await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            return
+        elif query.data.startswith("github_restore_zip_from_backup:"):
+            # קבל backup_id ואז פתח את תהליך השחזור-לריפו עם קובץ ה-ZIP הזה
+            backup_id = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            from file_manager import backup_manager
+            info_list = backup_manager.list_backups(user_id)
+            match = next((b for b in info_list if b.backup_id == backup_id), None)
+            if not match or not match.file_path or not os.path.exists(match.file_path):
+                await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+                return
+            # הגדר purge? בקש בחירה
+            context.user_data["pending_repo_restore_zip_path"] = match.file_path
+            await query.edit_message_text(
+                "האם למחוק קודם את התוכן בריפו לפני העלאה?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_repo_restore_backup_setpurge:1")],
+                    [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_repo_restore_backup_setpurge:0")],
+                    [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+                ])
+            )
+            return
+        elif query.data.startswith("github_repo_restore_backup_setpurge:"):
+            # בצע את ההעלאה לריפו מתוך קובץ ה-ZIP שמור בדיסק
+            purge_flag = query.data.split(":", 1)[1] == "1"
+            zip_path = context.user_data.get("pending_repo_restore_zip_path")
+            if not zip_path or not os.path.exists(zip_path):
+                await query.edit_message_text("❌ קובץ ZIP לא נמצא")
+                return
+            # הפעל ריסטור לריפו דרך פונקציה חיצונית פשוטה שמתממשקת עם main.handle_document logic
+            try:
+                await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר...")
+                # נשתמש בלוגיקה פשוטה: נקרא לפונקציה פנימית שתבצע את אותו זרם של שחזור לריפו
+                await self.restore_zip_file_to_repo(update, context, zip_path, purge_flag)
+                await query.edit_message_text("✅ השחזור הועלה לריפו בהצלחה")
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {e}")
+            finally:
+                context.user_data.pop("pending_repo_restore_zip_path", None)
+            return
+
+    async def restore_zip_file_to_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, zip_path: str, purge_first: bool) -> None:
+        """שחזור קבצים מ-ZIP מקומי לריפו הנוכחי באמצעות Trees API (commit אחד)"""
+        user_id = update.effective_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            raise RuntimeError("חסר טוקן או ריפו")
+        import zipfile
+        if not os.path.exists(zip_path) or not zipfile.is_zipfile(zip_path):
+            raise RuntimeError("ZIP לא תקין")
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            members = [n for n in zf.namelist() if not n.endswith('/')]
+            def strip_root(path: str) -> str:
+                parts = path.split('/')
+                if len(parts) > 1 and parts[0] and all('/' not in p for p in parts[:1]):
+                    return '/'.join(parts[1:])
+                return path
+            files = []
+            for name in members:
+                raw = zf.read(name)
+                clean = strip_root(name)
+                if not clean:
+                    continue
+                files.append((clean, raw))
+        g = Github(token)
+        repo = g.get_repo(repo_full)
+        target_branch = repo.default_branch or 'main'
+        base_ref = repo.get_git_ref(f"heads/{target_branch}")
+        base_commit = repo.get_git_commit(base_ref.object.sha)
+        base_tree = base_commit.tree
+        if purge_first:
+            base_tree = repo.create_git_tree([])
+        elements = []
+        for path, raw in files:
+            # כתוב blob מתאים: טקסט כ-utf-8, בינארי כ-base64
+            import base64
+            is_text = any(path.lower().endswith(ext) for ext in (
+                '.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.gitignore', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh'
+            ))
+            try:
+                if is_text:
+                    content = raw.decode('utf-8')
+                    blob = repo.create_git_blob(content, 'utf-8')
+                else:
+                    b64 = base64.b64encode(raw).decode('ascii')
+                    blob = repo.create_git_blob(b64, 'base64')
+            except Exception:
+                b64 = base64.b64encode(raw).decode('ascii')
+                blob = repo.create_git_blob(b64, 'base64')
+            elements.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
+        new_tree = repo.create_git_tree(elements, base_tree)
+        commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
+        new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
+        base_ref.edit(new_commit.sha)

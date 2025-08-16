@@ -109,13 +109,27 @@ class BackupMenuHandler:
 		user_id = query.from_user.id
 		await query.answer()
 		backups = backup_manager.list_backups(user_id)
+		# אם יש הקשר של ריפו מגיטהאב, סנן לגיבויים של אותו ריפו בלבד
+		current_repo = context.user_data.get('github_backup_context_repo')
+		if current_repo:
+			filtered = []
+			for b in backups:
+				try:
+					if getattr(b, 'repo', None) == current_repo:
+						filtered.append(b)
+				except Exception:
+					continue
+			backups = filtered
 		if not backups:
 			keyboard = [
 				[InlineKeyboardButton("⬆️ העלה ZIP לשחזור", callback_data="backup_upload_zip")],
 				[InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")],
 			]
+			msg = "ℹ️ לא נמצאו גיבויים שמורים. ניתן להעלות ZIP לשחזור או לחזור."
+			if current_repo:
+				msg = f"ℹ️ לא נמצאו גיבויים עבור הריפו:\n<code>{current_repo}</code>\nבאפשרותך להעלות ZIP לשחזור או לחזור."
 			await query.edit_message_text(
-				"ℹ️ לא נמצאו גיבויים שמורים. ניתן להעלות ZIP לשחזור או לחזור.",
+				msg,
 				reply_markup=InlineKeyboardMarkup(keyboard)
 			)
 			return
@@ -127,6 +141,8 @@ class BackupMenuHandler:
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
 			line = f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — {_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
+			if getattr(info, 'repo', None):
+				line += f" — ריפו: {info.repo}"
 			lines.append(line)
 			row = []
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
@@ -176,7 +192,13 @@ class BackupMenuHandler:
 					document=InputFile(f, filename=os.path.basename(match.file_path)),
 					caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
 				)
-			# השאר בתצוגת רשימה
-			await self._show_backups_list(update, context)
+			# השאר בתצוגת רשימה — רענן את הרשימה
+			try:
+				await self._show_backups_list(update, context)
+			except Exception as e:
+				# התמודד עם מקרה של Message is not modified
+				msg = str(e).lower()
+				if "message is not modified" not in msg:
+					raise
 		except Exception as e:
 			await query.edit_message_text(f"❌ שגיאה בשליחת קובץ הגיבוי: {e}")
