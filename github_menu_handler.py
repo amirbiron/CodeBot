@@ -399,6 +399,46 @@ class GitHubMenuHandler:
         elif query.data == "github_backup_menu":
             await self.show_github_backup_menu(update, context)
 
+        elif query.data == "github_restore_zip_to_repo":
+            # התחלת שחזור ZIP ידני לריפו: הגדר מצב העלאה ובקש בחירת purge
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_full = session.get("selected_repo")
+            if not (token and repo_full):
+                try:
+                    await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+                except BadRequest as br:
+                    if "message is not modified" not in str(br).lower():
+                        raise
+                    try:
+                        await query.answer("❌ חסר טוקן או ריפו נבחר", show_alert=True)
+                    except Exception:
+                        pass
+                return
+            context.user_data["upload_mode"] = "github_restore_zip_to_repo"
+            kb = [
+                [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1")],
+                [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_restore_zip_setpurge:0")],
+                [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+            ]
+            try:
+                await query.edit_message_text(
+                    "בחר מצב שחזור ZIP לריפו, ואז שלח קובץ ZIP עכשיו:",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                )
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    await query.message.reply_text(
+                        "בחר מצב שחזור ZIP לריפו, ואז שלח קובץ ZIP עכשיו:",
+                        reply_markup=InlineKeyboardMarkup(kb),
+                    )
+                else:
+                    try:
+                        await query.answer("אין שינוי בתצוגה", show_alert=False)
+                    except Exception:
+                        pass
+
         elif query.data == "backup_menu":
             # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
             backup_handler = context.bot_data.get('backup_handler')
@@ -412,7 +452,7 @@ class GitHubMenuHandler:
 
         elif query.data == "back_to_analysis_menu":
             await self.show_analyze_results_menu(update, context)
-
+        
         elif query.data == "back_to_summary":
             await self.show_analyze_results_menu(update, context)
 
@@ -3635,7 +3675,15 @@ class GitHubMenuHandler:
         token = self.get_user_token(user_id)
         repo_full = session.get("selected_repo")
         if not (token and repo_full):
-            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            try:
+                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer("❌ חסר טוקן או ריפו נבחר", show_alert=True)
+                except Exception:
+                    pass
             return
         try:
             g = Github(token)
@@ -3647,7 +3695,15 @@ class GitHubMenuHandler:
             prefix = re.sub(r"[^A-Za-z0-9._/-]+", "-", prefix)
             checkpoint_tags = [t for t in tags if (t.name or "").startswith(prefix + "-")]
             if not checkpoint_tags:
-                await query.edit_message_text("ℹ️ לא נמצאו תגיות נקודת שמירה בריפו.")
+                try:
+                    await query.edit_message_text("ℹ️ לא נמצאו תגיות נקודת שמירה בריפו.")
+                except BadRequest as br:
+                    if "message is not modified" not in str(br).lower():
+                        raise
+                    try:
+                        await query.answer("ℹ️ לא נמצאו תגיות נקודת שמירה", show_alert=False)
+                    except Exception:
+                        pass
                 return
             # עימוד
             page = int(context.user_data.get("restore_tags_page", 0) or 0)
@@ -3671,11 +3727,31 @@ class GitHubMenuHandler:
             if nav:
                 keyboard.append(nav)
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
-            await query.edit_message_text(
-                "בחר תגית נקודת שמירה לשחזור:", reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            try:
+                await query.edit_message_text(
+                    "בחר תגית נקודת שמירה לשחזור:", reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    # פרסום הודעה חדשה כגיבוי
+                    await query.message.reply_text(
+                        "בחר תגית נקודת שמירה לשחזור:", reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    try:
+                        await query.answer("אין שינוי בתצוגה", show_alert=False)
+                    except Exception:
+                        pass
         except Exception as e:
-            await query.edit_message_text(f"❌ שגיאה בטעינת תגיות: {safe_html_escape(str(e))}")
+            try:
+                await query.edit_message_text(f"❌ שגיאה בטעינת תגיות: {safe_html_escape(str(e))}")
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer(f"❌ שגיאה בטעינת תגיות: {safe_html_escape(str(e))}", show_alert=True)
+                except Exception:
+                    pass
 
     async def show_restore_tag_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
         """מציג פעולות אפשריות לשחזור מתגית נתונה"""
@@ -4025,7 +4101,15 @@ class GitHubMenuHandler:
         token = self.get_user_token(user_id)
         repo_full = session.get("selected_repo")
         if not (token and repo_full):
-            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            try:
+                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer("❌ חסר טוקן או ריפו נבחר", show_alert=True)
+                except Exception:
+                    pass
             return
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
         context.user_data["github_backup_context_repo"] = repo_full
@@ -4039,11 +4123,25 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
-        await query.edit_message_text(
-            f"🧰 תפריט גיבוי ושחזור לריפו:\n<code>{repo_full}</code>",
-            reply_markup=InlineKeyboardMarkup(kb),
-            parse_mode="HTML",
-        )
+        try:
+            await query.edit_message_text(
+                f"🧰 תפריט גיבוי ושחזור לריפו:\n<code>{repo_full}</code>",
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode="HTML",
+            )
+        except BadRequest as br:
+            if "message is not modified" not in str(br).lower():
+                # פרסום הודעה חדשה כגיבוי
+                await query.message.reply_text(
+                    f"🧰 תפריט גיבוי ושחזור לריפו:\n<code>{repo_full}</code>",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                    parse_mode="HTML",
+                )
+            else:
+                try:
+                    await query.answer("אין שינוי בתצוגה", show_alert=False)
+                except Exception:
+                    pass
         return
 
         # Unreachable guard to satisfy linters if parser confuses block ends
@@ -4051,6 +4149,7 @@ class GitHubMenuHandler:
             pass
         elif query.data.startswith("github_restore_zip_setpurge:"):
             purge_flag = query.data.split(":", 1)[1] == "1"
+            context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
             await query.edit_message_text(
                 ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
