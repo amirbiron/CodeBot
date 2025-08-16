@@ -399,6 +399,46 @@ class GitHubMenuHandler:
         elif query.data == "github_backup_menu":
             await self.show_github_backup_menu(update, context)
 
+        elif query.data == "github_restore_zip_to_repo":
+            # התחלת שחזור ZIP ידני לריפו: הגדר מצב העלאה ובקש בחירת purge
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_full = session.get("selected_repo")
+            if not (token and repo_full):
+                try:
+                    await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+                except BadRequest as br:
+                    if "message is not modified" not in str(br).lower():
+                        raise
+                    try:
+                        await query.answer("❌ חסר טוקן או ריפו נבחר", show_alert=True)
+                    except Exception:
+                        pass
+                return
+            context.user_data["upload_mode"] = "github_restore_zip_to_repo"
+            kb = [
+                [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1")],
+                [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_restore_zip_setpurge:0")],
+                [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+            ]
+            try:
+                await query.edit_message_text(
+                    "בחר מצב שחזור ZIP לריפו, ואז שלח קובץ ZIP עכשיו:",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                )
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    await query.message.reply_text(
+                        "בחר מצב שחזור ZIP לריפו, ואז שלח קובץ ZIP עכשיו:",
+                        reply_markup=InlineKeyboardMarkup(kb),
+                    )
+                else:
+                    try:
+                        await query.answer("אין שינוי בתצוגה", show_alert=False)
+                    except Exception:
+                        pass
+
         elif query.data == "backup_menu":
             # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
             backup_handler = context.bot_data.get('backup_handler')
@@ -412,7 +452,7 @@ class GitHubMenuHandler:
 
         elif query.data == "back_to_analysis_menu":
             await self.show_analyze_results_menu(update, context)
-
+        
         elif query.data == "back_to_summary":
             await self.show_analyze_results_menu(update, context)
 
@@ -4109,6 +4149,7 @@ class GitHubMenuHandler:
             pass
         elif query.data.startswith("github_restore_zip_setpurge:"):
             purge_flag = query.data.split(":", 1)[1] == "1"
+            context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
             await query.edit_message_text(
                 ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
