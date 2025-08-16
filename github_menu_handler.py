@@ -4041,3 +4041,30 @@ class GitHubMenuHandler:
             reply_markup=InlineKeyboardMarkup(kb),
             parse_mode="HTML",
         )
+        elif query.data == "github_restore_zip_to_repo":
+            # הפעל מצב שחזור ל-Git: פרוס ZIP והעלה קבצים לריפו הנוכחי (החלפה)
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            if not session.get("selected_repo"):
+                await query.edit_message_text("❌ קודם בחר ריפו!")
+                return
+            context.user_data["upload_mode"] = "github_restore_zip_to_repo"
+            await query.edit_message_text(
+                "⚠️ פעולה מסוכנת: פריסה מ-ZIP והחלפת קבצים בריפו הנוכחי.\n"
+                "שלח עכשיו קובץ ZIP.\n\n"
+                "האם למחוק קודם את התיקייה היעד בריפו לפני ההעלאה?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1")],
+                    [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_restore_zip_setpurge:0")],
+                    [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+                ]),
+            )
+            return
+        elif query.data.startswith("github_restore_zip_setpurge:"):
+            purge_flag = query.data.split(":", 1)[1] == "1"
+            context.user_data["github_restore_zip_purge"] = purge_flag
+            await query.edit_message_text(
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
+                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+            )
+            return
