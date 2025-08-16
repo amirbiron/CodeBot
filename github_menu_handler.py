@@ -4052,6 +4052,7 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ קודם בחר ריפו!")
                 return
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
+            context.user_data["github_restore_zip_purge"] = True
             await query.edit_message_text(
                 "⚠️ פעולה מסוכנת: פריסה מ-ZIP והחלפת קבצים בריפו הנוכחי.\n"
                 "שלח עכשיו קובץ ZIP.\n\n"
