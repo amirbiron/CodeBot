@@ -199,6 +199,7 @@ class GitHubMenuHandler:
 
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if token and session.get("selected_repo"):
+            keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             keyboard.append(
                 [InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")]
             )
@@ -482,10 +483,13 @@ class GitHubMenuHandler:
 
         elif query.data == "github_menu":
             # חזרה לתפריט הראשי של GitHub
-            await query.answer()
             context.user_data["waiting_for_github_upload"] = False
-            context.user_data["upload_mode"] = None  # נקה גם את המשתנה החדש
             context.user_data["in_github_menu"] = False
+            # נקה דגל סינון גיבויים לפי ריפו, אם קיים
+            try:
+                context.user_data.pop("github_backup_context_repo", None)
+            except Exception:
+                pass
             await self.github_menu_command(update, context)
             return ConversationHandler.END
         
@@ -4022,6 +4026,8 @@ class GitHubMenuHandler:
         if not (token and repo_full):
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
+        # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
+        context.user_data["github_backup_context_repo"] = repo_full
         kb = [
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
