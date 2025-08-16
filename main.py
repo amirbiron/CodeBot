@@ -794,9 +794,21 @@ class CodeKeeperBot:
                     base_tree = repo.create_git_tree([])
                 # בנה עצי קלט
                 for path, raw in files:
-                    # שמור על קידוד בינארי כ-blob
-                    blob = repo.create_git_blob(raw.decode('utf-8', errors='ignore') if path.endswith(('.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.py', '.js', '.ts', '.css', '.html', '.gitignore')) else raw.decode('latin-1', errors='ignore'),
-                                                'utf-8' if not path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.jar', '.bin')) else 'utf-8')
+                    # שמור על קידוד נכון: טקסט כ-utf-8, בינארי כ-base64
+                    import base64
+                    text_exts = ('.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh', '.gitignore')
+                    is_text = path.lower().endswith(text_exts)
+                    try:
+                        if is_text:
+                            text = raw.decode('utf-8')
+                            blob = repo.create_git_blob(text, 'utf-8')
+                        else:
+                            b64 = base64.b64encode(raw).decode('ascii')
+                            blob = repo.create_git_blob(b64, 'base64')
+                    except Exception:
+                        # נפילה לבינארי אם כשל פענוח
+                        b64 = base64.b64encode(raw).decode('ascii')
+                        blob = repo.create_git_blob(b64, 'base64')
                     elem = InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha)
                     new_tree_elements.append(elem)
                 new_tree = repo.create_git_tree(new_tree_elements, base_tree)

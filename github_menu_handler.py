@@ -4175,13 +4175,21 @@ class GitHubMenuHandler:
             base_tree = repo.create_git_tree([])
         elements = []
         for path, raw in files:
-            # כתוב blob כטקסט כאשר סביר, אחרת כטקסט גנרי (ה-API דורש content+encoding או sha)
-            # כאן נשתמש ב-blobs על בסיס content כדי לאפשר commit יחיד
+            # כתוב blob מתאים: טקסט כ-utf-8, בינארי כ-base64
+            import base64
             is_text = any(path.lower().endswith(ext) for ext in (
                 '.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.gitignore', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh'
             ))
-            content = raw.decode('utf-8', errors='ignore') if is_text else raw.decode('latin-1', errors='ignore')
-            blob = repo.create_git_blob(content, 'utf-8')
+            try:
+                if is_text:
+                    content = raw.decode('utf-8')
+                    blob = repo.create_git_blob(content, 'utf-8')
+                else:
+                    b64 = base64.b64encode(raw).decode('ascii')
+                    blob = repo.create_git_blob(b64, 'base64')
+            except Exception:
+                b64 = base64.b64encode(raw).decode('ascii')
+                blob = repo.create_git_blob(b64, 'base64')
             elements.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
         new_tree = repo.create_git_tree(elements, base_tree)
         commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
