@@ -4044,6 +4044,8 @@ class GitHubMenuHandler:
             reply_markup=InlineKeyboardMarkup(kb),
             parse_mode="HTML",
         )
+        return
+
         elif query.data == "github_restore_zip_to_repo":
             # הפעל מצב שחזור ל-Git: פרוס ZIP והעלה קבצים לריפו הנוכחי (החלפה)
             user_id = query.from_user.id

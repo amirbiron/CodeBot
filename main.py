@@ -902,6 +902,10 @@ class CodeKeeperBot:
             # לוג פרטי הקובץ
             logger.info(f"📄 קובץ נשלח: {document.file_name}, גודל: {document.file_size} bytes")
             
+            # קרא את הבייטים
+            raw_bytes = file_bytes.read()
+            file_size_bytes = len(raw_bytes)
+            
             # נסה קידודים שונים
             for encoding in encodings_to_try:
                 try:
