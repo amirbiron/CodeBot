@@ -789,9 +789,6 @@ class CodeKeeperBot:
                 base_commit = repo.get_git_commit(base_ref.object.sha)
                 base_tree = base_commit.tree
                 new_tree_elements = []
-                # אם purge: ניצור נקודת התחלה ריקה באמצעות עץ ללא קבצים
-                if purge_first:
-                    base_tree = repo.create_git_tree([])
                 # בנה עצי קלט
                 for path, raw in files:
                     # שמור על קידוד נכון: טקסט כ-utf-8, בינארי כ-base64
@@ -811,7 +808,10 @@ class CodeKeeperBot:
                         blob = repo.create_git_blob(b64, 'base64')
                     elem = InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha)
                     new_tree_elements.append(elem)
-                new_tree = repo.create_git_tree(new_tree_elements, base_tree)
+                if purge_first:
+                    new_tree = repo.create_git_tree(new_tree_elements)
+                else:
+                    new_tree = repo.create_git_tree(new_tree_elements, base_tree)
                 commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
                 new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
                 base_ref.edit(new_commit.sha)
