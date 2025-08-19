@@ -438,6 +438,16 @@ class GitHubMenuHandler:
                         await query.answer("אין שינוי בתצוגה", show_alert=False)
                     except Exception:
                         pass
+        elif query.data.startswith("github_restore_zip_setpurge:"):
+            # טיפול בבחירת מצב מחיקה/עדכון לפני העלאה
+            purge_flag = query.data.split(":", 1)[1] == "1"
+            context.user_data["upload_mode"] = "github_restore_zip_to_repo"
+            context.user_data["github_restore_zip_purge"] = purge_flag
+            await query.edit_message_text(
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
+                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+            )
+            return
 
         elif query.data == "backup_menu":
             # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
