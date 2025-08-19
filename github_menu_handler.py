@@ -4266,8 +4266,6 @@ class GitHubMenuHandler:
         base_ref = repo.get_git_ref(f"heads/{target_branch}")
         base_commit = repo.get_git_commit(base_ref.object.sha)
         base_tree = base_commit.tree
-        if purge_first:
-            base_tree = repo.create_git_tree([])
         elements = []
         for path, raw in files:
             # כתוב blob מתאים: טקסט כ-utf-8, בינארי כ-base64
@@ -4286,7 +4284,10 @@ class GitHubMenuHandler:
                 b64 = base64.b64encode(raw).decode('ascii')
                 blob = repo.create_git_blob(b64, 'base64')
             elements.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
-        new_tree = repo.create_git_tree(elements, base_tree)
+        if purge_first:
+            new_tree = repo.create_git_tree(elements)
+        else:
+            new_tree = repo.create_git_tree(elements, base_tree)
         commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
         new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
         base_ref.edit(new_commit.sha)
