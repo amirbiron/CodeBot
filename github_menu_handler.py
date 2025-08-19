@@ -416,6 +416,8 @@ class GitHubMenuHandler:
                     except Exception:
                         pass
                 return
+            # ודא שניקינו דגלים ישנים של העלאה רגילה כדי למנוע בלבול
+            context.user_data["waiting_for_github_upload"] = False
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             kb = [
                 [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1")],
@@ -441,6 +443,8 @@ class GitHubMenuHandler:
         elif query.data.startswith("github_restore_zip_setpurge:"):
             # טיפול בבחירת מצב מחיקה/עדכון לפני העלאה
             purge_flag = query.data.split(":", 1)[1] == "1"
+            # ודא שניקינו דגלים ישנים של העלאה רגילה כדי למנוע בלבול
+            context.user_data["waiting_for_github_upload"] = False
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
             await query.edit_message_text(
@@ -4159,6 +4163,8 @@ class GitHubMenuHandler:
             pass
         elif query.data.startswith("github_restore_zip_setpurge:"):
             purge_flag = query.data.split(":", 1)[1] == "1"
+            # ודא שניקינו דגלים ישנים של העלאה רגילה כדי למנוע בלבול
+            context.user_data["waiting_for_github_upload"] = False
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
             await query.edit_message_text(

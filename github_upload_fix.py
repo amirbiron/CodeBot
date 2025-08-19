@@ -20,7 +20,18 @@ async def github_upload_new_file(update, context):
     query = update.callback_query
     await query.answer()
     
-    repo_name = context.user_data.get('selected_repo', 'amirbiron/CodeBot')
+    # אל תשתמש בברירת מחדל קשיחה. קרא מהריפו שנבחר בסשן GitHub, אם קיים.
+    repo_name = None
+    try:
+        if hasattr(context, 'bot_data') and hasattr(context.bot_data, 'github_handler'):
+            session = context.bot_data.github_handler.get_user_session(update.effective_user.id)
+            repo_name = session.get('selected_repo')
+    except Exception:
+        repo_name = None
+    # נפילה אחורה: אם לא הוגדר, עדיף לעצור ולא להעלות לריפו שגוי
+    if not repo_name:
+        await update.message.reply_text("❌ קודם בחר ריפו עם /github")
+        return
     folder = context.user_data.get('github_folder', 'root')
     
     # סמן במפורש שאנחנו במצב העלאה לגיטהאב
@@ -102,7 +113,14 @@ async def upload_to_github_fixed(update, context, status_message):
     file_bytes = await file.download_as_bytearray()
     
     # קבל פרטי יעד
-    repo_name = context.user_data.get('target_repo', 'amirbiron/CodeBot')
+    # אל תשתמש בברירת מחדל קשיחה שמובילה לריפו ישן
+    repo_name = context.user_data.get('target_repo')
+    if not repo_name and hasattr(context, 'bot_data') and hasattr(context.bot_data, 'github_handler'):
+        session = context.bot_data.github_handler.get_user_session(update.effective_user.id)
+        repo_name = session.get('selected_repo')
+    if not repo_name:
+        await status_message.edit_text("❌ לא נבחר ריפו. שלח /github ובחר ריפו")
+        return
     folder = context.user_data.get('target_folder', '')
     
     # בנה נתיב מלא
