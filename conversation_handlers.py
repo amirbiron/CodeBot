@@ -35,7 +35,8 @@ MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
     ["⚡ עיבוד Batch", "🔧 GitHub"],
-    ["📥 ייבוא ZIP מריפו", "🗂 לפי ריפו"]
+    ["📥 ייבוא ZIP מריפו", "🗂 לפי ריפו"],
+    ["ℹ️ הסבר על הבוט"]
 ]
 
 reporter = create_reporter(
@@ -73,6 +74,59 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
     reporter.report_activity(user_id)
+    return ConversationHandler.END
+
+HELP_PAGES = [
+    (
+        "🏠 תפריט ראשי — מה יש כאן?\n\n"
+        "➕ הוסף קוד חדש — יצירת קובץ חדש ושמירתו.\n"
+        "📚 הצג את כל הקבצים שלי — תפריט ראשי לקבצים: לפי ריפו, ZIP, גדולים ושאר הקבצים.\n"
+        "📂 קבצים גדולים — ניהול קבצים גדולים (עם תצוגה/הורדה/מחיקה).\n"
+        "⚡ עיבוד Batch — הפעלת ניתוח/בדיקה על קבוצות קבצים (לפי ריפו/ZIP/גדולים/שאר).\n"
+        "🔧 GitHub — עבודה מול ריפו: העלאה, הורדה, מחיקה, גיבויים ושחזור.\n"
+        "📥 ייבוא ZIP מריפו — העלאת ZIP כדי לשחזר/לייבא קבצים לבוט.\n"
+        "🗂 לפי ריפו — עיון בקבצים לפי תגיות repo:."
+    ),
+    (
+        "📚 כל הקבצים — פירוט\n\n"
+        "🗂 לפי ריפו — ריכוז קבצים לפי תגיות repo:owner/name.\n"
+        "📦 קבצי ZIP — רשימת קבצי ZIP ששמרת (עם עימוד).\n"
+        "📂 קבצים גדולים — כניסה למנהל הקבצים הגדולים.\n"
+        "📁 שאר הקבצים — כל הקבצים הרגילים בעימוד עם הבא/הקודם."
+    ),
+    (
+        "⚡ עיבוד Batch — איך משתמשים?\n\n"
+        "בחר קודם קבוצת יעד (לפי ריפו/ZIP/גדולים/שאר), ואז בחר פעולה:\n"
+        "📊 ניתוח (Analyze) או ✅ בדיקת תקינות (Validate).\n"
+        "ניתן לבדוק סטטוס עבודות פעילות בכל רגע."
+    ),
+    (
+        "🐙 GitHub — מה אפשר?\n\n"
+        "📤 העלה קובץ חדש — העלאה מארבעה מקורות: לפי ריפו, ZIP, קבצים גדולים, שאר הקבצים.\n"
+        "📚 העלה מהקבצים השמורים — בחירה ישירה של קובץ שמור.\n"
+        "📂 בחר תיקיית יעד — קובע לאן יועלה הקובץ בריפו.\n"
+        "🧰 גיבוי ושחזור — יצירת ZIP, הורדה, ושחזור לריפו.\n"
+        "🔔 התראות — הפעלת התראות חכמות על הריפו."
+    ),
+]
+
+async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
+    """מציג עמוד עזרה עם כפתורי ניווט"""
+    total_pages = len(HELP_PAGES)
+    page = max(1, min(page, total_pages))
+    text = HELP_PAGES[page - 1]
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"help_page:{page-1}"))
+    nav.append(InlineKeyboardButton(f"עמוד {page}/{total_pages}", callback_data="noop"))
+    if page < total_pages:
+        nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"help_page:{page+1}"))
+    keyboard = [nav, [InlineKeyboardButton("🏠 חזרה לתפריט", callback_data="main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    if hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
     return ConversationHandler.END
 
 async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1561,6 +1615,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.answer()
         elif data == "back_to_repo_menu":
             return await show_by_repo_menu_callback(update, context)
+        elif data.startswith("help_page:"):
+            try:
+                p = int(data.split(":")[1])
+            except Exception:
+                p = 1
+            return await show_help_page(update, context, page=p)
         # --- Batch category routing ---
         elif data == "batch_menu":
             return await show_batch_menu(update, context)
@@ -1636,6 +1696,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
             MessageHandler(filters.Regex("^📥 ייבוא ZIP מריפו$"), start_repo_zip_import),
             MessageHandler(filters.Regex("^🗂 לפי ריפו$"), show_by_repo_menu),
+            MessageHandler(filters.Regex("^ℹ️ הסבר על הבוט$"), lambda u, c: show_help_page(u, c, page=1)),
             
             # כניסה לעריכת קוד/שם גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
             CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|lf_edit_)')
