@@ -4299,18 +4299,11 @@ class GitHubMenuHandler:
                 blob = repo.create_git_blob(b64, 'base64')
             elements.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
         if purge_first:
-            # שלב א': קומיט ביניים לאיפוס מלא של העץ
-            empty_tree = repo.create_git_tree([])
-            purge_commit = repo.create_git_commit("Purge repository via bot (clear tree)", empty_tree, [base_commit])
-            base_ref.edit(purge_commit.sha)
-            logger.info(f"[restore_zip_from_backup] Performed hard purge commit: {purge_commit.sha}")
-            base_commit = purge_commit
-            base_tree = empty_tree
-            # שלב ב': עץ חדש מהקבצים שב-ZIP בלבד
+            # Soft purge: יצירת עץ חדש ללא בסיס (מוחק קבצים שאינם ב-ZIP)
             new_tree = repo.create_git_tree(elements)
         else:
             new_tree = repo.create_git_tree(elements, base_tree)
         commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
         new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
         base_ref.edit(new_commit.sha)
-        logger.info(f"[restore_zip_from_backup] Final restore commit created: {new_commit.sha}, files_added={len(elements)}, purge={purge_first}")
+        logger.info(f"[restore_zip_from_backup] Restore commit created: {new_commit.sha}, files_added={len(elements)}, purge={purge_first}")

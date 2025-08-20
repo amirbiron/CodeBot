@@ -812,22 +812,14 @@ class CodeKeeperBot:
                     elem = InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha)
                     new_tree_elements.append(elem)
                 if purge_first:
-                    # שלב א': קומיט ביניים שמרוקן את העץ לחלוטין (hard purge)
-                    empty_tree = repo.create_git_tree([])
-                    purge_commit = repo.create_git_commit("Purge repository via bot (clear tree)", empty_tree, [base_commit])
-                    base_ref.edit(purge_commit.sha)
-                    logger.info(f"[restore_zip] Performed hard purge commit: {purge_commit.sha}")
-                    # עדכן בסיס לקומיט הבא
-                    base_commit = purge_commit
-                    base_tree = empty_tree
-                    # שלב ב': צור עץ חדש מהקבצים שב-ZIP בלבד
+                    # Soft purge: יצירת עץ חדש ללא בסיס (מוחק קבצים שאינם ב-ZIP)
                     new_tree = repo.create_git_tree(new_tree_elements)
                 else:
                     new_tree = repo.create_git_tree(new_tree_elements, base_tree)
                 commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
                 new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
                 base_ref.edit(new_commit.sha)
-                logger.info(f"[restore_zip] Final restore commit created: {new_commit.sha}, files_added={len(new_tree_elements)}, purge={purge_first}")
+                logger.info(f"[restore_zip] Restore commit created: {new_commit.sha}, files_added={len(new_tree_elements)}, purge={purge_first}")
                 await update.message.reply_text("✅ השחזור הועלה לריפו בהצלחה")
             except Exception as e:
                 logger.exception(f"GitHub restore-to-repo failed: {e}")
