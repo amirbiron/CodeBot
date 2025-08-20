@@ -520,6 +520,25 @@ class GitHubMenuHandler:
                 context.user_data.pop("pending_repo_restore_zip_path", None)
             return
 
+        elif query.data == "github_backup_help":
+            help_text = (
+                "<b>הסבר על הכפתורים:</b>\n\n"
+                "📦 <b>הורד גיבוי ZIP של הריפו</b>: יוצר ומוריד ZIP של כל התוכן (או תיקייה נוכחית), וגם שומר כגיבוי לשימוש עתידי.\n\n"
+                "♻️ <b>שחזר ZIP לריפו (פריסה והחלפה)</b>: שלח ZIP מהמחשב, והבוט יפרוס אותו לריפו בקומיט אחד. ניתן לבחור מחיקה מלאה לפני או עדכון בלבד.\n\n"
+                "📂 <b>שחזר מגיבוי שמור לריפו</b>: בחר ZIP ששמור בבוט עבור הריפו הזה, והבוט יפרוס אותו לריפו (מחיקה/עדכון לפי בחירה).\n\n"
+                "🏷 <b>נקודת שמירה בגיט</b>: יוצר תגית/ענף נקודת שמירה של הריפו הנוכחי כדי שתוכל לחזור אליה.\n\n"
+                "↩️ <b>חזרה לנקודת שמירה</b>: פעולות לשחזור מצב מהרפרנס של נקודת שמירה (תגית/ענף) — כולל יצירת ענף/PR לשחזור.\n\n"
+                "🗂 <b>גיבויי DB אחרונים</b>: מציג גיבויים של קבצים בבוט עצמו (לא קשור ל‑GitHub).\n\n"
+                "♻️ <b>שחזור מגיבוי (ZIP)</b>: שחזור מלא לקבצים בבוט עצמו מקובץ ZIP. מוחק את כל הקבצים בבוט ואז משחזר.\n\n"
+                "🔙 <b>חזור</b>: חזרה לתפריט הראשי של GitHub."
+            )
+            try:
+                await query.edit_message_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]]))
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+            return
+
         elif query.data == "backup_menu":
             # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
             backup_handler = context.bot_data.get('backup_handler')
@@ -4202,6 +4221,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="backup_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
+            [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
         try:
