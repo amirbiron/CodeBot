@@ -149,8 +149,8 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         # מסך בחירה: 4 כפתורים
         keyboard = [
-            [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
-            [InlineKeyboardButton("🧰 קבצי גיבוי", callback_data="backup_menu")],
+            [InlineKeyboardButton("🔖 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("🗜️ קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
         ]
@@ -203,11 +203,10 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     
     try:
         keyboard = [
-            [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
-            [InlineKeyboardButton("🧰 קבצי גיבוי", callback_data="backup_menu")],
+            [InlineKeyboardButton("🔖 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("🗜️ קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
-            [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
