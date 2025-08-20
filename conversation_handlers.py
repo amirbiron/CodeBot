@@ -1,6 +1,7 @@
 import logging
 import re
 import asyncio
+import os
 from io import BytesIO
 from datetime import datetime, timezone
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,11 +16,58 @@ from telegram.ext import (
     filters,
 )
 from database import DatabaseManager
+from file_manager import backup_manager
 from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
+
+def _truncate_middle(text: str, max_len: int) -> str:
+    """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
+    if max_len <= 0:
+        return ''
+    if len(text) <= max_len:
+        return text
+    if max_len <= 1:
+        return text[:max_len]
+    keep = max_len - 1
+    front = keep // 2
+    back = keep - front
+    return text[:front] + '…' + text[-back:]
+
+def _repo_label_from_tag(tag: str) -> str:
+    """מחלץ שם ריפו מתגית בסגנון repo:owner/name"""
+    try:
+        return tag.split(':', 1)[1] if tag.startswith('repo:') else tag
+    except Exception:
+        return tag
+
+def _repo_only_from_tag(tag: str) -> str:
+    """מחזיר רק את שם ה-repo ללא owner מתוך תגית repo:owner/name"""
+    label = _repo_label_from_tag(tag)
+    try:
+        return label.split('/', 1)[1] if '/' in label else label
+    except Exception:
+        return label
+
+def _build_repo_button_text(tag: str, count: int) -> str:
+    """בונה תווית כפתור קומפקטית לריפו, מציג רק את שם ה-repo בלי owner."""
+    MAX_LEN = 64
+    label = _repo_only_from_tag(tag)
+    label_short = _truncate_middle(label, MAX_LEN)
+    return label_short
+
+def _format_bytes(num: int) -> str:
+    """פורמט נוח לקריאת גדלים"""
+    try:
+        for unit in ["B", "KB", "MB", "GB"]:
+            if num < 1024.0 or unit == "GB":
+                return f"{num:.1f} {unit}" if unit != "B" else f"{int(num)} {unit}"
+            num /= 1024.0
+    except Exception:
+        return str(num)
+    return str(num)
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -1744,7 +1792,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_batch_repos_menu(update, context)
         elif data == "batch_cat:zips":
             context.user_data['batch_target'] = { 'type': 'zips' }
-            return await show_batch_files_menu(update, context, page=1)
+            return await show_batch_zips_menu(update, context, page=1)
         elif data == "batch_cat:large":
             context.user_data['batch_target'] = { 'type': 'large' }
             return await show_batch_files_menu(update, context, page=1)
@@ -1761,6 +1809,30 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception:
                 p = 1
             return await show_batch_files_menu(update, context, page=p)
+        elif data.startswith("batch_zip_page_"):
+            try:
+                p = int(data.split("_")[-1])
+            except Exception:
+                p = 1
+            return await show_batch_zips_menu(update, context, page=p)
+        elif data.startswith("batch_zip_download_id:"):
+            backup_id = data.split(":", 1)[1]
+            try:
+                info_list = backup_manager.list_backups(update.effective_user.id)
+                match = next((b for b in info_list if b.backup_id == backup_id), None)
+                if not match or not match.file_path or not os.path.exists(match.file_path):
+                    await query.answer("❌ הגיבוי לא נמצא בדיסק", show_alert=True)
+                else:
+                    with open(match.file_path, 'rb') as f:
+                        await query.message.reply_document(
+                            document=f,
+                            filename=os.path.basename(match.file_path),
+                            caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
+                        )
+                return ConversationHandler.END
+            except Exception:
+                await query.answer("❌ שגיאה בהורדה", show_alert=True)
+                return ConversationHandler.END
         elif data.startswith("batch_file:"):
             # בחירת קובץ יחיד
             gi = int(data.split(":", 1)[1])
@@ -2085,12 +2157,19 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     if not repo_to_count:
         await query.edit_message_text("ℹ️ אין קבצים עם תגיות ריפו.")
         return ConversationHandler.END
+    # מיין לפי תווית מוצגת (repo בלבד) לשיפור קריאות
+    sorted_items = sorted(repo_to_count.items(), key=lambda x: _repo_only_from_tag(x[0]).lower())[:50]
     keyboard = []
-    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:50]:
-        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"batch_repo:{tag}")])
+    lines = ["🗂 בחר/י ריפו לעיבוד:", ""]
+    for tag, cnt in sorted_items:
+        # תווית מלאה לרשימה
+        lines.append(f"• {_repo_label_from_tag(tag)} ({cnt})")
+        # כפתור עם שם מקוצר בלבד
+        btn_text = _build_repo_button_text(tag, cnt)
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"batch_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
     await query.edit_message_text(
-        "בחר/י ריפו לעיבוד:",
+        "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
@@ -2166,6 +2245,60 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error in show_batch_files_menu: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת רשימת קבצים ל-Batch")
+    return ConversationHandler.END
+
+async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
+    """מציג רשימת קבצי ZIP שמורים (גיבויים/ארכיונים) עבור Batch"""
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    try:
+        backups = backup_manager.list_backups(user_id)
+        if not backups:
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]]
+            await query.edit_message_text(
+                "ℹ️ לא נמצאו קבצי ZIP שמורים.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return ConversationHandler.END
+
+        PAGE_SIZE = 10
+        total = len(backups)
+        total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        if page < 1:
+            page = 1
+        if page > total_pages:
+            page = total_pages
+        start = (page - 1) * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total)
+        items = backups[start:end]
+
+        lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+        keyboard = []
+        for info in items:
+            btype = getattr(info, 'backup_type', 'unknown')
+            when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
+            size_text = _format_bytes(getattr(info, 'total_size', 0))
+            line = f"• {info.backup_id} — {when} — {size_text} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
+            if getattr(info, 'repo', None):
+                line += f" — ריפו: {info.repo}"
+            lines.append(line)
+            keyboard.append([
+                InlineKeyboardButton("⬇️ הורד", callback_data=f"batch_zip_download_id:{info.backup_id}")
+            ])
+
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"batch_zip_page_{page-1}"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"batch_zip_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        await query.edit_message_text("❌ שגיאה בטעינת רשימת ZIPs")
     return ConversationHandler.END
 
 async def show_batch_actions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
