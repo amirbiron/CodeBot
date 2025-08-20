@@ -269,33 +269,29 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'")
             else:
                 folder_display = session.get("selected_folder") or "root"
-
-                # הוסף כפתור למנהל קבצים
                 keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "📂 פתח מנהל קבצים", switch_inline_query_current_chat=""
-                        )
-                    ],
-                    [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")],
+                    [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
+                    [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
+                    [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
+                    [InlineKeyboardButton("📁 שאר הקבצים", callback_data="upload_saved")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
                 ]
-
                 await query.edit_message_text(
-                    f"📤 <b>העלאת קובץ לריפו:</b>\n"
-                    f"<code>{session['selected_repo']}</code>\n"
+                    f"📤 <b>העלאת קובץ לריפו</b>\n"
+                    f"ריפו: <code>{session['selected_repo']}</code>\n"
                     f"📂 תיקייה: <code>{folder_display}</code>\n\n"
-                    f"שלח קובץ או לחץ לפתיחת מנהל קבצים:",
+                    f"בחר מקור להעלאה:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode="HTML",
                 )
-
-                # סמן שאנחנו במצב העלאה לגיטהאב
-                context.user_data["waiting_for_github_upload"] = True
-                context.user_data["upload_mode"] = "github"  # הוסף גם את המשתנה החדש
-                context.user_data["target_repo"] = session["selected_repo"]
-                context.user_data["target_folder"] = session.get("selected_folder", "")
-                context.user_data["in_github_menu"] = True
-                return FILE_UPLOAD
+                return
+        elif query.data == "gh_upload_cat:repos":
+            await self.show_upload_repos(update, context)
+        elif query.data == "gh_upload_cat:zips":
+            # פתח תפריט גיבוי/ZIP של GitHub (כולל רשימות ZIP ושחזור)
+            await self.show_github_backup_menu(update, context)
+        elif query.data == "gh_upload_cat:large":
+            await self.upload_large_files_menu(update, context)
 
         elif query.data == "upload_saved":
             await self.upload_saved_files(update, context)
