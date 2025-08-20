@@ -831,7 +831,10 @@ class CodeKeeperBot:
         
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
         if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
-            # תן ל-GitHub handler לטפל בזה
+            # נהל את ההעלאה ישירות דרך מנהל GitHub כדי לא לאבד את האירוע
+            github_handler = context.bot_data.get('github_handler')
+            if github_handler:
+                await github_handler.handle_file_upload(update, context)
             return
         
         # שחזור מגיבוי מלא: קבלת ZIP
