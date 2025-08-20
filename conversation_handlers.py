@@ -260,7 +260,7 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard = []
     for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
-    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await update.message.reply_text(
         "בחר/י ריפו להצגת קבצים:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -285,7 +285,7 @@ async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAU
     keyboard = []
     for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
-    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await query.edit_message_text(
         "בחר/י ריפו להצגת קבצים:",
         reply_markup=InlineKeyboardMarkup(keyboard)
