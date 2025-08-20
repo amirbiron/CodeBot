@@ -21,6 +21,33 @@ from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
 
+def _truncate_middle(text: str, max_len: int) -> str:
+    """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
+    if max_len <= 0:
+        return ''
+    if len(text) <= max_len:
+        return text
+    if max_len <= 1:
+        return text[:max_len]
+    keep = max_len - 1
+    front = keep // 2
+    back = keep - front
+    return text[:front] + '…' + text[-back:]
+
+def _repo_label_from_tag(tag: str) -> str:
+    """מחלץ שם ריפו מתגית בסגנון repo:owner/name"""
+    try:
+        return tag.split(':', 1)[1] if tag.startswith('repo:') else tag
+    except Exception:
+        return tag
+
+def _build_repo_button_text(tag: str, count: int) -> str:
+    """בונה תווית כפתור קומפקטית לריפו, ללא 'repo:' וללא מונה כדי להקצות יותר מקום לשם."""
+    MAX_LEN = 64
+    label = _repo_label_from_tag(tag)
+    label_short = _truncate_middle(label, MAX_LEN)
+    return label_short
+
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
 
@@ -2085,12 +2112,19 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     if not repo_to_count:
         await query.edit_message_text("ℹ️ אין קבצים עם תגיות ריפו.")
         return ConversationHandler.END
+    # מיין לפי תווית מוצגת (owner/name) לשיפור קריאות
+    sorted_items = sorted(repo_to_count.items(), key=lambda x: _repo_label_from_tag(x[0]).lower())[:50]
     keyboard = []
-    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:50]:
-        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"batch_repo:{tag}")])
+    lines = ["🗂 בחר/י ריפו לעיבוד:", ""]
+    for tag, cnt in sorted_items:
+        # תווית מלאה לרשימה
+        lines.append(f"• {_repo_label_from_tag(tag)} ({cnt})")
+        # כפתור עם שם מקוצר בלבד
+        btn_text = _build_repo_button_text(tag, cnt)
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"batch_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
     await query.edit_message_text(
-        "בחר/י ריפו לעיבוד:",
+        "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
