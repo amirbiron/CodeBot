@@ -273,7 +273,7 @@ class GitHubMenuHandler:
                     [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
                     [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
                     [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
-                    [InlineKeyboardButton("📁 שאר הקבצים", callback_data="upload_saved")],
+                    [InlineKeyboardButton("📁 שאר הקבצים", callback_data="gh_upload_cat:other")],
                     [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
                 ]
                 await query.edit_message_text(
@@ -292,6 +292,8 @@ class GitHubMenuHandler:
             await self.show_github_backup_menu(update, context)
         elif query.data == "gh_upload_cat:large":
             await self.upload_large_files_menu(update, context)
+        elif query.data == "gh_upload_cat:other":
+            await self.show_upload_other_files(update, context)
         elif query.data.startswith("gh_upload_repo:"):
             tag = query.data.split(":", 1)[1]
             await self.show_upload_repo_files(update, context, tag)
@@ -1594,6 +1596,36 @@ class GitHubMenuHandler:
 
         except Exception as e:
             await update.callback_query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+
+    async def show_upload_other_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים"""
+        user_id = update.effective_user.id
+        from database import db
+        query = update.callback_query
+        try:
+            all_files = db.get_user_files(user_id, limit=1000)
+            # שלוף שמות קבצים גדולים כדי להחריג
+            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            large_names = {lf.get('file_name') for lf in large_files if lf.get('file_name')}
+            # סינון: ללא תגיות repo: וללא קבצים גדולים
+            other_files = []
+            for f in all_files:
+                name = f.get('file_name')
+                tags = f.get('tags') or []
+                if name and name not in large_names and not any(isinstance(t, str) and t.startswith('repo:') for t in tags):
+                    other_files.append(f)
+            if not other_files:
+                await query.edit_message_text("ℹ️ אין 'שאר קבצים' להצגה (לא מתויגים כריפו ואינם גדולים)")
+                return
+            keyboard = []
+            for f in other_files[:50]:
+                fid = str(f.get('_id'))
+                name = f.get('file_name', 'ללא שם')
+                keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
+            await query.edit_message_text("בחר/י קובץ להעלאה (שאר הקבצים):", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת 'שאר הקבצים': {e}")
 
     async def show_upload_repos(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט ריפואים לבחירת קבצים שמורים עם תגית repo: להעלאה"""
