@@ -403,10 +403,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 "📂 אין לך קבצים שמורים עדיין.\n"
                 "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
             )
-            # Add main menu keyboard
-            keyboard = [
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
+            # כפתור חזרה לתת־התפריט של הקבצים
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.message.reply_text(
                 "🎮 בחר פעולה:",
@@ -440,13 +438,13 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             if pagination_row:
                 keyboard.append(pagination_row)
 
-            # כפתור תפריט ראשי
-            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+            # כפתור חזרה
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             header_text = (
-                f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+                f"📚 <b>הקבצים השמורים שלך</b> — סה״כ: {total_files}\n"
                 f"📄 עמוד {page} מתוך {total_pages}\n\n"
                 "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
             )
@@ -454,7 +452,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             await query.edit_message_text(
                 header_text,
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode=ParseMode.HTML
             )
             
         reporter.report_activity(user_id)
@@ -475,12 +473,12 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         # קרא את כל הקבצים כדי לחשב עימוד
         files = db.get_user_files(user_id)
         if not files:
-            # אם אין קבצים, הצג הודעה וקישור לתפריט ראשי
+            # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
                 "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
             )
-            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]])
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="files")]])
             await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
             return ConversationHandler.END
 
@@ -522,13 +520,13 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         if pagination_row:
             keyboard.append(pagination_row)
 
-        # כפתור תפריט ראשי
-        keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+        # כפתור חזרה
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         header_text = (
-            f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+            f"📚 <b>הקבצים השמורים שלך</b> — סה״כ: {total_files}\n"
             f"📄 עמוד {page} מתוך {total_pages}\n\n"
             "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
         )
@@ -536,7 +534,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         await query.edit_message_text(
             header_text,
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode=ParseMode.HTML
         )
     except Exception as e:
         logger.error(f"Error in show_regular_files_page_callback: {e}")
