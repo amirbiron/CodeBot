@@ -1561,6 +1561,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.answer()
         elif data == "back_to_repo_menu":
             return await show_by_repo_menu_callback(update, context)
+        # --- Batch category routing ---
+        elif data == "batch_menu":
+            return await show_batch_menu(update, context)
+        elif data == "batch_cat:repos":
+            return await show_batch_repos_menu(update, context)
+        elif data == "batch_cat:zips":
+            context.user_data['batch_target'] = { 'type': 'zips' }
+            return await show_batch_actions_menu(update, context)
+        elif data == "batch_cat:large":
+            context.user_data['batch_target'] = { 'type': 'large' }
+            return await show_batch_actions_menu(update, context)
+        elif data == "batch_cat:other":
+            context.user_data['batch_target'] = { 'type': 'other' }
+            return await show_batch_actions_menu(update, context)
+        elif data.startswith("batch_repo:"):
+            tag = data.split(":", 1)[1]
+            context.user_data['batch_target'] = { 'type': 'repo', 'tag': tag }
+            return await show_batch_actions_menu(update, context)
+        elif data.startswith("batch_action:"):
+            action = data.split(":", 1)[1]
+            return await execute_batch_on_current_selection(update, context, action)
         elif data.startswith("by_repo:"):
             # הצגת קבצים לפי תגית ריפו
             tag = data.split(":", 1)[1]
@@ -1821,39 +1842,126 @@ async def handle_autocomplete_button(update: Update, context: ContextTypes.DEFAU
     )
 
 async def handle_batch_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """טיפול בכפתור 'עיבוד Batch'"""
+    """טיפול בכפתור 'עיבוד Batch' - מציג תפריט בחירת קטגוריה"""
+    await show_batch_menu(update, context)
+
+async def show_batch_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט בחירת קטגוריה עבור עיבוד Batch"""
+    query = update.callback_query if update.callback_query else None
+    if query:
+        await query.answer()
+        send = query.edit_message_text
+    else:
+        send = update.message.reply_text
     keyboard = [
-        [
-            InlineKeyboardButton("📊 נתח כל הקבצים", callback_data="batch_analyze_all"),
-            InlineKeyboardButton("✅ בדוק תקינות", callback_data="batch_validate_all")
-        ],
-        [
-            InlineKeyboardButton("🐍 נתח Python", callback_data="batch_analyze_python"),
-            InlineKeyboardButton("🟨 נתח JavaScript", callback_data="batch_analyze_javascript")
-        ],
-        [
-            InlineKeyboardButton("☕ נתח Java", callback_data="batch_analyze_java"),
-            InlineKeyboardButton("🔷 נתח C++", callback_data="batch_analyze_cpp")
-        ],
-        [
-            InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs"),
-            InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main_menu")
-        ]
+        [InlineKeyboardButton("🗂 לפי ריפו", callback_data="batch_cat:repos")],
+        [InlineKeyboardButton("📦 קבצי ZIP", callback_data="batch_cat:zips")],
+        [InlineKeyboardButton("📂 קבצים גדולים", callback_data="batch_cat:large")],
+        [InlineKeyboardButton("📁 שאר הקבצים", callback_data="batch_cat:other")],
+        [InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs")],
+        [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
     ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "⚡ <b>עיבוד Batch מתקדם</b>\n\n"
-        "🔥 <b>יתרונות:</b>\n"
-        "• ⚡ עיבוד מהיר של מרובה קבצים\n"
-        "• 🔄 עיבוד ברקע - אין המתנה\n"
-        "• 📊 ניתוח מפורט לכל קובץ\n"
-        "• ✅ בדיקת תקינות המונית\n\n"
-        "בחר פעולה:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=reply_markup
+    await send(
+        "⚡ <b>עיבוד Batch</b>\n\nבחר/י קבוצת קבצים לעיבוד:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML
     )
+    return ConversationHandler.END
+
+async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט בחירת ריפו לעיבוד Batch"""
+    from database import db
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    files = db.get_user_files(user_id, limit=1000)
+    repo_to_count = {}
+    for f in files:
+        for t in f.get('tags', []) or []:
+            if t.startswith('repo:'):
+                repo_to_count[t] = repo_to_count.get(t, 0) + 1
+    if not repo_to_count:
+        await query.edit_message_text("ℹ️ אין קבצים עם תגיות ריפו.")
+        return ConversationHandler.END
+    keyboard = []
+    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:50]:
+        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"batch_repo:{tag}")])
+    keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
+    await query.edit_message_text(
+        "בחר/י ריפו לעיבוד:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
+
+async def show_batch_actions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט פעולות לאחר בחירת קטגוריה/ריפו"""
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("📊 ניתוח (Analyze)", callback_data="batch_action:analyze")],
+        [InlineKeyboardButton("✅ בדיקת תקינות (Validate)", callback_data="batch_action:validate")],
+        [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")],
+    ]
+    await query.edit_message_text(
+        "בחר/י פעולה שתתבצע על הקבצים הנבחרים:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
+
+async def execute_batch_on_current_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str) -> int:
+    """מבצע את פעולת ה-Batch על קבוצת היעד שנבחרה"""
+    from database import db
+    from batch_processor import batch_processor
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    target = context.user_data.get('batch_target') or {}
+    files: List[str] = []
+    try:
+        t = target.get('type')
+        if t == 'repo':
+            tag = target.get('tag')
+            items = db.search_code(user_id, query="", tags=[tag], limit=2000)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+        elif t == 'zips':
+            # ZIPs אינם קבצי קוד; נבצע ניתוח/בדיקה על כל הקבצים הרגילים במקום
+            items = db.get_user_files(user_id)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+        elif t == 'large':
+            # שלוף רק קבצים גדולים
+            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            files = [f.get('file_name') for f in large_files if f.get('file_name')]
+        elif t == 'other':
+            # כל הקבצים הרגילים (לא גדולים)
+            items = db.get_user_files(user_id)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+        else:
+            # ברירת מחדל: כל הקבצים
+            items = db.get_user_files(user_id)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+
+        if not files:
+            await query.edit_message_text("❌ לא נמצאו קבצים בקבוצה שנבחרה")
+            return ConversationHandler.END
+
+        if action == 'analyze':
+            job_id = await batch_processor.analyze_files_batch(user_id, files)
+            title = "⚡ ניתוח Batch התחיל!"
+        else:
+            job_id = await batch_processor.validate_files_batch(user_id, files)
+            title = "✅ בדיקת תקינות Batch התחילה!"
+
+        keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"{title}\n\n📁 קבצים: {len(files)}\n🆔 Job ID: <code>{job_id}</code>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Error executing batch: {e}")
+        await query.edit_message_text("❌ שגיאה בהפעלת Batch")
+    return ConversationHandler.END
 
 async def _auto_update_batch_status(application, chat_id: int, message_id: int, job_id: str, user_id: int):
     from batch_processor import batch_processor
