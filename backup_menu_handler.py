@@ -105,8 +105,10 @@ class BackupMenuHandler:
 		user_id = query.from_user.id
 		await query.answer()
 		backups = backup_manager.list_backups(user_id)
-		# אם יש הקשר של ריפו מגיטהאב, סנן לגיבויים של אותו ריפו בלבד
-		current_repo = context.user_data.get('github_backup_context_repo')
+		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
+		zip_back_to = context.user_data.get('zip_back_to')
+		# אם מגיעים מתפריט "📚", אל תסנן לפי ריפו
+		current_repo = None if zip_back_to == 'files' else context.user_data.get('github_backup_context_repo')
 		if current_repo:
 			filtered = []
 			for b in backups:
@@ -117,9 +119,14 @@ class BackupMenuHandler:
 					continue
 			backups = filtered
 		if not backups:
-			keyboard = [
-				[InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")],
-			]
+			# קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
+			if zip_back_to == 'files':
+				back_cb = 'files'
+			elif current_repo is not None or zip_back_to == 'github':
+				back_cb = 'github_backup_menu'
+			else:
+				back_cb = 'backup_menu'
+			keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data=back_cb)]]
 			msg = "ℹ️ לא נמצאו גיבויים שמורים."
 			if current_repo:
 				msg = f"ℹ️ לא נמצאו גיבויים עבור הריפו:\n<code>{current_repo}</code>"
@@ -163,8 +170,14 @@ class BackupMenuHandler:
 			pagination.append(InlineKeyboardButton("➡️ הבא", callback_data=f"backup_page_{page+1}"))
 		if pagination:
 			keyboard.append(pagination)
-		# פעולות נוספות
-		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")])
+		# פעולות נוספות - כפתור חזרה דינמי
+		if zip_back_to == 'files':
+			back_cb = 'files'
+		elif current_repo is not None or zip_back_to == 'github':
+			back_cb = 'github_backup_menu'
+		else:
+			back_cb = 'backup_menu'
+		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
 	
 	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):

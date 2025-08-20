@@ -260,7 +260,7 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard = []
     for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
-    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await update.message.reply_text(
         "בחר/י ריפו להצגת קבצים:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -285,7 +285,7 @@ async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAU
     keyboard = []
     for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
-    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await query.edit_message_text(
         "בחר/י ריפו להצגת קבצים:",
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -297,9 +297,20 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(user_id, update.effective_user.username)
     from database import db
+    # הקשר: חזרה מתצוגת ZIP תחזור ל"📚" ותבטל סינון לפי ריפו
+    try:
+        context.user_data['zip_back_to'] = 'files'
+        context.user_data.pop('github_backup_context_repo', None)
+    except Exception:
+        pass
     
     try:
-        files = db.get_user_files(user_id)
+        # סנן קבצים השייכים לקטגוריות אחרות:
+        # - קבצים גדולים אינם מוחזרים כאן ממילא
+        # - קבצי ZIP אינם חלק ממסד הקבצים
+        # - קבצים עם תגית repo: יוצגו תחת "לפי ריפו" ולכן יוחרגו כאן
+        all_files = db.get_user_files(user_id)
+        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         # מסך בחירה: 4 כפתורים
         keyboard = [
@@ -356,6 +367,12 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     
     try:
+        # הקשר: חזרה מתצוגת ZIP תחזור ל"📚" ותבטל סינון לפי ריפו
+        try:
+            context.user_data['zip_back_to'] = 'files'
+            context.user_data.pop('github_backup_context_repo', None)
+        except Exception:
+            pass
         keyboard = [
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
@@ -384,17 +401,16 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     from database import db
     
     try:
-        files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id)
+        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         if not files:
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
                 "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
             )
-            # Add main menu keyboard
-            keyboard = [
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
+            # כפתור חזרה לתת־התפריט של הקבצים
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.message.reply_text(
                 "🎮 בחר פעולה:",
@@ -428,13 +444,13 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             if pagination_row:
                 keyboard.append(pagination_row)
 
-            # כפתור תפריט ראשי
-            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+            # כפתור חזרה
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             header_text = (
-                f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+                f"📚 <b>הקבצים השמורים שלך</b> — סה״כ: {total_files}\n"
                 f"📄 עמוד {page} מתוך {total_pages}\n\n"
                 "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
             )
@@ -442,7 +458,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             await query.edit_message_text(
                 header_text,
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode=ParseMode.HTML
             )
             
         reporter.report_activity(user_id)
@@ -463,12 +479,12 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         # קרא את כל הקבצים כדי לחשב עימוד
         files = db.get_user_files(user_id)
         if not files:
-            # אם אין קבצים, הצג הודעה וקישור לתפריט ראשי
+            # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
                 "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
             )
-            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]])
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="files")]])
             await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
             return ConversationHandler.END
 
@@ -510,13 +526,13 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         if pagination_row:
             keyboard.append(pagination_row)
 
-        # כפתור תפריט ראשי
-        keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+        # כפתור חזרה
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         header_text = (
-            f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+            f"📚 <b>הקבצים השמורים שלך</b> — סה״כ: {total_files}\n"
             f"📄 עמוד {page} מתוך {total_pages}\n\n"
             "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
         )
@@ -524,7 +540,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         await query.edit_message_text(
             header_text,
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode=ParseMode.HTML
         )
     except Exception as e:
         logger.error(f"Error in show_regular_files_page_callback: {e}")
@@ -1728,17 +1744,42 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_batch_repos_menu(update, context)
         elif data == "batch_cat:zips":
             context.user_data['batch_target'] = { 'type': 'zips' }
-            return await show_batch_actions_menu(update, context)
+            return await show_batch_files_menu(update, context, page=1)
         elif data == "batch_cat:large":
             context.user_data['batch_target'] = { 'type': 'large' }
-            return await show_batch_actions_menu(update, context)
+            return await show_batch_files_menu(update, context, page=1)
         elif data == "batch_cat:other":
             context.user_data['batch_target'] = { 'type': 'other' }
-            return await show_batch_actions_menu(update, context)
+            return await show_batch_files_menu(update, context, page=1)
         elif data.startswith("batch_repo:"):
             tag = data.split(":", 1)[1]
             context.user_data['batch_target'] = { 'type': 'repo', 'tag': tag }
+            return await show_batch_files_menu(update, context, page=1)
+        elif data.startswith("batch_files_page_"):
+            try:
+                p = int(data.split("_")[-1])
+            except Exception:
+                p = 1
+            return await show_batch_files_menu(update, context, page=p)
+        elif data.startswith("batch_file:"):
+            # בחירת קובץ יחיד
+            gi = int(data.split(":", 1)[1])
+            items = context.user_data.get('batch_items') or []
+            if 0 <= gi < len(items):
+                context.user_data['batch_selected_files'] = [items[gi]]
+                return await show_batch_actions_menu(update, context)
+            else:
+                await query.answer("קובץ לא קיים", show_alert=True)
+                return ConversationHandler.END
+        elif data == "batch_select_all":
+            items = context.user_data.get('batch_items') or []
+            if not items:
+                await query.answer("אין קבצים לבחור", show_alert=True)
+                return ConversationHandler.END
+            context.user_data['batch_selected_files'] = list(items)
             return await show_batch_actions_menu(update, context)
+        elif data == "batch_back_to_files":
+            return await show_batch_files_menu(update, context, page=1)
         elif data.startswith("batch_action:"):
             action = data.split(":", 1)[1]
             return await execute_batch_on_current_selection(update, context, action)
@@ -2054,18 +2095,95 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     )
     return ConversationHandler.END
 
+async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
+    """מציג רשימת קבצים בהתאם לקטגוריה שנבחרה לבחירה (הכל או בודד)"""
+    from database import db
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    target = context.user_data.get('batch_target') or {}
+    t = target.get('type')
+    items: List[str] = []
+    try:
+        if t == 'repo':
+            tag = target.get('tag')
+            files_docs = db.search_code(user_id, query="", tags=[tag], limit=2000)
+            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+        elif t == 'zips':
+            # הצג את כל הקבצים הרגילים
+            files_docs = db.get_user_files(user_id, limit=1000)
+            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+        elif t == 'large':
+            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            items = [f.get('file_name') for f in large_files if f.get('file_name')]
+        elif t == 'other':
+            files_docs = db.get_user_files(user_id, limit=1000)
+            files_docs = [f for f in files_docs if not any((tg or '').startswith('repo:') for tg in (f.get('tags') or []))]
+            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+        else:
+            files_docs = db.get_user_files(user_id, limit=1000)
+            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+
+        if not items:
+            await query.edit_message_text("❌ לא נמצאו קבצים לקטגוריה שנבחרה")
+            return ConversationHandler.END
+
+        # שמור רשימה בזיכרון זמני כדי לאפשר בחירה זריזה
+        context.user_data['batch_items'] = items
+
+        # עימוד
+        PAGE_SIZE = 10
+        total = len(items)
+        total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        if page < 1:
+            page = 1
+        if page > total_pages:
+            page = total_pages
+        start = (page - 1) * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total)
+
+        keyboard = []
+        for idx, name in enumerate(items[start:end], start=start):
+            keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"batch_file:{idx}")])
+
+        # ניווט
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"batch_files_page_{page-1}"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"batch_files_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+
+        # פעולות
+        keyboard.append([InlineKeyboardButton("✅ בחר הכל", callback_data="batch_select_all")])
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
+
+        await query.edit_message_text(
+            f"בחר/י קובץ לניתוח/בדיקה, או לחץ על 'בחר הכל' כדי לעבד את כל הקבצים ({total}).",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    except Exception as e:
+        logger.error(f"Error in show_batch_files_menu: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת רשימת קבצים ל-Batch")
+    return ConversationHandler.END
+
 async def show_batch_actions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט פעולות לאחר בחירת קטגוריה/ריפו"""
     query = update.callback_query
     await query.answer()
+    selected = context.user_data.get('batch_selected_files') or []
+    count = len(selected)
     keyboard = [
         [InlineKeyboardButton("📊 ניתוח (Analyze)", callback_data="batch_action:analyze")],
         [InlineKeyboardButton("✅ בדיקת תקינות (Validate)", callback_data="batch_action:validate")],
-        [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")],
+        [InlineKeyboardButton("🔙 חזור לבחירת קבצים", callback_data="batch_back_to_files")],
+        [InlineKeyboardButton("🏁 חזרה לתפריט Batch", callback_data="batch_menu")],
     ]
     await query.edit_message_text(
-        "בחר/י פעולה שתתבצע על הקבצים הנבחרים:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        f"בחר/י פעולה שתתבצע על הקבצים הנבחרים:\n\n" + (f"נבחרו: <b>{count}</b> קבצים" if count else "לא נבחרו קבצים — ניתן לבחור הכל או קובץ בודד"),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML
     )
     return ConversationHandler.END
 
@@ -2079,27 +2197,33 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
     target = context.user_data.get('batch_target') or {}
     files: List[str] = []
     try:
-        t = target.get('type')
-        if t == 'repo':
-            tag = target.get('tag')
-            items = db.search_code(user_id, query="", tags=[tag], limit=2000)
-            files = [f.get('file_name') for f in items if f.get('file_name')]
-        elif t == 'zips':
-            # ZIPs אינם קבצי קוד; נבצע ניתוח/בדיקה על כל הקבצים הרגילים במקום
-            items = db.get_user_files(user_id)
-            files = [f.get('file_name') for f in items if f.get('file_name')]
-        elif t == 'large':
-            # שלוף רק קבצים גדולים
-            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
-            files = [f.get('file_name') for f in large_files if f.get('file_name')]
-        elif t == 'other':
-            # כל הקבצים הרגילים (לא גדולים)
-            items = db.get_user_files(user_id)
-            files = [f.get('file_name') for f in items if f.get('file_name')]
+        # אם יש בחירה מפורשת של קבצים, השתמש בה
+        explicit = context.user_data.get('batch_selected_files')
+        if explicit:
+            files = [f for f in explicit if f]
         else:
-            # ברירת מחדל: כל הקבצים
-            items = db.get_user_files(user_id)
-            files = [f.get('file_name') for f in items if f.get('file_name')]
+            t = target.get('type')
+            if t == 'repo':
+                tag = target.get('tag')
+                items = db.search_code(user_id, query="", tags=[tag], limit=2000)
+                files = [f.get('file_name') for f in items if f.get('file_name')]
+            elif t == 'zips':
+                # ZIPs אינם קבצי קוד; כבר בשלב הבחירה הוצגו הקבצים הרגילים
+                items = db.get_user_files(user_id)
+                files = [f.get('file_name') for f in items if f.get('file_name')]
+            elif t == 'large':
+                # שלוף רק קבצים גדולים
+                large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+                files = [f.get('file_name') for f in large_files if f.get('file_name')]
+            elif t == 'other':
+                # קבצים רגילים שאין להם תגית repo:
+                items = db.get_user_files(user_id)
+                items = [f for f in items if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
+                files = [f.get('file_name') for f in items if f.get('file_name')]
+            else:
+                # ברירת מחדל: כל הקבצים רגילים
+                items = db.get_user_files(user_id)
+                files = [f.get('file_name') for f in items if f.get('file_name')]
 
         if not files:
             await query.edit_message_text("❌ לא נמצאו קבצים בקבוצה שנבחרה")
