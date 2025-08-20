@@ -384,6 +384,84 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     
     return ConversationHandler.END
 
+async def show_regular_files_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """מעבר בין עמודים בתצוגת 'הקבצים השמורים שלך'"""
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    from database import db
+    try:
+        # קרא את כל הקבצים כדי לחשב עימוד
+        files = db.get_user_files(user_id)
+        if not files:
+            # אם אין קבצים, הצג הודעה וקישור לתפריט ראשי
+            await query.edit_message_text(
+                "📂 אין לך קבצים שמורים עדיין.\n"
+                "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
+            )
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]])
+            await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
+            return ConversationHandler.END
+
+        # ניתוח מספר העמוד המבוקש
+        data = query.data
+        try:
+            page = int(data.split("_")[-1])
+        except Exception:
+            page = 1
+        if page < 1:
+            page = 1
+
+        total_files = len(files)
+        total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
+        if page > total_pages:
+            page = total_pages
+
+        start_index = (page - 1) * FILES_PAGE_SIZE
+        end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+
+        # בנה מקלדת לדף המבוקש
+        keyboard = []
+        context.user_data['files_cache'] = {}
+        for i in range(start_index, end_index):
+            file = files[i]
+            file_name = file.get('file_name', 'קובץ ללא שם')
+            language = file.get('programming_language', 'text')
+            context.user_data['files_cache'][str(i)] = file
+            emoji = get_file_emoji(language)
+            button_text = f"{emoji} {file_name}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+
+        # שורת עימוד
+        pagination_row = []
+        if page > 1:
+            pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
+        if page < total_pages:
+            pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+        if pagination_row:
+            keyboard.append(pagination_row)
+
+        # כפתור תפריט ראשי
+        keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        header_text = (
+            f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
+        )
+
+        await query.edit_message_text(
+            header_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Error in show_regular_files_page_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת עמוד הקבצים")
+    return ConversationHandler.END
+
 async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """התחלת תהליך שמירה מתקדם"""
     cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
