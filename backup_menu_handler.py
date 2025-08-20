@@ -23,6 +23,48 @@ def _format_bytes(num: int) -> str:
 		return str(num)
 	return str(num)
 
+# עזרי תצוגה לשמות/תאריכים בכפתורים
+def _format_date(dt) -> str:
+	try:
+		return dt.strftime('%d/%m/%y %H:%M')
+	except Exception:
+		return str(dt)
+
+def _truncate_middle(text: str, max_len: int) -> str:
+	if len(text) <= max_len:
+		return text
+	if max_len <= 1:
+		return text[:max_len]
+	keep = max_len - 1
+	front = keep // 2
+	back = keep - front
+	return text[:front] + '…' + text[-back:]
+
+def _build_download_button_text(info) -> str:
+	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
+	מוגבל לאורך בטוח עבור טלגרם (~64 תווים)."""
+	MAX_LEN = 64
+	base = "backup zip"
+	# שם עיקרי
+	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
+		primary = info.repo
+	else:
+		primary = "full"
+	primary = _truncate_middle(str(primary), 28)
+	date_part = _format_date(getattr(info, 'created_at', ''))
+	size_part = _format_bytes(getattr(info, 'total_size', 0))
+	text = f"⬇️ {base} {primary} — {date_part} — {size_part}"
+	# ודא שלא חורגים מהמגבלה
+	if len(text) > MAX_LEN:
+		# נסה לקצר קודם את primary
+		avail_for_primary = max(4, 28 - (len(text) - MAX_LEN))
+		primary_short = _truncate_middle(primary, avail_for_primary)
+		text = f"⬇️ {base} {primary_short} — {date_part} — {size_part}"
+		if len(text) > MAX_LEN:
+			# אם עדיין ארוך, קצר את כל הטקסט
+			text = _truncate_middle(text, MAX_LEN)
+	return text
+
 class BackupMenuHandler:
 	"""תפריט גיבוי ושחזור מלא + נקודות שמירה בגיט"""
 	def __init__(self):
@@ -151,16 +193,24 @@ class BackupMenuHandler:
 		keyboard = []
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
-			line = f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — {_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
-			if getattr(info, 'repo', None):
-				line += f" — ריפו: {info.repo}"
+			repo_name = getattr(info, 'repo', None)
+			if repo_name:
+				line = (
+					f"• {repo_name} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
+					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype} — ID: {info.backup_id}"
+				)
+			else:
+				line = (
+					f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
+					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
+				)
 			lines.append(line)
 			row = []
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 			if btype not in {"github_repo_zip"}:
 				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-			# כפתור הורדה תמיד זמין
-			row.append(InlineKeyboardButton("⬇️ הורד", callback_data=f"backup_download_id:{info.backup_id}"))
+			# כפתור הורדה תמיד זמין עם טקסט תמציתי
+			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		pagination = []
