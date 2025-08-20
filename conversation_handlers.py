@@ -1,6 +1,7 @@
 import logging
 import re
 import asyncio
+import os
 from io import BytesIO
 from datetime import datetime, timezone
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,6 +16,7 @@ from telegram.ext import (
     filters,
 )
 from database import DatabaseManager
+from file_manager import backup_manager
 from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
@@ -55,6 +57,17 @@ def _build_repo_button_text(tag: str, count: int) -> str:
     label = _repo_only_from_tag(tag)
     label_short = _truncate_middle(label, MAX_LEN)
     return label_short
+
+def _format_bytes(num: int) -> str:
+    """פורמט נוח לקריאת גדלים"""
+    try:
+        for unit in ["B", "KB", "MB", "GB"]:
+            if num < 1024.0 or unit == "GB":
+                return f"{num:.1f} {unit}" if unit != "B" else f"{int(num)} {unit}"
+            num /= 1024.0
+    except Exception:
+        return str(num)
+    return str(num)
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -2208,6 +2221,60 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as e:
         logger.error(f"Error in show_batch_files_menu: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת רשימת קבצים ל-Batch")
+    return ConversationHandler.END
+
+async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
+    """מציג רשימת קבצי ZIP שמורים (גיבויים/ארכיונים) עבור Batch"""
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    try:
+        backups = backup_manager.list_backups(user_id)
+        if not backups:
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]]
+            await query.edit_message_text(
+                "ℹ️ לא נמצאו קבצי ZIP שמורים.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return ConversationHandler.END
+
+        PAGE_SIZE = 10
+        total = len(backups)
+        total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        if page < 1:
+            page = 1
+        if page > total_pages:
+            page = total_pages
+        start = (page - 1) * PAGE_SIZE
+        end = min(start + PAGE_SIZE, total)
+        items = backups[start:end]
+
+        lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+        keyboard = []
+        for info in items:
+            btype = getattr(info, 'backup_type', 'unknown')
+            when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
+            size_text = _format_bytes(getattr(info, 'total_size', 0))
+            line = f"• {info.backup_id} — {when} — {size_text} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
+            if getattr(info, 'repo', None):
+                line += f" — ריפו: {info.repo}"
+            lines.append(line)
+            keyboard.append([
+                InlineKeyboardButton("⬇️ הורד", callback_data=f"batch_zip_download_id:{info.backup_id}")
+            ])
+
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"batch_zip_page_{page-1}"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"batch_zip_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
+        await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        await query.edit_message_text("❌ שגיאה בטעינת רשימת ZIPs")
     return ConversationHandler.END
 
 async def show_batch_actions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
