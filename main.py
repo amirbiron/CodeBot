@@ -837,13 +837,13 @@ class CodeKeeperBot:
                 await github_handler.handle_file_upload(update, context)
             return
         
-        # שחזור מגיבוי מלא: קבלת ZIP
-        if context.user_data.get('upload_mode') == 'backup_restore':
+        # ייבוא ZIP ראשוני (ללא מחיקה): קבלת ZIP ושמירה כקבצים עם תגית ריפו אם קיימת
+        if context.user_data.get('upload_mode') == 'zip_import':
             try:
                 document = update.message.document
                 user_id = update.effective_user.id
-                logger.info(f"Backup restore upload received: file_name={document.file_name}, mime_type={document.mime_type}, size={document.file_size}")
-                await update.message.reply_text("⏳ מוריד קובץ גיבוי...")
+                logger.info(f"ZIP import received: file_name={document.file_name}, mime_type={document.mime_type}, size={document.file_size}")
+                await update.message.reply_text("⏳ מוריד קובץ ZIP...")
                 file = await context.bot.get_file(document.file_id)
                 buf = BytesIO()
                 await file.download_to_memory(buf)
@@ -851,7 +851,7 @@ class CodeKeeperBot:
                 # שמור זמנית לדיסק
                 import tempfile, os, zipfile
                 tmp_dir = tempfile.gettempdir()
-                safe_name = (document.file_name or 'backup.zip')
+                safe_name = (document.file_name or 'repo.zip')
                 if not safe_name.lower().endswith('.zip'):
                     safe_name += '.zip'
                 tmp_path = os.path.join(tmp_dir, safe_name)
@@ -859,27 +859,37 @@ class CodeKeeperBot:
                     f.write(buf.getvalue())
                 # בדיקת ZIP תקין
                 if not zipfile.is_zipfile(tmp_path):
-                    logger.warning(f"Uploaded backup is not a valid ZIP: {tmp_path}")
+                    logger.warning(f"Uploaded file is not a valid ZIP: {tmp_path}")
                     await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
                     return
-                # בצע שחזור
-                results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True, purge=True)
+                # נסה לקרוא metadata כדי לצרף תגית repo
+                import json
+                repo_tag = []
+                try:
+                    with zipfile.ZipFile(tmp_path, 'r') as zf:
+                        md = json.loads(zf.read('metadata.json'))
+                        if md.get('repo'):
+                            repo_tag = [f"repo:{md['repo']}"]
+                except Exception:
+                    pass
+                # בצע ייבוא ללא מחיקה, עם תגיות אם קיימות
+                results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True, purge=False, extra_tags=repo_tag)
                 restored = results.get('restored_files', 0)
                 errors = results.get('errors', [])
                 if errors:
                     # הצג תקציר שגיאות כדי לעזור באבחון
                     preview = "\n".join([str(e) for e in errors[:3]])
                     msg = (
-                        f"⚠️ השחזור הושלם חלקית: {restored} קבצים שוחזרו\n"
+                        f"⚠️ הייבוא הושלם חלקית: {restored} קבצים נשמרו\n"
                         f"שגיאות: {len(errors)}\n"
                         f"דוגמאות:\n{preview}"
                     )
                 else:
-                    msg = f"✅ שוחזרו {restored} קבצים בהצלחה"
+                    msg = f"✅ יובאו {restored} קבצים בהצלחה"
                 await update.message.reply_text(msg)
             except Exception as e:
-                logger.exception(f"Restore from uploaded backup failed: {e}")
-                await update.message.reply_text(f"❌ שגיאה בשחזור: {e}")
+                logger.exception(f"ZIP import failed: {e}")
+                await update.message.reply_text(f"❌ שגיאה בייבוא ZIP: {e}")
             finally:
                 context.user_data['upload_mode'] = None
             return

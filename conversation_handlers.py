@@ -31,7 +31,8 @@ GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
-    ["⚡ עיבוד Batch", "🔧 GitHub"]
+    ["⚡ עיבוד Batch", "🔧 GitHub"],
+    ["📥 ייבוא ZIP מריפו", "🗂 לפי ריפו"]
 ]
 
 reporter = create_reporter(
@@ -71,6 +72,42 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     reporter.report_activity(user_id)
     return ConversationHandler.END
 
+async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """מצב ייבוא ZIP של ריפו: מבקש לשלוח ZIP ומכין את ה-upload_mode."""
+    context.user_data.pop('waiting_for_github_upload', None)
+    context.user_data['upload_mode'] = 'zip_import'
+    await update.message.reply_text(
+        "📥 שלח/י עכשיו קובץ ZIP של הריפו (העלאה ראשונית).\n"
+        "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.",
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )
+    reporter.report_activity(update.effective_user.id)
+    return ConversationHandler.END
+
+async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """מציג תפריט קבוצות לפי תגיות ריפו ומאפשר בחירה."""
+    from database import db
+    user_id = update.effective_user.id
+    files = db.get_user_files(user_id, limit=500)
+    # ריכוז תגיות ריפו
+    repo_to_count = {}
+    for f in files:
+        for t in f.get('tags', []) or []:
+            if t.startswith('repo:'):
+                repo_to_count[t] = repo_to_count.get(t, 0) + 1
+    if not repo_to_count:
+        await update.message.reply_text("ℹ️ אין קבצים עם תגית ריפו.")
+        return ConversationHandler.END
+    # בניית מקלדת
+    keyboard = []
+    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
+    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    await update.message.reply_text(
+        "בחר/י ריפו להצגת קבצים:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג את כל הקבצים השמורים עם ממשק אינטראקטיבי מתקדם"""
     user_id = update.effective_user.id
@@ -163,6 +200,7 @@ async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await github_handler.github_menu_command(update, context)
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
+
 
 async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """גרסת callback של show_all_files - מציגה תפריט בחירה בין סוגי קבצים"""
@@ -1492,6 +1530,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "noop":
             # כפתור שלא עושה כלום (לתצוגה בלבד)
             await query.answer()
+        elif data.startswith("by_repo:"):
+            # הצגת קבצים לפי תגית ריפו
+            tag = data.split(":", 1)[1]
+            from database import db
+            user_id = update.effective_user.id
+            files = db.search_code(user_id, query="", tags=[tag], limit=200)
+            if not files:
+                await query.edit_message_text("ℹ️ אין קבצים עבור התגית הזו.")
+                return ConversationHandler.END
+            keyboard = []
+            for i, f in enumerate(files[:20]):
+                name = f.get('file_name', 'ללא שם')
+                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
+                # שמור קאש קל להצגה
+                context.user_data.setdefault('files_cache', {})[str(i)] = f
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="noop")])
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+            await query.edit_message_text(
+                f"📂 קבצים עם {tag}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         
     except telegram.error.BadRequest as e:
         if "Message is not modified" not in str(e):
@@ -1523,6 +1582,9 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
             MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
+            MessageHandler(filters.Regex("^📥 ייבוא ZIP מריפו$"), start_repo_zip_import),
+            MessageHandler(filters.Regex("^🗂 לפי ריפו$"), show_by_repo_menu),
+            
             # כניסה לעריכת קוד/שם גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
             CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|lf_edit_)')
         ],

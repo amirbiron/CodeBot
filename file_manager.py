@@ -313,8 +313,12 @@ class BackupManager:
             return None
     
     def restore_from_backup(self, user_id: int, backup_path: str, 
-                               overwrite: bool = False, purge: bool = False) -> Dict[str, Any]:
-        """שחזור מגיבוי"""
+                               overwrite: bool = False, purge: bool = False,
+                               extra_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """שחזור מגיבוי
+
+        extra_tags: תגים להוספה לכל קובץ משוחזר (למשל repo:<owner>/<name>)
+        """
         
         try:
             results = {
@@ -404,7 +408,8 @@ class BackupManager:
                                     file_name=file_name,
                                     code=text,
                                     programming_language=language,
-                                    description="שוחזר מ-GitHub ZIP" if backup_type == 'github_repo_zip' else "שוחזר מ-ZIP"
+                                    description="שוחזר מ-GitHub ZIP" if backup_type == 'github_repo_zip' else "שוחזר מ-ZIP",
+                                    tags=(list(extra_tags) if extra_tags else [])
                                 )
                                 if db.save_code_snippet(snippet):
                                     results["restored_files"] += 1
@@ -435,7 +440,8 @@ class BackupManager:
                                     file_name=file_name,
                                     code=content,
                                     programming_language=language,
-                                    description="שוחזר מגיבוי"
+                                    description="שוחזר מגיבוי",
+                                    tags=(list(extra_tags) if extra_tags else [])
                                 )
                                 if db.save_code_snippet(snippet):
                                     results["restored_files"] += 1
@@ -458,7 +464,8 @@ class BackupManager:
                                         file_name=file_name,
                                         code=text,
                                         programming_language=language,
-                                        description="שוחזר מ-ZIP"
+                                        description="שוחזר מ-ZIP",
+                                        tags=(list(extra_tags) if extra_tags else [])
                                     )
                                     if db.save_code_snippet(snippet):
                                         results["restored_files"] += 1
