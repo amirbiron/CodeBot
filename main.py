@@ -727,11 +727,6 @@ class CodeKeeperBot:
         logger.info(f"DEBUG: upload_mode = {context.user_data.get('upload_mode')}")
         logger.info(f"DEBUG: waiting_for_github_upload = {context.user_data.get('waiting_for_github_upload')}")
         
-        # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
-        if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
-            # תן ל-GitHub handler לטפל בזה
-            return
-        
         # שחזור ZIP ישירות לריפו בגיטהאב (פריסה והחלפה)
         if context.user_data.get('upload_mode') == 'github_restore_zip_to_repo':
             try:
@@ -822,6 +817,11 @@ class CodeKeeperBot:
             finally:
                 context.user_data['upload_mode'] = None
                 context.user_data.pop('github_restore_zip_purge', None)
+            return
+        
+        # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
+        if context.user_data.get('waiting_for_github_upload') or context.user_data.get('upload_mode') == 'github':
+            # תן ל-GitHub handler לטפל בזה
             return
         
         # שחזור מגיבוי מלא: קבלת ZIP
