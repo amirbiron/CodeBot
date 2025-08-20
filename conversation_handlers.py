@@ -305,7 +305,12 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         pass
     
     try:
-        files = db.get_user_files(user_id)
+        # סנן קבצים השייכים לקטגוריות אחרות:
+        # - קבצים גדולים אינם מוחזרים כאן ממילא
+        # - קבצי ZIP אינם חלק ממסד הקבצים
+        # - קבצים עם תגית repo: יוצגו תחת "לפי ריפו" ולכן יוחרגו כאן
+        all_files = db.get_user_files(user_id)
+        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         # מסך בחירה: 4 כפתורים
         keyboard = [
@@ -396,7 +401,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     from database import db
     
     try:
-        files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id)
+        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         if not files:
             await query.edit_message_text(
