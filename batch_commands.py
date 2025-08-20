@@ -342,8 +342,15 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 await query.edit_message_text("⏳ עבודה עדיין לא הושלמה")
                 return
             
+            # בדיקת סוג הפעולה
+            is_analyze = job.operation == "analyze"
+            
             # הצגת תוצאות מפורטות
-            results_text = "📋 <b>תוצאות מפורטות:</b>\n\n"
+            if is_analyze:
+                results_text = "📊 <b>תוצאות ניתוח הקוד</b>\n"
+            else:
+                results_text = "🔍 <b>תוצאות בדיקת התקינות</b>\n"
+            results_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
             
             successful_files = []
             failed_files = []
@@ -354,38 +361,137 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 else:
                     failed_files.append((file_name, result.get('error', 'שגיאה לא ידועה')))
             
+            # סטטיסטיקות כלליות
+            total_files = len(job.results)
+            results_text += f"📈 <b>סטטיסטיקות:</b>\n"
+            results_text += f"   • סה״כ קבצים: <b>{total_files}</b>\n"
+            results_text += f"   • ✅ עברו בהצלחה: <b>{len(successful_files)}</b>\n"
+            results_text += f"   • ❌ נכשלו: <b>{len(failed_files)}</b>\n\n"
+            
             if successful_files:
-                results_text += f"✅ <b>הצליחו ({len(successful_files)}):</b>\n"
+                results_text += f"✅ <b>קבצים שעברו בהצלחה ({len(successful_files)}):</b>\n"
                 for file_name in successful_files[:10]:  # הצג עד 10
-                    results_text += f"• {html_escape(file_name)}\n"
+                    results_text += f"   • <code>{html_escape(file_name)}</code>\n"
                 
                 if len(successful_files) > 10:
-                    results_text += f"• ... ועוד {len(successful_files) - 10}\n"
+                    results_text += f"   <i>... ועוד {len(successful_files) - 10} קבצים</i>\n"
+                results_text += "\n"
             
             if failed_files:
-                results_text += f"\n❌ <b>נכשלו ({len(failed_files)}):</b>\n"
+                results_text += f"❌ <b>קבצים עם בעיות ({len(failed_files)}):</b>\n"
                 for file_name, error in failed_files[:5]:  # הצג עד 5 שגיאות
-                    results_text += f"• {html_escape(file_name)}: {html_escape(error[:50])}...\n"
+                    results_text += f"   • <code>{html_escape(file_name)}</code>\n"
+                    results_text += f"     └ {html_escape(error[:50])}...\n"
+                if len(failed_files) > 5:
+                    results_text += f"   <i>... ועוד {len(failed_files) - 5} קבצים</i>\n"
+                results_text += "\n"
 
             # תקציר בדיקות מתקדמות (אם קיימות)
             detailed_advanced = []
             for file_name, result in job.results.items():
                 adv = result.get('result', {}).get('advanced_checks') if result.get('result') else None
                 if adv:
-                    parts = []
+                    file_issues = []
                     for tool, tool_res in adv.items():
                         rc = tool_res.get('returncode')
-                        status = 'OK' if rc == 0 else ('MISSING' if rc == 127 else ('TIMEOUT' if rc == 124 else 'FAIL'))
-                        snippet = ''
-                        if status != 'OK':
+                        # תרגום שמות הכלים
+                        tool_name = {
+                            'flake8': '🔍 בדיקת סגנון',
+                            'mypy': '📝 בדיקת טיפוסים', 
+                            'bandit': '🔒 בדיקת אבטחה',
+                            'black': '🎨 עיצוב קוד'
+                        }.get(tool, tool)
+                        
+                        if rc == 0:
+                            status_icon = '✅'
+                            status_text = 'תקין'
+                        elif rc == 127:
+                            status_icon = '⚠️'
+                            status_text = 'כלי חסר'
+                        elif rc == 124:
+                            status_icon = '⏱️'
+                            status_text = 'תם הזמן'
+                        else:
+                            status_icon = '❌'
+                            status_text = 'בעיה'
                             out = (tool_res.get('output') or '').splitlines()
                             if out:
-                                snippet = f" ({html_escape(out[0][:80])})"
-                        parts.append(f"{tool}:{status}{snippet}")
-                    if parts:
-                        detailed_advanced.append(f"• {html_escape(file_name)} — " + ", ".join(parts))
+                                # ניקוי ותרגום השגיאה
+                                error_msg = out[0][:100]
+                                if 'imported but unused' in error_msg:
+                                    error_msg = 'ייבוא לא בשימוש'
+                                elif 'would reformat' in error_msg:
+                                    error_msg = 'דורש עיצוב מחדש'
+                                elif 'SyntaxError' in error_msg:
+                                    error_msg = 'שגיאת תחביר'
+                                elif 'invalid syntax' in error_msg:
+                                    error_msg = 'תחביר לא תקין'
+                                else:
+                                    error_msg = html_escape(error_msg[:50])
+                                status_text = f"{status_text}: {error_msg}"
+                        
+                        file_issues.append(f"      {status_icon} {tool_name}: <b>{status_text}</b>")
+                    
+                    if file_issues:
+                        detailed_advanced.append(f"\n   📄 <code>{html_escape(file_name)}</code>\n" + "\n".join(file_issues))
+            
             if detailed_advanced:
-                results_text += "\n🧪 <b>בדיקות מתקדמות:</b>\n" + "\n".join(detailed_advanced[:10])
+                results_text += "🧪 <b>בדיקות מתקדמות לקבצי Python:</b>\n"
+                results_text += "━━━━━━━━━━━━━━━━━━━━\n"
+                for details in detailed_advanced[:5]:
+                    results_text += details + "\n"
+                if len(detailed_advanced) > 5:
+                    results_text += f"\n   <i>... ועוד {len(detailed_advanced) - 5} קבצים נבדקו</i>"
+            
+            # אם זה ניתוח, הוסף מידע נוסף
+            if is_analyze:
+                analysis_summary = []
+                total_lines = 0
+                total_chars = 0
+                languages = {}
+                
+                for file_name, result in job.results.items():
+                    if result.get('success', False):
+                        res_data = result.get('result', {})
+                        if res_data:
+                            total_lines += res_data.get('lines', 0)
+                            total_chars += res_data.get('chars', 0)
+                            lang = res_data.get('language', 'unknown')
+                            languages[lang] = languages.get(lang, 0) + 1
+                            
+                            # אם יש ניתוח מפורט
+                            analysis = res_data.get('analysis', {})
+                            if analysis and isinstance(analysis, dict):
+                                complexity = analysis.get('complexity', 'N/A')
+                                quality_score = analysis.get('quality_score', 'N/A')
+                                if complexity != 'N/A' or quality_score != 'N/A':
+                                    analysis_summary.append({
+                                        'file': file_name,
+                                        'complexity': complexity,
+                                        'quality': quality_score
+                                    })
+                
+                # הוסף סיכום ניתוח
+                if total_lines > 0:
+                    results_text += "\n📈 <b>סיכום הניתוח:</b>\n"
+                    results_text += "━━━━━━━━━━━━━━━━━━━━\n"
+                    results_text += f"   📏 סה״כ שורות קוד: <b>{total_lines:,}</b>\n"
+                    results_text += f"   📝 סה״כ תווים: <b>{total_chars:,}</b>\n"
+                    
+                    if languages:
+                        results_text += f"\n   🔤 <b>שפות תכנות:</b>\n"
+                        for lang, count in sorted(languages.items(), key=lambda x: x[1], reverse=True):
+                            lang_display = lang.title() if lang != 'unknown' else 'לא זוהה'
+                            results_text += f"      • {lang_display}: <b>{count}</b> קבצים\n"
+                    
+                    if analysis_summary:
+                        results_text += f"\n   🎯 <b>ציוני איכות (דוגמאות):</b>\n"
+                        for item in analysis_summary[:3]:
+                            results_text += f"      • <code>{html_escape(item['file'])}</code>\n"
+                            if item['quality'] != 'N/A':
+                                results_text += f"        ציון איכות: <b>{item['quality']}</b>\n"
+                            if item['complexity'] != 'N/A':
+                                results_text += f"        מורכבות: <b>{item['complexity']}</b>\n"
             
             await query.edit_message_text(
                 results_text,
