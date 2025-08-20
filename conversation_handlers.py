@@ -41,10 +41,18 @@ def _repo_label_from_tag(tag: str) -> str:
     except Exception:
         return tag
 
-def _build_repo_button_text(tag: str, count: int) -> str:
-    """בונה תווית כפתור קומפקטית לריפו, ללא 'repo:' וללא מונה כדי להקצות יותר מקום לשם."""
-    MAX_LEN = 64
+def _repo_only_from_tag(tag: str) -> str:
+    """מחזיר רק את שם ה-repo ללא owner מתוך תגית repo:owner/name"""
     label = _repo_label_from_tag(tag)
+    try:
+        return label.split('/', 1)[1] if '/' in label else label
+    except Exception:
+        return label
+
+def _build_repo_button_text(tag: str, count: int) -> str:
+    """בונה תווית כפתור קומפקטית לריפו, מציג רק את שם ה-repo בלי owner."""
+    MAX_LEN = 64
+    label = _repo_only_from_tag(tag)
     label_short = _truncate_middle(label, MAX_LEN)
     return label_short
 
@@ -2112,8 +2120,8 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     if not repo_to_count:
         await query.edit_message_text("ℹ️ אין קבצים עם תגיות ריפו.")
         return ConversationHandler.END
-    # מיין לפי תווית מוצגת (owner/name) לשיפור קריאות
-    sorted_items = sorted(repo_to_count.items(), key=lambda x: _repo_label_from_tag(x[0]).lower())[:50]
+    # מיין לפי תווית מוצגת (repo בלבד) לשיפור קריאות
+    sorted_items = sorted(repo_to_count.items(), key=lambda x: _repo_only_from_tag(x[0]).lower())[:50]
     keyboard = []
     lines = ["🗂 בחר/י ריפו לעיבוד:", ""]
     for tag, cnt in sorted_items:
