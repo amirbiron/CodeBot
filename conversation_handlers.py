@@ -1792,7 +1792,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_batch_repos_menu(update, context)
         elif data == "batch_cat:zips":
             context.user_data['batch_target'] = { 'type': 'zips' }
-            return await show_batch_files_menu(update, context, page=1)
+            return await show_batch_zips_menu(update, context, page=1)
         elif data == "batch_cat:large":
             context.user_data['batch_target'] = { 'type': 'large' }
             return await show_batch_files_menu(update, context, page=1)
@@ -1809,6 +1809,30 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception:
                 p = 1
             return await show_batch_files_menu(update, context, page=p)
+        elif data.startswith("batch_zip_page_"):
+            try:
+                p = int(data.split("_")[-1])
+            except Exception:
+                p = 1
+            return await show_batch_zips_menu(update, context, page=p)
+        elif data.startswith("batch_zip_download_id:"):
+            backup_id = data.split(":", 1)[1]
+            try:
+                info_list = backup_manager.list_backups(update.effective_user.id)
+                match = next((b for b in info_list if b.backup_id == backup_id), None)
+                if not match or not match.file_path or not os.path.exists(match.file_path):
+                    await query.answer("❌ הגיבוי לא נמצא בדיסק", show_alert=True)
+                else:
+                    with open(match.file_path, 'rb') as f:
+                        await query.message.reply_document(
+                            document=f,
+                            filename=os.path.basename(match.file_path),
+                            caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
+                        )
+                return ConversationHandler.END
+            except Exception:
+                await query.answer("❌ שגיאה בהורדה", show_alert=True)
+                return ConversationHandler.END
         elif data.startswith("batch_file:"):
             # בחירת קובץ יחיד
             gi = int(data.split(":", 1)[1])
