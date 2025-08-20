@@ -27,12 +27,16 @@ logger = logging.getLogger(__name__)
 # הגדרת שלבי השיחה
 GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
+# קבועי עימוד
+FILES_PAGE_SIZE = 10
+
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
     ["⚡ עיבוד Batch", "🔧 GitHub"],
-    ["📥 ייבוא ZIP מריפו", "🗂 לפי ריפו"]
+    ["📥 ייבוא ZIP מריפו", "🗂 לפי ריפו"],
+    ["ℹ️ הסבר על הבוט"]
 ]
 
 reporter = create_reporter(
@@ -72,14 +76,68 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     reporter.report_activity(user_id)
     return ConversationHandler.END
 
+HELP_PAGES = [
+    (
+        "🏠 תפריט ראשי — מה יש כאן?\n\n"
+        "➕ הוסף קוד חדש — יצירת קובץ חדש ושמירתו.\n"
+        "📚 הצג את כל הקבצים שלי — תפריט ראשי לקבצים: לפי ריפו, ZIP, גדולים ושאר הקבצים.\n"
+        "📂 קבצים גדולים — ניהול קבצים גדולים (עם תצוגה/הורדה/מחיקה).\n"
+        "⚡ עיבוד Batch — הפעלת ניתוח/בדיקה על קבוצות קבצים (לפי ריפו/ZIP/גדולים/שאר).\n"
+        "🔧 GitHub — עבודה מול ריפו: העלאה, הורדה, מחיקה, גיבויים ושחזור.\n"
+        "📥 ייבוא ZIP מריפו — העלאת ZIP כדי לשחזר/לייבא קבצים לבוט.\n"
+        "🗂 לפי ריפו — עיון בקבצים לפי תגיות repo:."
+    ),
+    (
+        "📚 כל הקבצים — פירוט\n\n"
+        "🗂 לפי ריפו — ריכוז קבצים לפי תגיות repo:owner/name.\n"
+        "📦 קבצי ZIP — רשימת קבצי ZIP ששמרת (עם עימוד).\n"
+        "📂 קבצים גדולים — כניסה למנהל הקבצים הגדולים.\n"
+        "📁 שאר הקבצים — כל הקבצים הרגילים בעימוד עם הבא/הקודם."
+    ),
+    (
+        "⚡ עיבוד Batch — איך משתמשים?\n\n"
+        "בחר קודם קבוצת יעד (לפי ריפו/ZIP/גדולים/שאר), ואז בחר פעולה:\n"
+        "📊 ניתוח (Analyze) או ✅ בדיקת תקינות (Validate).\n"
+        "ניתן לבדוק סטטוס עבודות פעילות בכל רגע."
+    ),
+    (
+        "🐙 GitHub — מה אפשר?\n\n"
+        "📤 העלה קובץ חדש — העלאה מארבעה מקורות: לפי ריפו, ZIP, קבצים גדולים, שאר הקבצים.\n"
+        "📚 העלה מהקבצים השמורים — בחירה ישירה של קובץ שמור.\n"
+        "📂 בחר תיקיית יעד — קובע לאן יועלה הקובץ בריפו.\n"
+        "🧰 גיבוי ושחזור — יצירת ZIP, הורדה, ושחזור לריפו.\n"
+        "🔔 התראות — הפעלת התראות חכמות על הריפו."
+    ),
+]
+
+async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
+    """מציג עמוד עזרה עם כפתורי ניווט"""
+    total_pages = len(HELP_PAGES)
+    page = max(1, min(page, total_pages))
+    text = HELP_PAGES[page - 1]
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"help_page:{page-1}"))
+    nav.append(InlineKeyboardButton(f"עמוד {page}/{total_pages}", callback_data="noop"))
+    if page < total_pages:
+        nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"help_page:{page+1}"))
+    keyboard = [nav, [InlineKeyboardButton("🏠 חזרה לתפריט", callback_data="main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    if hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup)
+    return ConversationHandler.END
+
 async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מצב ייבוא ZIP של ריפו: מבקש לשלוח ZIP ומכין את ה-upload_mode."""
     context.user_data.pop('waiting_for_github_upload', None)
     context.user_data['upload_mode'] = 'zip_import'
+    cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
     await update.message.reply_text(
         "📥 שלח/י עכשיו קובץ ZIP של הריפו (העלאה ראשונית).\n"
         "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        reply_markup=cancel_markup
     )
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
@@ -108,6 +166,31 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
+
+async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """גרסת callback להצגת תפריט ריפו (עריכת ההודעה הנוכחית)."""
+    from database import db
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    files = db.get_user_files(user_id, limit=500)
+    repo_to_count = {}
+    for f in files:
+        for t in f.get('tags', []) or []:
+            if t.startswith('repo:'):
+                repo_to_count[t] = repo_to_count.get(t, 0) + 1
+    if not repo_to_count:
+        await query.edit_message_text("ℹ️ אין קבצים עם תגית ריפו.")
+        return ConversationHandler.END
+    keyboard = []
+    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
+    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    await query.edit_message_text(
+        "בחר/י ריפו להצגת קבצים:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג את כל הקבצים השמורים עם ממשק אינטראקטיבי מתקדם"""
     user_id = update.effective_user.id
@@ -118,53 +201,18 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         files = db.get_user_files(user_id)
         
-        if not files:
-            await update.message.reply_text(
-                "📂 אין לך קבצים שמורים עדיין.\n"
-                "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-        else:
-            # יצירת כפתורים מתקדמים עבור כל קובץ
-            keyboard = []
-            
-            for i, file in enumerate(files):
-                file_name = file.get('file_name', 'קובץ ללא שם')
-                language = file.get('programming_language', 'text')
-                
-                # שמירת המידע ב-context למידע מהיר
-                if 'files_cache' not in context.user_data:
-                    context.user_data['files_cache'] = {}
-                context.user_data['files_cache'][str(i)] = file
-                
-                # כפתור מעוצב עם אמוג'י חכם
-                emoji = get_file_emoji(language)
-                button_text = f"{emoji} {file_name}"
-                
-                keyboard.append([InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"file_{i}"
-                )])
-                
-                if i >= 9:  # הגבלה אסתטית
-                    break
-            
-            # כפתורי ניווט מתקדמים
-            nav_buttons = [
-                [InlineKeyboardButton("🔄 רענן רשימה", callback_data="refresh_files")],
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
-            keyboard.extend(nav_buttons)
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            files_count_text = f"({len(files)} קבצים)" if len(files) <= 10 else f"({len(files)} קבצים - מציג 10 הטובים ביותר)"
-            
-            await update.message.reply_text(
-                f"📚 *המרכז הדיגיטלי שלך* {files_count_text}\n\n"
-                "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:",
-                reply_markup=reply_markup
-            )
+        # מסך בחירה: 4 כפתורים
+        keyboard = [
+            [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
+            [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
+            [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "בחר/י דרך להצגת הקבצים:",
+            reply_markup=reply_markup
+        )
     except Exception as e:
         logger.error(f"שגיאה בהצגת כל הקבצים: {e}")
         await update.message.reply_text(
@@ -207,67 +255,22 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     
-    user_id = update.effective_user.id
-    from database import db
-    
     try:
-        # קבלת מידע על קבצים
-        regular_files = db.get_user_files(user_id)
-        large_files, large_count = db.get_user_large_files(user_id, page=1, per_page=100)
-        
-        # יצירת תפריט בחירה
-        keyboard = []
-        
-        if regular_files:
-            keyboard.append([InlineKeyboardButton(
-                f"📁 קבצים רגילים ({len(regular_files)})",
-                callback_data="show_regular_files"
-            )])
-        
-        if large_files:
-            keyboard.append([InlineKeyboardButton(
-                f"📚 קבצים גדולים ({large_count})",
-                callback_data="show_large_files"
-            )])
-        
-        if not regular_files and not large_files:
-            await query.edit_message_text(
-                "📂 אין לך קבצים שמורים עדיין.\n"
-                "✨ שלח קובץ או השתמש ב-'➕ הוסף קוד חדש' כדי להתחיל!"
-            )
-            # Add main menu keyboard
-            keyboard = [
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text(
-                "🎮 בחר פעולה:",
-                reply_markup=reply_markup
-            )
-        else:
-            # הוספת כפתור תפריט ראשי
-            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            total_files = len(regular_files) + large_count
-            
-            text = (
-                f"📚 **הקבצים שלך** (סה\"כ: {total_files})\n\n"
-                "🎯 בחר קטגוריה:"
-            )
-            
-            await query.edit_message_text(
-                text,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        
-        reporter.report_activity(user_id)
-        
+        keyboard = [
+            [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
+            [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
+            [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "בחר/י דרך להצגת הקבצים:",
+            reply_markup=reply_markup
+        )
+        reporter.report_activity(update.effective_user.id)
     except Exception as e:
         logger.error(f"Error in show_all_files_callback: {e}")
-        await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
+        await query.edit_message_text("❌ שגיאה בטעינת התפריט")
     
     return ConversationHandler.END
 
@@ -298,46 +301,44 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 reply_markup=reply_markup
             )
         else:
-            # יצירת כפתורים מתקדמים עבור כל קובץ
+            # עימוד והצגת דף ראשון
+            total_files = len(files)
+            total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
+            page = 1
+            start_index = (page - 1) * FILES_PAGE_SIZE
+            end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+
             keyboard = []
-            
-            for i, file in enumerate(files):
+            context.user_data['files_cache'] = {}
+            for i in range(start_index, end_index):
+                file = files[i]
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
-                
-                # שמירת המידע ב-context למידע מהיר
-                if 'files_cache' not in context.user_data:
-                    context.user_data['files_cache'] = {}
                 context.user_data['files_cache'][str(i)] = file
-                
-                # כפתור מעוצב עם אמוג'י חכם
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                
-                keyboard.append([InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"file_{i}"
-                )])
-                
-                if i >= 9:  # הגבלה אסתטית
-                    break
-            
-            # כפתורי ניווט מתקדמים
-            nav_buttons = [
-                [InlineKeyboardButton("🔄 רענן רשימה", callback_data="refresh_files")],
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
-            keyboard.extend(nav_buttons)
-            
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+
+            # שורת עימוד
+            pagination_row = []
+            if page > 1:
+                pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
+            if page < total_pages:
+                pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+            if pagination_row:
+                keyboard.append(pagination_row)
+
+            # כפתור תפריט ראשי
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            files_count_text = f"({len(files)} קבצים)" if len(files) <= 10 else f"({len(files)} קבצים - מציג 10 הטובים ביותר)"
-            
+
             header_text = (
-                f"📚 **הקבצים השמורים שלך** {files_count_text}\n\n"
+                f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+                f"📄 עמוד {page} מתוך {total_pages}\n\n"
                 "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
             )
-            
+
             await query.edit_message_text(
                 header_text,
                 reply_markup=reply_markup,
@@ -350,6 +351,84 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
         logger.error(f"Error in show_regular_files_callback: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
     
+    return ConversationHandler.END
+
+async def show_regular_files_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """מעבר בין עמודים בתצוגת 'הקבצים השמורים שלך'"""
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    from database import db
+    try:
+        # קרא את כל הקבצים כדי לחשב עימוד
+        files = db.get_user_files(user_id)
+        if not files:
+            # אם אין קבצים, הצג הודעה וקישור לתפריט ראשי
+            await query.edit_message_text(
+                "📂 אין לך קבצים שמורים עדיין.\n"
+                "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!"
+            )
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]])
+            await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
+            return ConversationHandler.END
+
+        # ניתוח מספר העמוד המבוקש
+        data = query.data
+        try:
+            page = int(data.split("_")[-1])
+        except Exception:
+            page = 1
+        if page < 1:
+            page = 1
+
+        total_files = len(files)
+        total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
+        if page > total_pages:
+            page = total_pages
+
+        start_index = (page - 1) * FILES_PAGE_SIZE
+        end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+
+        # בנה מקלדת לדף המבוקש
+        keyboard = []
+        context.user_data['files_cache'] = {}
+        for i in range(start_index, end_index):
+            file = files[i]
+            file_name = file.get('file_name', 'קובץ ללא שם')
+            language = file.get('programming_language', 'text')
+            context.user_data['files_cache'][str(i)] = file
+            emoji = get_file_emoji(language)
+            button_text = f"{emoji} {file_name}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+
+        # שורת עימוד
+        pagination_row = []
+        if page > 1:
+            pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
+        if page < total_pages:
+            pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+        if pagination_row:
+            keyboard.append(pagination_row)
+
+        # כפתור תפריט ראשי
+        keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        header_text = (
+            f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
+        )
+
+        await query.edit_message_text(
+            header_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Error in show_regular_files_page_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת עמוד הקבצים")
     return ConversationHandler.END
 
 async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1414,6 +1493,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_file_info(update, context)
         elif data == "files" or data == "refresh_files":
             return await show_all_files_callback(update, context)
+        elif data == "by_repo_menu":
+            return await show_by_repo_menu_callback(update, context)
+        elif data.startswith("files_page_"):
+            return await show_regular_files_page_callback(update, context)
         elif data == "main" or data == "main_menu":
             await query.edit_message_text("🏠 חוזר לבית החכם:")
             await query.message.reply_text(
@@ -1530,6 +1613,35 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "noop":
             # כפתור שלא עושה כלום (לתצוגה בלבד)
             await query.answer()
+        elif data == "back_to_repo_menu":
+            return await show_by_repo_menu_callback(update, context)
+        elif data.startswith("help_page:"):
+            try:
+                p = int(data.split(":")[1])
+            except Exception:
+                p = 1
+            return await show_help_page(update, context, page=p)
+        # --- Batch category routing ---
+        elif data == "batch_menu":
+            return await show_batch_menu(update, context)
+        elif data == "batch_cat:repos":
+            return await show_batch_repos_menu(update, context)
+        elif data == "batch_cat:zips":
+            context.user_data['batch_target'] = { 'type': 'zips' }
+            return await show_batch_actions_menu(update, context)
+        elif data == "batch_cat:large":
+            context.user_data['batch_target'] = { 'type': 'large' }
+            return await show_batch_actions_menu(update, context)
+        elif data == "batch_cat:other":
+            context.user_data['batch_target'] = { 'type': 'other' }
+            return await show_batch_actions_menu(update, context)
+        elif data.startswith("batch_repo:"):
+            tag = data.split(":", 1)[1]
+            context.user_data['batch_target'] = { 'type': 'repo', 'tag': tag }
+            return await show_batch_actions_menu(update, context)
+        elif data.startswith("batch_action:"):
+            action = data.split(":", 1)[1]
+            return await execute_batch_on_current_selection(update, context, action)
         elif data.startswith("by_repo:"):
             # הצגת קבצים לפי תגית ריפו
             tag = data.split(":", 1)[1]
@@ -1545,7 +1657,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 # שמור קאש קל להצגה
                 context.user_data.setdefault('files_cache', {})[str(i)] = f
-            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="noop")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
                 f"📂 קבצים עם {tag}:",
@@ -1584,6 +1696,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
             MessageHandler(filters.Regex("^📥 ייבוא ZIP מריפו$"), start_repo_zip_import),
             MessageHandler(filters.Regex("^🗂 לפי ריפו$"), show_by_repo_menu),
+            MessageHandler(filters.Regex("^ℹ️ הסבר על הבוט$"), lambda u, c: show_help_page(u, c, page=1)),
             
             # כניסה לעריכת קוד/שם גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
             CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|lf_edit_)')
@@ -1790,39 +1903,126 @@ async def handle_autocomplete_button(update: Update, context: ContextTypes.DEFAU
     )
 
 async def handle_batch_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """טיפול בכפתור 'עיבוד Batch'"""
+    """טיפול בכפתור 'עיבוד Batch' - מציג תפריט בחירת קטגוריה"""
+    await show_batch_menu(update, context)
+
+async def show_batch_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט בחירת קטגוריה עבור עיבוד Batch"""
+    query = update.callback_query if update.callback_query else None
+    if query:
+        await query.answer()
+        send = query.edit_message_text
+    else:
+        send = update.message.reply_text
     keyboard = [
-        [
-            InlineKeyboardButton("📊 נתח כל הקבצים", callback_data="batch_analyze_all"),
-            InlineKeyboardButton("✅ בדוק תקינות", callback_data="batch_validate_all")
-        ],
-        [
-            InlineKeyboardButton("🐍 נתח Python", callback_data="batch_analyze_python"),
-            InlineKeyboardButton("🟨 נתח JavaScript", callback_data="batch_analyze_javascript")
-        ],
-        [
-            InlineKeyboardButton("☕ נתח Java", callback_data="batch_analyze_java"),
-            InlineKeyboardButton("🔷 נתח C++", callback_data="batch_analyze_cpp")
-        ],
-        [
-            InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs"),
-            InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main_menu")
-        ]
+        [InlineKeyboardButton("🗂 לפי ריפו", callback_data="batch_cat:repos")],
+        [InlineKeyboardButton("📦 קבצי ZIP", callback_data="batch_cat:zips")],
+        [InlineKeyboardButton("📂 קבצים גדולים", callback_data="batch_cat:large")],
+        [InlineKeyboardButton("📁 שאר הקבצים", callback_data="batch_cat:other")],
+        [InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs")],
+        [InlineKeyboardButton("🔙 חזור", callback_data="main")],
     ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "⚡ <b>עיבוד Batch מתקדם</b>\n\n"
-        "🔥 <b>יתרונות:</b>\n"
-        "• ⚡ עיבוד מהיר של מרובה קבצים\n"
-        "• 🔄 עיבוד ברקע - אין המתנה\n"
-        "• 📊 ניתוח מפורט לכל קובץ\n"
-        "• ✅ בדיקת תקינות המונית\n\n"
-        "בחר פעולה:",
-        parse_mode=ParseMode.HTML,
-        reply_markup=reply_markup
+    await send(
+        "⚡ <b>עיבוד Batch</b>\n\nבחר/י קבוצת קבצים לעיבוד:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML
     )
+    return ConversationHandler.END
+
+async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט בחירת ריפו לעיבוד Batch"""
+    from database import db
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    files = db.get_user_files(user_id, limit=1000)
+    repo_to_count = {}
+    for f in files:
+        for t in f.get('tags', []) or []:
+            if t.startswith('repo:'):
+                repo_to_count[t] = repo_to_count.get(t, 0) + 1
+    if not repo_to_count:
+        await query.edit_message_text("ℹ️ אין קבצים עם תגיות ריפו.")
+        return ConversationHandler.END
+    keyboard = []
+    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:50]:
+        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"batch_repo:{tag}")])
+    keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
+    await query.edit_message_text(
+        "בחר/י ריפו לעיבוד:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
+
+async def show_batch_actions_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט פעולות לאחר בחירת קטגוריה/ריפו"""
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("📊 ניתוח (Analyze)", callback_data="batch_action:analyze")],
+        [InlineKeyboardButton("✅ בדיקת תקינות (Validate)", callback_data="batch_action:validate")],
+        [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")],
+    ]
+    await query.edit_message_text(
+        "בחר/י פעולה שתתבצע על הקבצים הנבחרים:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
+
+async def execute_batch_on_current_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str) -> int:
+    """מבצע את פעולת ה-Batch על קבוצת היעד שנבחרה"""
+    from database import db
+    from batch_processor import batch_processor
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    target = context.user_data.get('batch_target') or {}
+    files: List[str] = []
+    try:
+        t = target.get('type')
+        if t == 'repo':
+            tag = target.get('tag')
+            items = db.search_code(user_id, query="", tags=[tag], limit=2000)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+        elif t == 'zips':
+            # ZIPs אינם קבצי קוד; נבצע ניתוח/בדיקה על כל הקבצים הרגילים במקום
+            items = db.get_user_files(user_id)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+        elif t == 'large':
+            # שלוף רק קבצים גדולים
+            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            files = [f.get('file_name') for f in large_files if f.get('file_name')]
+        elif t == 'other':
+            # כל הקבצים הרגילים (לא גדולים)
+            items = db.get_user_files(user_id)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+        else:
+            # ברירת מחדל: כל הקבצים
+            items = db.get_user_files(user_id)
+            files = [f.get('file_name') for f in items if f.get('file_name')]
+
+        if not files:
+            await query.edit_message_text("❌ לא נמצאו קבצים בקבוצה שנבחרה")
+            return ConversationHandler.END
+
+        if action == 'analyze':
+            job_id = await batch_processor.analyze_files_batch(user_id, files)
+            title = "⚡ ניתוח Batch התחיל!"
+        else:
+            job_id = await batch_processor.validate_files_batch(user_id, files)
+            title = "✅ בדיקת תקינות Batch התחילה!"
+
+        keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"{title}\n\n📁 קבצים: {len(files)}\n🆔 Job ID: <code>{job_id}</code>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Error executing batch: {e}")
+        await query.edit_message_text("❌ שגיאה בהפעלת Batch")
+    return ConversationHandler.END
 
 async def _auto_update_batch_status(application, chat_id: int, message_id: int, job_id: str, user_id: int):
     from batch_processor import batch_processor

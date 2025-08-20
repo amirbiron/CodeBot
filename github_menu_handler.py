@@ -269,33 +269,35 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'")
             else:
                 folder_display = session.get("selected_folder") or "root"
-
-                # הוסף כפתור למנהל קבצים
                 keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "📂 פתח מנהל קבצים", switch_inline_query_current_chat=""
-                        )
-                    ],
-                    [InlineKeyboardButton("❌ ביטול", callback_data="github_menu")],
+                    [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
+                    [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
+                    [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
+                    [InlineKeyboardButton("📁 שאר הקבצים", callback_data="upload_saved")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
                 ]
-
                 await query.edit_message_text(
-                    f"📤 <b>העלאת קובץ לריפו:</b>\n"
-                    f"<code>{session['selected_repo']}</code>\n"
+                    f"📤 <b>העלאת קובץ לריפו</b>\n"
+                    f"ריפו: <code>{session['selected_repo']}</code>\n"
                     f"📂 תיקייה: <code>{folder_display}</code>\n\n"
-                    f"שלח קובץ או לחץ לפתיחת מנהל קבצים:",
+                    f"בחר מקור להעלאה:",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode="HTML",
                 )
-
-                # סמן שאנחנו במצב העלאה לגיטהאב
-                context.user_data["waiting_for_github_upload"] = True
-                context.user_data["upload_mode"] = "github"  # הוסף גם את המשתנה החדש
-                context.user_data["target_repo"] = session["selected_repo"]
-                context.user_data["target_folder"] = session.get("selected_folder", "")
-                context.user_data["in_github_menu"] = True
-                return FILE_UPLOAD
+                return
+        elif query.data == "gh_upload_cat:repos":
+            await self.show_upload_repos(update, context)
+        elif query.data == "gh_upload_cat:zips":
+            # פתח תפריט גיבוי/ZIP של GitHub (כולל רשימות ZIP ושחזור)
+            await self.show_github_backup_menu(update, context)
+        elif query.data == "gh_upload_cat:large":
+            await self.upload_large_files_menu(update, context)
+        elif query.data.startswith("gh_upload_repo:"):
+            tag = query.data.split(":", 1)[1]
+            await self.show_upload_repo_files(update, context, tag)
+        elif query.data.startswith("gh_upload_large:"):
+            file_id = query.data.split(":", 1)[1]
+            await self.handle_large_file_upload(update, context, file_id)
 
         elif query.data == "upload_saved":
             await self.upload_saved_files(update, context)
@@ -1592,6 +1594,102 @@ class GitHubMenuHandler:
 
         except Exception as e:
             await update.callback_query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+
+    async def show_upload_repos(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג תפריט ריפואים לבחירת קבצים שמורים עם תגית repo: להעלאה"""
+        user_id = update.effective_user.id
+        from database import db
+        query = update.callback_query
+        try:
+            files = db.get_user_files(user_id, limit=1000)
+            repo_to_count = {}
+            for f in files:
+                for t in f.get('tags', []) or []:
+                    if isinstance(t, str) and t.startswith('repo:'):
+                        repo_to_count[t] = repo_to_count.get(t, 0) + 1
+            if not repo_to_count:
+                await query.edit_message_text("ℹ️ אין קבצים עם תגית ריפו (repo:owner/name)")
+                return
+            keyboard = []
+            for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:50]:
+                keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"gh_upload_repo:{tag}")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
+            await query.edit_message_text("בחר/י ריפו (מתוך תגיות הקבצים השמורים):", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת רשימת ריפואים: {e}")
+
+    async def show_upload_repo_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE,_repo_tag: str):
+        """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם"""
+        user_id = update.effective_user.id
+        from database import db
+        query = update.callback_query
+        try:
+            repo_tag = _repo_tag
+            # שלוף קבצים תחת התגית
+            files = db.search_code(user_id, query="", tags=[repo_tag], limit=100)
+            if not files:
+                await query.edit_message_text("ℹ️ אין קבצים תחת התגית הזו")
+                return
+            keyboard = []
+            for f in files[:50]:
+                fid = str(f.get('_id'))
+                name = f.get('file_name', 'ללא שם')
+                keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="gh_upload_cat:repos")])
+            await query.edit_message_text(f"בחר/י קובץ להעלאה מהתגית {repo_tag}:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת קבצים: {e}")
+
+    async def upload_large_files_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג רשימת קבצים גדולים להעלאה לריפו הנבחר"""
+        user_id = update.effective_user.id
+        from database import db
+        query = update.callback_query
+        try:
+            large_files, total = db.get_user_large_files(user_id, page=1, per_page=50)
+            if not large_files:
+                await query.edit_message_text("ℹ️ אין קבצים גדולים שמורים")
+                return
+            keyboard = []
+            for lf in large_files:
+                fid = str(lf.get('_id'))
+                name = lf.get('file_name', 'ללא שם')
+                size_kb = (lf.get('file_size', 0) or 0) / 1024
+                keyboard.append([InlineKeyboardButton(f"📄 {name} ({size_kb:.0f}KB)", callback_data=f"gh_upload_large:{fid}")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
+            await query.edit_message_text("בחר/י קובץ גדול להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת קבצים גדולים: {e}")
+
+    async def handle_large_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str):
+        """מעלה קובץ גדול שנבחר לגיטהאב (עם אותן בדיקות כמו קובץ שמור רגיל)"""
+        user_id = update.effective_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        query = update.callback_query
+        if not (session.get("selected_repo") and token):
+            await query.edit_message_text("❌ קודם בחר ריפו/טוקן בגיטהאב")
+            return
+        # שלוף את תוכן הקובץ הגדול
+        from database import db
+        from bson import ObjectId
+        doc = db.large_files_collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+        if not doc:
+            await query.edit_message_text("❌ קובץ גדול לא נמצא")
+            return
+        # מאחדים עם זרימת show_pre_upload_check: נשתמש ב-pending_saved_file_id אחרי יצירת מסמך זמני
+        try:
+            # צור מסמך זמני בקולקשן הרגיל כדי למחזר את מסך הבדיקות
+            temp = {
+                "user_id": user_id,
+                "file_name": doc.get("file_name") or "large_file.txt",
+                "content": doc.get("content") or "",
+            }
+            res = db.collection.insert_one(temp)
+            context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+            await self.show_pre_upload_check(update, context)
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בהכנת קובץ גדול להעלאה: {e}")
 
     async def handle_saved_file_upload(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str

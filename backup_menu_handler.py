@@ -59,7 +59,13 @@ class BackupMenuHandler:
 		elif data == "backup_restore_full_start":
 			await self._show_backups_list(update, context)
 		elif data == "backup_list":
-			await self._show_backups_list(update, context)
+			await self._show_backups_list(update, context, page=1)
+		elif data.startswith("backup_page_"):
+			try:
+				page = int(data.split("_")[-1])
+			except Exception:
+				page = 1
+			await self._show_backups_list(update, context, page=page)
 		elif data.startswith("backup_restore_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._restore_by_id(update, context, backup_id)
@@ -94,7 +100,7 @@ class BackupMenuHandler:
 	
 	# הוסרה תמיכה בהעלאת ZIP ישירה מהתפריט כדי למנוע מחיקה גורפת בטעות
 	
-	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.answer()
@@ -123,9 +129,18 @@ class BackupMenuHandler:
 			)
 			return
 		
-		# הצג עד 10 אחרונים
-		items = backups[:10]
-		lines = ["בחר גיבוי לשחזור או להורדה:\n"]
+		# עימוד תוצאות
+		PAGE_SIZE = 10
+		total = len(backups)
+		if page < 1:
+			page = 1
+		total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE if total > 0 else 1
+		if page > total_pages:
+			page = total_pages
+		start = (page - 1) * PAGE_SIZE
+		end = min(start + PAGE_SIZE, total)
+		items = backups[start:end]
+		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
@@ -140,6 +155,14 @@ class BackupMenuHandler:
 			# כפתור הורדה תמיד זמין
 			row.append(InlineKeyboardButton("⬇️ הורד", callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
+		# עימוד: הקודם/הבא
+		pagination = []
+		if page > 1:
+			pagination.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"backup_page_{page-1}"))
+		if page < total_pages:
+			pagination.append(InlineKeyboardButton("➡️ הבא", callback_data=f"backup_page_{page+1}"))
+		if pagination:
+			keyboard.append(pagination)
 		# פעולות נוספות
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
