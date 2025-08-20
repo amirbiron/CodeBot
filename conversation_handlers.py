@@ -75,10 +75,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מצב ייבוא ZIP של ריפו: מבקש לשלוח ZIP ומכין את ה-upload_mode."""
     context.user_data.pop('waiting_for_github_upload', None)
-    context.user_data['upload_mode'] = 'backup_restore'
+    context.user_data['upload_mode'] = 'zip_import'
     await update.message.reply_text(
-        "📥 שלח/י עכשיו קובץ ZIP של הריפו.\n"
-        "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata).",
+        "📥 שלח/י עכשיו קובץ ZIP של הריפו (העלאה ראשונית).\n"
+        "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.",
         reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     )
     reporter.report_activity(update.effective_user.id)
