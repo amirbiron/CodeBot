@@ -42,28 +42,50 @@ def _truncate_middle(text: str, max_len: int) -> str:
 
 def _build_download_button_text(info) -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
-	מוגבל לאורך בטוח עבור טלגרם (~64 תווים)."""
+	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
 	MAX_LEN = 64
 	base = "backup zip"
 	# שם עיקרי
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
-		primary = info.repo
+		primary = str(info.repo)
 	else:
 		primary = "full"
-	primary = _truncate_middle(str(primary), 28)
 	date_part = _format_date(getattr(info, 'created_at', ''))
 	size_part = _format_bytes(getattr(info, 'total_size', 0))
-	text = f"⬇️ {base} {primary} — {date_part} — {size_part}"
-	# ודא שלא חורגים מהמגבלה
-	if len(text) > MAX_LEN:
-		# נסה לקצר קודם את primary
-		avail_for_primary = max(4, 28 - (len(text) - MAX_LEN))
-		primary_short = _truncate_middle(primary, avail_for_primary)
-		text = f"⬇️ {base} {primary_short} — {date_part} — {size_part}"
-		if len(text) > MAX_LEN:
-			# אם עדיין ארוך, קצר את כל הטקסט
-			text = _truncate_middle(text, MAX_LEN)
-	return text
+
+	def build(base_text: str, prim: str, include_size: bool = True) -> str:
+		if include_size:
+			return f"⬇️ {base_text} {prim} — {date_part} — {size_part}"
+		return f"⬇️ {base_text} {prim} — {date_part}"
+
+	# התחלה עם תצורה מלאה
+	prim_use = _truncate_middle(primary, 32)
+	text = build(base, prim_use, include_size=True)
+	if len(text) <= MAX_LEN:
+		return text
+	# 1) קצר עוד את השם העיקרי
+	for limit in (28, 24, 20, 16, 12, 8):
+		prim_use = _truncate_middle(primary, limit)
+		text = build(base, prim_use, include_size=True)
+		if len(text) <= MAX_LEN:
+			return text
+	# 2) השמט את הגודל כדי לשמר את התאריך
+	text = build(base, prim_use, include_size=False)
+	if len(text) <= MAX_LEN:
+		return text
+	# 3) קצר את הקידומת ל-"zip"
+	short_base = "zip"
+	text = build(short_base, prim_use, include_size=False)
+	if len(text) <= MAX_LEN:
+		return text
+	# 4) נסה לקצר עוד את השם עם הקידומת הקצרה
+	for limit in (10, 8, 6, 4):
+		prim_use = _truncate_middle(primary, limit)
+		text = build(short_base, prim_use, include_size=False)
+		if len(text) <= MAX_LEN:
+			return text
+	# 5) נפילה סופית: הצג רק תאריך עם קידומת קצרה
+	return f"⬇️ {short_base} — {date_part}"
 
 class BackupMenuHandler:
 	"""תפריט גיבוי ושחזור מלא + נקודות שמירה בגיט"""
