@@ -297,6 +297,12 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(user_id, update.effective_user.username)
     from database import db
+    # הקשר: חזרה מתצוגת ZIP תחזור ל"📚" ותבטל סינון לפי ריפו
+    try:
+        context.user_data['zip_back_to'] = 'files'
+        context.user_data.pop('github_backup_context_repo', None)
+    except Exception:
+        pass
     
     try:
         files = db.get_user_files(user_id)
@@ -356,6 +362,12 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     
     try:
+        # הקשר: חזרה מתצוגת ZIP תחזור ל"📚" ותבטל סינון לפי ריפו
+        try:
+            context.user_data['zip_back_to'] = 'files'
+            context.user_data.pop('github_backup_context_repo', None)
+        except Exception:
+            pass
         keyboard = [
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
