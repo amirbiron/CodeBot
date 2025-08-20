@@ -109,6 +109,31 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ConversationHandler.END
+
+async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """גרסת callback להצגת תפריט ריפו (עריכת ההודעה הנוכחית)."""
+    from database import db
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    files = db.get_user_files(user_id, limit=500)
+    repo_to_count = {}
+    for f in files:
+        for t in f.get('tags', []) or []:
+            if t.startswith('repo:'):
+                repo_to_count[t] = repo_to_count.get(t, 0) + 1
+    if not repo_to_count:
+        await query.edit_message_text("ℹ️ אין קבצים עם תגית ריפו.")
+        return ConversationHandler.END
+    keyboard = []
+    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+        keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
+    keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+    await query.edit_message_text(
+        "בחר/י ריפו להצגת קבצים:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ConversationHandler.END
 async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג את כל הקבצים השמורים עם ממשק אינטראקטיבי מתקדם"""
     user_id = update.effective_user.id
@@ -1531,6 +1556,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "noop":
             # כפתור שלא עושה כלום (לתצוגה בלבד)
             await query.answer()
+        elif data == "back_to_repo_menu":
+            return await show_by_repo_menu_callback(update, context)
         elif data.startswith("by_repo:"):
             # הצגת קבצים לפי תגית ריפו
             tag = data.split(":", 1)[1]
@@ -1546,7 +1573,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 # שמור קאש קל להצגה
                 context.user_data.setdefault('files_cache', {})[str(i)] = f
-            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="noop")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
                 f"📂 קבצים עם {tag}:",
