@@ -31,8 +31,7 @@ GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
-    ["⚡ עיבוד Batch", "🔧 GitHub"],
-    ["📥 ייבוא ZIP מריפו"]
+    ["⚡ עיבוד Batch", "🔧 GitHub"]
 ]
 
 reporter = create_reporter(
@@ -165,21 +164,6 @@ async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
 
-async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """מצב ייבוא ZIP של ריפו: מבקש מהמשתמש לשלוח קובץ ZIP ומכין תגיות/קידומת."""
-    # נקה דגלי GitHub כדי למנוע בלבול
-    context.user_data.pop('waiting_for_github_upload', None)
-    context.user_data.pop('upload_mode', None)
-    # קבע מצב ייבוא
-    context.user_data['upload_mode'] = 'repo_zip_import'
-    await update.message.reply_text(
-        "📥 שלח קובץ ZIP של ריפו (GitHub/מקור אחר).\n"
-        "🔖 אוסיף תג #repo:<owner>/<name> אם יימצא במטאדטה.\n"
-        "📝 אפשר יהיה גם לשמור בשמות קבצים תחת קידומת שם הריפו.",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-    )
-    reporter.report_activity(update.effective_user.id)
-    return ConversationHandler.END
 
 async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """גרסת callback של show_all_files - מציגה תפריט בחירה בין סוגי קבצים"""
@@ -1540,7 +1524,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
             MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
-            MessageHandler(filters.Regex("^📥 ייבוא ZIP מריפו$"), start_repo_zip_import),
+            
             # כניסה לעריכת קוד/שם גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
             CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|lf_edit_)')
         ],
