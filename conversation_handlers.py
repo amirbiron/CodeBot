@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 # הגדרת שלבי השיחה
 GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
 
+# קבועי עימוד
+FILES_PAGE_SIZE = 10
+
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [
     ["➕ הוסף קוד חדש"],
@@ -151,45 +154,50 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
         else:
-            # יצירת כפתורים מתקדמים עבור כל קובץ
+            # עימוד והצגת דף ראשון
+            total_files = len(files)
+            total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
+            page = 1
+            start_index = (page - 1) * FILES_PAGE_SIZE
+            end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+
+            # בנה את המקלדת עבור הדף
             keyboard = []
-            
-            for i, file in enumerate(files):
+            # נקה ובנה קאש עבור הדף
+            context.user_data['files_cache'] = {}
+            for i in range(start_index, end_index):
+                file = files[i]
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
-                
-                # שמירת המידע ב-context למידע מהיר
-                if 'files_cache' not in context.user_data:
-                    context.user_data['files_cache'] = {}
                 context.user_data['files_cache'][str(i)] = file
-                
-                # כפתור מעוצב עם אמוג'י חכם
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                
-                keyboard.append([InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"file_{i}"
-                )])
-                
-                if i >= 9:  # הגבלה אסתטית
-                    break
-            
-            # כפתורי ניווט מתקדמים
-            nav_buttons = [
-                [InlineKeyboardButton("🔄 רענן רשימה", callback_data="refresh_files")],
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
-            keyboard.extend(nav_buttons)
-            
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+
+            # שורת עימוד
+            pagination_row = []
+            if page > 1:
+                pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
+            if page < total_pages:
+                pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+            if pagination_row:
+                keyboard.append(pagination_row)
+
+            # כפתור תפריט ראשי
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            files_count_text = f"({len(files)} קבצים)" if len(files) <= 10 else f"({len(files)} קבצים - מציג 10 הטובים ביותר)"
-            
+
+            header_text = (
+                f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+                f"📄 עמוד {page} מתוך {total_pages}\n\n"
+                "✨ לחץ על קובץ לצפייה, עריכה וניהול:"
+            )
+
             await update.message.reply_text(
-                f"📚 *המרכז הדיגיטלי שלך* {files_count_text}\n\n"
-                "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:",
-                reply_markup=reply_markup
+                header_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
             )
     except Exception as e:
         logger.error(f"שגיאה בהצגת כל הקבצים: {e}")
@@ -324,46 +332,44 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 reply_markup=reply_markup
             )
         else:
-            # יצירת כפתורים מתקדמים עבור כל קובץ
+            # עימוד והצגת דף ראשון
+            total_files = len(files)
+            total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
+            page = 1
+            start_index = (page - 1) * FILES_PAGE_SIZE
+            end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+
             keyboard = []
-            
-            for i, file in enumerate(files):
+            context.user_data['files_cache'] = {}
+            for i in range(start_index, end_index):
+                file = files[i]
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
-                
-                # שמירת המידע ב-context למידע מהיר
-                if 'files_cache' not in context.user_data:
-                    context.user_data['files_cache'] = {}
                 context.user_data['files_cache'][str(i)] = file
-                
-                # כפתור מעוצב עם אמוג'י חכם
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                
-                keyboard.append([InlineKeyboardButton(
-                    button_text, 
-                    callback_data=f"file_{i}"
-                )])
-                
-                if i >= 9:  # הגבלה אסתטית
-                    break
-            
-            # כפתורי ניווט מתקדמים
-            nav_buttons = [
-                [InlineKeyboardButton("🔄 רענן רשימה", callback_data="refresh_files")],
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
-            keyboard.extend(nav_buttons)
-            
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+
+            # שורת עימוד
+            pagination_row = []
+            if page > 1:
+                pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
+            if page < total_pages:
+                pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+            if pagination_row:
+                keyboard.append(pagination_row)
+
+            # כפתור תפריט ראשי
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            files_count_text = f"({len(files)} קבצים)" if len(files) <= 10 else f"({len(files)} קבצים - מציג 10 הטובים ביותר)"
-            
+
             header_text = (
-                f"📚 **הקבצים השמורים שלך** {files_count_text}\n\n"
+                f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
+                f"📄 עמוד {page} מתוך {total_pages}\n\n"
                 "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
             )
-            
+
             await query.edit_message_text(
                 header_text,
                 reply_markup=reply_markup,
@@ -1440,6 +1446,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_file_info(update, context)
         elif data == "files" or data == "refresh_files":
             return await show_all_files_callback(update, context)
+        elif data.startswith("files_page_"):
+            return await show_regular_files_page_callback(update, context)
         elif data == "main" or data == "main_menu":
             await query.edit_message_text("🏠 חוזר לבית החכם:")
             await query.message.reply_text(
