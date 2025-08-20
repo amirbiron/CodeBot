@@ -147,58 +147,18 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         files = db.get_user_files(user_id)
         
-        if not files:
-            await update.message.reply_text(
-                "📂 אין לך קבצים שמורים עדיין.\n"
-                "✨ לחץ על '➕ הוסף קוד חדש' כדי להתחיל יצירה!",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-        else:
-            # עימוד והצגת דף ראשון
-            total_files = len(files)
-            total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
-            page = 1
-            start_index = (page - 1) * FILES_PAGE_SIZE
-            end_index = min(start_index + FILES_PAGE_SIZE, total_files)
-
-            # בנה את המקלדת עבור הדף
-            keyboard = []
-            # נקה ובנה קאש עבור הדף
-            context.user_data['files_cache'] = {}
-            for i in range(start_index, end_index):
-                file = files[i]
-                file_name = file.get('file_name', 'קובץ ללא שם')
-                language = file.get('programming_language', 'text')
-                context.user_data['files_cache'][str(i)] = file
-                emoji = get_file_emoji(language)
-                button_text = f"{emoji} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
-
-            # שורת עימוד
-            pagination_row = []
-            if page > 1:
-                pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
-            if page < total_pages:
-                pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
-            if pagination_row:
-                keyboard.append(pagination_row)
-
-            # כפתור תפריט ראשי
-            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            header_text = (
-                f"📚 **הקבצים השמורים שלך** — סה""כ: {total_files}\n"
-                f"📄 עמוד {page} מתוך {total_pages}\n\n"
-                "✨ לחץ על קובץ לצפייה, עריכה וניהול:"
-            )
-
-            await update.message.reply_text(
-                header_text,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+        # מסך בחירה: 4 כפתורים
+        keyboard = [
+            [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
+            [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "בחר/י דרך להצגת הקבצים:",
+            reply_markup=reply_markup
+        )
     except Exception as e:
         logger.error(f"שגיאה בהצגת כל הקבצים: {e}")
         await update.message.reply_text(
@@ -241,67 +201,22 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
     
-    user_id = update.effective_user.id
-    from database import db
-    
     try:
-        # קבלת מידע על קבצים
-        regular_files = db.get_user_files(user_id)
-        large_files, large_count = db.get_user_large_files(user_id, page=1, per_page=100)
-        
-        # יצירת תפריט בחירה
-        keyboard = []
-        
-        if regular_files:
-            keyboard.append([InlineKeyboardButton(
-                f"📁 קבצים רגילים ({len(regular_files)})",
-                callback_data="show_regular_files"
-            )])
-        
-        if large_files:
-            keyboard.append([InlineKeyboardButton(
-                f"📚 קבצים גדולים ({large_count})",
-                callback_data="show_large_files"
-            )])
-        
-        if not regular_files and not large_files:
-            await query.edit_message_text(
-                "📂 אין לך קבצים שמורים עדיין.\n"
-                "✨ שלח קובץ או השתמש ב-'➕ הוסף קוד חדש' כדי להתחיל!"
-            )
-            # Add main menu keyboard
-            keyboard = [
-                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.message.reply_text(
-                "🎮 בחר פעולה:",
-                reply_markup=reply_markup
-            )
-        else:
-            # הוספת כפתור תפריט ראשי
-            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            total_files = len(regular_files) + large_count
-            
-            text = (
-                f"📚 **הקבצים שלך** (סה\"כ: {total_files})\n\n"
-                "🎯 בחר קטגוריה:"
-            )
-            
-            await query.edit_message_text(
-                text,
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        
-        reporter.report_activity(user_id)
-        
+        keyboard = [
+            [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
+            [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "בחר/י דרך להצגת הקבצים:",
+            reply_markup=reply_markup
+        )
+        reporter.report_activity(update.effective_user.id)
     except Exception as e:
         logger.error(f"Error in show_all_files_callback: {e}")
-        await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
+        await query.edit_message_text("❌ שגיאה בטעינת התפריט")
     
     return ConversationHandler.END
 
@@ -1524,6 +1439,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_file_info(update, context)
         elif data == "files" or data == "refresh_files":
             return await show_all_files_callback(update, context)
+        elif data == "by_repo_menu":
+            return await show_by_repo_menu_callback(update, context)
         elif data.startswith("files_page_"):
             return await show_regular_files_page_callback(update, context)
         elif data == "main" or data == "main_menu":
