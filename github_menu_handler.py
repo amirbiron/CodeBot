@@ -453,6 +453,92 @@ class GitHubMenuHandler:
             )
             return
 
+        elif query.data == "github_restore_zip_list":
+            # הצג רשימת גיבויים (ZIP) של הריפו הנוכחי לצורך שחזור לריפו
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            repo_full = session.get("selected_repo")
+            if not repo_full:
+                await query.edit_message_text("❌ קודם בחר ריפו!")
+                return
+            backups = backup_manager.list_backups(user_id)
+            # סנן רק גיבויים עם metadata של אותו ריפו
+            backups = [b for b in backups if getattr(b, 'repo', None) == repo_full]
+            if not backups:
+                await query.edit_message_text(
+                    f"ℹ️ אין גיבויי ZIP שמורים עבור הריפו:\n<code>{repo_full}</code>",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]])
+                )
+                return
+            # הצג עד 10 אחרונים
+            items = backups[:10]
+            lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
+            kb = []
+            for b in items:
+                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
+                kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
+            kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
+            await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            return
+
+        elif query.data.startswith("github_restore_zip_from_backup:"):
+            # קבל backup_id ואז פתח את תהליך השחזור-לריפו עם קובץ ה-ZIP הזה
+            backup_id = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            info_list = backup_manager.list_backups(user_id)
+            match = next((b for b in info_list if b.backup_id == backup_id), None)
+            if not match or not match.file_path or not os.path.exists(match.file_path):
+                await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+                return
+            # הגדר purge? בקש בחירה
+            context.user_data["pending_repo_restore_zip_path"] = match.file_path
+            await query.edit_message_text(
+                "האם למחוק קודם את התוכן בריפו לפני העלאה?",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_repo_restore_backup_setpurge:1")],
+                    [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_repo_restore_backup_setpurge:0")],
+                    [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+                ])
+            )
+            return
+
+        elif query.data.startswith("github_repo_restore_backup_setpurge:"):
+            # בצע את ההעלאה לריפו מתוך קובץ ה-ZIP שמור בדיסק
+            purge_flag = query.data.split(":", 1)[1] == "1"
+            zip_path = context.user_data.get("pending_repo_restore_zip_path")
+            if not zip_path or not os.path.exists(zip_path):
+                await query.edit_message_text("❌ קובץ ZIP לא נמצא")
+                return
+            try:
+                await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר...")
+                await self.restore_zip_file_to_repo(update, context, zip_path, purge_flag)
+                await query.edit_message_text("✅ השחזור הועלה לריפו בהצלחה")
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {e}")
+            finally:
+                context.user_data.pop("pending_repo_restore_zip_path", None)
+            return
+
+        elif query.data == "github_backup_help":
+            help_text = (
+                "<b>הסבר על הכפתורים:</b>\n\n"
+                "📦 <b>הורד גיבוי ZIP של הריפו</b>: יוצר ומוריד ZIP של כל התוכן (או תיקייה נוכחית), וגם שומר כגיבוי לשימוש עתידי.\n\n"
+                "♻️ <b>שחזר ZIP לריפו (פריסה והחלפה)</b>: שלח ZIP מהמחשב, והבוט יפרוס אותו לריפו בקומיט אחד. ניתן לבחור מחיקה מלאה לפני או עדכון בלבד.\n\n"
+                "📂 <b>שחזר מגיבוי שמור לריפו</b>: בחר ZIP ששמור בבוט עבור הריפו הזה, והבוט יפרוס אותו לריפו (מחיקה/עדכון לפי בחירה).\n\n"
+                "🏷 <b>נקודת שמירה בגיט</b>: יוצר תגית/ענף נקודת שמירה של הריפו הנוכחי כדי שתוכל לחזור אליה.\n\n"
+                "↩️ <b>חזרה לנקודת שמירה</b>: פעולות לשחזור מצב מהרפרנס של נקודת שמירה (תגית/ענף) — כולל יצירת ענף/PR לשחזור.\n\n"
+                "🗂 <b>גיבויי DB אחרונים</b>: מציג גיבויים של קבצים בבוט עצמו (לא קשור ל‑GitHub).\n\n"
+                "♻️ <b>שחזור מגיבוי (ZIP)</b>: שחזור מלא לקבצים בבוט עצמו מקובץ ZIP. מוחק את כל הקבצים בבוט ואז משחזר.\n\n"
+                "🔙 <b>חזור</b>: חזרה לתפריט הראשי של GitHub."
+            )
+            try:
+                await query.edit_message_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]]))
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+            return
+
         elif query.data == "backup_menu":
             # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
             backup_handler = context.bot_data.get('backup_handler')
@@ -4135,6 +4221,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="backup_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
+            [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
         try:

@@ -66,8 +66,6 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
-		elif data == "backup_upload_zip":
-			await self._start_full_restore_upload(update, context)
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
@@ -94,15 +92,7 @@ class BackupMenuHandler:
 		# נשמר לשם תאימות אם יקראו בפועל, מפנה לרשימת גיבויים
 		await self._show_backups_list(update, context)
 	
-	async def _start_full_restore_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-		query = update.callback_query
-		await query.answer()
-		# סמן שאנחנו ממתינים לקובץ ZIP לשחזור
-		context.user_data['upload_mode'] = 'backup_restore'
-		await query.edit_message_text(
-			"📥 שלח עכשיו קובץ ZIP של גיבוי שהתקבל מהבוט כדי לבצע שחזור מלא.\n"
-			"⚠️ פעולה זו תמחק את הקבצים הקיימים ותשחזר מהגיבוי."
-		)
+	# הוסרה תמיכה בהעלאת ZIP ישירה מהתפריט כדי למנוע מחיקה גורפת בטעות
 	
 	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 		query = update.callback_query
@@ -122,12 +112,11 @@ class BackupMenuHandler:
 			backups = filtered
 		if not backups:
 			keyboard = [
-				[InlineKeyboardButton("⬆️ העלה ZIP לשחזור", callback_data="backup_upload_zip")],
 				[InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")],
 			]
-			msg = "ℹ️ לא נמצאו גיבויים שמורים. ניתן להעלות ZIP לשחזור או לחזור."
+			msg = "ℹ️ לא נמצאו גיבויים שמורים."
 			if current_repo:
-				msg = f"ℹ️ לא נמצאו גיבויים עבור הריפו:\n<code>{current_repo}</code>\nבאפשרותך להעלות ZIP לשחזור או לחזור."
+				msg = f"ℹ️ לא נמצאו גיבויים עבור הריפו:\n<code>{current_repo}</code>"
 			await query.edit_message_text(
 				msg,
 				reply_markup=InlineKeyboardMarkup(keyboard)
@@ -152,7 +141,6 @@ class BackupMenuHandler:
 			row.append(InlineKeyboardButton("⬇️ הורד", callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# פעולות נוספות
-		keyboard.append([InlineKeyboardButton("⬆️ העלה ZIP לשחזור", callback_data="backup_upload_zip")])
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="backup_menu")])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
 	
