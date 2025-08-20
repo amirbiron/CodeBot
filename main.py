@@ -744,12 +744,20 @@ class CodeKeeperBot:
                     return
                 # חלץ את ה-ZIP לזיכרון לרשימת קבצים
                 zf = zipfile.ZipFile(buf, 'r')
-                members = [n for n in zf.namelist() if not n.endswith('/')]
-                # נקה תיקיית root של GitHub zip אם קיימת
+                # סינון ערכי מערכת של macOS וכד'. נשמור רק קבצים אמיתיים
+                all_names = [n for n in zf.namelist() if not n.endswith('/')]
+                members = [n for n in all_names if not (n.startswith('__MACOSX/') or n.split('/')[-1].startswith('._'))]
+                # זיהוי תיקיית-שורש משותפת (אם כל הקבצים חולקים את אותו הסגמנט העליון)
+                top_levels = set()
+                for n in zf.namelist():
+                    if '/' in n and not n.startswith('__MACOSX/'):
+                        top_levels.add(n.split('/', 1)[0])
+                common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+                logger.info(f"[restore_zip] Detected common_root={common_root!r}, files_in_zip={len(members)}")
+                # נקה תיקיית root של GitHub zip רק אם זוהתה תיקיית-שורש משותפת אחת
                 def strip_root(path: str) -> str:
-                    parts = path.split('/')
-                    if len(parts) > 1 and parts[0] and all('/' not in p for p in parts[:1]):
-                        return '/'.join(parts[1:])
+                    if common_root and path.startswith(common_root + '/'):
+                        return path[len(common_root) + 1:]
                     return path
                 files = []
                 for name in members:
@@ -804,12 +812,14 @@ class CodeKeeperBot:
                     elem = InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha)
                     new_tree_elements.append(elem)
                 if purge_first:
+                    # Soft purge: יצירת עץ חדש ללא בסיס (מוחק קבצים שאינם ב-ZIP)
                     new_tree = repo.create_git_tree(new_tree_elements)
                 else:
                     new_tree = repo.create_git_tree(new_tree_elements, base_tree)
                 commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
                 new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
                 base_ref.edit(new_commit.sha)
+                logger.info(f"[restore_zip] Restore commit created: {new_commit.sha}, files_added={len(new_tree_elements)}, purge={purge_first}")
                 await update.message.reply_text("✅ השחזור הועלה לריפו בהצלחה")
             except Exception as e:
                 logger.exception(f"GitHub restore-to-repo failed: {e}")

@@ -735,3 +735,7 @@ class DatabaseManager:
 
 # יצירת אינסטנס גלובלי
 db = DatabaseManager()
+
+def init_database() -> DatabaseManager:
+    """תאימות לאחור: מחזיר את מופע מנהל מסד הנתונים הגלובלי."""
+    return db
