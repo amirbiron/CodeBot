@@ -4253,11 +4253,19 @@ class GitHubMenuHandler:
         if not os.path.exists(zip_path) or not zipfile.is_zipfile(zip_path):
             raise RuntimeError("ZIP לא תקין")
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            members = [n for n in zf.namelist() if not n.endswith('/')]
+            # סינון קבצי מערכת לא רלוונטיים
+            all_names = [n for n in zf.namelist() if not n.endswith('/')]
+            members = [n for n in all_names if not (n.startswith('__MACOSX/') or n.split('/')[-1].startswith('._'))]
+            # זיהוי תיקיית-שורש משותפת
+            top_levels = set()
+            for n in zf.namelist():
+                if '/' in n and not n.startswith('__MACOSX/'):
+                    top_levels.add(n.split('/', 1)[0])
+            common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+            logger.info(f"[restore_zip_from_backup] Detected common_root={common_root!r}, files_in_zip={len(members)}")
             def strip_root(path: str) -> str:
-                parts = path.split('/')
-                if len(parts) > 1 and parts[0] and all('/' not in p for p in parts[:1]):
-                    return '/'.join(parts[1:])
+                if common_root and path.startswith(common_root + '/'):
+                    return path[len(common_root) + 1:]
                 return path
             files = []
             for name in members:
@@ -4291,9 +4299,18 @@ class GitHubMenuHandler:
                 blob = repo.create_git_blob(b64, 'base64')
             elements.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
         if purge_first:
+            # שלב א': קומיט ביניים לאיפוס מלא של העץ
+            empty_tree = repo.create_git_tree([])
+            purge_commit = repo.create_git_commit("Purge repository via bot (clear tree)", empty_tree, [base_commit])
+            base_ref.edit(purge_commit.sha)
+            logger.info(f"[restore_zip_from_backup] Performed hard purge commit: {purge_commit.sha}")
+            base_commit = purge_commit
+            base_tree = empty_tree
+            # שלב ב': עץ חדש מהקבצים שב-ZIP בלבד
             new_tree = repo.create_git_tree(elements)
         else:
             new_tree = repo.create_git_tree(elements, base_tree)
         commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
         new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
         base_ref.edit(new_commit.sha)
+        logger.info(f"[restore_zip_from_backup] Final restore commit created: {new_commit.sha}, files_added={len(elements)}, purge={purge_first}")
