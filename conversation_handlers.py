@@ -76,10 +76,11 @@ async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TY
     """מצב ייבוא ZIP של ריפו: מבקש לשלוח ZIP ומכין את ה-upload_mode."""
     context.user_data.pop('waiting_for_github_upload', None)
     context.user_data['upload_mode'] = 'zip_import'
+    cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
     await update.message.reply_text(
         "📥 שלח/י עכשיו קובץ ZIP של הריפו (העלאה ראשונית).\n"
         "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        reply_markup=cancel_markup
     )
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
