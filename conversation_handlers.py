@@ -1859,7 +1859,7 @@ async def show_batch_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         [InlineKeyboardButton("📂 קבצים גדולים", callback_data="batch_cat:large")],
         [InlineKeyboardButton("📁 שאר הקבצים", callback_data="batch_cat:other")],
         [InlineKeyboardButton("📋 סטטוס עבודות", callback_data="show_jobs")],
-        [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
+        [InlineKeyboardButton("🔙 חזור", callback_data="main")],
     ]
     await send(
         "⚡ <b>עיבוד Batch</b>\n\nבחר/י קבוצת קבצים לעיבוד:",
