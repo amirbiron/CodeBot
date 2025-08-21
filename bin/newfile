@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+import argparse
+import datetime as dt
+import os
+import sys
+from pathlib import Path
+
+TEMPLATES_DIR = Path("/workspace/.templates")
+
+EXT_TO_TEMPLATE = {
+    "md": "md.tpl",
+    "py": "py.tpl",
+    "js": "js.tpl",
+    "ts": "ts.tpl",
+    "sh": "sh.tpl",
+    "go": "go.tpl",
+}
+
+
+def detect_author() -> str:
+    # Try env, then git config, else fallback
+    author = os.environ.get("GIT_AUTHOR_NAME") or os.environ.get("USER") or "Unknown"
+    if author and author != "Unknown":
+        return author
+    try:
+        import subprocess
+        name = (
+            subprocess.check_output(["git", "config", "--get", "user.name"], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+        if name:
+            return name
+    except Exception:
+        pass
+    return author
+
+
+def render_template(template_text: str, context: dict[str, str]) -> str:
+    out = template_text
+    for key, value in context.items():
+        out = out.replace("{{" + key + "}}", value)
+    return out
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Scaffold a new file from templates")
+    parser.add_argument("path", help="Target file path to create, e.g. /workspace/src/app.py")
+    parser.add_argument("--title", default="", help="Title for the file or doc")
+    parser.add_argument("--desc", default="", help="Short description")
+    parser.add_argument("--tags", default="", help="Comma-separated tags for markdown")
+    parser.add_argument("--author", default=None, help="Author name override")
+    parser.add_argument("--force", action="store_true", help="Overwrite if file exists")
+
+    args = parser.parse_args()
+
+    target = Path(args.path)
+    target_parent = target.parent
+    target_parent.mkdir(parents=True, exist_ok=True)
+
+    if target.exists() and not args.force:
+        sys.stderr.write(f"Error: {target} already exists. Use --force to overwrite.\n")
+        return 2
+
+    ext = target.suffix.lower().lstrip(".")
+    template_filename = EXT_TO_TEMPLATE.get(ext, None)
+    if template_filename is None:
+        template_filename = "generic.tpl"
+    template_path = TEMPLATES_DIR / template_filename
+    if not template_path.exists():
+        sys.stderr.write(f"Error: Template not found: {template_path}\n")
+        return 3
+
+    now = dt.datetime.now()
+    context = {
+        "FILENAME": target.name,
+        "BASENAME": target.stem,
+        "EXT": ext,
+        "DATE": now.date().isoformat(),
+        "DATETIME": now.isoformat(timespec="seconds"),
+        "YEAR": str(now.year),
+        "TITLE": args.title or target.stem,
+        "DESCRIPTION": args.desc,
+        "TAGS": args.tags,
+        "AUTHOR": args.author or detect_author(),
+    }
+
+    template_text = template_path.read_text(encoding="utf-8")
+    rendered = render_template(template_text, context)
+
+    target.write_text(rendered, encoding="utf-8")
+
+    # Make executable for scripts
+    if ext in {"sh"} or rendered.startswith("#!"):
+        try:
+            os.chmod(target, (os.stat(target).st_mode | 0o111))
+        except Exception:
+            pass
+
+    print(f"Created {target} from {template_path.name}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,15 @@
+[FILE START]
+id=a539bb9b-3e94-44ae-b919-9fb53c5231ff
+path=saved/sample.txt
+total_parts=2
+encoding=base64
+compression=gzip
+sha256=027110359686838290ed1d0cf626bd019d176b43d5c50bd6968ef4a5475ae767
+
+[FILE CHUNK 1/2 id=a539bb9b-3e94-44ae-b919-9fb53c5231ff]
+H4sIAAAAAAAAA8tIzcnJV0jOKM3LVigoyi/JT87PUShJLS4BAI
+
+[FILE CHUNK 2/2 id=a539bb9b-3e94-44ae-b919-9fb53c5231ff]
+f7ZyIZAAAA
+
+[FILE END id=a539bb9b-3e94-44ae-b919-9fb53c5231ff]

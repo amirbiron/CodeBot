@@ -1,0 +1,22 @@
+{
+  "name": "save-me-chunker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chunked file transfer protocol utilities (start/chunk/end) for chat-based bots.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "sm-chunk": "./bin/sm-chunk.js",
+    "sm-assemble-demo": "./bin/sm-assemble-demo.js"
+  },
+  "scripts": {
+    "demo:split": "node ./bin/sm-chunk.js",
+    "demo:assemble": "node ./bin/sm-assemble-demo.js"
+  },
+  "keywords": ["chunk", "protocol", "file", "chat", "bot", "base64", "gzip"],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

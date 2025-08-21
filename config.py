@@ -1,72 +1,71 @@
 import os
-from dataclasses import dataclass
 from typing import Optional
 
+class Config:
+    """הגדרות הבוט"""
+    
+    # טוקן הבוט מ-BotFather
+    BOT_TOKEN: str = os.getenv('BOT_TOKEN', '')
+    
+    # נתיב מסד הנתונים
+    DATABASE_PATH: str = os.getenv('DATABASE_PATH', 'save_me_bot.db')
+    
+    # הגדרות לוגים
+    LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
+    
+    # הגדרות תזכורות
+    MAX_REMINDER_HOURS: int = int(os.getenv('MAX_REMINDER_HOURS', '168'))  # שבוע
+    MIN_REMINDER_HOURS: int = int(os.getenv('MIN_REMINDER_HOURS', '1'))
+    
+    # הגדרות חיפוש
+    MAX_SEARCH_RESULTS: int = int(os.getenv('MAX_SEARCH_RESULTS', '50'))
+    
+    # הגדרות ייצוא
+    EXPORT_FORMAT: str = os.getenv('EXPORT_FORMAT', 'json')  # json או csv
+    
+    # הגדרות פיתוח
+    DEBUG: bool = os.getenv('DEBUG', 'False').lower() == 'true'
+    
+    # הגדרות שרת (לרנדר)
+    PORT: int = int(os.getenv('PORT', '8443'))
+    WEBHOOK_URL: Optional[str] = os.getenv('WEBHOOK_URL')
+    
+    # הגדרות אבטחה
+    ALLOWED_USERS: list = []  # רשימת משתמשים מורשים (ריק = כולם)
+    
+    @classmethod
+    def validate(cls) -> bool:
+        """בדיקת תקינות הגדרות"""
+        if not cls.BOT_TOKEN:
+            raise ValueError("BOT_TOKEN is required")
+        
+        if cls.MAX_REMINDER_HOURS < cls.MIN_REMINDER_HOURS:
+            raise ValueError("MAX_REMINDER_HOURS must be >= MIN_REMINDER_HOURS")
+        
+        return True
+    
+    @classmethod
+    def is_user_allowed(cls, user_id: int) -> bool:
+        """בדיקה אם משתמש מורשה"""
+        if not cls.ALLOWED_USERS:  # אם הרשימה ריקה, כולם מורשים
+            return True
+        return user_id in cls.ALLOWED_USERS
+    
+    @classmethod
+    def get_webhook_info(cls) -> dict:
+        """מידע על webhook לרנדר"""
+        if not cls.WEBHOOK_URL:
+            return {}
+        
+        return {
+            'url': f"{cls.WEBHOOK_URL}/webhook",
+            'port': cls.PORT,
+            'listen': '0.0.0.0'
+        }
 
-@dataclass
-class BotConfig:
-    """קונפיגורציה עיקרית של הבוט"""
-    
-    # טוקן הבוט
-    BOT_TOKEN: str
-    
-    # הגדרות מסד נתונים
-    MONGODB_URL: str
-    DATABASE_NAME: str = "code_keeper_bot"
-    
-    # הגדרות Redis Cache
-    REDIS_URL: Optional[str] = None
-    CACHE_ENABLED: bool = True
-    
-    # הגדרות GitHub Gist
-    GITHUB_TOKEN: Optional[str] = None
-    
-    # הגדרות Pastebin
-    PASTEBIN_API_KEY: Optional[str] = None
-    
-    # הגדרות כלליות
-    MAX_CODE_SIZE: int = 100000  # מקסימום 100KB לקטע קוד
-    MAX_FILES_PER_USER: int = 1000
-    SUPPORTED_LANGUAGES: list = None
-    
-    # הגדרות syntax highlighting
-    HIGHLIGHT_THEME: str = "github-dark"
-
-    # קידומת לשם נקודת שמירה ב-Git (ל-tags ולענפים בגיבוי)
-    GIT_CHECKPOINT_PREFIX: str = "checkpoint"
-    
-    def __post_init__(self):
-        if self.SUPPORTED_LANGUAGES is None:
-            self.SUPPORTED_LANGUAGES = [
-                'python', 'javascript', 'html', 'css', 'java', 'cpp', 'c',
-                'php', 'ruby', 'go', 'rust', 'typescript', 'sql', 'bash',
-                'json', 'xml', 'yaml', 'markdown', 'dockerfile', 'nginx'
-            ]
-
-def load_config() -> BotConfig:
-    """טוען את הקונפיגורציה ממשתני הסביבה"""
-    
-    bot_token = os.getenv('BOT_TOKEN')
-    if not bot_token:
-        raise ValueError("BOT_TOKEN לא נמצא במשתני הסביבה")
-    
-    mongodb_url = os.getenv('MONGODB_URL')
-    if not mongodb_url:
-        raise ValueError("MONGODB_URL לא נמצא במשתני הסביבה")
-    
-    return BotConfig(
-        BOT_TOKEN=bot_token,
-        MONGODB_URL=mongodb_url,
-        DATABASE_NAME=os.getenv('DATABASE_NAME', 'code_keeper_bot'),
-        REDIS_URL=os.getenv('REDIS_URL'),
-        CACHE_ENABLED=os.getenv('CACHE_ENABLED', 'false').lower() == 'true',
-        GITHUB_TOKEN=os.getenv('GITHUB_TOKEN'),
-        PASTEBIN_API_KEY=os.getenv('PASTEBIN_API_KEY'),
-        MAX_CODE_SIZE=int(os.getenv('MAX_CODE_SIZE', '100000')),
-        MAX_FILES_PER_USER=int(os.getenv('MAX_FILES_PER_USER', '1000')),
-        HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark'),
-        GIT_CHECKPOINT_PREFIX=os.getenv('GIT_CHECKPOINT_PREFIX', 'checkpoint'),
-    )
-
-# יצירת אינסטנס גלובלי של הקונפיגורציה
-config = load_config()
+# בדיקת הגדרות בזמן import
+try:
+    Config.validate()
+except Exception as e:
+    print(f"Configuration error: {e}")
+    exit(1)

@@ -1,4 +1,0 @@
-skips: []
-targets: ["."]
-exclude_dirs: [".git", "venv", ".venv", "build", "dist", "tests", "__pycache__"]
-quiet: true
