@@ -432,6 +432,12 @@ class GitHubMenuHandler:
             # ודא שניקינו דגלים ישנים של העלאה רגילה כדי למנוע בלבול
             context.user_data["waiting_for_github_upload"] = False
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
+            # נעל את יעד הריפו הצפוי לשחזור (חגורת בטיחות נגד ריפו אחר)
+            try:
+                context.user_data["zip_restore_expected_repo_full"] = repo_full
+            except Exception:
+                # לא קריטי אם נכשלת שמירת סטייט - נאתר בהמשך
+                pass
             kb = [
                 [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1")],
                 [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_restore_zip_setpurge:0")],
@@ -460,6 +466,12 @@ class GitHubMenuHandler:
             context.user_data["waiting_for_github_upload"] = False
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
+            # השאר את היעד הצפוי אם כבר נקבע קודם
+            if not context.user_data.get("zip_restore_expected_repo_full"):
+                try:
+                    context.user_data["zip_restore_expected_repo_full"] = session.get("selected_repo")
+                except Exception:
+                    pass
             await query.edit_message_text(
                 ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
                 "שלח עכשיו קובץ ZIP לשחזור לריפו."
@@ -506,6 +518,11 @@ class GitHubMenuHandler:
                 return
             # הגדר purge? בקש בחירה
             context.user_data["pending_repo_restore_zip_path"] = match.file_path
+            # נעל את יעד הריפו הצפוי עבור השחזור מתוך גיבוי
+            try:
+                context.user_data["zip_restore_expected_repo_full"] = self.get_user_session(user_id).get("selected_repo")
+            except Exception:
+                pass
             await query.edit_message_text(
                 "האם למחוק קודם את התוכן בריפו לפני העלאה?",
                 reply_markup=InlineKeyboardMarkup([
@@ -4471,6 +4488,16 @@ class GitHubMenuHandler:
         repo_full = session.get("selected_repo")
         if not (token and repo_full):
             raise RuntimeError("חסר טוקן או ריפו")
+        # חגורת בטיחות: אשר שהיעד תואם את היעד שננעל בתחילת ה-flow
+        expected = context.user_data.get("zip_restore_expected_repo_full")
+        if expected and expected != repo_full:
+            logger.critical(f"[restore_zip_from_backup] Target mismatch: expected={expected}, got={repo_full}. Aborting.")
+            raise ValueError(f"Target mismatch: expected {expected}, got {repo_full}")
+        if not expected:
+            try:
+                context.user_data["zip_restore_expected_repo_full"] = repo_full
+            except Exception:
+                pass
         import zipfile
         if not os.path.exists(zip_path) or not zipfile.is_zipfile(zip_path):
             raise RuntimeError("ZIP לא תקין")
@@ -4529,3 +4556,8 @@ class GitHubMenuHandler:
         new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
         base_ref.edit(new_commit.sha)
         logger.info(f"[restore_zip_from_backup] Restore commit created: {new_commit.sha}, files_added={len(elements)}, purge={purge_first}")
+        # ניקוי סטייט הגנה אחרי הצלחה
+        try:
+            context.user_data.pop("zip_restore_expected_repo_full", None)
+        except Exception:
+            pass

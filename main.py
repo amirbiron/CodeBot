@@ -779,6 +779,21 @@ class CodeKeeperBot:
                 if not (token and repo_full):
                     await update.message.reply_text("❌ אין טוקן או ריפו נבחר")
                     return
+                # ולידציית יעד: נעלנו ריפו צפוי בתחילת ה-flow; אל תאפשר 'בריחה' לריפו אחר
+                expected_repo_full = context.user_data.get('zip_restore_expected_repo_full')
+                if expected_repo_full and expected_repo_full != repo_full:
+                    logger.critical(f"[restore_zip] Target mismatch: expected={expected_repo_full}, got={repo_full}. Aborting.")
+                    await update.message.reply_text(
+                        f"❌ שגיאת יעד: ציפינו ל־{expected_repo_full}, אך התקבל {repo_full}. נעצר ללא שחזור.",
+                        parse_mode=ParseMode.HTML
+                    )
+                    raise ValueError(f"Target mismatch: expected {expected_repo_full}, got {repo_full}")
+                # אם לא נשמר יעד צפוי (גרסה ישנה), קבע אותו כעת כבלמים קדמיים
+                if not expected_repo_full:
+                    try:
+                        context.user_data['zip_restore_expected_repo_full'] = repo_full
+                    except Exception:
+                        pass
                 g = Github(token)
                 repo = g.get_repo(repo_full)
                 target_branch = repo.default_branch or 'main'
@@ -827,6 +842,10 @@ class CodeKeeperBot:
             finally:
                 context.user_data['upload_mode'] = None
                 context.user_data.pop('github_restore_zip_purge', None)
+                try:
+                    context.user_data.pop('zip_restore_expected_repo_full', None)
+                except Exception:
+                    pass
             return
         
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
