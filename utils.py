@@ -114,37 +114,6 @@ class TimeUtils:
     """כלים לעבודה עם זמן ותאריכים"""
     
     @staticmethod
-    def _get_il_tz():
-        """החזרת אזור הזמן של ישראל (Asia/Jerusalem)."""
-        try:
-            from zoneinfo import ZoneInfo  # Python 3.9+
-            return ZoneInfo("Asia/Jerusalem")
-        except Exception:
-            # נפילה לאחור: UTC+2 ללא התחשבות ב-DST (פחות מומלץ)
-            return timezone(timedelta(hours=2))
-
-    @staticmethod
-    def to_israel_time(dt: datetime) -> datetime:
-        """ממיר datetime ל-Asia/Jerusalem. אם dt נאיבי, יונח שהוא ב-UTC."""
-        if not isinstance(dt, datetime):
-            return dt
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(TimeUtils._get_il_tz())
-
-    @staticmethod
-    def format_israel_time(dt: datetime, fmt: str = "%d/%m/%Y %H:%M") -> str:
-        """פורמט זמן לפי שעון ישראל עם תבנית ברירת מחדל נפוצה."""
-        try:
-            dt_il = TimeUtils.to_israel_time(dt)
-            return dt_il.strftime(fmt)
-        except Exception:
-            try:
-                return str(dt)
-            except Exception:
-                return ""
-
-    @staticmethod
     def format_relative_time(dt: datetime) -> str:
         """פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')"""
         

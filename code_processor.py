@@ -98,7 +98,7 @@ class CodeProcessor:
             # במקרה של שגיאה, החזר את הטקסט המקורי
             return text
     
-    def validate_code_input(self, code: str, filename: str = None, user_id: int = None, *, skip_size_check: bool = False) -> Tuple[bool, str, str]:
+    def validate_code_input(self, code: str, filename: str = None, user_id: int = None) -> Tuple[bool, str, str]:
         """
         מאמת קלט קוד ומחזיר תוקף, קוד מנוקה והודעת שגיאה אם יש
         """
@@ -127,17 +127,12 @@ class CodeProcessor:
                     code_error_logger.log_validation_failure(user_id, original_length, "הקוד ריק לאחר עיבוד")
                 return False, "", "הקוד ריק לאחר עיבוד"
             
-            # בדיקה אם הקוד ארוך מדי (ניתן לדלג ב- Batch)
-            if not skip_size_check and len(cleaned_code) > int(getattr(config, 'MAX_CODE_SIZE', 100000)):
+            # בדיקה אם הקוד ארוך מדי
+            if len(cleaned_code) > 50000:  # 50KB limit
                 if user_id:
                     from utils import code_error_logger
-                    # שימוש בערך מהקונפיגורציה להודעה
-                    try:
-                        limit_kb = int(getattr(config, 'MAX_CODE_SIZE', 100000)) // 1024
-                    except Exception:
-                        limit_kb = 50
-                    code_error_logger.log_validation_failure(user_id, cleaned_length, f"הקוד ארוך מדי (מעל {limit_kb}KB)")
-                return False, "", f"הקוד ארוך מדי (מעל {int(getattr(config, 'MAX_CODE_SIZE', 100000)) // 1024}KB)"
+                    code_error_logger.log_validation_failure(user_id, cleaned_length, "הקוד ארוך מדי (מעל 50KB)")
+                return False, "", "הקוד ארוך מדי (מעל 50KB)"
             
             # בדיקה לתווים לא חוקיים
             try:

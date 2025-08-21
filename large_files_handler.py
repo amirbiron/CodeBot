@@ -36,7 +36,7 @@ class LargeFilesHandler:
         
         if not files and page == 1:
             # אין קבצים בכלל
-            keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="main")]]
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             text = (
@@ -100,7 +100,7 @@ class LargeFilesHandler:
         # כפתורים נוספים
         keyboard.extend([
             [InlineKeyboardButton("🔄 רענן", callback_data=f"lf_page_{page}")],
-            [InlineKeyboardButton("❌ ביטול", callback_data="main")]
+            [InlineKeyboardButton("🔙 חזור", callback_data="files")]
         ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -140,12 +140,7 @@ class LargeFilesHandler:
         language = file_data.get('programming_language', 'text')
         file_size = file_data.get('file_size', 0)
         lines_count = file_data.get('lines_count', 0)
-        created_at = file_data.get('created_at')
-        try:
-            from utils import TimeUtils
-            created_at_str = TimeUtils.format_israel_time(created_at) if created_at else 'לא ידוע'
-        except Exception:
-            created_at_str = str(created_at) if created_at else 'לא ידוע'
+        created_at = file_data.get('created_at', 'לא ידוע')
         
         # כפתורי פעולות
         keyboard = [
@@ -176,7 +171,7 @@ class LargeFilesHandler:
             f"{emoji} **שפה:** {language}\n"
             f"💾 **גודל:** {size_kb:.1f}KB ({file_size:,} בתים)\n"
             f"📏 **שורות:** {lines_count:,}\n"
-            f"📅 **נוצר:** {created_at_str}\n\n"
+            f"📅 **נוצר:** {created_at}\n\n"
             "🎯 בחר פעולה:"
         )
         
@@ -349,7 +344,7 @@ class LargeFilesHandler:
             if remaining_total > 0:
                 keyboard = [[InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]]
             else:
-                keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="main")]]
+                keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(

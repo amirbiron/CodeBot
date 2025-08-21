@@ -1,5 +1,6 @@
 import logging
 import os
+import tempfile
 from io import BytesIO
 from typing import Any, Dict
 
@@ -7,11 +8,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFi
 from telegram.ext import ContextTypes
 
 from file_manager import backup_manager
-from utils import TimeUtils
 
 logger = logging.getLogger(__name__)
 
 # עזר לפורמט גודל
+
 def _format_bytes(num: int) -> str:
 	try:
 		for unit in ["B", "KB", "MB", "GB"]:
@@ -25,7 +26,7 @@ def _format_bytes(num: int) -> str:
 # עזרי תצוגה לשמות/תאריכים בכפתורים
 def _format_date(dt) -> str:
 	try:
-		return TimeUtils.format_israel_time(dt, fmt='%d/%m/%y %H:%M')
+		return dt.strftime('%d/%m/%y %H:%M')
 	except Exception:
 		return str(dt)
 
@@ -40,46 +41,50 @@ def _truncate_middle(text: str, max_len: int) -> str:
 	return text[:front] + '…' + text[-back:]
 
 def _build_download_button_text(info) -> str:
-	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך.
-	בכפתור נסיר בעל ריפו (owner/) ונציג רק שם ריפו + תאריך."""
+	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
+	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
 	MAX_LEN = 64
-	base = "Backup ZIP"
+	base = "backup zip"
 	# שם עיקרי
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
-		repo = str(info.repo)
-		# הסר בעלים אם בפורמט owner/repo
-		primary = repo.split('/', 1)[1] if '/' in repo else repo
+		primary = str(info.repo)
 	else:
 		primary = "full"
 	date_part = _format_date(getattr(info, 'created_at', ''))
+	size_part = _format_bytes(getattr(info, 'total_size', 0))
 
-	def build(base_text: str, prim: str) -> str:
-		# בהתאם לבקשה: הצג רק שם ריפו ותאריך (ללא גודל)
-		return f"⬇️ {base_text} — {prim} — {date_part}"
+	def build(base_text: str, prim: str, include_size: bool = True) -> str:
+		if include_size:
+			return f"⬇️ {base_text} {prim} — {date_part} — {size_part}"
+		return f"⬇️ {base_text} {prim} — {date_part}"
 
 	# התחלה עם תצורה מלאה
 	prim_use = _truncate_middle(primary, 32)
-	text = build(base, prim_use)
+	text = build(base, prim_use, include_size=True)
 	if len(text) <= MAX_LEN:
 		return text
 	# 1) קצר עוד את השם העיקרי
 	for limit in (28, 24, 20, 16, 12, 8):
 		prim_use = _truncate_middle(primary, limit)
-		text = build(base, prim_use)
+		text = build(base, prim_use, include_size=True)
 		if len(text) <= MAX_LEN:
 			return text
-	# 2) קצר את הקידומת ל-"zip"
-	short_base = "zip"
-	text = build(short_base, prim_use)
+	# 2) השמט את הגודל כדי לשמר את התאריך
+	text = build(base, prim_use, include_size=False)
 	if len(text) <= MAX_LEN:
 		return text
-	# 3) נסה לקצר עוד את השם עם הקידומת הקצרה
+	# 3) קצר את הקידומת ל-"zip"
+	short_base = "zip"
+	text = build(short_base, prim_use, include_size=False)
+	if len(text) <= MAX_LEN:
+		return text
+	# 4) נסה לקצר עוד את השם עם הקידומת הקצרה
 	for limit in (10, 8, 6, 4):
 		prim_use = _truncate_middle(primary, limit)
-		text = build(short_base, prim_use)
+		text = build(short_base, prim_use, include_size=False)
 		if len(text) <= MAX_LEN:
 			return text
-	# 4) נפילה סופית: הצג רק תאריך עם קידומת קצרה
+	# 5) נפילה סופית: הצג רק תאריך עם קידומת קצרה
 	return f"⬇️ {short_base} — {date_part}"
 
 class BackupMenuHandler:
@@ -131,27 +136,6 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
-		elif data.startswith("backup_delete_id:"):
-			# שלב אישור מחיקה
-			backup_id = data.split(":", 1)[1]
-			await query.edit_message_text(
-				f"❗ האם למחוק לצמיתות את הגיבוי:\n<code>{backup_id}</code>?",
-				reply_markup=InlineKeyboardMarkup([
-					[InlineKeyboardButton("✅ אשר מחיקה", callback_data=f"backup_delete_confirm:{backup_id}")],
-					[InlineKeyboardButton("🔙 ביטול", callback_data="backup_list")]
-				])
-			)
-		elif data.startswith("backup_delete_confirm:"):
-			backup_id = data.split(":", 1)[1]
-			ok = backup_manager.delete_backup(backup_id, user_id)
-			if ok:
-				try:
-					await query.answer("🗑️ הגיבוי נמחק", show_alert=False)
-				except Exception:
-					pass
-				await self._show_backups_list(update, context, page=1)
-			else:
-				await query.edit_message_text("❌ לא ניתן למחוק את הגיבוי (יתכן שאינו שלך)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="backup_list")]]))
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
@@ -161,6 +145,7 @@ class BackupMenuHandler:
 		await query.edit_message_text("⏳ יוצר גיבוי מלא...")
 		# יצירת גיבוי מלא (מייצא את כל הקבצים ממונגו לזיפ ושומר ב-GridFS/דיסק)
 		try:
+			from io import BytesIO
 			import zipfile, json
 			from database import db
 			# אסוף את הקבצים של המשתמש
@@ -197,13 +182,21 @@ class BackupMenuHandler:
 			logger.error(f"Failed creating/sending backup: {e}")
 			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
 	
+	async def _start_full_restore(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+		# נשמר לשם תאימות אם יקראו בפועל, מפנה לרשימת גיבויים
+		await self._show_backups_list(update, context)
+	
+	# הוסרה תמיכה בהעלאת ZIP ישירה מהתפריט כדי למנוע מחיקה גורפת בטעות
+	
 	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.answer()
 		backups = backup_manager.list_backups(user_id)
+		# ודא שתמיד מוצגים כל קבצי ה‑ZIP ללא סינון לפי משתמש
 		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
 		zip_back_to = context.user_data.get('zip_back_to')
+		# אם מגיעים מתפריט "📚" או מזרימת "העלה קובץ חדש → קבצי ZIP" (github_upload), אל תסנן לפי ריפו
 		current_repo = None if zip_back_to in {'files', 'github_upload'} else context.user_data.get('github_backup_context_repo')
 		if current_repo:
 			filtered = []
@@ -215,6 +208,7 @@ class BackupMenuHandler:
 					continue
 			backups = filtered
 		if not backups:
+			# קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
 			if zip_back_to == 'files':
 				back_cb = 'files'
 			elif zip_back_to == 'github_upload':
@@ -244,40 +238,28 @@ class BackupMenuHandler:
 		start = (page - 1) * PAGE_SIZE
 		end = min(start + PAGE_SIZE, total)
 		items = backups[start:end]
-		lines = [f'📦 קבצי ZIP שמורים — סה"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n']
+		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
-		for idx, info in enumerate(items):
+		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
-			item_index = start + idx + 1
-			when_il = TimeUtils.format_israel_time(getattr(info, 'created_at', None))
 			if repo_name:
 				line = (
-					f"{item_index}) • {repo_name} — {when_il} — "
+					f"• {repo_name} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
 					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype} — ID: {info.backup_id}"
 				)
 			else:
 				line = (
-					f"{item_index}) • {info.backup_id} — {when_il} — "
+					f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
 					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
 				)
 			lines.append(line)
 			row = []
-			# מספר שורה כמקדם לטקסט הכפתור הראשון בשורה
-			row_prefix = f"{item_index}. "
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 			if btype not in {"github_repo_zip"}:
-				row.append(InlineKeyboardButton(row_prefix + "♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-				row_prefix = ""  # כבר הוצג המספר בכפתור הראשון
+				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
 			# כפתור הורדה תמיד זמין עם טקסט תמציתי
-			row.append(InlineKeyboardButton(row_prefix + _build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
-			# כפתור מחיקה — רק אם הגיבוי שייך למשתמש לפי מטאדטה
-			try:
-				md = getattr(info, 'metadata', None) or {}
-				if md.get('user_id') == user_id:
-					row.append(InlineKeyboardButton("🗑 מחק", callback_data=f"backup_delete_id:{info.backup_id}"))
-			except Exception:
-				pass
+			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		pagination = []
@@ -345,4 +327,3 @@ class BackupMenuHandler:
 					raise
 		except Exception as e:
 			await query.edit_message_text(f"❌ שגיאה בשליחת קובץ הגיבוי: {e}")
-
