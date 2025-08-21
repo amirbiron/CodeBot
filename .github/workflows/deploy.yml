@@ -545,10 +545,22 @@ jobs:
     if: always()
     
     steps:
+      - name: 🔑 Resolve Packages Token (PAT fallback)
+        id: pkg-token
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.PACKAGES_PAT }}" ]; then
+            echo "token=${{ secrets.PACKAGES_PAT }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=${{ github.token }}" >> "$GITHUB_OUTPUT"
+          fi
       - name: 🗑️ Delete Old Images
         uses: actions/delete-package-versions@v4
+        env:
+          GITHUB_TOKEN: ${{ steps.pkg-token.outputs.token }}
         with:
-          package-name: 'codebot'
+          owner: ${{ github.repository_owner }}
+          package-name: ${{ github.event.repository.name }}
           package-type: 'container'
           min-versions-to-keep: 10
           delete-only-untagged-versions: true
