@@ -254,18 +254,18 @@ class BackupMenuHandler:
 		items = backups[start:end]
 		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
-		for info in items:
+		for idx, info in enumerate(items, start=1):
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
 			when = _format_date(getattr(info, 'created_at', None))
 			if repo_name:
 				line = (
-					f"• {repo_name} — {when} — "
+					f"{idx}. {repo_name} — {when} — "
 					f"{_format_bytes(getattr(info, 'total_size', 0))} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype} — ID: {info.backup_id}"
 				)
 			else:
 				line = (
-					f"• {info.backup_id} — {when} — "
+					f"{idx}. {info.backup_id} — {when} — "
 					f"{_format_bytes(getattr(info, 'total_size', 0))} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
 				)
 			lines.append(line)
@@ -281,9 +281,9 @@ class BackupMenuHandler:
 					repo_display = repo_name.split('/', 1)[1]
 				elif repo_name:
 					repo_display = repo_name
-				label = f"⬇️ באקאאפ זיפ {repo_display or 'full'} — {when}"
+				label = f"{idx}. ⬇️ באקאאפ זיפ {repo_display or 'full'} — {when}"
 			else:
-				label = _build_download_button_text(info)
+				label = f"{idx}. " + _build_download_button_text(info)
 			row.append(InlineKeyboardButton(label, callback_data=f"backup_download_id:{info.backup_id}"))
 			# כפתור מחיקה (נדרש לנקות גיבויים ישנים)
 			row.append(InlineKeyboardButton("🗑️ מחק", callback_data=f"backup_delete_id:{info.backup_id}"))
