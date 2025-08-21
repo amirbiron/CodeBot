@@ -284,8 +284,10 @@ class BatchProcessor:
                 code = file_data['code']
                 language = file_data['programming_language']
                 
-                # בדיקת תקינות
-                is_valid, cleaned_code, error_msg = code_processor.validate_code_input(code, file_name, user_id)
+                # בדיקת תקינות (ב-Batch מתעלמים ממגבלת גודל כדי לא להכשיל בדיקה)
+                is_valid, cleaned_code, error_msg = code_processor.validate_code_input(
+                    code, file_name, user_id, skip_size_check=True
+                )
                 result: Dict[str, Any] = {
                     'is_valid': is_valid,
                     'error_message': error_msg,
