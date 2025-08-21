@@ -872,6 +872,34 @@ class CodeKeeperBot:
                             repo_tag = [f"repo:{md['repo']}"]
                 except Exception:
                     pass
+                # שמירת עותק קבוע של ה-ZIP ברשימת הגיבויים להצגה בתפריט "קבצי ZIP"
+                persisted_zip_backup = False
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    import shutil as _shutil
+                    dest_id = f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}"
+                    dest_path = backup_manager.backup_dir / f"{dest_id}.zip"
+                    _shutil.copyfile(tmp_path, dest_path)
+                    # הוסף metadata.json אם חסר כדי לשפר תצוגה
+                    try:
+                        with zipfile.ZipFile(dest_path, 'a', compression=zipfile.ZIP_DEFLATED) as zfa:
+                            if 'metadata.json' not in zfa.namelist():
+                                meta = {
+                                    "backup_id": dest_id,
+                                    "user_id": user_id,
+                                    "created_at": _dt.now(_tz.utc).isoformat(),
+                                    "backup_type": "generic_zip",
+                                    "include_versions": False,
+                                    "file_count": len([n for n in zfa.namelist() if not n.endswith('/')]),
+                                    "created_by": "Code Keeper Bot",
+                                }
+                                zfa.writestr('metadata.json', json.dumps(meta, indent=2))
+                    except Exception:
+                        pass
+                    persisted_zip_backup = True
+                    logger.info(f"Persisted uploaded ZIP into backups: {dest_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to persist uploaded ZIP into backups: {e}")
                 # בצע ייבוא ללא מחיקה, עם תגיות אם קיימות
                 results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True, purge=False, extra_tags=repo_tag)
                 restored = results.get('restored_files', 0)
@@ -886,6 +914,8 @@ class CodeKeeperBot:
                     )
                 else:
                     msg = f"✅ יובאו {restored} קבצים בהצלחה"
+                if persisted_zip_backup:
+                    msg += "\n💾 נשמר גם ברשימת הגיבויים (קבצי ZIP)."
                 await update.message.reply_text(msg)
             except Exception as e:
                 logger.exception(f"ZIP import failed: {e}")
