@@ -64,7 +64,9 @@ def _build_download_button_text(info) -> str:
 	base = "backup zip"
 	# שם עיקרי
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
-		primary = str(info.repo)
+		# הסר בעלים אם מופיע owner/repo
+		repo_val = str(info.repo)
+		primary = repo_val.split('/', 1)[1] if '/' in repo_val else repo_val
 	else:
 		primary = "full"
 	date_part = _format_date(getattr(info, 'created_at', ''))
@@ -153,6 +155,9 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
+		elif data.startswith("backup_delete_id:"):
+			backup_id = data.split(":", 1)[1]
+			await self._delete_by_id(update, context, backup_id)
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
@@ -198,3 +203,171 @@ class BackupMenuHandler:
 		except Exception as e:
 			logger.error(f"Failed creating/sending backup: {e}")
 			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
+
+	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
+		query = update.callback_query
+		user_id = query.from_user.id
+		await query.answer()
+		backups = backup_manager.list_backups(user_id)
+		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
+		zip_back_to = context.user_data.get('zip_back_to')
+		# אם מגיעים מתפריט "📚" או מזרימת "העלה קובץ חדש → קבצי ZIP" (github_upload), אל תסנן לפי ריפו
+		current_repo = None if zip_back_to in {'files', 'github_upload'} else context.user_data.get('github_backup_context_repo')
+		if current_repo:
+			filtered = []
+			for b in backups:
+				try:
+					if getattr(b, 'repo', None) == current_repo:
+						filtered.append(b)
+				except Exception:
+					continue
+			backups = filtered
+		if not backups:
+			# קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
+			if zip_back_to == 'files':
+				back_cb = 'files'
+			elif zip_back_to == 'github_upload':
+				back_cb = 'upload_file'
+			elif current_repo is not None or zip_back_to == 'github':
+				back_cb = 'github_backup_menu'
+			else:
+				back_cb = 'backup_menu'
+			keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data=back_cb)]]
+			msg = "ℹ️ לא נמצאו גיבויים שמורים."
+			if current_repo:
+				msg = f"ℹ️ לא נמצאו גיבויים עבור הריפו:\n<code>{current_repo}</code>"
+			await query.edit_message_text(
+				msg,
+				reply_markup=InlineKeyboardMarkup(keyboard)
+			)
+			return
+		# עימוד תוצאות
+		PAGE_SIZE = 10
+		total = len(backups)
+		if page < 1:
+			page = 1
+		total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE if total > 0 else 1
+		if page > total_pages:
+			page = total_pages
+		start = (page - 1) * PAGE_SIZE
+		end = min(start + PAGE_SIZE, total)
+		items = backups[start:end]
+		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+		keyboard = []
+		for info in items:
+			btype = getattr(info, 'backup_type', 'unknown')
+			repo_name = getattr(info, 'repo', None)
+			when = _format_date(getattr(info, 'created_at', None))
+			if repo_name:
+				line = (
+					f"• {repo_name} — {when} — "
+					f"{_format_bytes(getattr(info, 'total_size', 0))} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype} — ID: {info.backup_id}"
+				)
+			else:
+				line = (
+					f"• {info.backup_id} — {when} — "
+					f"{_format_bytes(getattr(info, 'total_size', 0))} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
+				)
+			lines.append(line)
+			row = []
+			# הצג כפתור שחזור רק עבור גיבויי DB (לא ל-GitHub ZIP)
+			if btype not in {"github_repo_zip"}:
+				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
+			# כפתור הורדה תמיד זמין
+			# כאשר מגיעים מתפריט "📚" (zip_back_to == 'files') נשתמש בתווית בעברית עם שם ריפו ללא בעלים
+			if zip_back_to == 'files':
+				repo_display = None
+				if repo_name and isinstance(repo_name, str) and '/' in repo_name:
+					repo_display = repo_name.split('/', 1)[1]
+				elif repo_name:
+					repo_display = repo_name
+				label = f"⬇️ באקאאפ זיפ {repo_display or 'full'} — {when}"
+			else:
+				label = _build_download_button_text(info)
+			row.append(InlineKeyboardButton(label, callback_data=f"backup_download_id:{info.backup_id}"))
+			# כפתור מחיקה (נדרש לנקות גיבויים ישנים)
+			row.append(InlineKeyboardButton("🗑️ מחק", callback_data=f"backup_delete_id:{info.backup_id}"))
+			keyboard.append(row)
+		# עימוד: הקודם/הבא
+		pagination = []
+		if page > 1:
+			pagination.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"backup_page_{page-1}"))
+		if page < total_pages:
+			pagination.append(InlineKeyboardButton("➡️ הבא", callback_data=f"backup_page_{page+1}"))
+		if pagination:
+			keyboard.append(pagination)
+		# פעולות נוספות - כפתור חזרה דינמי
+		if zip_back_to == 'files':
+			back_cb = 'files'
+		elif zip_back_to == 'github_upload':
+			back_cb = 'upload_file'
+		elif current_repo is not None or zip_back_to == 'github':
+			back_cb = 'github_backup_menu'
+		else:
+			back_cb = 'backup_menu'
+		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
+		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+
+	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		query = update.callback_query
+		user_id = query.from_user.id
+		await query.edit_message_text("⏳ משחזר מגיבוי נבחר...")
+		# מצא את קובץ הגיבוי
+		info_list = backup_manager.list_backups(user_id)
+		match = next((b for b in info_list if b.backup_id == backup_id), None)
+		if not match or not match.file_path or not os.path.exists(match.file_path):
+			await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+			return
+		try:
+			results = backup_manager.restore_from_backup(user_id=user_id, backup_path=match.file_path, overwrite=True, purge=True)
+			restored = results.get('restored_files', 0)
+			errors = results.get('errors', [])
+			msg = f"✅ שוחזרו {restored} קבצים בהצלחה מגיבוי {backup_id}"
+			if errors:
+				msg += f"\n⚠️ שגיאות: {len(errors)}"
+			await query.edit_message_text(msg)
+		except Exception as e:
+			await query.edit_message_text(f"❌ שגיאה בשחזור: {e}")
+
+	async def _download_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		query = update.callback_query
+		user_id = query.from_user.id
+		await query.answer()
+		info_list = backup_manager.list_backups(user_id)
+		match = next((b for b in info_list if b.backup_id == backup_id), None)
+		if not match or not match.file_path or not os.path.exists(match.file_path):
+			await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+			return
+		try:
+			with open(match.file_path, 'rb') as f:
+				await query.message.reply_document(
+					document=InputFile(f, filename=os.path.basename(match.file_path)),
+					caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
+				)
+			# השאר בתצוגת רשימה — רענן את הרשימה
+			try:
+				await self._show_backups_list(update, context)
+			except Exception as e:
+				# התמודד עם מקרה של Message is not modified
+				msg = str(e).lower()
+				if "message is not modified" not in msg:
+					raise
+		except Exception as e:
+			await query.edit_message_text(f"❌ שגיאה בשליחת קובץ הגיבוי: {e}")
+
+	async def _delete_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		query = update.callback_query
+		user_id = query.from_user.id
+		try:
+			ok = backup_manager.delete_backup(backup_id, user_id)
+			if ok:
+				await query.answer("✅ הגיבוי נמחק", show_alert=False)
+			else:
+				await query.answer("❌ לא ניתן למחוק (לא נמצא/אין הרשאה)", show_alert=True)
+		except Exception as e:
+			await query.answer(f"❌ שגיאה במחיקה: {e}", show_alert=True)
+		# רענן את הרשימה
+		try:
+			await self._show_backups_list(update, context)
+		except Exception:
+			pass
