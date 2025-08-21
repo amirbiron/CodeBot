@@ -328,6 +328,8 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 keyboard.append([
                     InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")
                 ])
+            # Add Back button in all cases
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
             
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
             
@@ -547,9 +549,12 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                             if item['complexity'] != 'N/A':
                                 results_text += f"        מורכבות: <b>{item['complexity']}</b>\n"
             
+            # Add Back button in results view
+            back_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]])
             await query.edit_message_text(
                 results_text,
-                parse_mode=ParseMode.HTML
+                parse_mode=ParseMode.HTML,
+                reply_markup=back_markup
             )
             
         elif data.startswith("chunk:"):
