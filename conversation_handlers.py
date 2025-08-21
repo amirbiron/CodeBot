@@ -2254,6 +2254,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     try:
         backups = backup_manager.list_backups(user_id)
+        # מציג את כל קבצי ה‑ZIP השמורים בבוט
         if not backups:
             keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]]
             await query.edit_message_text(
