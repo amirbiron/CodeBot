@@ -1,0 +1,12 @@
+# .github/dependabot.yml
+# Basic dependabot configuration for Python projects
+
+version: 2
+updates:
+  - package-ecosystem: "pip" # Use the pip package manager for Python
+    directory: "/" # Location of package manifests (requirements.txt)
+    schedule:
+      interval: "weekly" # Check for updates once a week
+    # You can add reviewers or assignees automatically if you want
+    # assignees:
+    #   - "amirbiron"

@@ -1,27 +1,243 @@
-services:
-  - type: web
-    name: save-me-bot
-    env: docker
-    plan: free
-    
-    # CRITICAL: Tells Render where to find the Dockerfile
-    dockerfilePath: ./Dockerfile
-    
-    healthCheck:
-      # CRITICAL: Keeps your free service alive
-      path: /
+# ===================================
+# Code Keeper Bot - Render Configuration
+# בוט שומר קבצי קוד - הגדרות Render
+# ===================================
 
-    # Your environment variables. Render will handle the PORT automatically.
+services:
+  # ===================================
+  # Code Keeper Bot - Web Service
+  # ===================================
+  - type: web
+    name: code-keeper-bot
+    env: python
+    region: oregon # או virginia, frankfurt, singapore
+    plan: free # או starter ($7/month) עבור always-on
+    
+    # הגדרות בנייה
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    
+    # פקודת הפעלה
+    startCommand: python main.py
+    
+    # הגדרות runtime
+    runtime: python3.11
+    
+    # Health check
+    healthCheckPath: /health
+    
+    # משתני סביבה (ערכים ברגישים יוגדרו בRender Dashboard)
     envVars:
-      - key: BOT_TOKEN
-        sync: false
-      - key: WEBHOOK_URL
-        value: https://save-me-bot.onrender.com
-      - key: DATABASE_PATH
-        value: /app/data/save_me_bot.db
+      - key: PYTHON_VERSION
+        value: 3.11
+      
+      - key: PYTHONUNBUFFERED
+        value: 1
+        
       - key: LOG_LEVEL
         value: INFO
-      - key: MAX_REMINDER_HOURS
-        value: 168
-      - key: MIN_REMINDER_HOURS
+        
+      - key: MAX_CODE_SIZE
+        value: 100000
+        
+      - key: MAX_FILES_PER_USER
+        value: 1000
+        
+      - key: HIGHLIGHT_THEME
+        value: github-dark
+        
+      - key: AUTO_BACKUP_ENABLED
+        value: true
+        
+      - key: BACKUP_FREQUENCY_HOURS
+        value: 24
+        
+      - key: MAX_BACKUPS_TO_KEEP
+        value: 7
+      
+      - key: BACKUPS_DIR
+        value: /data/backups
+      - key: BACKUPS_STORAGE
+        value: fs
+        
+      # משתני רגישים - יוגדרו בRender Dashboard:
+      # BOT_TOKEN
+      # MONGODB_URL (MongoDB Atlas)
+      # GITHUB_TOKEN
+      # PASTEBIN_API_KEY
+      # ADMIN_USER_IDS
+      # SENTRY_DSN
+    
+    # Auto-deploy מ-Git
+    autoDeploy: true
+    
+    # הגדרות נוספות
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+    
+    disks:
+      - name: backups
+        mountPath: /data
+        sizeGB: 1
+
+  # ===================================
+  # Terminal Bot - Background Worker
+  # מריץ את הבוט MyTerminal66Bot עם Polling
+  # ===================================
+  - type: worker
+    name: terminal-bot
+    env: python
+    region: oregon
+    plan: free
+
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+
+    startCommand: python telegram_terminal_bot/bot.py
+
+    runtime: python3.11
+
+    envVars:
+      - key: PYTHONUNBUFFERED
         value: 1
+      - key: BACKUPS_DIR
+        value: /data/backups
+      - key: BACKUPS_STORAGE
+        value: fs
+      # משתני רגישים - להגדיר ב-Render Dashboard עבור ה-worker הזה:
+      # TELEGRAM_BOT_TOKEN = הטוקן של MyTerminal66Bot
+      # TELEGRAM_ALLOWED_USER_IDS = רשימת user ids מופרדת בפסיקים (לא חובה)
+      # (removed duplicate BACKUPS_DIR)
+
+    # דיסק מתמשך עבור גיבויים (משותף לשירות הראשי)
+    disks:
+      - name: backups
+        mountPath: /data
+        sizeGB: 1
+
+# ===================================
+# אפשרויות נוספות לעתיד
+# ===================================
+
+# עבור Redis (אם נדרש בעתיד)
+# - type: redis
+#   name: code-keeper-redis
+#   plan: free
+#   region: oregon
+
+# עבור PostgreSQL (אם נדרש בעתיד)  
+# - type: pserv
+#   name: code-keeper-postgres
+#   env: postgresql
+#   plan: free
+#   region: oregon
+
+# עבור Static Site (דוקומנטציה)
+# - type: web
+#   name: code-keeper-docs
+#   env: static
+#   buildCommand: |
+#     cd docs
+#     npm install
+#     npm run build
+#   staticPublishPath: docs/build
+#   pullRequestPreviewsEnabled: true
+
+# ===================================
+# הוראות הגדרה ב-Render.com
+# ===================================
+
+# שלב 1: צור שירות חדש
+# 1. עבור ל-https://render.com
+# 2. התחבר עם GitHub
+# 3. לחץ "New Web Service"
+# 4. בחר repository
+# 5. מלא את הפרטים:
+#    - Name: code-keeper-bot
+#    - Region: Oregon (או הקרוב אליך)
+#    - Branch: main
+#    - Build Command: pip install -r requirements.txt
+#    - Start Command: python main.py
+
+# שלב 2: הגדר משתני סביבה
+# ב-Service Settings → Environment:
+# BOT_TOKEN=your_telegram_bot_token
+# MONGODB_URL=mongodb+srv://user:pass@cluster.mongodb.net/dbname
+# GITHUB_TOKEN=your_github_token (אופציונלי)
+# PASTEBIN_API_KEY=your_pastebin_key (אופציונלי)
+
+# שלב 3: Deploy!
+# Render יפרוס אוטומטי כל push ל-main
+
+# ===================================
+# MongoDB Atlas Setup
+# ===================================
+
+# 1. עבור ל-https://cloud.mongodb.com
+# 2. צור חשבון חדש (חינם)
+# 3. צור cluster חדש:
+#    - Provider: AWS
+#    - Region: US East (N. Virginia) - הכי קרוב לRender Oregon
+#    - Tier: M0 Sandbox (Free Forever)
+# 4. צור משתמש DB:
+#    - Username: codekeeper
+#    - Password: [generate strong password]
+# 5. הגדר Network Access:
+#    - Allow Access From Anywhere (0.0.0.0/0)
+#    - או הוסף את IP של Render אם ידוע
+# 6. קבל Connection String:
+#    - Connect → Drivers → Python
+#    - Copy connection string
+#    - החלף <password> בסיסמה האמיתית
+
+# ===================================
+# הגדרות מתקדמות
+# ===================================
+
+# הפעלת Custom Domain (בתשלום):
+# 1. הוסף CNAME record: bot.yourdomain.com → your-app.onrender.com
+# 2. ב-Render: Settings → Custom Domains → Add Domain
+
+# SSL Certificate:
+# Render מספק HTTPS אוטומטי עם Let's Encrypt
+
+# Monitoring:
+# Render מספק built-in metrics, logs, ו-health checks
+
+# Scaling:
+# Free tier: 512MB RAM, יירדם אחרי 15 דק' חוסר פעילות
+# Starter ($7/month): 512MB RAM, תמיד פעיל
+# Standard ($25/month): 2GB RAM, תמיד פעיל
+
+# ===================================
+# טיפים לאופטימיזציה
+# ===================================
+
+# 1. מינימיזציה של dependencies ב-requirements.txt
+# 2. שימוש ב-gunicorn עבור production (אם נדרש)
+# 3. הגדרת health check endpoint
+# 4. שימוש ב-Redis לקאש (אם הבוט גדל)
+# 5. מעבר ל-Starter plan אם הבוט פופולרי
+
+# ===================================
+# דיבוג ופתרון בעיות
+# ===================================
+
+# צפייה בלוגים:
+# Render Dashboard → Service → Logs
+
+# בדיקת health:
+# curl https://your-app.onrender.com/health
+
+# Debug build issues:
+# עקוב אחר Build Logs ב-Render Dashboard
+
+# MongoDB connection issues:
+# בדוק שה-IP של Render מורשה ב-Atlas Network Access
+# וודא שהסיסמה ב-connection string נכונה (ללא @ או : מיוחדים)
+
+# Environment variables:
+# בדוק ש-BOT_TOKEN מוגדר נכון ללא רווחים מיותרים
