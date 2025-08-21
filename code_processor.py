@@ -650,6 +650,96 @@ class CodeProcessor:
         
         logger.info(f"חושבו סטטיסטיקות לקוד: {stats['total_lines']} שורות, {stats['characters']} תווים")
         return stats
+
+    def analyze_code(self, code: str, programming_language: str) -> Dict[str, Any]:
+        """ניתוח קוד מהיר אך משמעותי לכל שפה
+
+        מחזיר מדדים כמו ציון איכות, מורכבות, בעיות נפוצות, שורות ארוכות ועוד.
+        """
+        try:
+            language = (programming_language or 'text')
+            stats = self.get_code_stats(code)
+
+            # בסיס לציון איכות: מתחיל ב-100 ויורד לפי כשלים/מורכבות
+            quality_score = 100
+
+            # עונשים על מורכבות גבוהה
+            complexity = int(stats.get('complexity_score', 0) or 0)
+            if complexity > 80:
+                quality_score -= 30
+            elif complexity > 40:
+                quality_score -= 20
+            elif complexity > 20:
+                quality_score -= 10
+
+            # שורות ארוכות
+            long_line_limit = 120
+            lines = code.split('\n')
+            long_lines = [i + 1 for i, ln in enumerate(lines) if len(ln) > long_line_limit]
+            quality_score -= min(len(long_lines), 20)  # עד 20 נק'
+
+            # הערות TODO/FIXME
+            todo_count = sum(1 for ln in lines if ('TODO' in ln or 'FIXME' in ln))
+            quality_score -= min(todo_count * 2, 10)
+
+            # יחס הערות נמוך מאוד (אם כמעט ואין הערות)
+            comment_lines = int(stats.get('comment_lines', 0))
+            total_lines = max(1, int(stats.get('total_lines', 1)))
+            if total_lines >= 50 and comment_lines / total_lines < 0.02:
+                quality_score -= 5
+
+            # בדיקות תוכן בסיסיות לפי שפה
+            code_smells: List[str] = []
+            low = code.lower()
+            if language.lower() == 'python':
+                if 'eval(' in low:
+                    code_smells.append('eval שימוש מסוכן')
+                    quality_score -= 10
+                if 'exec(' in low:
+                    code_smells.append('exec שימוש מסוכן')
+                    quality_score -= 10
+                if 'subprocess.Popen' in code or 'os.system(' in low:
+                    code_smells.append('הרצת פקודות מערכת')
+                    quality_score -= 5
+                # בדיקת תחביר מהירה
+                syntax = self.validate_syntax(code, 'python')
+                if not syntax.get('is_valid', True):
+                    code_smells.append('שגיאות תחביר')
+                    quality_score -= 15
+            elif language.lower() in ('javascript', 'typescript'):
+                if 'eval(' in low:
+                    code_smells.append('eval שימוש מסוכן')
+                    quality_score -= 10
+                if 'document.write(' in low:
+                    code_smells.append('document.write עלול להיות לא בטוח')
+                    quality_score -= 5
+            elif language.lower() == 'sql':
+                if 'select *' in low:
+                    code_smells.append('SELECT * — מומלץ לציין עמודות')
+                    quality_score -= 3
+            elif language.lower() in ('bash', 'sh'):
+                if 'curl' in low and '| sh' in low:
+                    code_smells.append('צינור curl ל-shell עלול להיות מסוכן')
+                    quality_score -= 10
+
+            # ניקוד סופי בגבולות [0, 100]
+            quality_score = max(0, min(100, quality_score))
+
+            return {
+                'quality_score': quality_score,
+                'complexity': complexity,
+                'long_lines': long_lines,
+                'readability': stats.get('readability_score', 0),
+                'summary': {
+                    'total_lines': stats.get('total_lines', 0),
+                    'functions': stats.get('functions', 0),
+                    'classes': stats.get('classes', 0),
+                },
+                'code_smells': code_smells,
+            }
+        except Exception as e:
+            logger.error(f"שגיאה בניתוח קוד: {e}")
+            return {'error': str(e)}
     
     def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, str]]:
         """חילוץ רשימת פונקציות מהקוד"""
