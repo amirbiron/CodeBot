@@ -17,6 +17,7 @@ from html import escape as html_escape
 import tempfile
 import subprocess
 import os
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -306,46 +307,49 @@ class BatchProcessor:
                     os.makedirs(os.path.dirname(temp_file), exist_ok=True)
                     with open(temp_file, 'w', encoding='utf-8') as f:
                         f.write(code)
-                    _copy_lint_configs(temp_dir)
+                    # העתקת קבצי קונפיגורציה רק אם בדיקות חיצוניות מאופשרות
+                    if config.BATCH_ENABLE_EXTERNAL_CHECKS:
+                        _copy_lint_configs(temp_dir)
 
                     adv: Dict[str, Any] = {}
 
-                    # Python specific
-                    if (language or "").lower() == 'python' or temp_file.endswith('.py'):
-                        adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
-                        # pylint, isort, radon (optional)
-                        adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
-                        adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
-                        adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
-                        adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
+                    if config.BATCH_ENABLE_EXTERNAL_CHECKS:
+                        # Python specific
+                        if (language or "").lower() == 'python' or temp_file.endswith('.py'):
+                            adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
+                            # pylint, isort, radon (optional)
+                            adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
+                            adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
+                            adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
+                            adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
 
-                    # JavaScript / TypeScript
-                    if temp_file.endswith('.js') or temp_file.endswith('.ts'):
-                        adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
-                        if temp_file.endswith('.ts'):
-                            adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
-                        adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
+                        # JavaScript / TypeScript
+                        if temp_file.endswith('.js') or temp_file.endswith('.ts'):
+                            adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
+                            if temp_file.endswith('.ts'):
+                                adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
+                            adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
 
-                    # Shell scripts
-                    if temp_file.endswith('.sh'):
-                        adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
+                        # Shell scripts
+                        if temp_file.endswith('.sh'):
+                            adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
 
-                    # YAML
-                    if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
-                        adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
+                        # YAML
+                        if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
+                            adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
 
-                    # Dockerfile
-                    if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
-                        adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
+                        # Dockerfile
+                        if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
+                            adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
 
-                    # JSON
-                    if temp_file.endswith('.json'):
-                        adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
+                        # JSON
+                        if temp_file.endswith('.json'):
+                            adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
 
-                    # Semgrep (generic SAST) - optional and quiet
-                    adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
+                        # Semgrep (generic SAST) - optional and quiet
+                        adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
 
-                    # Internal secrets scan (always available)
+                    # Internal secrets scan (always available, no external tool)
                     adv["secrets_scan"] = _secrets_scan(code)
 
                     result['advanced_checks'] = adv
