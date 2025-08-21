@@ -36,7 +36,7 @@ class LargeFilesHandler:
         
         if not files and page == 1:
             # אין קבצים בכלל
-            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+            keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="main")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             text = (
@@ -100,7 +100,7 @@ class LargeFilesHandler:
         # כפתורים נוספים
         keyboard.extend([
             [InlineKeyboardButton("🔄 רענן", callback_data=f"lf_page_{page}")],
-            [InlineKeyboardButton("🔙 חזור", callback_data="files")]
+            [InlineKeyboardButton("❌ ביטול", callback_data="main")]
         ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -344,7 +344,7 @@ class LargeFilesHandler:
             if remaining_total > 0:
                 keyboard = [[InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")]]
             else:
-                keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+                keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="main")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
