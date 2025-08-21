@@ -90,8 +90,12 @@ class BatchProcessor:
                     
                     try:
                         result = future.result()
+                        # קבע הצלחה לוגית לפי תוצאת הפונקציה (למשל is_valid)
+                        success_flag = True
+                        if isinstance(result, dict) and ('is_valid' in result):
+                            success_flag = bool(result.get('is_valid'))
                         job.results[file_name] = {
-                            'success': True,
+                            'success': success_flag,
                             'result': result
                         }
                     except Exception as e:
@@ -212,11 +216,13 @@ class BatchProcessor:
                 language = file_data['programming_language']
                 
                 # בדיקת תקינות
-                is_valid, error_msg, warnings = code_processor.validate_code_input(code, file_name, user_id)
+                is_valid, cleaned_code, error_msg = code_processor.validate_code_input(code, file_name, user_id)
                 result: Dict[str, Any] = {
                     'is_valid': is_valid,
                     'error_message': error_msg,
-                    'warnings': warnings,
+                    'cleaned_code': cleaned_code,
+                    'original_length': len(code) if isinstance(code, str) else 0,
+                    'cleaned_length': len(cleaned_code) if isinstance(cleaned_code, str) else 0,
                     'language': language,
                     'advanced_checks': {}
                 }
