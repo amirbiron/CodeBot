@@ -488,8 +488,23 @@ class GitHubMenuHandler:
             items = backups[:10]
             lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
             kb = []
+            from datetime import timezone
+            try:
+                from zoneinfo import ZoneInfo
+                _tz_il = ZoneInfo("Asia/Jerusalem")
+            except Exception:
+                _tz_il = None
             for b in items:
-                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
+                try:
+                    dt = b.created_at
+                    if dt and getattr(dt, 'tzinfo', None) is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    if _tz_il is not None and dt is not None:
+                        dt = dt.astimezone(_tz_il)
+                    when_txt = dt.strftime('%d/%m/%Y %H:%M') if dt else ''
+                except Exception:
+                    when_txt = b.created_at.strftime('%d/%m/%Y %H:%M') if getattr(b, 'created_at', None) else ''
+                lines.append(f"• {b.backup_id} — {when_txt} — {int(b.total_size/1024)}KB")
                 kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
             await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
@@ -646,7 +661,6 @@ class GitHubMenuHandler:
                 pass
             await self.github_menu_command(update, context)
             return ConversationHandler.END
-        
         elif query.data == "git_checkpoint":
             await self.git_checkpoint(update, context)
         
@@ -822,33 +836,33 @@ class GitHubMenuHandler:
                             file_names = [n for n in zin.namelist() if not n.endswith("/")]
                             file_count = len(file_names)
                             total_bytes = len(r.content)
-                            # צור ZIP חדש עם metadata
-                            out_buf = BytesIO()
-                            with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
-                                metadata = {
-                                    "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
-                                    "user_id": user_id,
-                                    "created_at": _dt.now(_tz.utc).isoformat(),
-                                    "backup_type": "github_repo_zip",
-                                    "include_versions": False,
-                                    "file_count": file_count,
-                                    "created_by": "Code Keeper Bot",
-                                    "repo": repo.full_name,
-                                    "path": current_path or ""
-                                }
-                                zout.writestr("metadata.json", json.dumps(metadata, indent=2))
-                                for name in file_names:
-                                    zout.writestr(name, zin.read(name))
-                            out_buf.seek(0)
-                            # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
-                            backup_manager.save_backup_bytes(out_buf.getvalue(), metadata)
-                            # שלח למשתמש
-                            filename = f"{repo.name}.zip"
-                            out_buf.name = filename
-                            caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
-                            await query.message.reply_document(
-                                document=out_buf, filename=filename, caption=caption
-                            )
+                        # צור ZIP חדש עם metadata
+                        out_buf = BytesIO()
+                        with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
+                            metadata = {
+                                "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
+                                "user_id": user_id,
+                                "created_at": _dt.now(_tz.utc).isoformat(),
+                                "backup_type": "github_repo_zip",
+                                "include_versions": False,
+                                "file_count": file_count,
+                                "created_by": "Code Keeper Bot",
+                                "repo": repo.full_name,
+                                "path": current_path or ""
+                            }
+                            zout.writestr("metadata.json", json.dumps(metadata, indent=2))
+                            for name in file_names:
+                                zout.writestr(name, zin.read(name))
+                        out_buf.seek(0)
+                        # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
+                        backup_manager.save_backup_bytes(out_buf.getvalue(), metadata)
+                        # שלח למשתמש
+                        filename = f"{repo.name}.zip"
+                        out_buf.name = filename
+                        caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
+                        await query.message.reply_document(
+                            document=out_buf, filename=filename, caption=caption
+                        )
                     except Exception as e:
                         logger.error(f"Error fetching repo zipball: {e}")
                         try:
@@ -1261,7 +1275,6 @@ class GitHubMenuHandler:
             await self.show_confirm_merge_pr(update, context)
         elif query.data == "confirm_merge_pr":
             await self.confirm_merge_pr(update, context)
-
         elif query.data == "validate_repo":
             try:
                 await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
@@ -1867,7 +1880,6 @@ class GitHubMenuHandler:
                 error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
 
             await update.callback_query.edit_message_text(error_msg)
-
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle file upload"""
         user_id = update.message.from_user.id
@@ -2494,7 +2506,6 @@ class GitHubMenuHandler:
 
         # חזור לתפריט
         await self.show_analyze_results_menu(update, context)
-
     async def show_analyze_results_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג מחדש את תפריט התוצאות"""
         user_id = update.effective_user.id
@@ -3141,7 +3152,6 @@ class GitHubMenuHandler:
             # התעלם אם התוכן לא השתנה
             if "Message is not modified" not in str(e):
                 raise
-
     async def toggle_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -3779,7 +3789,6 @@ class GitHubMenuHandler:
 
     async def refresh_saved_checks(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self.show_pre_upload_check(update, context)
-
     async def show_upload_branch_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -4327,7 +4336,6 @@ class GitHubMenuHandler:
         except Exception as e:
             logger.exception("[create_revert_pr_from_tag] Unexpected error: %s", e)
             await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(str(e))}")
-
     async def show_github_backup_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט גיבוי/שחזור עבור הריפו הנבחר"""
         query = update.callback_query
@@ -4417,8 +4425,23 @@ class GitHubMenuHandler:
             items = backups[:10]
             lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
             kb = []
+            from datetime import timezone
+            try:
+                from zoneinfo import ZoneInfo
+                _tz_il = ZoneInfo("Asia/Jerusalem")
+            except Exception:
+                _tz_il = None
             for b in items:
-                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
+                try:
+                    dt = b.created_at
+                    if dt and getattr(dt, 'tzinfo', None) is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    if _tz_il is not None and dt is not None:
+                        dt = dt.astimezone(_tz_il)
+                    when_txt = dt.strftime('%d/%m/%Y %H:%M') if dt else ''
+                except Exception:
+                    when_txt = b.created_at.strftime('%d/%m/%Y %H:%M') if getattr(b, 'created_at', None) else ''
+                lines.append(f"• {b.backup_id} — {when_txt} — {int(b.total_size/1024)}KB")
                 kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
             await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")

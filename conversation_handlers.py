@@ -1733,6 +1733,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return ConversationHandler.END
             job_id = await batch_processor.analyze_files_batch(user_id, files)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             sent = await query.message.reply_text(
                 f"⚡ <b>ניתוח Batch התחיל!</b>\n\n📁 מנתח {len(files)} קבצים\n🆔 Job ID: <code>{job_id}</code>",
@@ -1749,8 +1750,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
                 return ConversationHandler.END
-            job_id = await batch_processor.validate_files_batch(user_id, files)
+            job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False, ignore_length_limit=True)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             sent = await query.message.reply_text(
                 f"✅ <b>בדיקת תקינות Batch התחילה!</b>\n\n📁 בודק {len(files)} קבצים\n🆔 Job ID: <code>{job_id}</code>",
@@ -1792,7 +1794,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_batch_repos_menu(update, context)
         elif data == "batch_cat:zips":
             context.user_data['batch_target'] = { 'type': 'zips' }
-            return await show_batch_zips_menu(update, context, page=1)
+            # עבור עיבוד Batch נרצה לבחור קבצים לעיבוד ולא רשימת הורדות ZIP
+            return await show_batch_files_menu(update, context, page=1)
         elif data == "batch_cat:large":
             context.user_data['batch_target'] = { 'type': 'large' }
             return await show_batch_files_menu(update, context, page=1)
@@ -2278,7 +2281,19 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         keyboard = []
         for info in items:
             btype = getattr(info, 'backup_type', 'unknown')
-            when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
+            try:
+                dt = getattr(info, 'created_at', None)
+                if dt and getattr(dt, 'tzinfo', None) is None:
+                    from datetime import timezone as _tz
+                    dt = dt.replace(tzinfo=_tz.utc)
+                try:
+                    from zoneinfo import ZoneInfo as _ZoneInfo
+                    dt = dt.astimezone(_ZoneInfo("Asia/Jerusalem")) if dt else None
+                except Exception:
+                    pass
+                when = dt.strftime('%d/%m/%Y %H:%M') if dt else ''
+            except Exception:
+                when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
             size_text = _format_bytes(getattr(info, 'total_size', 0))
             line = f"• {info.backup_id} — {when} — {size_text} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
             if getattr(info, 'repo', None):
@@ -2367,10 +2382,11 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
             job_id = await batch_processor.analyze_files_batch(user_id, files)
             title = "⚡ ניתוח Batch התחיל!"
         else:
-            job_id = await batch_processor.validate_files_batch(user_id, files)
+            job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False, ignore_length_limit=True)
             title = "✅ בדיקת תקינות Batch התחילה!"
 
         keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"{title}\n\n📁 קבצים: {len(files)}\n🆔 Job ID: <code>{job_id}</code>",
@@ -2394,6 +2410,7 @@ async def _auto_update_batch_status(application, chat_id: int, message_id: int, 
             keyboard = []
             if job.status == "completed":
                 keyboard.append([InlineKeyboardButton("📋 הצג תוצאות", callback_data=f"job_results:{job_id}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
                 await application.bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
@@ -2408,7 +2425,7 @@ async def _auto_update_batch_status(application, chat_id: int, message_id: int, 
                     message_id=message_id,
                     text=f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>\n🔧 <b>פעולה:</b> {job.operation}\n\n{summary}",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")], [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]])
                 )
             await asyncio.sleep(2)
     except Exception:

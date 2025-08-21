@@ -207,8 +207,25 @@ class CodePreviewManager:
             chars_count = len(code) if code else 0
             
             # פורמט תאריכים
-            created_str = created_at.strftime('%d/%m/%Y %H:%M') if created_at else 'לא ידוע'
-            updated_str = updated_at.strftime('%d/%m/%Y %H:%M') if updated_at else 'לא ידוע'
+            try:
+                from datetime import timezone as _tz
+                from zoneinfo import ZoneInfo as _ZoneInfo
+                tz_il = _ZoneInfo("Asia/Jerusalem")
+            except Exception:
+                tz_il = None
+            def _fmt_dt(dt):
+                try:
+                    if not dt:
+                        return 'לא ידוע'
+                    if getattr(dt, 'tzinfo', None) is None:
+                        dt = dt.replace(tzinfo=_tz.utc)
+                    if tz_il is not None:
+                        dt = dt.astimezone(tz_il)
+                    return dt.strftime('%d/%m/%Y %H:%M')
+                except Exception:
+                    return dt.strftime('%d/%m/%Y %H:%M') if dt else 'לא ידוע'
+            created_str = _fmt_dt(created_at)
+            updated_str = _fmt_dt(updated_at)
             
             # תגיות
             tags_str = ', '.join(tags) if tags else 'ללא תגיות'
