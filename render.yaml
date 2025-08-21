@@ -58,6 +58,8 @@ services:
       
       - key: BACKUPS_DIR
         value: /data/backups
+      - key: BACKUPS_STORAGE
+        value: mongo
 
       - key: BACKUPS_DIR
         value: /data/backups
@@ -78,16 +80,10 @@ services:
       minInstances: 1
       maxInstances: 1
     
-    disks:
-      - name: backups
-        mountPath: /data
-        sizeGB: 1
+    # אופציונלי: ניתן להסיר דיסק כדי לחסוך עלות, כי השמירה היא ב-Mongo
 
     # דיסק מתמשך עבור גיבויים
-    disks:
-      - name: backups
-        mountPath: /data
-        sizeGB: 1
+    # אופציונלי: ניתן להסיר דיסק כדי לחסוך עלות, כי השמירה היא ב-Mongo
 
   # ===================================
   # Terminal Bot - Background Worker
@@ -117,6 +113,8 @@ services:
         value: 1
       - key: BACKUPS_DIR
         value: /data/backups
+      - key: BACKUPS_STORAGE
+        value: mongo
       # משתני רגישים - להגדיר ב-Render Dashboard עבור ה-worker הזה:
       # TELEGRAM_BOT_TOKEN = הטוקן של MyTerminal66Bot
       # TELEGRAM_ALLOWED_USER_IDS = רשימת user ids מופרדת בפסיקים (לא חובה)

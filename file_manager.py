@@ -6,6 +6,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 import logging
+from contextlib import suppress
+
+try:
+    import gridfs  # from pymongo
+except Exception:  # pragma: no cover
+    gridfs = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,9 @@ class BackupManager:
     """מנהל גיבויים"""
     
     def __init__(self):
+        # מצב אחסון: mongo (GridFS) או fs (קבצים)
+        self.storage_mode = os.getenv("BACKUPS_STORAGE", "mongo").strip().lower()
+
         # העדף תיקייה מתמשכת עבור גיבויים (נשמרת בין דיפלויים אם קיימת)
         # נסה לפי סדר: BACKUPS_DIR מהסביבה → /app/backups → /data/backups → /var/lib/code_keeper/backups
         persistent_candidates = [
@@ -81,6 +90,83 @@ class BackupManager:
         self.legacy_backup_dir = legacy_candidates[0] if legacy_candidates else None
         self.max_backup_size = 100 * 1024 * 1024  # 100MB
 
+    # =============================
+    # GridFS helpers (Mongo storage)
+    # =============================
+    def _get_gridfs(self):
+        if self.storage_mode != "mongo":
+            return None
+        if gridfs is None:
+            return None
+        try:
+            # שימוש במסד הנתונים הגלובלי הקיים
+            from database import db as global_db
+            mongo_db = getattr(global_db, "db", None)
+            if not mongo_db:
+                return None
+            # אוסף ייעודי "backups"
+            return gridfs.GridFS(mongo_db, collection="backups")
+        except Exception:
+            return None
+
+    def save_backup_bytes(self, data: bytes, metadata: Dict[str, Any]) -> Optional[str]:
+        """שומר ZIP של גיבוי בהתאם למצב האחסון ומחזיר backup_id או None במקרה כשל.
+
+        אם storage==mongo: שומר ל-GridFS עם המטאדטה.
+        אם storage==fs: שומר לקובץ תחת backup_dir.
+        """
+        try:
+            backup_id = metadata.get("backup_id") or f"backup_{int(datetime.now(timezone.utc).timestamp())}"
+            # הבטח זיהוי בקובץ
+            filename = f"{backup_id}.zip"
+
+            if self.storage_mode == "mongo":
+                fs = self._get_gridfs()
+                if fs is None:
+                    # נפילה לאחסון קבצים
+                    target_path = self.backup_dir / filename
+                    with open(target_path, "wb") as f:
+                        f.write(data)
+                    return backup_id
+                # שמור ל-GridFS
+                # אם כבר קיים אותו backup_id – מחק ישן
+                with suppress(Exception):
+                    for fdoc in fs.find({"filename": filename}):
+                        fs.delete(fdoc._id)
+                fs.put(data, filename=filename, metadata=metadata)
+                return backup_id
+
+            # ברירת מחדל: קבצים
+            target_path = self.backup_dir / filename
+            with open(target_path, "wb") as f:
+                f.write(data)
+            return backup_id
+        except Exception as e:
+            logger.warning(f"save_backup_bytes failed: {e}")
+            return None
+
+    def save_backup_file(self, file_path: str) -> Optional[str]:
+        """שומר קובץ ZIP קיים לאחסון היעד (Mongo/FS) ומחזיר backup_id אם הצליח."""
+        try:
+            # נסה לקרוא metadata.json מתוך ה-ZIP
+            metadata: Dict[str, Any] = {}
+            try:
+                with zipfile.ZipFile(file_path, 'r') as zf:
+                    with suppress(Exception):
+                        md_raw = zf.read('metadata.json')
+                        metadata = json.loads(md_raw) if md_raw else {}
+            except Exception:
+                metadata = {}
+            if "backup_id" not in metadata:
+                # הפק מזהה מגיבוי
+                metadata["backup_id"] = os.path.splitext(os.path.basename(file_path))[0]
+            with open(file_path, 'rb') as f:
+                data = f.read()
+            return self.save_backup_bytes(data, metadata)
+        except Exception as e:
+            logger.warning(f"save_backup_file failed: {e}")
+            return None
+
     def list_backups(self, user_id: int) -> List[BackupInfo]:
         """רשימת כל קבצי ה‑ZIP השמורים בבוט (לא רק כאלה בשם backup_*), ללא סינון לפי user_id.
 
@@ -115,6 +201,7 @@ class BackupManager:
 
             seen_paths: Set[str] = set()
 
+            # קבצים בדיסק
             for _dir in search_dirs:
                 for backup_file in _dir.glob("*.zip"):
                     try:
@@ -203,6 +290,66 @@ class BackupManager:
                     except Exception as e:
                         logger.warning(f"שגיאה בקריאת גיבוי {backup_file}: {e}")
                         continue
+
+            # קבצים ב-GridFS (Mongo) – נטען גם אותם
+            try:
+                fs = self._get_gridfs()
+                if fs is not None:
+                    # חפש את כל הקבצים; נסנן ואח"כ נציג לפי created_at
+                    for fdoc in fs.find():
+                        try:
+                            md = getattr(fdoc, 'metadata', None) or {}
+                            backup_id = md.get("backup_id") or os.path.splitext(fdoc.filename or "")[0] or str(getattr(fdoc, "_id", ""))
+                            if not backup_id:
+                                continue
+                            if any(b.backup_id == backup_id for b in backups):
+                                # כבר קיים מתוך הדיסק
+                                continue
+                            created_at = None
+                            created_at_str = md.get("created_at")
+                            if created_at_str:
+                                with suppress(Exception):
+                                    created_at = datetime.fromisoformat(created_at_str)
+                                    if created_at and created_at.tzinfo is None:
+                                        created_at = created_at.replace(tzinfo=timezone.utc)
+                            if not created_at:
+                                with suppress(Exception):
+                                    created_at = getattr(fdoc, 'uploadDate', None)
+                            file_count = int(md.get("file_count") or 0)
+                            backup_type = md.get("backup_type", "unknown")
+                            repo = md.get("repo")
+                            path = md.get("path")
+                            total_size = int(getattr(fdoc, 'length', 0) or 0)
+
+                            # ודא עותק מקומי זמני כדי שתלויה בקוד קיים שעובד עם נתיב קובץ
+                            local_path = self.backup_dir / f"{backup_id}.zip"
+                            if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
+                                try:
+                                    grid_out = fs.get(fdoc._id)
+                                    with open(local_path, 'wb') as lf:
+                                        lf.write(grid_out.read())
+                                except Exception:
+                                    # אם נכשל יצירת עותק – דלג והמשך (לא נציג פריט לא שמיש)
+                                    continue
+
+                            backup_info = BackupInfo(
+                                backup_id=backup_id,
+                                user_id=(md.get("user_id") if md.get("user_id") is not None else user_id),
+                                created_at=created_at or datetime.now(timezone.utc),
+                                file_count=file_count,
+                                total_size=total_size or (local_path.stat().st_size if local_path.exists() else 0),
+                                backup_type=backup_type,
+                                status="completed",
+                                file_path=str(local_path),
+                                repo=repo,
+                                path=path,
+                                metadata=md,
+                            )
+                            backups.append(backup_info)
+                        except Exception:
+                            continue
+            except Exception:
+                pass
 
             # מיון לפי תאריך יצירה
             backups.sort(key=lambda x: x.created_at, reverse=True)

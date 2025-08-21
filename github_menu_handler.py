@@ -840,10 +840,8 @@ class GitHubMenuHandler:
                                 for name in file_names:
                                     zout.writestr(name, zin.read(name))
                             out_buf.seek(0)
-                            # שמור לדיסק בגיבויים
-                            backup_path = backup_manager.backup_dir / f"{metadata['backup_id']}.zip"
-                            with open(backup_path, "wb") as fsave:
-                                fsave.write(out_buf.getvalue())
+                            # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
+                            backup_manager.save_backup_bytes(out_buf.getvalue(), metadata)
                             # שלח למשתמש
                             filename = f"{repo.name}.zip"
                             out_buf.name = filename
@@ -930,13 +928,11 @@ class GitHubMenuHandler:
                 )
                 if skipped_large:
                     caption += f"\n⚠️ דילג על {skipped_large} קבצים גדולים (> {format_bytes(MAX_INLINE_FILE_BYTES)})."
-                # שמור לגיבויים בדיסק
+                # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
                 try:
-                    backup_path = backup_manager.backup_dir / f"{metadata['backup_id']}.zip"
-                    with open(backup_path, "wb") as fsave:
-                        fsave.write(zip_buffer.getvalue())
+                    backup_manager.save_backup_bytes(zip_buffer.getvalue(), metadata)
                 except Exception as e:
-                    logger.warning(f"Failed to persist GitHub ZIP to backups dir: {e}")
+                    logger.warning(f"Failed to persist GitHub ZIP: {e}")
                 await query.message.reply_document(
                     document=zip_buffer, filename=filename, caption=caption
                 )
