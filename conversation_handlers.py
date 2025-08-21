@@ -1749,7 +1749,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
                 return ConversationHandler.END
-            job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False)
+            job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False, ignore_length_limit=True)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             sent = await query.message.reply_text(
@@ -2367,7 +2367,7 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
             job_id = await batch_processor.analyze_files_batch(user_id, files)
             title = "⚡ ניתוח Batch התחיל!"
         else:
-            job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False)
+            job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False, ignore_length_limit=True)
             title = "✅ בדיקת תקינות Batch התחילה!"
 
         keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]

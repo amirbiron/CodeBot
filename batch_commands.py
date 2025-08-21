@@ -135,7 +135,7 @@ async def batch_validate_command(update: Update, context: ContextTypes.DEFAULT_T
         return
     
     try:
-        job_id = await batch_processor.validate_files_batch(user_id, files_to_validate, enable_external_tools=False)
+        job_id = await batch_processor.validate_files_batch(user_id, files_to_validate, enable_external_tools=False, ignore_length_limit=True)
         
         keyboard = [[
             InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")

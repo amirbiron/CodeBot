@@ -170,7 +170,7 @@ class BatchProcessor:
         asyncio.create_task(self.process_files_batch(job_id, analyze_single_file))
         return job_id
     
-    async def validate_files_batch(self, user_id: int, file_names: List[str], enable_external_tools: bool = True) -> str:
+    async def validate_files_batch(self, user_id: int, file_names: List[str], enable_external_tools: bool = True, ignore_length_limit: bool = False) -> str:
         """בדיקת תקינות batch של קבצים"""
         job_id = self.create_job(user_id, "validate", file_names)
         
@@ -286,6 +286,19 @@ class BatchProcessor:
                 
                 # בדיקת תקינות
                 is_valid, cleaned_code, error_msg = code_processor.validate_code_input(code, file_name, user_id)
+
+                # התעלמות ממגבלת אורך עבור Batch מהתפריט הראשי אם הוגדר
+                if (not is_valid) and ignore_length_limit and (
+                    (error_msg and "הקוד ארוך מדי" in error_msg) or (error_msg and "50KB" in error_msg)
+                ):
+                    try:
+                        # ננסה להשתמש בגרסה מסוננת כדי לשמר נתונים
+                        cleaned_code = code_processor.sanitize_code_blocks(code)
+                    except Exception:
+                        cleaned_code = code
+                    is_valid = True
+                    error_msg = ""
+
                 result: Dict[str, Any] = {
                     'is_valid': is_valid,
                     'error_message': error_msg,
