@@ -34,6 +34,9 @@ class BotConfig:
 
     # קידומת לשם נקודת שמירה ב-Git (ל-tags ולענפים בגיבוי)
     GIT_CHECKPOINT_PREFIX: str = "checkpoint"
+
+    # שליטה בבדיקות חיצוניות בעיבוד Batch (כלים הדורשים התקנה)
+    BATCH_ENABLE_EXTERNAL_CHECKS: bool = False
     
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
@@ -66,6 +69,7 @@ def load_config() -> BotConfig:
         MAX_FILES_PER_USER=int(os.getenv('MAX_FILES_PER_USER', '1000')),
         HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark'),
         GIT_CHECKPOINT_PREFIX=os.getenv('GIT_CHECKPOINT_PREFIX', 'checkpoint'),
+        BATCH_ENABLE_EXTERNAL_CHECKS=os.getenv('BATCH_ENABLE_EXTERNAL_CHECKS', 'false').lower() == 'true',
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה

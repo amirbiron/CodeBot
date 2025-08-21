@@ -17,8 +17,151 @@ from html import escape as html_escape
 import tempfile
 import subprocess
 import os
+import shutil
+from config import config
+from file_manager import backup_manager
+import zipfile
+from utils import detect_language_from_filename
 
 logger = logging.getLogger(__name__)
+
+def _guess_extension(entry_name: str, language: str) -> str:
+    """ניחוש סיומת קובץ לפי שם/שפה. נפילה ל-'txt' כברירת מחדל.
+
+    - מנסה לפי Dockerfile
+    - מנסה לפי הסיומת בשם הקובץ
+    - מנסה לפי שפת תכנות משוערת
+    """
+    try:
+        base = (entry_name or "").strip()
+        if base and os.path.basename(base).lower() == "dockerfile":
+            return "dockerfile"
+
+        # לפי סיומת בשם
+        if "." in base:
+            ext = base.rsplit(".", 1)[-1].lower()
+            if ext:
+                return ext
+
+        # לפי שפה
+        lang = (language or "").strip().lower()
+        lang_to_ext = {
+            "python": "py",
+            "javascript": "js",
+            "typescript": "ts",
+            "bash": "sh",
+            "shell": "sh",
+            "yaml": "yml",
+            "yml": "yml",
+            "json": "json",
+            "docker": "dockerfile",
+            "dockerfile": "dockerfile",
+            "html": "html",
+            "css": "css",
+            "java": "java",
+            "go": "go",
+            "rust": "rs",
+        }
+        if lang in lang_to_ext:
+            return lang_to_ext[lang]
+
+        # נסה לזהות שפה מחדש מהשם
+        detected = detect_language_from_filename(base)
+        if detected and detected.lower() in lang_to_ext:
+            return lang_to_ext[detected.lower()]
+    except Exception:
+        pass
+    return "txt"
+
+def _copy_lint_configs(target_dir: str) -> None:
+    """מעתיק קבצי קונפיגורציה רלוונטיים לתיקיית עבודה זמנית, אם קיימים.
+    אם לא קיימים/אין הרשאות – מדלג בשקט.
+    """
+    try:
+        candidates = [
+            ".flake8", "setup.cfg", "pyproject.toml", ".pylintrc", ".isort.cfg",
+            ".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierignore",
+            ".eslintrc", ".eslintrc.json", ".eslintignore", ".yamllint", ".hadolint.yaml",
+        ]
+        for name in candidates:
+            src = os.path.join(os.getcwd(), name)
+            if os.path.exists(src):
+                dst = os.path.join(target_dir, name)
+                try:
+                    shutil.copy2(src, dst)
+                except Exception:
+                    continue
+    except Exception:
+        return
+
+def _run_local_cmd(args: list, cwd: str, timeout_seconds: int = 25) -> dict:
+    """מריץ פקודה מקומית ומחזיר תוצאה תמציתית. לא מרים חריגות, מחזיר סטטוס."""
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        def _trim(s: str, limit: int = 4000) -> str:
+            if s is None:
+                return ""
+            return s if len(s) <= limit else s[:limit] + "\n...[truncated]"
+        return {
+            "cmd": " ".join(args),
+            "returncode": completed.returncode,
+            "ok": completed.returncode == 0,
+            "stdout": _trim(completed.stdout),
+            "stderr": _trim(completed.stderr),
+        }
+    except FileNotFoundError as e:
+        return {"cmd": " ".join(args), "returncode": 127, "ok": False, "stdout": "", "stderr": str(e)}
+    except subprocess.TimeoutExpired as e:
+        return {"cmd": " ".join(args), "returncode": 124, "ok": False, "stdout": e.stdout or "", "stderr": f"timeout: {e}"}
+    except Exception as e:
+        return {"cmd": " ".join(args), "returncode": 1, "ok": False, "stdout": "", "stderr": str(e)}
+
+def _advanced_python_checks(temp_dir: str, file_name: str) -> Dict[str, Any]:
+    """בדיקות פייתון מתקדמות. אם בדיקות חיצוניות לא מאופשרות – החזר ריק.
+    כשמאופשרות, ננסה להריץ כלים אם זמינים; אם לא – נחזיר סטטוס שגוי/שגיאה מהכלי.
+    """
+    results: Dict[str, Any] = {}
+    try:
+        if not config.BATCH_ENABLE_EXTERNAL_CHECKS:
+            return results
+        # black --check
+        results["black"] = _run_local_cmd(["black", "--check", file_name], temp_dir)
+        # flake8
+        results["flake8"] = _run_local_cmd(["flake8", "--select=E9,F63,F7,F82", file_name], temp_dir)
+        # mypy (לא תמיד זמין)
+        results["mypy"] = _run_local_cmd(["mypy", "--hide-error-codes", file_name], temp_dir)
+    except Exception as e:
+        results["error"] = str(e)
+    return results
+
+def _secrets_scan(code: str) -> Dict[str, Any]:
+    """סריקת סודות בסיסית פנימית, ללא תלות בכלים חיצוניים."""
+    try:
+        patterns = [
+            r"ghp_[A-Za-z0-9]{36,40}",
+            r"github_pat_[A-Za-z0-9_]{30,}",
+            r"AKIA[0-9A-Z]{16}",  # AWS Access Key ID
+            r"(?:SECRET|PASSWORD|TOKEN|API[_-]?KEY)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{10,}['\"]?",
+            r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----",
+        ]
+        findings = []
+        for pat in patterns:
+            try:
+                for m in re.finditer(pat, code or "", flags=re.IGNORECASE):
+                    span = m.span()
+                    sample = (code[span[0]:span[1]] if code else "")[:80]
+                    findings.append({"pattern": pat, "match": sample})
+            except re.error:
+                continue
+        return {"findings_count": len(findings), "findings": findings[:10]}
+    except Exception as e:
+        return {"error": str(e), "findings_count": 0, "findings": []}
 
 @dataclass
 class BatchJob:
@@ -283,8 +426,10 @@ class BatchProcessor:
                 code = file_data['code']
                 language = file_data['programming_language']
                 
-                # בדיקת תקינות
-                is_valid, cleaned_code, error_msg = code_processor.validate_code_input(code, file_name, user_id)
+                # בדיקת תקינות (ב-Batch מתעלמים ממגבלת גודל כדי לא להכשיל בדיקה)
+                is_valid, cleaned_code, error_msg = code_processor.validate_code_input(
+                    code, file_name, user_id, skip_size_check=True
+                )
                 result: Dict[str, Any] = {
                     'is_valid': is_valid,
                     'error_message': error_msg,
@@ -306,46 +451,49 @@ class BatchProcessor:
                     os.makedirs(os.path.dirname(temp_file), exist_ok=True)
                     with open(temp_file, 'w', encoding='utf-8') as f:
                         f.write(code)
-                    _copy_lint_configs(temp_dir)
+                    # העתקת קבצי קונפיגורציה רק אם בדיקות חיצוניות מאופשרות
+                    if config.BATCH_ENABLE_EXTERNAL_CHECKS:
+                        _copy_lint_configs(temp_dir)
 
                     adv: Dict[str, Any] = {}
 
-                    # Python specific
-                    if (language or "").lower() == 'python' or temp_file.endswith('.py'):
-                        adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
-                        # pylint, isort, radon (optional)
-                        adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
-                        adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
-                        adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
-                        adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
+                    if config.BATCH_ENABLE_EXTERNAL_CHECKS:
+                        # Python specific
+                        if (language or "").lower() == 'python' or temp_file.endswith('.py'):
+                            adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
+                            # pylint, isort, radon (optional)
+                            adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
+                            adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
+                            adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
+                            adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
 
-                    # JavaScript / TypeScript
-                    if temp_file.endswith('.js') or temp_file.endswith('.ts'):
-                        adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
-                        if temp_file.endswith('.ts'):
-                            adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
-                        adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
+                        # JavaScript / TypeScript
+                        if temp_file.endswith('.js') or temp_file.endswith('.ts'):
+                            adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
+                            if temp_file.endswith('.ts'):
+                                adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
+                            adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
 
-                    # Shell scripts
-                    if temp_file.endswith('.sh'):
-                        adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
+                        # Shell scripts
+                        if temp_file.endswith('.sh'):
+                            adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
 
-                    # YAML
-                    if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
-                        adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
+                        # YAML
+                        if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
+                            adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
 
-                    # Dockerfile
-                    if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
-                        adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
+                        # Dockerfile
+                        if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
+                            adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
 
-                    # JSON
-                    if temp_file.endswith('.json'):
-                        adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
+                        # JSON
+                        if temp_file.endswith('.json'):
+                            adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
 
-                    # Semgrep (generic SAST) - optional and quiet
-                    adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
+                        # Semgrep (generic SAST) - optional and quiet
+                        adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
 
-                    # Internal secrets scan (always available)
+                    # Internal secrets scan (always available, no external tool)
                     adv["secrets_scan"] = _secrets_scan(code)
 
                     result['advanced_checks'] = adv
@@ -411,6 +559,170 @@ class BatchProcessor:
         
         if old_jobs:
             logger.info(f"נוקו {len(old_jobs)} עבודות batch ישנות")
+
+    async def analyze_zip_backup(self, user_id: int, backup_id: str) -> str:
+        """ניתוח Batch של קבצים מתוך ZIP גיבוי (ללא הורדה למשתמש)."""
+        # מצא נתיב ZIP
+        zip_path = None
+        try:
+            infos = backup_manager.list_backups(user_id)
+            for info in infos:
+                if info.backup_id == backup_id and info.file_path:
+                    zip_path = info.file_path
+                    break
+            if not zip_path:
+                raise ValueError("ZIP לא נמצא")
+            # אסוף רשימת פריטים (קבצים בלבד, ללא metadata.json)
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                entry_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+            job_id = self.create_job(user_id, "analyze", entry_names)
+
+            def analyze_entry(_user_id: int, entry_name: str) -> Dict[str, Any]:
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        raw = zf.read(entry_name)
+                    try:
+                        code = raw.decode('utf-8')
+                    except Exception:
+                        try:
+                            code = raw.decode('latin-1')
+                        except Exception as e:
+                            return {'error': f'decode failed: {e}'}
+                    # זיהוי שפה בסיסי לפי שם
+                    language = detect_language_from_filename(entry_name)
+                    analysis = code_processor.analyze_code(code, language)
+                    try:
+                        delay = min(max(len(code) / 500_000.0, 0.02), 0.15)
+                        time.sleep(delay)
+                    except Exception:
+                        pass
+                    return {
+                        'lines': len(code.split('\n')),
+                        'chars': len(code),
+                        'language': language,
+                        'analysis': analysis
+                    }
+                except Exception as e:
+                    return {'error': str(e)}
+
+            asyncio.create_task(self.process_files_batch(job_id, analyze_entry))
+            return job_id
+        except Exception as e:
+            logger.error(f"analyze_zip_backup failed: {e}")
+            raise
+
+    async def validate_zip_backup(self, user_id: int, backup_id: str) -> str:
+        """בדיקת תקינות Batch של קבצים מתוך ZIP גיבוי (ללא הורדה למשתמש)."""
+        # מצא נתיב ZIP
+        zip_path = None
+        try:
+            infos = backup_manager.list_backups(user_id)
+            for info in infos:
+                if info.backup_id == backup_id and info.file_path:
+                    zip_path = info.file_path
+                    break
+            if not zip_path:
+                raise ValueError("ZIP לא נמצא")
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                entry_names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+            job_id = self.create_job(user_id, "validate", entry_names)
+
+            def validate_entry(_user_id: int, entry_name: str) -> Dict[str, Any]:
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        raw = zf.read(entry_name)
+                    try:
+                        code = raw.decode('utf-8')
+                    except Exception:
+                        try:
+                            code = raw.decode('latin-1')
+                        except Exception as e:
+                            return {'error': f'decode failed: {e}'}
+
+                    language = detect_language_from_filename(entry_name)
+                    is_valid, cleaned_code, error_msg = code_processor.validate_code_input(
+                        code, entry_name, user_id, skip_size_check=True
+                    )
+                    result: Dict[str, Any] = {
+                        'is_valid': is_valid,
+                        'error_message': error_msg,
+                        'cleaned_code': cleaned_code,
+                        'original_length': len(code) if isinstance(code, str) else 0,
+                        'cleaned_length': len(cleaned_code) if isinstance(cleaned_code, str) else 0,
+                        'language': language,
+                        'advanced_checks': {}
+                    }
+
+                    # בדיקות מתקדמות בדומה לזרימה הרגילה
+                    with tempfile.TemporaryDirectory(prefix="validate_zip_") as temp_dir:
+                        # קבע שם זמני
+                        ext = _guess_extension(entry_name or "file", language or "")
+                        base_name = (entry_name or f"file.{ext}").replace("/", "_")
+                        if not base_name.lower().endswith(f".{ext}") and ext not in ("dockerfile"):
+                            base_name = f"{base_name}.{ext}"
+                        temp_file = os.path.join(temp_dir, base_name)
+                        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
+                        with open(temp_file, 'w', encoding='utf-8') as f:
+                            f.write(code)
+                        if config.BATCH_ENABLE_EXTERNAL_CHECKS:
+                            _copy_lint_configs(temp_dir)
+
+                        adv: Dict[str, Any] = {}
+
+                        if config.BATCH_ENABLE_EXTERNAL_CHECKS:
+                            # Python
+                            if (language or "").lower() == 'python' or temp_file.endswith('.py'):
+                                adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
+                                adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
+                                adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
+                                adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
+                                adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
+
+                            # JS/TS
+                            if temp_file.endswith('.js') or temp_file.endswith('.ts'):
+                                adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
+                                if temp_file.endswith('.ts'):
+                                    adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
+                                adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
+
+                            # Shell
+                            if temp_file.endswith('.sh'):
+                                adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
+
+                            # YAML
+                            if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
+                                adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
+
+                            # Dockerfile
+                            if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
+                                adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
+
+                            # JSON
+                            if temp_file.endswith('.json'):
+                                adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
+
+                            # Semgrep
+                            adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
+
+                        # Internal secrets scan (always available)
+                        adv["secrets_scan"] = _secrets_scan(code)
+                        result['advanced_checks'] = adv
+
+                    try:
+                        delay = min(max(len(code) / 400_000.0, 0.03), 0.2)
+                        time.sleep(delay)
+                    except Exception:
+                        pass
+
+                    return result
+                except Exception as e:
+                    return {'error': str(e)}
+
+            asyncio.create_task(self.process_files_batch(job_id, validate_entry))
+            return job_id
+        except Exception as e:
+            logger.error(f"validate_zip_backup failed: {e}")
+            raise
     
     def format_job_summary(self, job: BatchJob) -> str:
         """פורמט סיכום עבודת batch"""

@@ -70,6 +70,8 @@ async def batch_analyze_command(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = [[
             InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}"),
             InlineKeyboardButton("❌ בטל", callback_data=f"job_cancel:{job_id}")
+        ], [
+            InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")
         ]]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -88,7 +90,10 @@ async def batch_analyze_command(update: Update, context: ContextTypes.DEFAULT_TY
             sent = await update.message.reply_text(
                 f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]
+                ])
             )
             asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
         except Exception:
@@ -139,6 +144,8 @@ async def batch_validate_command(update: Update, context: ContextTypes.DEFAULT_T
         
         keyboard = [[
             InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")
+        ], [
+            InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")
         ]]
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -155,7 +162,10 @@ async def batch_validate_command(update: Update, context: ContextTypes.DEFAULT_T
             sent = await update.message.reply_text(
                 f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>",
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]
+                ])
             )
             asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
         except Exception:
@@ -318,6 +328,8 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 keyboard.append([
                     InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")
                 ])
+            # Add Back button in all cases
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
             
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
             
@@ -537,9 +549,12 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                             if item['complexity'] != 'N/A':
                                 results_text += f"        מורכבות: <b>{item['complexity']}</b>\n"
             
+            # Add Back button in results view
+            back_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]])
             await query.edit_message_text(
                 results_text,
-                parse_mode=ParseMode.HTML
+                parse_mode=ParseMode.HTML,
+                reply_markup=back_markup
             )
             
         elif data.startswith("chunk:"):
