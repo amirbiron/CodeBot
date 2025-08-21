@@ -563,7 +563,8 @@ class CodeKeeperBot:
             if tags_str:
                 response += f"🏷️ תגיות: {tags_str}\n"
             
-            response += f"📅 עודכן: {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}\n"
+            from utils import TimeUtils
+            response += f"📅 עודכן: {TimeUtils.format_israel_time(file_data['updated_at'])}\n"
             response += f"🔢 גרסה: {file_data['version']}\n\n"
         
         if len(files) == 20:
@@ -704,7 +705,8 @@ class CodeKeeperBot:
             
             languages_str = ", ".join(stats.get('languages', []))
             last_activity = stats.get('latest_activity')
-            last_activity_str = last_activity.strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
+            from utils import TimeUtils
+            last_activity_str = TimeUtils.format_israel_time(last_activity) if last_activity else "לא ידוע"
             
             response = (
                 "📊 <b>הסטטיסטיקות שלך:</b>\n\n"

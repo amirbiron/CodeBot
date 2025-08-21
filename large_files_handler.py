@@ -140,7 +140,12 @@ class LargeFilesHandler:
         language = file_data.get('programming_language', 'text')
         file_size = file_data.get('file_size', 0)
         lines_count = file_data.get('lines_count', 0)
-        created_at = file_data.get('created_at', 'לא ידוע')
+        created_at = file_data.get('created_at')
+        try:
+            from utils import TimeUtils
+            created_at_str = TimeUtils.format_israel_time(created_at) if created_at else 'לא ידוע'
+        except Exception:
+            created_at_str = str(created_at) if created_at else 'לא ידוע'
         
         # כפתורי פעולות
         keyboard = [
@@ -171,7 +176,7 @@ class LargeFilesHandler:
             f"{emoji} **שפה:** {language}\n"
             f"💾 **גודל:** {size_kb:.1f}KB ({file_size:,} בתים)\n"
             f"📏 **שורות:** {lines_count:,}\n"
-            f"📅 **נוצר:** {created_at}\n\n"
+            f"📅 **נוצר:** {created_at_str}\n\n"
             "🎯 בחר פעולה:"
         )
         
