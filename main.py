@@ -929,6 +929,51 @@ class CodeKeeperBot:
             raw_bytes = file_bytes.read()
             file_size_bytes = len(raw_bytes)
             
+            # אם הקובץ הוא ZIP (גם אם הועלה "סתם" במסלול קבצים), נשמור עותק לתיקיית ה-ZIP השמורים
+            try:
+                import zipfile as _zip
+                from io import BytesIO as _BytesIO
+                is_zip_hint = ((document.mime_type or '').lower() == 'application/zip') or ((document.file_name or '').lower().endswith('.zip'))
+                is_zip_actual = False
+                try:
+                    is_zip_actual = _zip.is_zipfile(_BytesIO(raw_bytes))
+                except Exception:
+                    is_zip_actual = False
+                if is_zip_hint and is_zip_actual:
+                    from file_manager import backup_manager
+                    backup_id = f"upload_{user_id}_{int(datetime.now(timezone.utc).timestamp())}"
+                    target_path = backup_manager.backup_dir / f"{backup_id}.zip"
+                    try:
+                        with open(target_path, 'wb') as fzip:
+                            fzip.write(raw_bytes)
+                        # הוסף metadata.json בסיסי (אופציונלי)
+                        try:
+                            with _zip.ZipFile(target_path, 'a', compression=_zip.ZIP_DEFLATED) as zf:
+                                md = {
+                                    "backup_id": backup_id,
+                                    "backup_type": "generic_zip",
+                                    "user_id": user_id,
+                                    "created_at": datetime.now(timezone.utc).isoformat(),
+                                    "original_filename": document.file_name,
+                                    "source": "uploaded_document"
+                                }
+                                # אל תדרוס אם כבר קיים metadata.json
+                                try:
+                                    zf.getinfo('metadata.json')
+                                except KeyError:
+                                    zf.writestr('metadata.json', json.dumps(md, indent=2))
+                        except Exception:
+                            pass
+                        await update.message.reply_text(
+                            "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
+                            "📦 ניתן למצוא אותו תחת: '📚' > '📦 קבצי ZIP' או ב‑Batch/GitHub.")
+                        return
+                    except Exception as e:
+                        logger.warning(f"Failed to persist uploaded ZIP: {e}")
+                        # המשך לזרימת קריאת טקסט הרגילה
+            except Exception:
+                pass
+
             # נסה קידודים שונים
             for encoding in encodings_to_try:
                 try:
