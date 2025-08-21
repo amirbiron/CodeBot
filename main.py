@@ -944,11 +944,16 @@ class CodeKeeperBot:
                     backup_id = f"upload_{user_id}_{int(datetime.now(timezone.utc).timestamp())}"
                     target_path = backup_manager.backup_dir / f"{backup_id}.zip"
                     try:
-                        with open(target_path, 'wb') as fzip:
-                            fzip.write(raw_bytes)
-                        # הוסף metadata.json בסיסי (אופציונלי)
+                        # הוסף metadata.json בסיסי (אם חסר) ושמור בהתאם לאחסון (Mongo/FS)
                         try:
-                            with _zip.ZipFile(target_path, 'a', compression=_zip.ZIP_DEFLATED) as zf:
+                            # נסה לפתוח את ה-ZIP המקורי כדי לבדוק מטאדטה
+                            ztest = _zip.ZipFile(_BytesIO(raw_bytes))
+                            try:
+                                ztest.getinfo('metadata.json')
+                                # כבר קיים metadata.json – נשמור כמו שהוא
+                                md_bytes = raw_bytes
+                            except KeyError:
+                                # הזרקת מטאדטה
                                 md = {
                                     "backup_id": backup_id,
                                     "backup_type": "generic_zip",
@@ -957,13 +962,24 @@ class CodeKeeperBot:
                                     "original_filename": document.file_name,
                                     "source": "uploaded_document"
                                 }
-                                # אל תדרוס אם כבר קיים metadata.json
-                                try:
-                                    zf.getinfo('metadata.json')
-                                except KeyError:
-                                    zf.writestr('metadata.json', json.dumps(md, indent=2))
+                                out_buf = _BytesIO()
+                                with _zip.ZipFile(out_buf, 'w', compression=_zip.ZIP_DEFLATED) as zout:
+                                    # העתק את התוכן
+                                    for name in ztest.namelist():
+                                        zout.writestr(name, ztest.read(name))
+                                    zout.writestr('metadata.json', json.dumps(md, indent=2))
+                                md_bytes = out_buf.getvalue()
                         except Exception:
-                            pass
+                            # אם לא מצליחים לקרוא כ-ZIP, נשמור את הבייטים המקוריים
+                            md_bytes = raw_bytes
+
+                        # שמירה לפי מצב האחסון
+                        try:
+                            backup_manager.save_backup_bytes(md_bytes, {"backup_id": backup_id, "backup_type": "generic_zip", "user_id": user_id, "created_at": datetime.now(timezone.utc).isoformat(), "original_filename": document.file_name, "source": "uploaded_document"})
+                        except Exception:
+                            # נפילה לשמירה לדיסק כניסיון אחרון
+                            with open(target_path, 'wb') as fzip:
+                                fzip.write(md_bytes)
                         await update.message.reply_text(
                             "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
                             "📦 ניתן למצוא אותו תחת: '📚' > '📦 קבצי ZIP' או ב‑Batch/GitHub.")

@@ -143,20 +143,44 @@ class BackupMenuHandler:
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.edit_message_text("⏳ יוצר גיבוי מלא...")
-		info = await backup_manager.create_backup(user_id=user_id, backup_type="manual", include_versions=True)
-		if not info or not info.file_path or not os.path.exists(info.file_path):
-			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
-			return
+		# יצירת גיבוי מלא (מייצא את כל הקבצים ממונגו לזיפ ושומר ב-GridFS/דיסק)
 		try:
-			with open(info.file_path, 'rb') as f:
-				await query.message.reply_document(
-					document=InputFile(f, filename=os.path.basename(info.file_path)),
-					caption=f"✅ גיבוי נוצר בהצלחה\nקבצים: {info.file_count} | גודל: {_format_bytes(info.total_size)}"
-				)
+			from io import BytesIO
+			import zipfile, json
+			from database import db
+			# אסוף את הקבצים של המשתמש
+			files = db.get_user_files(user_id, limit=10000) or []
+			backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
+			buf = BytesIO()
+			with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+				# כתיבת תוכן הקבצים
+				for doc in files:
+					name = doc.get('file_name') or f"file_{doc.get('_id')}"
+					code = doc.get('code') or ''
+					zf.writestr(name, code)
+				# מטאדטה
+				metadata = {
+					"backup_id": backup_id,
+					"user_id": user_id,
+					"created_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+					"backup_type": "manual",
+					"include_versions": True,
+					"file_count": len(files)
+				}
+				zf.writestr('metadata.json', json.dumps(metadata, indent=2))
+			buf.seek(0)
+			# שמור בהתאם למצב האחסון
+			backup_manager.save_backup_bytes(buf.getvalue(), metadata)
+			# שלח קובץ למשתמש
+			buf.seek(0)
+			await query.message.reply_document(
+				document=InputFile(buf, filename=f"{backup_id}.zip"),
+				caption=f"✅ גיבוי נוצר בהצלחה\nקבצים: {len(files)} | גודל: {_format_bytes(len(buf.getvalue()))}"
+			)
 			await self.show_backup_menu(update, context)
 		except Exception as e:
-			logger.error(f"Failed sending backup: {e}")
-			await query.edit_message_text("❌ שגיאה בשליחת קובץ הגיבוי")
+			logger.error(f"Failed creating/sending backup: {e}")
+			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
 	
 	async def _start_full_restore(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 		# נשמר לשם תאימות אם יקראו בפועל, מפנה לרשימת גיבויים

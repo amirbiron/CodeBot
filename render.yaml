@@ -55,6 +55,11 @@ services:
         
       - key: MAX_BACKUPS_TO_KEEP
         value: 7
+      
+      - key: BACKUPS_DIR
+        value: /data/backups
+      - key: BACKUPS_STORAGE
+        value: fs
         
       # משתני רגישים - יוגדרו בRender Dashboard:
       # BOT_TOKEN
@@ -71,6 +76,11 @@ services:
     scaling:
       minInstances: 1
       maxInstances: 1
+    
+    disks:
+      - name: backups
+        mountPath: /data
+        sizeGB: 1
 
   # ===================================
   # Terminal Bot - Background Worker
@@ -93,9 +103,20 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: 1
+      - key: BACKUPS_DIR
+        value: /data/backups
+      - key: BACKUPS_STORAGE
+        value: fs
       # משתני רגישים - להגדיר ב-Render Dashboard עבור ה-worker הזה:
       # TELEGRAM_BOT_TOKEN = הטוקן של MyTerminal66Bot
       # TELEGRAM_ALLOWED_USER_IDS = רשימת user ids מופרדת בפסיקים (לא חובה)
+      # (removed duplicate BACKUPS_DIR)
+
+    # דיסק מתמשך עבור גיבויים (משותף לשירות הראשי)
+    disks:
+      - name: backups
+        mountPath: /data
+        sizeGB: 1
 
 # ===================================
 # אפשרויות נוספות לעתיד
