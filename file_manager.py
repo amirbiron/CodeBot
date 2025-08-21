@@ -419,9 +419,7 @@ class BackupManager:
         """מחיקת גיבוי"""
         
         try:
-            deleted_any: bool = False
-
-            # מחיקה מאחסון קבצים (ברירת מחדל + legacy)
+            # חפש את הגיבוי בשתי התיקיות (ברירת מחדל + legacy)
             candidate_files: List[Path] = []
             try:
                 candidate_files.extend(list(self.backup_dir.glob(f"{backup_id}.zip")))
@@ -430,55 +428,29 @@ class BackupManager:
             try:
                 if getattr(self, 'legacy_backup_dir', None) and self.legacy_backup_dir.exists():
                     candidate_files.extend(list(self.legacy_backup_dir.glob(f"{backup_id}.zip")))
+                
             except Exception:
                 pass
-
+            
             for backup_file in candidate_files:
+                # וידוא שהגיבוי שייך למשתמש אם קיימת מטאדטה
                 try:
                     with zipfile.ZipFile(backup_file, 'r') as zip_file:
-                        metadata = {}
                         try:
                             metadata_content = zip_file.read("metadata.json")
                             metadata = json.loads(metadata_content)
-                        except Exception:
-                            metadata = {}
-                        # מחיקה מותרת רק אם הגיבוי שייך למשתמש
-                        if metadata.get("user_id") == user_id:
-                            try:
+                            if metadata.get("user_id") == user_id:
                                 backup_file.unlink()
-                                deleted_any = True
-                                logger.info(f"נמחק גיבוי מהדיסק: {backup_id}")
-                            except Exception:
-                                pass
+                                logger.info(f"נמחק גיבוי: {backup_id}")
+                                return True
+                        except Exception:
+                            # אין מטאדטה – דלג
+                            continue
                 except Exception:
                     continue
-
-            # מחיקה מ-GridFS (אם קיים)
-            try:
-                fs = self._get_gridfs()
-                if fs is not None:
-                    filename = f"{backup_id}.zip"
-                    to_delete = []
-                    for fdoc in fs.find({"filename": filename}):
-                        try:
-                            md = getattr(fdoc, 'metadata', None) or {}
-                            if md.get("user_id") == user_id:
-                                to_delete.append(fdoc._id)
-                        except Exception:
-                            continue
-                    for oid in to_delete:
-                        try:
-                            fs.delete(oid)
-                            deleted_any = True
-                            logger.info(f"נמחק גיבוי מ-GridFS: {backup_id}")
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-            if not deleted_any:
-                logger.warning(f"גיבוי לא נמצא או לא שייך למשתמש: {backup_id}")
-            return deleted_any
+            
+            logger.warning(f"גיבוי לא נמצא או לא שייך למשתמש: {backup_id}")
+            return False
         
         except Exception as e:
             logger.error(f"שגיאה במחיקת גיבוי: {e}")
