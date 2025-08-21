@@ -28,15 +28,57 @@ class BackupManager:
     """מנהל גיבויים"""
     
     def __init__(self):
-        self.backup_dir = Path(tempfile.gettempdir()) / "code_keeper_backups"
-        self.backup_dir.mkdir(exist_ok=True)
-        # תמיכה בתיקיית legacy עבור גיבויים היסטוריים שנשמרו תחת /app/backups
-        self.legacy_backup_dir = Path("/app/backups")
+        # העדף תיקייה מתמשכת עבור גיבויים (נשמרת בין דיפלויים אם קיימת)
+        # נסה לפי סדר: BACKUPS_DIR מהסביבה → /app/backups → /data/backups → /var/lib/code_keeper/backups
+        persistent_candidates = [
+            os.getenv("BACKUPS_DIR"),
+            "/app/backups",
+            "/data/backups",
+            "/var/lib/code_keeper/backups",
+        ]
+        chosen_dir: Optional[Path] = None
+        for cand in persistent_candidates:
+            if not cand:
+                continue
+            try:
+                p = Path(cand)
+                p.mkdir(parents=True, exist_ok=True)
+                # וידוא שניתן לכתוב
+                test_file = p / ".write_test"
+                try:
+                    with open(test_file, "w") as tf:
+                        tf.write("ok")
+                    test_file.unlink(missing_ok=True)  # type: ignore[arg-type]
+                except Exception:
+                    # אם אי אפשר לכתוב – נסה מועמד הבא
+                    continue
+                chosen_dir = p
+                break
+            except Exception:
+                continue
+
+        if chosen_dir is None:
+            # נפילה לתיקיית temp אם אין נתיב מתמשך זמין
+            chosen_dir = Path(tempfile.gettempdir()) / "code_keeper_backups"
+            chosen_dir.mkdir(exist_ok=True)
+
+        self.backup_dir = chosen_dir
+
+        # תיקיית legacy: תמיכה בקריאה גם מהמיקום הישן (אם השתמש בעבר ב-temp)
+        # נשמור גם על תמיכה ב-"/app/backups" כנתיב חיפוש נוסף אם לא נבחר כבר
+        legacy_candidates: List[Path] = []
         try:
-            self.legacy_backup_dir.mkdir(parents=True, exist_ok=True)
+            legacy_candidates.append(Path(tempfile.gettempdir()) / "code_keeper_backups")
         except Exception:
-            # אם אין הרשאות/נתיב לא קיים – נתעלם
             pass
+        try:
+            app_backups = Path("/app/backups")
+            if app_backups != self.backup_dir:
+                legacy_candidates.append(app_backups)
+        except Exception:
+            pass
+        # שמור נתיב legacy ראשי למטרות תאימות (ישומש בחיפוש)
+        self.legacy_backup_dir = legacy_candidates[0] if legacy_candidates else None
         self.max_backup_size = 100 * 1024 * 1024  # 100MB
 
     def list_backups(self, user_id: int) -> List[BackupInfo]:
@@ -50,13 +92,26 @@ class BackupManager:
         backups: List[BackupInfo] = []
 
         try:
-            # עבור על כל קובצי ה‑ZIP בכל התיקיות הרלוונטיות (ברירת מחדל + legacy)
+            # עבור על כל קובצי ה‑ZIP בכל התיקיות הרלוונטיות (ראשית + legacy/migration)
             search_dirs: List[Path] = [self.backup_dir]
+            # הוסף נתיבי legacy נוספים אם זמינים
+            extra_legacy: List[Path] = []
             try:
-                if getattr(self, "legacy_backup_dir", None) and self.legacy_backup_dir.exists():
-                    search_dirs.append(self.legacy_backup_dir)
+                if getattr(self, "legacy_backup_dir", None):
+                    if isinstance(self.legacy_backup_dir, Path) and self.legacy_backup_dir.exists():
+                        extra_legacy.append(self.legacy_backup_dir)
             except Exception:
                 pass
+            # ודא ש-/app/backups ייסרק גם אם הוא אינו ה-backup_dir
+            try:
+                app_backups = Path("/app/backups")
+                if app_backups.exists() and app_backups != self.backup_dir:
+                    extra_legacy.append(app_backups)
+            except Exception:
+                pass
+            for d in extra_legacy:
+                if d not in search_dirs:
+                    search_dirs.append(d)
 
             seen_paths: Set[str] = set()
 
