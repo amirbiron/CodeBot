@@ -7,6 +7,7 @@ import asyncio
 import logging
 import time
 from typing import Dict, List, Optional, Callable, Any
+import re
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import db
@@ -208,6 +209,18 @@ class BatchProcessor:
                 (os.path.join(project_root, "pyproject.toml"), os.path.join(temp_dir, "pyproject.toml")),
                 (os.path.join(project_root, "mypy.ini"), os.path.join(temp_dir, "mypy.ini")),
                 (os.path.join(project_root, "bandit.yaml"), os.path.join(temp_dir, "bandit.yaml")),
+                # JS/TS linters/formatters
+                (os.path.join(project_root, ".eslintrc.json"), os.path.join(temp_dir, ".eslintrc.json")),
+                (os.path.join(project_root, ".eslintrc.js"), os.path.join(temp_dir, ".eslintrc.js")),
+                (os.path.join(project_root, "package.json"), os.path.join(temp_dir, "package.json")),
+                (os.path.join(project_root, ".prettierrc"), os.path.join(temp_dir, ".prettierrc")),
+                (os.path.join(project_root, "prettier.config.js"), os.path.join(temp_dir, "prettier.config.js")),
+                (os.path.join(project_root, "tsconfig.json"), os.path.join(temp_dir, "tsconfig.json")),
+                # YAML/Docker/Semgrep
+                (os.path.join(project_root, ".yamllint"), os.path.join(temp_dir, ".yamllint")),
+                (os.path.join(project_root, ".hadolint.yaml"), os.path.join(temp_dir, ".hadolint.yaml")),
+                (os.path.join(project_root, ".semgrep.yml"), os.path.join(temp_dir, ".semgrep.yml")),
+                (os.path.join(project_root, ".semgrep.yaml"), os.path.join(temp_dir, ".semgrep.yaml")),
             ]
             for src, dst in configs:
                 try:
@@ -216,6 +229,49 @@ class BatchProcessor:
                             fdst.write(fsrc.read())
                 except Exception:
                     continue
+
+        def _guess_extension(file_name: str, language: str) -> str:
+            name = (file_name or "").lower()
+            lang = (language or "").lower()
+            # Prefer existing extension if present
+            if "." in name:
+                return name.rsplit(".", 1)[-1]
+            if lang in ("python", "py"):
+                return "py"
+            if lang in ("javascript", "js"):
+                return "js"
+            if lang in ("typescript", "ts"):
+                return "ts"
+            if lang in ("bash", "shell", "sh"):
+                return "sh"
+            if lang in ("yaml", "yml"):
+                return "yml"
+            if lang in ("json",):
+                return "json"
+            if "dockerfile" in name:
+                return "dockerfile"
+            return "txt"
+
+        def _secrets_scan(code: str) -> Dict[str, Any]:
+            """Very lightweight secret detection with regex patterns."""
+            patterns = {
+                "aws_access_key": r"AKIA[0-9A-Z]{16}",
+                "aws_secret_key": r"(?i)aws(.{0,20})?(secret|access)[=:].{0,3}([A-Za-z0-9/+=]{40})",
+                "github_token": r"ghp_[A-Za-z0-9]{36}",
+                "google_api_key": r"AIza[0-9A-Za-z\-_]{35}",
+                "private_key": r"-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----",
+            }
+            findings = []
+            for name, pat in patterns.items():
+                try:
+                    if re.search(pat, code):
+                        findings.append(name)
+                except re.error:
+                    continue
+            return {
+                "returncode": 0 if not findings else 1,
+                "output": ", ".join(findings) if findings else "no-secrets-found",
+            }
 
         def validate_single_file(user_id: int, file_name: str) -> Dict[str, Any]:
             """בדיקת תקינות קובץ יחיד"""
@@ -240,17 +296,59 @@ class BatchProcessor:
                 }
 
                 # בדיקות מתקדמות לפי שפה
-                if language and language.lower() == 'python':
-                    # כתיבת הקוד לקובץ זמני בספרייה זמנית וביצוע כלים לוקליים עם timeout
-                    with tempfile.TemporaryDirectory(prefix="validate_") as temp_dir:
-                        temp_file = os.path.join(temp_dir, file_name if file_name.endswith('.py') else f"{file_name}.py")
-                        # הבטח שהדירקטורי קיים
-                        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
-                        with open(temp_file, 'w', encoding='utf-8') as f:
-                            f.write(code)
-                        # Copy configs into temp_dir
-                        _copy_lint_configs(temp_dir)
-                        result['advanced_checks'] = _advanced_python_checks(temp_dir, os.path.basename(temp_file))
+                with tempfile.TemporaryDirectory(prefix="validate_") as temp_dir:
+                    # קבע שם קובץ זמני לפי השפה/הסיומת
+                    ext = _guess_extension(file_name or "file", language or "")
+                    base_name = (file_name or f"file.{ext}").replace("/", "_")
+                    if not base_name.lower().endswith(f".{ext}") and ext not in ("dockerfile"):
+                        base_name = f"{base_name}.{ext}"
+                    temp_file = os.path.join(temp_dir, base_name)
+                    os.makedirs(os.path.dirname(temp_file), exist_ok=True)
+                    with open(temp_file, 'w', encoding='utf-8') as f:
+                        f.write(code)
+                    _copy_lint_configs(temp_dir)
+
+                    adv: Dict[str, Any] = {}
+
+                    # Python specific
+                    if (language or "").lower() == 'python' or temp_file.endswith('.py'):
+                        adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
+                        # pylint, isort, radon (optional)
+                        adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
+                        adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
+                        adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
+                        adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
+
+                    # JavaScript / TypeScript
+                    if temp_file.endswith('.js') or temp_file.endswith('.ts'):
+                        adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
+                        if temp_file.endswith('.ts'):
+                            adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
+                        adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
+
+                    # Shell scripts
+                    if temp_file.endswith('.sh'):
+                        adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
+
+                    # YAML
+                    if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
+                        adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
+
+                    # Dockerfile
+                    if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
+                        adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
+
+                    # JSON
+                    if temp_file.endswith('.json'):
+                        adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
+
+                    # Semgrep (generic SAST) - optional and quiet
+                    adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
+
+                    # Internal secrets scan (always available)
+                    adv["secrets_scan"] = _secrets_scan(code)
+
+                    result['advanced_checks'] = adv
                 # סימולציית זמן עיבוד ריאלי
                 try:
                     delay = min(max(len(code) / 400_000.0, 0.03), 0.2)
