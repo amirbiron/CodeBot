@@ -214,7 +214,7 @@ class BackupMenuHandler:
 		start = (page - 1) * PAGE_SIZE
 		end = min(start + PAGE_SIZE, total)
 		items = backups[start:end]
-		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+		lines = [f"📦 קבצי ZIP שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
