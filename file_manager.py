@@ -359,6 +359,62 @@ class BackupManager:
 
         return backups
 
+    def restore_from_backup(self, user_id: int, backup_path: str, overwrite: bool = True, purge: bool = False, extra_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+        """משחזר קבצים מ-ZIP למסד הנתונים.
+
+        - purge=True: מסמן את כל הקבצים הקיימים של המשתמש כלא פעילים לפני השחזור
+        - overwrite=True: שמירה תמיד כגרסה חדשה עבור אותו שם (כברירת מחדל)
+        החזרה: dict עם restored_files ו-errors
+        """
+        results: Dict[str, Any] = {"restored_files": 0, "errors": []}
+        try:
+            import zipfile
+            from database import db
+            from utils import detect_language_from_filename
+            # פרה-תנאי
+            if not os.path.exists(backup_path):
+                results["errors"].append(f"backup file not found: {backup_path}")
+                return results
+
+            if purge:
+                try:
+                    existing = db.get_user_files(user_id, limit=10000) or []
+                    for doc in existing:
+                        try:
+                            fname = doc.get('file_name')
+                            if fname:
+                                db.delete_file(user_id, fname)
+                        except Exception as e:
+                            results["errors"].append(f"purge failed for {doc.get('file_name')}: {e}")
+                except Exception as e:
+                    results["errors"].append(f"purge listing failed: {e}")
+
+            with zipfile.ZipFile(backup_path, 'r') as zf:
+                names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+                for name in names:
+                    try:
+                        raw = zf.read(name)
+                        text: str
+                        try:
+                            text = raw.decode('utf-8')
+                        except Exception:
+                            try:
+                                text = raw.decode('latin-1')
+                            except Exception as e:
+                                results["errors"].append(f"decode failed for {name}: {e}")
+                                continue
+                        lang = detect_language_from_filename(name)
+                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang)
+                        if ok:
+                            results["restored_files"] += 1
+                        else:
+                            results["errors"].append(f"save failed for {name}")
+                    except Exception as e:
+                        results["errors"].append(f"restore failed for {name}: {e}")
+        except Exception as e:
+            results["errors"].append(str(e))
+        return results
+
     def delete_backup(self, backup_id: str, user_id: int) -> bool:
         """מחיקת גיבוי"""
         

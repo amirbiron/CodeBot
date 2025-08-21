@@ -59,10 +59,7 @@ services:
       - key: BACKUPS_DIR
         value: /data/backups
       - key: BACKUPS_STORAGE
-        value: mongo
-
-      - key: BACKUPS_DIR
-        value: /data/backups
+        value: fs
         
       # משתני רגישים - יוגדרו בRender Dashboard:
       # BOT_TOKEN
@@ -80,10 +77,10 @@ services:
       minInstances: 1
       maxInstances: 1
     
-    # אופציונלי: ניתן להסיר דיסק כדי לחסוך עלות, כי השמירה היא ב-Mongo
-
-    # דיסק מתמשך עבור גיבויים
-    # אופציונלי: ניתן להסיר דיסק כדי לחסוך עלות, כי השמירה היא ב-Mongo
+    disks:
+      - name: backups
+        mountPath: /data
+        sizeGB: 1
 
   # ===================================
   # Terminal Bot - Background Worker
@@ -102,11 +99,6 @@ services:
     startCommand: python telegram_terminal_bot/bot.py
 
     runtime: python3.11
-    
-    disks:
-      - name: backups
-        mountPath: /data
-        sizeGB: 1
 
     envVars:
       - key: PYTHONUNBUFFERED
@@ -114,12 +106,11 @@ services:
       - key: BACKUPS_DIR
         value: /data/backups
       - key: BACKUPS_STORAGE
-        value: mongo
+        value: fs
       # משתני רגישים - להגדיר ב-Render Dashboard עבור ה-worker הזה:
       # TELEGRAM_BOT_TOKEN = הטוקן של MyTerminal66Bot
       # TELEGRAM_ALLOWED_USER_IDS = רשימת user ids מופרדת בפסיקים (לא חובה)
-      - key: BACKUPS_DIR
-        value: /data/backups
+      # (removed duplicate BACKUPS_DIR)
 
     # דיסק מתמשך עבור גיבויים (משותף לשירות הראשי)
     disks:
