@@ -258,8 +258,19 @@ class BackupMenuHandler:
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 			if btype not in {"github_repo_zip"}:
 				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-			# כפתור הורדה תמיד זמין עם טקסט תמציתי
-			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
+			# כפתור הורדה תמיד זמין
+			# כאשר מגיעים מתפריט "📚" (zip_back_to == 'files') נשתמש בתווית בעברית
+			# ובשם ריפו ללא בעלים (owner), בפורמט: "⬇️ באקאאפ זיפ <repo> — <תאריך>"
+			if zip_back_to == 'files':
+				repo_name = getattr(info, 'repo', None)
+				if repo_name and isinstance(repo_name, str) and '/' in repo_name:
+					repo_display = repo_name.split('/', 1)[1]
+				else:
+					repo_display = repo_name or 'full'
+				label = f"⬇️ באקאאפ זיפ {repo_display} — {_format_date(getattr(info, 'created_at', ''))}"
+			else:
+				label = _build_download_button_text(info)
+			row.append(InlineKeyboardButton(label, callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		pagination = []
