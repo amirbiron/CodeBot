@@ -1794,7 +1794,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_batch_repos_menu(update, context)
         elif data == "batch_cat:zips":
             context.user_data['batch_target'] = { 'type': 'zips' }
-            return await show_batch_zips_menu(update, context, page=1)
+            # עבור עיבוד Batch נרצה לבחור קבצים לעיבוד ולא רשימת הורדות ZIP
+            return await show_batch_files_menu(update, context, page=1)
         elif data == "batch_cat:large":
             context.user_data['batch_target'] = { 'type': 'large' }
             return await show_batch_files_menu(update, context, page=1)
