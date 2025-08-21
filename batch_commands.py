@@ -442,6 +442,33 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                     results_text += details + "\n"
                 if len(detailed_advanced) > 5:
                     results_text += f"\n   <i>... ועוד {len(detailed_advanced) - 5} קבצים נבדקו</i>"
+
+            # פירוט תוצאות בדיקת תקינות (Validate) לכל קובץ
+            if not is_analyze:
+                per_file_lines = []
+                for file_name, res in job.results.items():
+                    if not res.get('result'):
+                        continue
+                    data = res['result']
+                    ok = data.get('is_valid')
+                    lang = data.get('language') or 'לא ידוע'
+                    orig_len = data.get('original_length', 0)
+                    clean_len = data.get('cleaned_length', 0)
+                    err_msg = data.get('error_message') or ''
+                    status_icon = '✅' if ok else '❌'
+                    # שורה ראשית
+                    per_file_lines.append(
+                        f"{status_icon} <code>{html_escape(file_name)}</code> — שפה: <b>{html_escape(lang)}</b> — תווים: {clean_len:,}/{orig_len:,}"
+                    )
+                    # פירוט שגיאה אם קיים
+                    if not ok and err_msg:
+                        short_err = html_escape(err_msg[:120])
+                        per_file_lines.append(f"   └ שגיאה: {short_err}")
+                if per_file_lines:
+                    results_text += "\n🧾 <b>פירוט לקבצים שנבדקו:</b>\n"
+                    results_text += "\n".join(per_file_lines[:30])  # הנחיה: הצג עד 30
+                    if len(per_file_lines) > 30:
+                        results_text += f"\n<i>... ועוד {len(per_file_lines) - 30} קבצים</i>\n"
             
             # אם זה ניתוח, הוסף מידע נוסף
             if is_analyze:

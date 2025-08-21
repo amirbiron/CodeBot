@@ -221,6 +221,8 @@ class BatchProcessor:
                     'is_valid': is_valid,
                     'error_message': error_msg,
                     'cleaned_code': cleaned_code,
+                    'original_length': len(code) if isinstance(code, str) else 0,
+                    'cleaned_length': len(cleaned_code) if isinstance(cleaned_code, str) else 0,
                     'language': language,
                     'advanced_checks': {}
                 }
