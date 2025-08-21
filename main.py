@@ -562,17 +562,8 @@ class CodeKeeperBot:
             
             if tags_str:
                 response += f"🏷️ תגיות: {tags_str}\n"
-            try:
-                from datetime import timezone as _tz
-                from zoneinfo import ZoneInfo as _ZoneInfo
-                _tz_il = _ZoneInfo("Asia/Jerusalem")
-                dt = file_data['updated_at']
-                if getattr(dt, 'tzinfo', None) is None:
-                    dt = dt.replace(tzinfo=_tz.utc)
-                dt = dt.astimezone(_tz_il)
-                response += f"📅 עודכן: {dt.strftime('%d/%m/%Y %H:%M')}\n"
-            except Exception:
-                response += f"📅 עודכן: {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}\n"
+            
+            response += f"📅 עודכן: {file_data['updated_at'].strftime('%d/%m/%Y %H:%M')}\n"
             response += f"🔢 גרסה: {file_data['version']}\n\n"
         
         if len(files) == 20:
@@ -713,15 +704,7 @@ class CodeKeeperBot:
             
             languages_str = ", ".join(stats.get('languages', []))
             last_activity = stats.get('latest_activity')
-            try:
-                from datetime import timezone as _tz
-                from zoneinfo import ZoneInfo as _ZoneInfo
-                _tz_il = _ZoneInfo("Asia/Jerusalem")
-                if last_activity and getattr(last_activity, 'tzinfo', None) is None:
-                    last_activity = last_activity.replace(tzinfo=_tz.utc)
-                last_activity_str = last_activity.astimezone(_tz_il).strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
-            except Exception:
-                last_activity_str = last_activity.strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
+            last_activity_str = last_activity.strftime('%d/%m/%Y %H:%M') if last_activity else "לא ידוע"
             
             response = (
                 "📊 <b>הסטטיסטיקות שלך:</b>\n\n"

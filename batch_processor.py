@@ -170,7 +170,7 @@ class BatchProcessor:
         asyncio.create_task(self.process_files_batch(job_id, analyze_single_file))
         return job_id
     
-    async def validate_files_batch(self, user_id: int, file_names: List[str], enable_external_tools: bool = True, ignore_length_limit: bool = False) -> str:
+    async def validate_files_batch(self, user_id: int, file_names: List[str]) -> str:
         """בדיקת תקינות batch של קבצים"""
         job_id = self.create_job(user_id, "validate", file_names)
         
@@ -195,11 +195,10 @@ class BatchProcessor:
         def _advanced_python_checks(temp_dir: str, filename: str) -> Dict[str, Any]:
             results: Dict[str, Any] = {}
             # Prefer project configs if present in temp_dir (copied beforehand)
-            if enable_external_tools:
-                results["flake8"] = _run_local_cmd(["flake8", filename], temp_dir)
-                results["mypy"] = _run_local_cmd(["mypy", filename], temp_dir)
-                results["bandit"] = _run_local_cmd(["bandit", "-q", "-r", filename], temp_dir)
-                results["black"] = _run_local_cmd(["black", "--check", filename], temp_dir)
+            results["flake8"] = _run_local_cmd(["flake8", filename], temp_dir)
+            results["mypy"] = _run_local_cmd(["mypy", filename], temp_dir)
+            results["bandit"] = _run_local_cmd(["bandit", "-q", "-r", filename], temp_dir)
+            results["black"] = _run_local_cmd(["black", "--check", filename], temp_dir)
             return results
 
         def _copy_lint_configs(temp_dir: str) -> None:
@@ -286,19 +285,6 @@ class BatchProcessor:
                 
                 # בדיקת תקינות
                 is_valid, cleaned_code, error_msg = code_processor.validate_code_input(code, file_name, user_id)
-
-                # התעלמות ממגבלת אורך עבור Batch מהתפריט הראשי אם הוגדר
-                if (not is_valid) and ignore_length_limit and (
-                    (error_msg and "הקוד ארוך מדי" in error_msg) or (error_msg and "50KB" in error_msg)
-                ):
-                    try:
-                        # ננסה להשתמש בגרסה מסוננת כדי לשמר נתונים
-                        cleaned_code = code_processor.sanitize_code_blocks(code)
-                    except Exception:
-                        cleaned_code = code
-                    is_valid = True
-                    error_msg = ""
-
                 result: Dict[str, Any] = {
                     'is_valid': is_valid,
                     'error_message': error_msg,
@@ -327,39 +313,37 @@ class BatchProcessor:
                     # Python specific
                     if (language or "").lower() == 'python' or temp_file.endswith('.py'):
                         adv.update(_advanced_python_checks(temp_dir, os.path.basename(temp_file)))
-                        if enable_external_tools:
-                            # pylint, isort, radon (optional)
-                            adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
-                            adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
-                            adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
-                            adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
+                        # pylint, isort, radon (optional)
+                        adv["pylint"] = _run_local_cmd(["pylint", "-sn", os.path.basename(temp_file)], temp_dir)
+                        adv["isort"] = _run_local_cmd(["isort", "--check-only", os.path.basename(temp_file)], temp_dir)
+                        adv["radon_cc"] = _run_local_cmd(["radon", "cc", "-s", "-a", os.path.basename(temp_file)], temp_dir)
+                        adv["radon_mi"] = _run_local_cmd(["radon", "mi", os.path.basename(temp_file)], temp_dir)
 
                     # JavaScript / TypeScript
-                    if (temp_file.endswith('.js') or temp_file.endswith('.ts')) and enable_external_tools:
+                    if temp_file.endswith('.js') or temp_file.endswith('.ts'):
                         adv["eslint"] = _run_local_cmd(["eslint", "-f", "stylish", os.path.basename(temp_file)], temp_dir)
                         if temp_file.endswith('.ts'):
                             adv["tsc"] = _run_local_cmd(["tsc", "--noEmit", os.path.basename(temp_file)], temp_dir)
                         adv["prettier"] = _run_local_cmd(["prettier", "--check", os.path.basename(temp_file)], temp_dir)
 
                     # Shell scripts
-                    if temp_file.endswith('.sh') and enable_external_tools:
+                    if temp_file.endswith('.sh'):
                         adv["shellcheck"] = _run_local_cmd(["shellcheck", os.path.basename(temp_file)], temp_dir)
 
                     # YAML
-                    if (temp_file.endswith('.yml') or temp_file.endswith('.yaml')) and enable_external_tools:
+                    if temp_file.endswith('.yml') or temp_file.endswith('.yaml'):
                         adv["yamllint"] = _run_local_cmd(["yamllint", os.path.basename(temp_file)], temp_dir)
 
                     # Dockerfile
-                    if (ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile') and enable_external_tools:
+                    if ext == 'dockerfile' or os.path.basename(temp_file).lower() == 'dockerfile':
                         adv["hadolint"] = _run_local_cmd(["hadolint", os.path.basename(temp_file)], temp_dir)
 
                     # JSON
-                    if temp_file.endswith('.json') and enable_external_tools:
+                    if temp_file.endswith('.json'):
                         adv["jq"] = _run_local_cmd(["jq", "-e", ".", os.path.basename(temp_file)], temp_dir)
 
                     # Semgrep (generic SAST) - optional and quiet
-                    if enable_external_tools:
-                        adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
+                    adv["semgrep"] = _run_local_cmd(["semgrep", "--quiet", "--config", "auto", os.path.basename(temp_file)], temp_dir)
 
                     # Internal secrets scan (always available)
                     adv["secrets_scan"] = _secrets_scan(code)

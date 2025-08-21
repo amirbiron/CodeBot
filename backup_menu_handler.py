@@ -3,12 +3,6 @@ import os
 import tempfile
 from io import BytesIO
 from typing import Any, Dict
-from datetime import datetime, timezone
-try:
-	from zoneinfo import ZoneInfo  # Python 3.9+
-	_IL_TZ = ZoneInfo("Asia/Jerusalem")
-except Exception:
-	_IL_TZ = None
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
@@ -32,18 +26,7 @@ def _format_bytes(num: int) -> str:
 # עזרי תצוגה לשמות/תאריכים בכפתורים
 def _format_date(dt) -> str:
 	try:
-		if isinstance(dt, datetime):
-			# Assume UTC when tzinfo is missing
-			if dt.tzinfo is None:
-				dt = dt.replace(tzinfo=timezone.utc)
-			try:
-				from zoneinfo import ZoneInfo
-				dt = dt.astimezone(ZoneInfo("Asia/Jerusalem"))
-			except Exception:
-				# Fallback: keep UTC if zoneinfo not available
-				pass
-			return dt.strftime('%d/%m/%Y %H:%M')
-		return str(dt)
+		return dt.strftime('%d/%m/%y %H:%M')
 	except Exception:
 		return str(dt)
 
@@ -64,9 +47,7 @@ def _build_download_button_text(info) -> str:
 	base = "backup zip"
 	# שם עיקרי
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
-		# הסר בעלים אם מופיע owner/repo
-		repo_val = str(info.repo)
-		primary = repo_val.split('/', 1)[1] if '/' in repo_val else repo_val
+		primary = str(info.repo)
 	else:
 		primary = "full"
 	date_part = _format_date(getattr(info, 'created_at', ''))
@@ -155,9 +136,6 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
-		elif data.startswith("backup_delete_id:"):
-			backup_id = data.split(":", 1)[1]
-			await self._delete_by_id(update, context, backup_id)
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
@@ -203,12 +181,19 @@ class BackupMenuHandler:
 		except Exception as e:
 			logger.error(f"Failed creating/sending backup: {e}")
 			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
-
+	
+	async def _start_full_restore(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+		# נשמר לשם תאימות אם יקראו בפועל, מפנה לרשימת גיבויים
+		await self._show_backups_list(update, context)
+	
+	# הוסרה תמיכה בהעלאת ZIP ישירה מהתפריט כדי למנוע מחיקה גורפת בטעות
+	
 	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.answer()
 		backups = backup_manager.list_backups(user_id)
+		# ודא שתמיד מוצגים כל קבצי ה‑ZIP ללא סינון לפי משתמש
 		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
 		zip_back_to = context.user_data.get('zip_back_to')
 		# אם מגיעים מתפריט "📚" או מזרימת "העלה קובץ חדש → קבצי ZIP" (github_upload), אל תסנן לפי ריפו
@@ -241,6 +226,7 @@ class BackupMenuHandler:
 				reply_markup=InlineKeyboardMarkup(keyboard)
 			)
 			return
+		
 		# עימוד תוצאות
 		PAGE_SIZE = 10
 		total = len(backups)
@@ -254,39 +240,26 @@ class BackupMenuHandler:
 		items = backups[start:end]
 		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
-		for idx, info in enumerate(items, start=1):
+		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
-			when = _format_date(getattr(info, 'created_at', None))
 			if repo_name:
 				line = (
-					f"{idx}. {repo_name} — {when} — "
-					f"{_format_bytes(getattr(info, 'total_size', 0))} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype} — ID: {info.backup_id}"
+					f"• {repo_name} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
+					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype} — ID: {info.backup_id}"
 				)
 			else:
 				line = (
-					f"{idx}. {info.backup_id} — {when} — "
-					f"{_format_bytes(getattr(info, 'total_size', 0))} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
+					f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
+					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
 				)
 			lines.append(line)
 			row = []
-			# הצג כפתור שחזור רק עבור גיבויי DB (לא ל-GitHub ZIP)
+			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 			if btype not in {"github_repo_zip"}:
 				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-			# כפתור הורדה תמיד זמין
-			# כאשר מגיעים מתפריט "📚" (zip_back_to == 'files') נשתמש בתווית בעברית עם שם ריפו ללא בעלים
-			if zip_back_to == 'files':
-				repo_display = None
-				if repo_name and isinstance(repo_name, str) and '/' in repo_name:
-					repo_display = repo_name.split('/', 1)[1]
-				elif repo_name:
-					repo_display = repo_name
-				label = f"{idx}. ⬇️ באקאאפ זיפ {repo_display or 'full'} — {when}"
-			else:
-				label = f"{idx}. " + _build_download_button_text(info)
-			row.append(InlineKeyboardButton(label, callback_data=f"backup_download_id:{info.backup_id}"))
-			# כפתור מחיקה (נדרש לנקות גיבויים ישנים)
-			row.append(InlineKeyboardButton("🗑️ מחק", callback_data=f"backup_delete_id:{info.backup_id}"))
+			# כפתור הורדה תמיד זמין עם טקסט תמציתי
+			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		pagination = []
@@ -307,7 +280,7 @@ class BackupMenuHandler:
 			back_cb = 'backup_menu'
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
-
+	
 	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
 		query = update.callback_query
 		user_id = query.from_user.id
@@ -328,7 +301,7 @@ class BackupMenuHandler:
 			await query.edit_message_text(msg)
 		except Exception as e:
 			await query.edit_message_text(f"❌ שגיאה בשחזור: {e}")
-
+	
 	async def _download_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
 		query = update.callback_query
 		user_id = query.from_user.id
@@ -354,20 +327,3 @@ class BackupMenuHandler:
 					raise
 		except Exception as e:
 			await query.edit_message_text(f"❌ שגיאה בשליחת קובץ הגיבוי: {e}")
-
-	async def _delete_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
-		query = update.callback_query
-		user_id = query.from_user.id
-		try:
-			ok = backup_manager.delete_backup(backup_id, user_id)
-			if ok:
-				await query.answer("✅ הגיבוי נמחק", show_alert=False)
-			else:
-				await query.answer("❌ לא ניתן למחוק (לא נמצא/אין הרשאה)", show_alert=True)
-		except Exception as e:
-			await query.answer(f"❌ שגיאה במחיקה: {e}", show_alert=True)
-		# רענן את הרשימה
-		try:
-			await self._show_backups_list(update, context)
-		except Exception:
-			pass
