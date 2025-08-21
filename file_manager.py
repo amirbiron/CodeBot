@@ -486,11 +486,11 @@ class BackupManager:
             return {"restored_files": 0, "errors": [str(e)]}
     
     def list_backups(self, user_id: int) -> List[BackupInfo]:
-        """רשימת כל קבצי ה‑ZIP הרלוונטיים למשתמש (לא רק כאלה בשם backup_*).
+        """רשימת כל קבצי ה‑ZIP השמורים בבוט (לא רק כאלה בשם backup_*), ללא סינון לפי user_id.
 
-        הכללה מתבצעת לפי אחד מהקריטריונים:
-        - metadata.json בתוך ה‑ZIP עם user_id תואם
-        - או שם קובץ המתאים לדפוס backup_{user_id}_*.zip (תמיכה לאחור)
+        הערות:
+        - אם קיים metadata.json, נשלוף ממנו נתונים (כולל user_id מקורי אם קיים) אך לא נסנן לפיו
+        - אם אין מטאדטה, נטפל בהם כ‑generic_zip עם נפילה לאחור
         """
 
         backups: List[BackupInfo] = []
@@ -516,21 +516,9 @@ class BackupManager:
                         except Exception:
                             metadata = None
 
-                        # החלט אם הקובץ רלוונטי לתצוגה עבור המשתמש הנוכחי
-                        # לוגיקה:
-                        # - אם יש מטאדטה עם user_id: הצג רק אם user_id תואם או חסר
-                        # - אם אין מטאדטה בכלל: הצג בכל מקרה (תמיכה מלאה לאחור)
-                        include: bool = False
-                        if metadata is not None:
-                            meta_uid = metadata.get("user_id")
-                            if meta_uid is None or meta_uid == user_id:
-                                include = True
-                        else:
-                            # ללא מטאדטה – נכליל תמיד כדי להציג "כל קבצי ה‑ZIP" השמורים בבוט
-                            include = True
-
-                        if not include:
-                            continue
+                        # הצגת כל קובצי ה‑ZIP שנשמרו בבוט, ללא תלות ב‑user_id
+                        # שמירת ה‑user_id המקורי (אם קיים) תיעשה בשדה המידע החוזר
+                        include: bool = True
 
                         # שלוף נתונים מהמטאדטה אם קיימת
                         if metadata is not None:

@@ -169,6 +169,7 @@ class BackupMenuHandler:
 		user_id = query.from_user.id
 		await query.answer()
 		backups = backup_manager.list_backups(user_id)
+		# ודא שתמיד מוצגים כל קבצי ה‑ZIP ללא סינון לפי משתמש
 		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
 		zip_back_to = context.user_data.get('zip_back_to')
 		# אם מגיעים מתפריט "📚" או מזרימת "העלה קובץ חדש → קבצי ZIP" (github_upload), אל תסנן לפי ריפו
