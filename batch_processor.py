@@ -17,12 +17,151 @@ from html import escape as html_escape
 import tempfile
 import subprocess
 import os
+import shutil
 from config import config
 from file_manager import backup_manager
 import zipfile
 from utils import detect_language_from_filename
 
 logger = logging.getLogger(__name__)
+
+def _guess_extension(entry_name: str, language: str) -> str:
+    """ניחוש סיומת קובץ לפי שם/שפה. נפילה ל-'txt' כברירת מחדל.
+
+    - מנסה לפי Dockerfile
+    - מנסה לפי הסיומת בשם הקובץ
+    - מנסה לפי שפת תכנות משוערת
+    """
+    try:
+        base = (entry_name or "").strip()
+        if base and os.path.basename(base).lower() == "dockerfile":
+            return "dockerfile"
+
+        # לפי סיומת בשם
+        if "." in base:
+            ext = base.rsplit(".", 1)[-1].lower()
+            if ext:
+                return ext
+
+        # לפי שפה
+        lang = (language or "").strip().lower()
+        lang_to_ext = {
+            "python": "py",
+            "javascript": "js",
+            "typescript": "ts",
+            "bash": "sh",
+            "shell": "sh",
+            "yaml": "yml",
+            "yml": "yml",
+            "json": "json",
+            "docker": "dockerfile",
+            "dockerfile": "dockerfile",
+            "html": "html",
+            "css": "css",
+            "java": "java",
+            "go": "go",
+            "rust": "rs",
+        }
+        if lang in lang_to_ext:
+            return lang_to_ext[lang]
+
+        # נסה לזהות שפה מחדש מהשם
+        detected = detect_language_from_filename(base)
+        if detected and detected.lower() in lang_to_ext:
+            return lang_to_ext[detected.lower()]
+    except Exception:
+        pass
+    return "txt"
+
+def _copy_lint_configs(target_dir: str) -> None:
+    """מעתיק קבצי קונפיגורציה רלוונטיים לתיקיית עבודה זמנית, אם קיימים.
+    אם לא קיימים/אין הרשאות – מדלג בשקט.
+    """
+    try:
+        candidates = [
+            ".flake8", "setup.cfg", "pyproject.toml", ".pylintrc", ".isort.cfg",
+            ".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierignore",
+            ".eslintrc", ".eslintrc.json", ".eslintignore", ".yamllint", ".hadolint.yaml",
+        ]
+        for name in candidates:
+            src = os.path.join(os.getcwd(), name)
+            if os.path.exists(src):
+                dst = os.path.join(target_dir, name)
+                try:
+                    shutil.copy2(src, dst)
+                except Exception:
+                    continue
+    except Exception:
+        return
+
+def _run_local_cmd(args: list, cwd: str, timeout_seconds: int = 25) -> dict:
+    """מריץ פקודה מקומית ומחזיר תוצאה תמציתית. לא מרים חריגות, מחזיר סטטוס."""
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        def _trim(s: str, limit: int = 4000) -> str:
+            if s is None:
+                return ""
+            return s if len(s) <= limit else s[:limit] + "\n...[truncated]"
+        return {
+            "cmd": " ".join(args),
+            "returncode": completed.returncode,
+            "ok": completed.returncode == 0,
+            "stdout": _trim(completed.stdout),
+            "stderr": _trim(completed.stderr),
+        }
+    except FileNotFoundError as e:
+        return {"cmd": " ".join(args), "returncode": 127, "ok": False, "stdout": "", "stderr": str(e)}
+    except subprocess.TimeoutExpired as e:
+        return {"cmd": " ".join(args), "returncode": 124, "ok": False, "stdout": e.stdout or "", "stderr": f"timeout: {e}"}
+    except Exception as e:
+        return {"cmd": " ".join(args), "returncode": 1, "ok": False, "stdout": "", "stderr": str(e)}
+
+def _advanced_python_checks(temp_dir: str, file_name: str) -> Dict[str, Any]:
+    """בדיקות פייתון מתקדמות. אם בדיקות חיצוניות לא מאופשרות – החזר ריק.
+    כשמאופשרות, ננסה להריץ כלים אם זמינים; אם לא – נחזיר סטטוס שגוי/שגיאה מהכלי.
+    """
+    results: Dict[str, Any] = {}
+    try:
+        if not config.BATCH_ENABLE_EXTERNAL_CHECKS:
+            return results
+        # black --check
+        results["black"] = _run_local_cmd(["black", "--check", file_name], temp_dir)
+        # flake8
+        results["flake8"] = _run_local_cmd(["flake8", "--select=E9,F63,F7,F82", file_name], temp_dir)
+        # mypy (לא תמיד זמין)
+        results["mypy"] = _run_local_cmd(["mypy", "--hide-error-codes", file_name], temp_dir)
+    except Exception as e:
+        results["error"] = str(e)
+    return results
+
+def _secrets_scan(code: str) -> Dict[str, Any]:
+    """סריקת סודות בסיסית פנימית, ללא תלות בכלים חיצוניים."""
+    try:
+        patterns = [
+            r"ghp_[A-Za-z0-9]{36,40}",
+            r"github_pat_[A-Za-z0-9_]{30,}",
+            r"AKIA[0-9A-Z]{16}",  # AWS Access Key ID
+            r"(?:SECRET|PASSWORD|TOKEN|API[_-]?KEY)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{10,}['\"]?",
+            r"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----",
+        ]
+        findings = []
+        for pat in patterns:
+            try:
+                for m in re.finditer(pat, code or "", flags=re.IGNORECASE):
+                    span = m.span()
+                    sample = (code[span[0]:span[1]] if code else "")[:80]
+                    findings.append({"pattern": pat, "match": sample})
+            except re.error:
+                continue
+        return {"findings_count": len(findings), "findings": findings[:10]}
+    except Exception as e:
+        return {"error": str(e), "findings_count": 0, "findings": []}
 
 @dataclass
 class BatchJob:
