@@ -399,7 +399,20 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                             'flake8': '🔍 בדיקת סגנון',
                             'mypy': '📝 בדיקת טיפוסים', 
                             'bandit': '🔒 בדיקת אבטחה',
-                            'black': '🎨 עיצוב קוד'
+                            'black': '🎨 עיצוב קוד',
+                            'pylint': '🔎 ניהול אזהרות (pylint)',
+                            'isort': '📦 סדר ייבואים (isort)',
+                            'radon_cc': '📈 מורכבות (radon cc)',
+                            'radon_mi': '🧪 מדד תחזוקתיות (radon mi)',
+                            'eslint': '🧩 ESLint',
+                            'tsc': '🔤 TypeScript tsc',
+                            'prettier': '🎨 Prettier check',
+                            'shellcheck': '🛡️ ShellCheck',
+                            'yamllint': '📜 YAML Lint',
+                            'hadolint': '🐳 Hadolint',
+                            'jq': '🧰 jq (JSON)',
+                            'semgrep': '🛡️ Semgrep',
+                            'secrets_scan': '🔑 גילוי סודות'
                         }.get(tool, tool)
                         
                         if rc == 0:
@@ -426,6 +439,10 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                                     error_msg = 'שגיאת תחביר'
                                 elif 'invalid syntax' in error_msg:
                                     error_msg = 'תחביר לא תקין'
+                                elif tool in ('semgrep',):
+                                    error_msg = 'ממצאים בקוד (semgrep)'
+                                elif tool == 'secrets_scan':
+                                    error_msg = 'חשד לסודות בקוד'
                                 else:
                                     error_msg = html_escape(error_msg[:50])
                                 status_text = f"{status_text}: {error_msg}"
