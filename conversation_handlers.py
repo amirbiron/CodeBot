@@ -2394,6 +2394,7 @@ async def _auto_update_batch_status(application, chat_id: int, message_id: int, 
             keyboard = []
             if job.status == "completed":
                 keyboard.append([InlineKeyboardButton("📋 הצג תוצאות", callback_data=f"job_results:{job_id}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
                 await application.bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
@@ -2408,7 +2409,10 @@ async def _auto_update_batch_status(application, chat_id: int, message_id: int, 
                     message_id=message_id,
                     text=f"📊 <b>סטטוס עבודת Batch</b>\n\n🆔 <code>{job_id}</code>\n🔧 <b>פעולה:</b> {job.operation}\n\n{summary}",
                     parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")]])
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔄 רענן", callback_data=f"job_status:{job_id}")],
+                        [InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")]
+                    ])
                 )
             await asyncio.sleep(2)
     except Exception:
