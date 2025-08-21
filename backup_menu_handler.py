@@ -171,8 +171,8 @@ class BackupMenuHandler:
 		backups = backup_manager.list_backups(user_id)
 		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
 		zip_back_to = context.user_data.get('zip_back_to')
-		# אם מגיעים מתפריט "📚", אל תסנן לפי ריפו
-		current_repo = None if zip_back_to == 'files' else context.user_data.get('github_backup_context_repo')
+		# אם מגיעים מתפריט "📚" או מזרימת "העלה קובץ חדש → קבצי ZIP" (github_upload), אל תסנן לפי ריפו
+		current_repo = None if zip_back_to in {'files', 'github_upload'} else context.user_data.get('github_backup_context_repo')
 		if current_repo:
 			filtered = []
 			for b in backups:
@@ -186,6 +186,8 @@ class BackupMenuHandler:
 			# קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
 			if zip_back_to == 'files':
 				back_cb = 'files'
+			elif zip_back_to == 'github_upload':
+				back_cb = 'upload_file'
 			elif current_repo is not None or zip_back_to == 'github':
 				back_cb = 'github_backup_menu'
 			else:
@@ -245,6 +247,8 @@ class BackupMenuHandler:
 		# פעולות נוספות - כפתור חזרה דינמי
 		if zip_back_to == 'files':
 			back_cb = 'files'
+		elif zip_back_to == 'github_upload':
+			back_cb = 'upload_file'
 		elif current_repo is not None or zip_back_to == 'github':
 			back_cb = 'github_backup_menu'
 		else:

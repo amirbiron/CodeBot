@@ -486,47 +486,112 @@ class BackupManager:
             return {"restored_files": 0, "errors": [str(e)]}
     
     def list_backups(self, user_id: int) -> List[BackupInfo]:
-        """רשימת גיבויים זמינים"""
-        
-        backups = []
-        
+        """רשימת כל קבצי ה‑ZIP הרלוונטיים למשתמש (לא רק כאלה בשם backup_*).
+
+        הכללה מתבצעת לפי אחד מהקריטריונים:
+        - metadata.json בתוך ה‑ZIP עם user_id תואם
+        - או שם קובץ המתאים לדפוס backup_{user_id}_*.zip (תמיכה לאחור)
+        """
+
+        backups: List[BackupInfo] = []
+
         try:
-            # חיפוש קבצי גיבוי
-            pattern = f"backup_{user_id}_*.zip"
-            
-            for backup_file in self.backup_dir.glob(pattern):
+            # עבור על כל קובצי ה‑ZIP בתיקיית הגיבויים, לא רק שם עם backup_*
+            for backup_file in self.backup_dir.glob("*.zip"):
                 try:
-                    # קריאת מטאדטה
-                    with zipfile.ZipFile(backup_file, 'r') as zip_file:
-                        metadata_content = zip_file.read("metadata.json")
-                        metadata = json.loads(metadata_content)
-                        
-                        backup_info = BackupInfo(
-                            backup_id=metadata["backup_id"],
-                            user_id=metadata["user_id"],
-                            created_at=datetime.fromisoformat(metadata["created_at"]),
-                            file_count=metadata["file_count"],
-                            total_size=backup_file.stat().st_size,
-                            backup_type=metadata.get("backup_type", "unknown"),
-                            status="completed",
-                            file_path=str(backup_file),
-                            repo=metadata.get("repo"),
-                            path=metadata.get("path"),
-                            metadata=metadata,
-                        )
-                        
-                        backups.append(backup_info)
-                        
+                    # ערכי ברירת מחדל
+                    metadata: Optional[Dict[str, Any]] = None
+                    backup_id: str = os.path.splitext(os.path.basename(backup_file))[0]
+                    created_at: Optional[datetime] = None
+                    file_count: int = 0
+                    backup_type: str = "unknown"
+                    repo: Optional[str] = None
+                    path: Optional[str] = None
+
+                    with zipfile.ZipFile(backup_file, 'r') as zf:
+                        # נסה לקרוא metadata.json, אם קיים
+                        try:
+                            metadata_content = zf.read("metadata.json")
+                            metadata = json.loads(metadata_content)
+                        except Exception:
+                            metadata = None
+
+                        # החלט אם הקובץ שייך למשתמש הנוכחי
+                        include: bool = False
+                        if metadata is not None:
+                            # אם יש user_id במטאדטה, דרוש התאמה
+                            meta_uid = metadata.get("user_id")
+                            if meta_uid is None or meta_uid == user_id:
+                                include = True
+                        else:
+                            # ללא מטאדטה – תמיכה לאחור לפי שם קובץ
+                            name = os.path.basename(backup_file)
+                            if f"backup_{user_id}_" in name or name.startswith(f"{user_id}_") or name.endswith(f"_{user_id}.zip"):
+                                include = True
+
+                        if not include:
+                            continue
+
+                        # שלוף נתונים מהמטאדטה אם קיימת
+                        if metadata is not None:
+                            backup_id = metadata.get("backup_id") or backup_id
+                            created_at_str = metadata.get("created_at")
+                            if created_at_str:
+                                try:
+                                    created_at = datetime.fromisoformat(created_at_str)
+                                except Exception:
+                                    created_at = None
+                            fc_meta = metadata.get("file_count")
+                            if isinstance(fc_meta, int):
+                                file_count = fc_meta
+                            backup_type = metadata.get("backup_type", "unknown")
+                            repo = metadata.get("repo")
+                            path = metadata.get("path")
+                        else:
+                            # ZIP כללי ללא מטאדטה
+                            backup_type = "generic_zip"
+
+                        # אם אין created_at – נפל ל‑mtime של הקובץ
+                        if not created_at:
+                            try:
+                                created_at = datetime.fromtimestamp(os.path.getmtime(backup_file), tz=timezone.utc)
+                            except Exception:
+                                created_at = datetime.now(timezone.utc)
+
+                        # אם אין file_count – מנה את הקבצים שאינם תיקיות
+                        if file_count == 0:
+                            try:
+                                non_dirs = [n for n in zf.namelist() if not n.endswith('/')]
+                                file_count = len(non_dirs)
+                            except Exception:
+                                file_count = 0
+
+                    backup_info = BackupInfo(
+                        backup_id=backup_id,
+                        user_id=(metadata.get("user_id") if metadata and metadata.get("user_id") is not None else user_id),
+                        created_at=created_at,
+                        file_count=file_count,
+                        total_size=os.path.getsize(backup_file),
+                        backup_type=backup_type,
+                        status="completed",
+                        file_path=str(backup_file),
+                        repo=repo,
+                        path=path,
+                        metadata=metadata,
+                    )
+
+                    backups.append(backup_info)
+
                 except Exception as e:
                     logger.warning(f"שגיאה בקריאת גיבוי {backup_file}: {e}")
                     continue
-            
+
             # מיון לפי תאריך יצירה
             backups.sort(key=lambda x: x.created_at, reverse=True)
-            
+
         except Exception as e:
             logger.error(f"שגיאה ברשימת גיבויים: {e}")
-        
+
         return backups
     
     def delete_backup(self, backup_id: str, user_id: int) -> bool:

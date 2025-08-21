@@ -288,8 +288,17 @@ class GitHubMenuHandler:
         elif query.data == "gh_upload_cat:repos":
             await self.show_upload_repos(update, context)
         elif query.data == "gh_upload_cat:zips":
-            # פתח תפריט גיבוי/ZIP של GitHub (כולל רשימות ZIP ושחזור)
-            await self.show_github_backup_menu(update, context)
+            # הצג את כל קבצי ה‑ZIP ששמורים בבוט, ללא סינון לפי ריפו
+            try:
+                context.user_data['zip_back_to'] = 'github_upload'
+                context.user_data.pop('github_backup_context_repo', None)
+            except Exception:
+                pass
+            backup_handler = context.bot_data.get('backup_handler')
+            if backup_handler:
+                await backup_handler._show_backups_list(update, context, page=1)
+            else:
+                await query.edit_message_text("❌ רכיב גיבוי לא זמין")
         elif query.data == "gh_upload_cat:large":
             await self.upload_large_files_menu(update, context)
         elif query.data == "gh_upload_cat:other":
