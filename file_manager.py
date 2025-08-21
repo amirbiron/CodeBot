@@ -516,18 +516,18 @@ class BackupManager:
                         except Exception:
                             metadata = None
 
-                        # החלט אם הקובץ שייך למשתמש הנוכחי
+                        # החלט אם הקובץ רלוונטי לתצוגה עבור המשתמש הנוכחי
+                        # לוגיקה:
+                        # - אם יש מטאדטה עם user_id: הצג רק אם user_id תואם או חסר
+                        # - אם אין מטאדטה בכלל: הצג בכל מקרה (תמיכה מלאה לאחור)
                         include: bool = False
                         if metadata is not None:
-                            # אם יש user_id במטאדטה, דרוש התאמה
                             meta_uid = metadata.get("user_id")
                             if meta_uid is None or meta_uid == user_id:
                                 include = True
                         else:
-                            # ללא מטאדטה – תמיכה לאחור לפי שם קובץ
-                            name = os.path.basename(backup_file)
-                            if f"backup_{user_id}_" in name or name.startswith(f"{user_id}_") or name.endswith(f"_{user_id}.zip"):
-                                include = True
+                            # ללא מטאדטה – נכליל תמיד כדי להציג "כל קבצי ה‑ZIP" השמורים בבוט
+                            include = True
 
                         if not include:
                             continue
@@ -539,6 +539,9 @@ class BackupManager:
                             if created_at_str:
                                 try:
                                     created_at = datetime.fromisoformat(created_at_str)
+                                    # נרמל ל-aware TZ אם חסר
+                                    if created_at.tzinfo is None:
+                                        created_at = created_at.replace(tzinfo=timezone.utc)
                                 except Exception:
                                     created_at = None
                             fc_meta = metadata.get("file_count")
