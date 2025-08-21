@@ -382,6 +382,24 @@ class LargeFilesHandler:
         words_count = len(content.split())
         avg_line_length = len(content) // lines_count if lines_count > 0 else 0
         
+        # המרת זמנים לשעון ישראל לתצוגה
+        def _fmt_dt(dt):
+            try:
+                from datetime import timezone as _tz
+                from zoneinfo import ZoneInfo as _ZoneInfo
+                if not dt or not hasattr(dt, 'strftime'):
+                    return str(dt)
+                if getattr(dt, 'tzinfo', None) is None:
+                    dt = dt.replace(tzinfo=_tz.utc)
+                return dt.astimezone(_ZoneInfo("Asia/Jerusalem")).strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                try:
+                    return dt.strftime('%d/%m/%Y %H:%M')
+                except Exception:
+                    return str(dt)
+        created_txt = _fmt_dt(created_at)
+        updated_txt = _fmt_dt(updated_at)
+        
         # הכנת טקסט מידע
         emoji = get_language_emoji(language)
         size_kb = file_size / 1024
@@ -396,8 +414,8 @@ class LargeFilesHandler:
             f"📝 **מילים:** {words_count:,}\n"
             f"🔤 **תווים:** {len(content):,}\n"
             f"📐 **אורך שורה ממוצע:** {avg_line_length} תווים\n"
-            f"📅 **נוצר:** {created_at}\n"
-            f"🔄 **עודכן:** {updated_at}\n"
+            f"📅 **נוצר:** {created_txt}\n"
+            f"🔄 **עודכן:** {updated_txt}\n"
         )
         
         if tags:

@@ -2281,7 +2281,19 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         keyboard = []
         for info in items:
             btype = getattr(info, 'backup_type', 'unknown')
-            when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
+            try:
+                dt = getattr(info, 'created_at', None)
+                if dt and getattr(dt, 'tzinfo', None) is None:
+                    from datetime import timezone as _tz
+                    dt = dt.replace(tzinfo=_tz.utc)
+                try:
+                    from zoneinfo import ZoneInfo as _ZoneInfo
+                    dt = dt.astimezone(_ZoneInfo("Asia/Jerusalem")) if dt else None
+                except Exception:
+                    pass
+                when = dt.strftime('%d/%m/%Y %H:%M') if dt else ''
+            except Exception:
+                when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
             size_text = _format_bytes(getattr(info, 'total_size', 0))
             line = f"• {info.backup_id} — {when} — {size_text} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
             if getattr(info, 'repo', None):
