@@ -36,7 +36,7 @@ class LargeFilesHandler:
         
         if not files and page == 1:
             # אין קבצים בכלל
-            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+            keyboard = [[InlineKeyboardButton("❌ ביטול", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             text = (
@@ -100,7 +100,7 @@ class LargeFilesHandler:
         # כפתורים נוספים
         keyboard.extend([
             [InlineKeyboardButton("🔄 רענן", callback_data=f"lf_page_{page}")],
-            [InlineKeyboardButton("🔙 חזור", callback_data="files")]
+            [InlineKeyboardButton("❌ ביטול", callback_data="files")]
         ])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
