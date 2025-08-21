@@ -1733,6 +1733,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return ConversationHandler.END
             job_id = await batch_processor.analyze_files_batch(user_id, files)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             sent = await query.message.reply_text(
                 f"⚡ <b>ניתוח Batch התחיל!</b>\n\n📁 מנתח {len(files)} קבצים\n🆔 Job ID: <code>{job_id}</code>",
@@ -1751,6 +1752,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return ConversationHandler.END
             job_id = await batch_processor.validate_files_batch(user_id, files, enable_external_tools=False, ignore_length_limit=True)
             keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             sent = await query.message.reply_text(
                 f"✅ <b>בדיקת תקינות Batch התחילה!</b>\n\n📁 בודק {len(files)} קבצים\n🆔 Job ID: <code>{job_id}</code>",
@@ -2371,6 +2373,7 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
             title = "✅ בדיקת תקינות Batch התחילה!"
 
         keyboard = [[InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")]]
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"{title}\n\n📁 קבצים: {len(files)}\n🆔 Job ID: <code>{job_id}</code>",

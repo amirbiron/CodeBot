@@ -140,6 +140,11 @@ async def batch_validate_command(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = [[
             InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")
         ]]
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
+        keyboard = [[
+            InlineKeyboardButton("📊 בדוק סטטוס", callback_data=f"job_status:{job_id}")
+        ]]
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
