@@ -831,28 +831,29 @@ class GitHubMenuHandler:
                         r.raise_for_status()
                         # בנה ZIP חדש עם metadata.json משולב כדי לאפשר רישום בגיבויים
                         src_buf = BytesIO(r.content)
+                        out_buf = BytesIO()
+                        # השאר את קובץ ה-ZIP המקורי פתוח בזמן הקריאה ממנו והכתיבה אל קובץ ה-ZIP החדש
                         with _zip.ZipFile(src_buf, "r") as zin:
                             # ספר קבצים (דלג על תיקיות)
                             file_names = [n for n in zin.namelist() if not n.endswith("/")]
                             file_count = len(file_names)
                             total_bytes = len(r.content)
-                        # צור ZIP חדש עם metadata
-                        out_buf = BytesIO()
-                        with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
-                            metadata = {
-                                "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
-                                "user_id": user_id,
-                                "created_at": _dt.now(_tz.utc).isoformat(),
-                                "backup_type": "github_repo_zip",
-                                "include_versions": False,
-                                "file_count": file_count,
-                                "created_by": "Code Keeper Bot",
-                                "repo": repo.full_name,
-                                "path": current_path or ""
-                            }
-                            zout.writestr("metadata.json", json.dumps(metadata, indent=2))
-                            for name in file_names:
-                                zout.writestr(name, zin.read(name))
+                            # צור ZIP חדש עם metadata
+                            with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
+                                metadata = {
+                                    "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
+                                    "user_id": user_id,
+                                    "created_at": _dt.now(_tz.utc).isoformat(),
+                                    "backup_type": "github_repo_zip",
+                                    "include_versions": False,
+                                    "file_count": file_count,
+                                    "created_by": "Code Keeper Bot",
+                                    "repo": repo.full_name,
+                                    "path": current_path or ""
+                                }
+                                zout.writestr("metadata.json", json.dumps(metadata, indent=2))
+                                for name in file_names:
+                                    zout.writestr(name, zin.read(name))
                         out_buf.seek(0)
                         # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
                         backup_manager.save_backup_bytes(out_buf.getvalue(), metadata)
