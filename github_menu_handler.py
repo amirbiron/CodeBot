@@ -888,7 +888,6 @@ class GitHubMenuHandler:
                 if not current_path:
                     try:
                         import requests
-                        from io import BytesIO
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
@@ -943,7 +942,6 @@ class GitHubMenuHandler:
                             raise
                     return
 
-                from io import BytesIO
                 zip_buffer = BytesIO()
                 total_bytes = 0
                 total_files = 0
