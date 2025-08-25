@@ -1047,6 +1047,34 @@ class CodeKeeperBot:
             finally:
                 context.user_data['upload_mode'] = None
             return
+
+        # מצב איסוף קבצים ליצירת ZIP מקומי
+        if context.user_data.get('upload_mode') == 'zip_create':
+            try:
+                document = update.message.document
+                user_id = update.effective_user.id
+                logger.info(f"ZIP create mode: received file for bundle: {document.file_name} ({document.file_size} bytes)")
+                # הורדה לזיכרון
+                file = await context.bot.get_file(document.file_id)
+                buf = BytesIO()
+                await file.download_to_memory(buf)
+                raw = buf.getvalue()
+                # שמירה לרשימת הפריטים בסשן
+                items = context.user_data.get('zip_create_items')
+                if items is None:
+                    items = []
+                    context.user_data['zip_create_items'] = items
+                # קביעת שם בטוח
+                safe_name = (document.file_name or f"file_{len(items)+1}").strip() or f"file_{len(items)+1}"
+                items.append({
+                    'filename': safe_name,
+                    'bytes': raw,
+                })
+                await update.message.reply_text(f"✅ נוסף: <code>{html_escape(safe_name)}</code> (סה""כ {len(items)} קבצים)", parse_mode=ParseMode.HTML)
+            except Exception as e:
+                logger.exception(f"zip_create collect failed: {e}")
+                await update.message.reply_text(f"❌ שגיאה בהוספת הקובץ ל‑ZIP: {e}")
+            return
         
         await log_user_activity(update, context)
         

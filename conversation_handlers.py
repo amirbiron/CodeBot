@@ -84,6 +84,7 @@ MAIN_KEYBOARD = [
     ["📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים"],
     ["⚡ עיבוד Batch", "🔧 GitHub"],
     ["📥 ייבוא ZIP מריפו", "🗂 לפי ריפו"],
+    ["🗜️ יצירת ZIP"],
     ["ℹ️ הסבר על הבוט"]
 ]
 
@@ -286,6 +287,25 @@ async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TY
         "📥 שלח/י עכשיו קובץ ZIP של הריפו (העלאה ראשונית).\n"
         "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.",
         reply_markup=cancel_markup
+    )
+    reporter.report_activity(update.effective_user.id)
+    return ConversationHandler.END
+
+async def start_zip_create_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """מתחיל מצב יצירת ZIP: המשתמש שולח כמה קבצים ואז לוחץ 'סיום'."""
+    # אתחול מצב האיסוף
+    context.user_data['upload_mode'] = 'zip_create'
+    context.user_data['zip_create_items'] = []
+    # כפתורי פעולה
+    keyboard = [
+        [InlineKeyboardButton("✅ סיום", callback_data="zip_create_finish")],
+        [InlineKeyboardButton("❌ ביטול", callback_data="zip_create_cancel")]
+    ]
+    await update.message.reply_text(
+        "🗜️ מצב יצירת ZIP הופעל.\n"
+        "שלח/י עכשיו את כל הקבצים שברצונך לכלול.\n"
+        "כשתסיים/י, לחצ/י 'סיום' וניצור עבורך ZIP מוכן.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     reporter.report_activity(update.effective_user.id)
     return ConversationHandler.END
@@ -1677,6 +1697,44 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
             return ConversationHandler.END
+        elif data == "zip_create_cancel":
+            # ביטול מצב יצירת ZIP בלבד
+            context.user_data.pop('upload_mode', None)
+            context.user_data.pop('zip_create_items', None)
+            await query.edit_message_text("🚫 יצירת ה‑ZIP בוטלה.")
+            await query.message.reply_text(
+                "🎮 בחר פעולה מתקדמת:",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return ConversationHandler.END
+        elif data == "zip_create_finish":
+            # בניית ZIP מהקבצים שנאספו ושליחה למשתמש
+            try:
+                items = context.user_data.get('zip_create_items') or []
+                if not items:
+                    await query.edit_message_text("ℹ️ לא נאספו קבצים. שלח/י קבצים ואז נסה שוב.")
+                    return ConversationHandler.END
+                from io import BytesIO as _BytesIO
+                import zipfile as _zip
+                buf = _BytesIO()
+                with _zip.ZipFile(buf, 'w', compression=_zip.ZIP_DEFLATED) as z:
+                    for it in items:
+                        # it: {"filename": str, "bytes": bytes}
+                        try:
+                            z.writestr(it.get('filename') or 'file', it.get('bytes') or b'')
+                        except Exception:
+                            pass
+                buf.seek(0)
+                safe_name = f"my-files-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.zip"
+                await query.message.reply_document(document=buf, filename=safe_name)
+                await query.edit_message_text(f"✅ נוצר ZIP עם {len(items)} קבצים ונשלח אליך.")
+            except Exception as e:
+                logger.exception(f"zip_create_finish failed: {e}")
+                await query.edit_message_text(f"❌ שגיאה ביצירת ה‑ZIP: {e}")
+            finally:
+                context.user_data.pop('upload_mode', None)
+                context.user_data.pop('zip_create_items', None)
+            return ConversationHandler.END
         elif data.startswith("replace_") or data == "rename_file" or data == "cancel_save":
             return await handle_duplicate_callback(update, context)
         
@@ -1908,6 +1966,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
             MessageHandler(filters.Regex("^📥 ייבוא ZIP מריפו$"), start_repo_zip_import),
+            MessageHandler(filters.Regex("^🗜️ יצירת ZIP$"), start_zip_create_flow),
             MessageHandler(filters.Regex("^🗂 לפי ריפו$"), show_by_repo_menu),
             MessageHandler(filters.Regex("^ℹ️ הסבר על הבוט$"), lambda u, c: show_help_page(u, c, page=1)),
             
