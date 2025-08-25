@@ -329,7 +329,7 @@ class GitHubMenuHandler:
                 "1) ניתן להקליד שם לריפו (ללא רווחים)\n"
                 "2) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
                 "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
-                "ברירת מחדל: <code>repo-<timestamp></code>\n\n"
+                "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
                 "לאחר השליחה, ניצור ריפו פרטי ונפרוס את התוכן ב-commit אחד."
             )
             await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
