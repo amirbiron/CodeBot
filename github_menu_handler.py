@@ -343,7 +343,6 @@ class GitHubMenuHandler:
                 "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
                 "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
                 f"נראות נוכחית: <b>{vis_text}</b>\n"
-                "ℹ️ הערה: קבצי README יידלגו אוטומטית ולא יועלו.\n"
                 "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
             )
             await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
@@ -384,7 +383,6 @@ class GitHubMenuHandler:
                 "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
                 "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
                 f"נראות נוכחית: <b>{vis_text}</b>\n"
-                "ℹ️ הערה: קבצי README יידלגו אוטומטית ולא יועלו.\n"
                 "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
             )
             try:

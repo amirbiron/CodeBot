@@ -933,15 +933,6 @@ class CodeKeeperBot:
                         data = zf.read(name)
                         clean = strip_root(name)
                         if clean:
-                            base_name = __import__('os').path.basename(clean)
-                            # דילוג תמידי על README.* (ללא תלות באותיות)
-                            try:
-                                import re as _re
-                                if _re.match(r'^README(\..+)?$', base_name, flags=_re.IGNORECASE):
-                                    continue
-                            except Exception:
-                                if base_name.lower().startswith('readme'):
-                                    continue
                             files.append((clean, data))
                 # upload via trees API (תמיכה גם בריפו חדש ללא commit ראשון)
                 from github.GithubException import GithubException
