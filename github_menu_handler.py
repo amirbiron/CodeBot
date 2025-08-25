@@ -320,17 +320,30 @@ class GitHubMenuHandler:
             context.user_data["upload_mode"] = "github_create_repo_from_zip"
             # ברירת מחדל: ריפו פרטי
             context.user_data["new_repo_private"] = True
+            vis_text = "פרטי" if context.user_data.get("new_repo_private", True) else "ציבורי"
             kb = [
                 [InlineKeyboardButton("✍️ הקלד שם ריפו", callback_data="github_new_repo_name")],
+                [
+                    InlineKeyboardButton(
+                        "🔒 פרטי ✅" if context.user_data.get("new_repo_private", True) else "🔒 פרטי",
+                        callback_data="github_set_new_repo_visibility:1"
+                    ),
+                    InlineKeyboardButton(
+                        "🌐 ציבורי ✅" if not context.user_data.get("new_repo_private", True) else "🌐 ציבורי",
+                        callback_data="github_set_new_repo_visibility:0"
+                    ),
+                ],
                 [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
             ]
             help_txt = (
                 "🆕 <b>יצירת ריפו חדש מ‑ZIP</b>\n\n"
                 "1) ניתן להקליד שם לריפו (ללא רווחים)\n"
-                "2) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
+                "2) בחר אם הריפו יהיה <b>פרטי</b> או <b>ציבורי</b>\n"
+                "3) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
                 "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
                 "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
-                "לאחר השליחה, ניצור ריפו פרטי ונפרוס את התוכן ב-commit אחד."
+                f"נראות נוכחית: <b>{vis_text}</b>\n"
+                "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
             )
             await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
             return
@@ -341,6 +354,46 @@ class GitHubMenuHandler:
                 "✏️ הקלד שם לריפו החדש (מותר אותיות, מספרים, נקודות, מקפים וקו תחתון).\nשלח טקסט עכשיו.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_create_repo_from_zip")]])
             )
+            return
+        elif query.data.startswith("github_set_new_repo_visibility:"):
+            # בחירת נראות (פרטי/ציבורי) לריפו החדש
+            flag = query.data.split(":", 1)[1]
+            is_private = flag == "1"
+            context.user_data["new_repo_private"] = is_private
+            vis_text = "פרטי" if is_private else "ציבורי"
+            kb = [
+                [InlineKeyboardButton("✍️ הקלד שם ריפו", callback_data="github_new_repo_name")],
+                [
+                    InlineKeyboardButton(
+                        "🔒 פרטי ✅" if is_private else "🔒 פרטי",
+                        callback_data="github_set_new_repo_visibility:1"
+                    ),
+                    InlineKeyboardButton(
+                        "🌐 ציבורי ✅" if not is_private else "🌐 ציבורי",
+                        callback_data="github_set_new_repo_visibility:0"
+                    ),
+                ],
+                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+            ]
+            help_txt = (
+                "🆕 <b>יצירת ריפו חדש מ‑ZIP</b>\n\n"
+                "1) ניתן להקליד שם לריפו (ללא רווחים)\n"
+                "2) בחר אם הריפו יהיה <b>פרטי</b> או <b>ציבורי</b>\n"
+                "3) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
+                "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
+                "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
+                f"נראות נוכחית: <b>{vis_text}</b>\n"
+                "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
+            )
+            try:
+                await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer("עודכנה הנראות", show_alert=False)
+                except Exception:
+                    pass
             return
         elif query.data.startswith("gh_upload_repo:"):
             tag = query.data.split(":", 1)[1]
