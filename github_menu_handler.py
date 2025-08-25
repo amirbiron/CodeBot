@@ -548,6 +548,11 @@ class GitHubMenuHandler:
                 await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {e}")
             finally:
                 context.user_data.pop("pending_repo_restore_zip_path", None)
+                # נקה נעילת יעד תמידית גם במקרה של כישלון, כדי לא להיתקע על ריפו קודם
+                try:
+                    context.user_data.pop("zip_restore_expected_repo_full", None)
+                except Exception:
+                    pass
             return
 
         elif query.data == "github_backup_help":
@@ -722,6 +727,15 @@ class GitHubMenuHandler:
             else:
                 repo_name = query.data.replace("repo_", "")
                 session["selected_repo"] = repo_name
+
+                # נקה סטייטים זמניים של זרם שחזור/גיבוי כדי למנוע נעילה לריפו קודם
+                try:
+                    context.user_data.pop("zip_restore_expected_repo_full", None)
+                    context.user_data.pop("github_restore_zip_purge", None)
+                    context.user_data.pop("pending_repo_restore_zip_path", None)
+                    context.user_data.pop("upload_mode", None)
+                except Exception:
+                    pass
 
                 # שמור במסד נתונים
                 from database import db
@@ -4363,6 +4377,13 @@ class GitHubMenuHandler:
                 except Exception:
                     pass
             return
+        # כניסה לתפריט גיבוי/שחזור מתחילה זרם חדש – נקה נעילות/סטייטים קודמים
+        try:
+            context.user_data.pop("zip_restore_expected_repo_full", None)
+            context.user_data.pop("github_restore_zip_purge", None)
+            context.user_data.pop("pending_repo_restore_zip_path", None)
+        except Exception:
+            pass
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
         context.user_data["github_backup_context_repo"] = repo_full
         kb = [
