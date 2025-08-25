@@ -908,7 +908,6 @@ class CodeKeeperBot:
                 repo_full = repo.full_name
                 # שמור כריפו נבחר במסד ובסשן
                 try:
-                    from database import db
                     db.save_selected_repo(user_id, repo_full)
                     sess = github_handler.get_user_session(user_id)
                     sess['selected_repo'] = repo_full
