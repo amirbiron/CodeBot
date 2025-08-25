@@ -197,6 +197,8 @@ class GitHubMenuHandler:
         # כפתור בחירת ריפו - זמין רק עם טוקן
         if token:
             keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
+            # יצירת ריפו חדש מ-ZIP גם ללא ריפו נבחר
+            keyboard.append([InlineKeyboardButton("🆕 צור ריפו חדש מ‑ZIP", callback_data="github_create_repo_from_zip")])
 
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if token and session.get("selected_repo"):
@@ -303,6 +305,43 @@ class GitHubMenuHandler:
             await self.upload_large_files_menu(update, context)
         elif query.data == "gh_upload_cat:other":
             await self.show_upload_other_files(update, context)
+
+        # --- Create new repository from ZIP ---
+        elif query.data == "github_create_repo_from_zip":
+            # הכנה לזרימת יצירת ריפו חדש מתוך ZIP
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            if not token:
+                await query.edit_message_text("❌ אין חיבור ל-GitHub. שלח /github כדי להגדיר טוקן")
+                return
+            # נקה דגלים ישנים כדי למנוע בלבול בקליטת המסמכים
+            context.user_data["waiting_for_github_upload"] = False
+            context.user_data["upload_mode"] = "github_create_repo_from_zip"
+            # ברירת מחדל: ריפו פרטי
+            context.user_data["new_repo_private"] = True
+            kb = [
+                [InlineKeyboardButton("✍️ הקלד שם ריפו", callback_data="github_new_repo_name")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+            ]
+            help_txt = (
+                "🆕 <b>יצירת ריפו חדש מ‑ZIP</b>\n\n"
+                "1) ניתן להקליד שם לריפו (ללא רווחים)\n"
+                "2) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
+                "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
+                "ברירת מחדל: <code>repo-<timestamp></code>\n\n"
+                "לאחר השליחה, ניצור ריפו פרטי ונפרוס את התוכן ב-commit אחד."
+            )
+            await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+            return
+        elif query.data == "github_new_repo_name":
+            # בקשת שם לריפו החדש
+            context.user_data["waiting_for_new_repo_name"] = True
+            await query.edit_message_text(
+                "✏️ הקלד שם לריפו החדש (מותר אותיות, מספרים, נקודות, מקפים וקו תחתון).\nשלח טקסט עכשיו.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_create_repo_from_zip")]])
+            )
+            return
         elif query.data.startswith("gh_upload_repo:"):
             tag = query.data.split(":", 1)[1]
             await self.show_upload_repo_files(update, context, tag)
@@ -662,6 +701,15 @@ class GitHubMenuHandler:
             context.user_data["waiting_for_github_upload"] = False
             context.user_data["in_github_menu"] = False
             # נקה דגל סינון גיבויים לפי ריפו, אם קיים
+            # נקה דגלים זמניים של יצירת ריפו חדש
+            try:
+                context.user_data.pop("waiting_for_new_repo_name", None)
+                context.user_data.pop("new_repo_name", None)
+                if context.user_data.get("upload_mode") == "github_create_repo_from_zip":
+                    context.user_data.pop("upload_mode", None)
+                    context.user_data.pop("new_repo_private", None)
+            except Exception:
+                pass
             try:
                 context.user_data.pop("github_backup_context_repo", None)
             except Exception:
@@ -2061,6 +2109,27 @@ class GitHubMenuHandler:
         if context.user_data.get("waiting_for_repo_url"):
             context.user_data["waiting_for_repo_url"] = False
             await self.analyze_repository(update, context, text)
+            return True
+
+        # הזנת שם ריפו חדש לזרימת יצירה מ‑ZIP
+        if context.user_data.get("waiting_for_new_repo_name"):
+            # נקה את מצב ההמתנה
+            context.user_data["waiting_for_new_repo_name"] = False
+            name_raw = (text or "").strip()
+            # סניטיזציה פשוטה: המרת רווחים למקף ואישור תווים מותרים
+            safe = re.sub(r"\s+", "-", name_raw)
+            safe = re.sub(r"[^A-Za-z0-9._-]", "-", safe)
+            safe = safe.strip(".-_")
+            if not safe:
+                await update.message.reply_text("❌ שם ריפו לא תקין. נסה שוב עם אותיות/מספרים/.-_ בלבד.")
+                context.user_data["waiting_for_new_repo_name"] = True
+                return True
+            # שמור את השם לבחירת יצירה
+            context.user_data["new_repo_name"] = safe
+            await update.message.reply_text(
+                f"✅ שם הריפו נקבע: <code>{safe}</code>\nשלח עכשיו קובץ ZIP לפריסה.",
+                parse_mode="HTML"
+            )
             return True
 
         # ברירת מחדל: סיים

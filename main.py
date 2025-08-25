@@ -273,7 +273,7 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
                         CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|choose_upload_folder|upload_folder_root|upload_folder_current|upload_folder_custom|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu)')
+                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|choose_upload_folder|upload_folder_root|upload_folder_current|upload_folder_custom|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu|github_create_repo_from_zip|github_new_repo_name)')
             )
 
         # Inline query handler
@@ -314,7 +314,8 @@ class CodeKeeperBot:
                 return False
             if context.user_data.get('waiting_for_repo_url') or \
                context.user_data.get('waiting_for_delete_file_path') or \
-               context.user_data.get('waiting_for_download_file_path'):
+               context.user_data.get('waiting_for_download_file_path') or \
+               context.user_data.get('waiting_for_new_repo_name'):
                 logger.info(f"🔗 Routing GitHub-related text input from user {update.effective_user.id}")
                 return await github_handler.handle_text_input(update, context)
             return False
@@ -846,6 +847,137 @@ class CodeKeeperBot:
                     context.user_data.pop('zip_restore_expected_repo_full', None)
                 except Exception:
                     pass
+            return
+        
+        # יצירת ריפו חדש מ‑ZIP (פריסה לתוך ריפו חדש)
+        if context.user_data.get('upload_mode') == 'github_create_repo_from_zip':
+            try:
+                document = update.message.document
+                user_id = update.effective_user.id
+                logger.info(f"GitHub create-repo-from-zip received: file_name={document.file_name}, size={document.file_size}")
+                await update.message.reply_text("⏳ מוריד קובץ ZIP...")
+                tg_file = await context.bot.get_file(document.file_id)
+                buf = BytesIO()
+                await tg_file.download_to_memory(buf)
+                buf.seek(0)
+                import zipfile, re, os
+                if not zipfile.is_zipfile(buf):
+                    await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
+                    return
+                # חלץ שמות ובחר שם בסיס לריפו אם לא הוזן מראש
+                with zipfile.ZipFile(buf, 'r') as zf:
+                    names_all = zf.namelist()
+                    file_names = [n for n in names_all if not n.endswith('/') and not n.startswith('__MACOSX/') and not n.split('/')[-1].startswith('._')]
+                    if not file_names:
+                        await update.message.reply_text("❌ ה‑ZIP ריק." )
+                        return
+                    # גלה root משותף אם קיים
+                    top_levels = set()
+                    for n in names_all:
+                        if '/' in n and not n.startswith('__MACOSX/'):
+                            top_levels.add(n.split('/', 1)[0])
+                    common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+                # קבע שם ריפו
+                repo_name = context.user_data.get('new_repo_name')
+                if not repo_name:
+                    base_guess = None
+                    if common_root:
+                        base_guess = common_root
+                    elif document.file_name:
+                        base_guess = os.path.splitext(os.path.basename(document.file_name))[0]
+                    if not base_guess:
+                        base_guess = f"repo-{int(time.time())}"
+                    # sanitize
+                    repo_name = re.sub(r"\s+", "-", base_guess)
+                    repo_name = re.sub(r"[^A-Za-z0-9._-]", "-", repo_name).strip(".-_") or f"repo-{int(time.time())}"
+                # התחבר ל‑GitHub וצור ריפו
+                github_handler = context.bot_data.get('github_handler')
+                token = github_handler.get_user_token(user_id) if github_handler else None
+                if not token:
+                    await update.message.reply_text("❌ אין טוקן GitHub. שלח /github כדי להתחבר.")
+                    return
+                await update.message.reply_text(f"📦 יוצר ריפו חדש: <code>{repo_name}</code>", parse_mode=ParseMode.HTML)
+                from github import Github
+                g = Github(token)
+                user = g.get_user()
+                repo = user.create_repo(name=repo_name, private=bool(context.user_data.get('new_repo_private', True)))
+                repo_full = repo.full_name
+                # שמור כריפו נבחר במסד ובסשן
+                try:
+                    from database import db
+                    db.save_selected_repo(user_id, repo_full)
+                    sess = github_handler.get_user_session(user_id)
+                    sess['selected_repo'] = repo_full
+                except Exception as e:
+                    logger.warning(f"Failed saving selected repo: {e}")
+                # כעת פרוס את ה‑ZIP לריפו החדש ב‑commit אחד
+                await update.message.reply_text("📤 מעלה את קבצי ה‑ZIP לריפו החדש...")
+                # קרא שוב את ה‑ZIP (ה‑buf הוזז קדימה)
+                buf.seek(0)
+                with zipfile.ZipFile(buf, 'r') as zf:
+                    names_all = zf.namelist()
+                    members = [n for n in names_all if not n.endswith('/') and not n.startswith('__MACOSX/') and not n.split('/')[-1].startswith('._')]
+                    top_levels = set()
+                    for n in names_all:
+                        if '/' in n and not n.startswith('__MACOSX/'):
+                            top_levels.add(n.split('/', 1)[0])
+                    common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+                    def strip_root(p: str) -> str:
+                        if common_root and p.startswith(common_root + '/'): return p[len(common_root)+1:]
+                        return p
+                    files = []
+                    for name in members:
+                        data = zf.read(name)
+                        clean = strip_root(name)
+                        if clean:
+                            files.append((clean, data))
+                # upload via trees API (תמיכה גם בריפו חדש ללא commit ראשון)
+                from github.GithubException import GithubException
+                import time as _time
+                target_branch = (repo.default_branch or 'main')
+                base_ref = None
+                base_commit = None
+                base_tree = None
+                try:
+                    base_ref = repo.get_git_ref(f"heads/{target_branch}")
+                    base_commit = repo.get_git_commit(base_ref.object.sha)
+                    base_tree = base_commit.tree
+                except GithubException as _e:
+                    logger.info(f"No base ref found for new repo (expected for empty repo): {str(_e)}")
+                from github.InputGitTreeElement import InputGitTreeElement
+                new_tree_elems = []
+                import base64
+                text_exts = ('.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh', '.gitignore')
+                for path, raw in files:
+                    try:
+                        if path.lower().endswith(text_exts):
+                            blob = repo.create_git_blob(raw.decode('utf-8'), 'utf-8')
+                        else:
+                            blob = repo.create_git_blob(base64.b64encode(raw).decode('ascii'), 'base64')
+                    except Exception:
+                        blob = repo.create_git_blob(base64.b64encode(raw).decode('ascii'), 'base64')
+                    new_tree_elems.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
+                new_tree = repo.create_git_tree(new_tree_elems, base_tree) if base_tree else repo.create_git_tree(new_tree_elems)
+                commit_message = f"Initial import from ZIP via bot"
+                parents = [base_commit] if base_commit else []
+                new_commit = repo.create_git_commit(commit_message, new_tree, parents)
+                if base_ref:
+                    base_ref.edit(new_commit.sha)
+                else:
+                    # צור ref ראשוני
+                    repo.create_git_ref(ref=f"refs/heads/{target_branch}", sha=new_commit.sha)
+                await update.message.reply_text(
+                    f"✅ נוצר ריפו חדש והוזנו {len(new_tree_elems)} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.exception(f"Create new repo from ZIP failed: {e}")
+                await update.message.reply_text(f"❌ שגיאה ביצירת ריפו מ‑ZIP: {e}")
+            finally:
+                # נקה דגלי זרימה
+                context.user_data['upload_mode'] = None
+                for k in ('new_repo_name', 'new_repo_private'):
+                    context.user_data.pop(k, None)
             return
         
         # בדוק אם אנחנו במצב העלאה לגיטהאב (תמיכה בשני המשתנים)
