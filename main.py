@@ -900,7 +900,11 @@ class CodeKeeperBot:
                 from github import Github
                 g = Github(token)
                 user = g.get_user()
-                repo = user.create_repo(name=repo_name, private=bool(context.user_data.get('new_repo_private', True)))
+                repo = user.create_repo(
+                    name=repo_name,
+                    private=bool(context.user_data.get('new_repo_private', True)),
+                    auto_init=True
+                )
                 repo_full = repo.full_name
                 # שמור כריפו נבחר במסד ובסשן
                 try:
