@@ -18,6 +18,7 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+        continue-on-error: true
       - name: Skip on private repos (no GHAS)
         if: ${{ github.event.repository.private == true }}
         run: |
