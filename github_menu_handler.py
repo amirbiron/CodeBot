@@ -4507,7 +4507,7 @@ class GitHubMenuHandler:
         # סמן הקשר כדי לאפשר סינון גיבויים לפי הריפו הנוכחי
         context.user_data["github_backup_context_repo"] = repo_full
         kb = [
-            [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
+            [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="github_backup_zip_wizard")],
             [InlineKeyboardButton("♻️ שחזר ZIP לריפו (פריסה והחלפה)", callback_data="github_restore_zip_to_repo")],
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
