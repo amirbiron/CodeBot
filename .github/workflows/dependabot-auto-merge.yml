@@ -6,7 +6,7 @@ on:
 
 jobs:
   enable-auto-merge:
-    if: ${{ github.actor == 'dependabot[bot]' }}
+    if: ${{ github.actor == 'dependabot[bot]' && secrets.DEPENDABOT_AUTOMERGE == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
