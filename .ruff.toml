@@ -1,0 +1,19 @@
+line-length = 100
+target-version = "py311"
+
+select = [
+  "E",  # pycodestyle errors
+  "F",  # pyflakes
+  "B",  # flake8-bugbear
+  "UP"  # pyupgrade
+]
+
+exclude = [
+  ".git",
+  ".venv",
+  "venv",
+  "build",
+  "dist",
+  "__pycache__",
+]
+

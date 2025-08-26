@@ -1,0 +1,13 @@
+# Lychee link checker configuration
+
+exclude = [
+  "http://localhost",
+  "https://localhost",
+  "http://127.0.0.1",
+  "https://127.0.0.1"
+]
+
+max_retries = 2
+threads = 20
+timeout = 20
+
