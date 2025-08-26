@@ -84,6 +84,8 @@
   - ודא ש־`DEPENDABOT_AUTOMERGE`=true כסוד ריפוזיטורי.
   - בדוק שכל הבדיקות ירוקות וכללי ההגנה מתקיימים.
 
+  
+
 ### צ'ק־ליסט מהיר
 - [ ] הגדרת כלל Branch protection ל־`main` עם "✅ Branch Protection Gate"
 - [ ] הפעלת "Allow auto‑merge" (Settings → General → Pull requests)

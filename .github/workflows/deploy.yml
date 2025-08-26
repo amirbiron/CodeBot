@@ -71,6 +71,14 @@ jobs:
           pip install -r requirements.txt
           pip install flake8 black isort mypy bandit safety pytest pytest-asyncio pytest-cov
       
+      - name: 🔎 Dependency integrity (pip check)
+        run: |
+          pip check
+
+      - name: 🧪 Smoke compile
+        run: |
+          python -m compileall -q .
+      
       - name: 🎨 Code Formatting (Black)
         run: |
           black --check --diff .
@@ -162,6 +170,15 @@ jobs:
           pip install wheel poetry-core
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov pytest-mock
+
+      - name: 🔎 Dependency integrity (pip check)
+        run: |
+          pip check
+
+        
+      - name: 🧪 Smoke compile
+        run: |
+          python -m compileall -q .
       
       - name: 🧪 Run Tests
         env:
