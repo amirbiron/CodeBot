@@ -95,6 +95,9 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
+      if [ -f telegram_terminal_bot/requirements.txt ]; then
+        pip install -r telegram_terminal_bot/requirements.txt
+      fi
 
     startCommand: python telegram_terminal_bot/bot.py
 

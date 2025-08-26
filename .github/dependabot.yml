@@ -7,6 +7,10 @@ updates:
     directory: "/" # Location of package manifests (requirements.txt)
     schedule:
       interval: "weekly" # Check for updates once a week
+  - package-ecosystem: "pip"
+    directory: "/telegram_terminal_bot" # Monitor worker requirements
+    schedule:
+      interval: "weekly"
     # You can add reviewers or assignees automatically if you want
     # assignees:
     #   - "amirbiron"

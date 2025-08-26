@@ -84,6 +84,18 @@
   - ודא ש־`DEPENDABOT_AUTOMERGE`=true כסוד ריפוזיטורי.
   - בדוק שכל הבדיקות ירוקות וכללי ההגנה מתקיימים.
 
+- תלות עודכנה אבל ה־Deploy ב‑Render לא התקין אותה:
+  - אם פרויקט מחולק לתת‑תיקיות עם `requirements.txt` נוספים (למשל `telegram_terminal_bot/requirements.txt`), ודא ש‑Render מתקין גם אותם בשלב ה‑build.
+  - בקובץ `render.yaml` בעבור worker, עדכן את `buildCommand` כך:
+    ```bash
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    if [ -f telegram_terminal_bot/requirements.txt ]; then
+      pip install -r telegram_terminal_bot/requirements.txt
+    fi
+    ```
+  - הרחב את Dependabot כדי שינטר גם את התיקייה: הוסף ל־`.github/dependabot.yml` בלוק נוסף עם `directory: "/telegram_terminal_bot"`.
+
 ### צ'ק־ליסט מהיר
 - [ ] הגדרת כלל Branch protection ל־`main` עם "✅ Branch Protection Gate"
 - [ ] הפעלת "Allow auto‑merge" (Settings → General → Pull requests)
