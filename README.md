@@ -21,6 +21,7 @@
 - [📈 ביצועים](#-ביצועים)
 - [🤝 תרומה](#-תרומה)
 - [📄 רישיון](#-רישיון)
+- [🔁 עדכוני תלויות ומיזוג אוטומטי](docs/auto-updates-and-auto-merge.md)
 
 ## ✨ פיצ'רים עיקריים
 
@@ -166,6 +167,14 @@ MONGODB_URL=mongodb://localhost:27017/code_keeper_bot
 2. עבור ל-[API Documentation](https://pastebin.com/doc_api)
 3. קבל API Key
 4. הוסף ל-.env: `PASTEBIN_API_KEY=your_key`
+
+### 🔁 עדכוני תלויות ומיזוג אוטומטי
+- Dependabot יוצר PRs לעדכוני pip אחת לשבוע.
+- ה-CI מוסיף בדיקה בשם "✅ Branch Protection Gate" כדי לסמן בכלל ההגנה של `main`.
+- כדי לאפשר Auto‑merge לעדכוני patch: אפשר "Allow auto‑merge" והוסף Secret בשם `DEPENDABOT_AUTOMERGE` עם הערך `true`.
+- כדי להימנע מפריסה בזמן עבודה: השאר PR כ‑Draft או כבה זמנית Auto Deploy ב‑Render לפני מיזוג ל‑`main`.
+
+[מדריך מלא: עדכוני תלויות ומיזוג אוטומטי](docs/auto-updates-and-auto-merge.md)
 
 ## 🎯 איפה להפעיל?
 
