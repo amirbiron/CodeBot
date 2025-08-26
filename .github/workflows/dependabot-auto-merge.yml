@@ -1,0 +1,36 @@
+name: Dependabot Auto-Merge (patch)
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+jobs:
+  enable-auto-merge:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve patch update
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' }}
+        uses: peter-evans/approve-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number }}
+
+      - name: Enable auto-merge (squash) for patch updates
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' }}
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number }}
+          merge-method: squash
+        continue-on-error: true
+
