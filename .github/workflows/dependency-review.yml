@@ -1,0 +1,27 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Dependency review (public repos)
+        if: ${{ github.event.repository.private == false }}
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+        continue-on-error: true
+      - name: Skip on private repos (no GHAS)
+        if: ${{ github.event.repository.private == true }}
+        run: |
+          echo "Dependency review skipped: repository is private without GitHub Advanced Security."
+          echo "Enable Security & analysis → Dependency graph and GitHub Advanced Security to use this check."
+

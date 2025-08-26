@@ -1,0 +1,9 @@
+# Ignore common generated and third-party directories
+.venv/
+venv/
+dist/
+build/
+__pycache__/
+docs/_build/
+node_modules/
+
