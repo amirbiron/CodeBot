@@ -580,7 +580,7 @@ class FileUtils:
     """כלים לעבודה עם קבצים"""
     
     @staticmethod
-    async def download_file(url: str, max_size: int = 20 * 1024 * 1024) -> Optional[bytes]:
+    async def download_file(url: str, max_size: int = 10 * 1024 * 1024) -> Optional[bytes]:
         """הורדת קובץ מ-URL"""
         
         try:
