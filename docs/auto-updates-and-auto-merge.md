@@ -25,6 +25,8 @@
    - Create draft pull request
    - המתן שהריצה תסתיים (הבדיקות ירוקות)
 
+   ![Create Draft PR](images/create-draft-pr.svg)
+
 2) הגדרת Branch protection ל־`main`
    - Repo → Settings → Branches → Add rule (או עריכת כלל קיים)
    - Branch name pattern: `main`
@@ -34,16 +36,22 @@
        - בחר: "✅ Branch Protection Gate"
        - סמן: Require branches to be up to date before merging
      - Require conversation resolution before merging (מומלץ)
+   
+   ![Branch Protection Rule](images/branch-protection-rule.svg)
    - השאר Require approvals כבוי אם רוצים שמיזוג Dependabot יהיה אוטומטי.
 
 3) הפעלת Auto‑merge הכללי בגיטהאב
    - Settings → General → Pull requests → Enable "Allow auto‑merge"
+
+   ![Allow Auto Merge](images/allow-auto-merge-setting.svg)
 
 4) הפעלה/כיבוי של מיזוג אוטומטי ל‑Dependabot
    - Repo → Settings → Secrets and variables → Actions → New repository secret
    - Name: `DEPENDABOT_AUTOMERGE`
    - Secret: `true`
    - כדי לכבות בכל עת: מחיקה או שינוי לערך שאינו `true`.
+
+   ![Add Secret](images/add-secret-dependabot-automerge.svg)
 
 ### איך זה עובד בפועל
 - Dependabot יפתח Pull Requests לעדכוני pip פעם בשבוע.

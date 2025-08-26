@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640">
+  <rect width="1000" height="640" fill="#f6f8fa"/>
+  <text x="500" y="60" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#0b1f35">פתיחת Pull Request כ־Draft</text>
+
+  <rect x="80" y="100" width="840" height="440" rx="12" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="110" y="150" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#24292f">Base: main</text>
+  <text x="110" y="185" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#24292f">Compare: cursor/check-for-automatic-dependency-update-file-5402</text>
+
+  <rect x="110" y="220" width="780" height="220" rx="8" fill="#fafbfc" stroke="#d0d7de"/>
+  <text x="130" y="252" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#57606a">בדוק שהשינויים מוצגים כאן</text>
+
+  <rect x="110" y="470" width="260" height="46" rx="8" fill="#1f883d"/>
+  <text x="240" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#ffffff">Create draft pull request</text>
+
+  <text x="110" y="560" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#57606a">טיפ: אם כתוב “There isn’t anything to compare”, החלף בין base ל־compare</text>
+</svg>
