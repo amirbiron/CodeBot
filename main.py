@@ -1082,11 +1082,11 @@ class CodeKeeperBot:
             document = update.message.document
             user_id = update.effective_user.id
             
-            # בדיקת גודל הקובץ (עד 10MB)
-            if document.file_size > 10 * 1024 * 1024:
+            # בדיקת גודל הקובץ (עד 20MB)
+            if document.file_size > 20 * 1024 * 1024:
                 await update.message.reply_text(
                     "❌ הקובץ גדול מדי!\n"
-                    "📏 הגודל המקסימלי המותר הוא 10MB"
+                    "📏 הגודל המקסימלי המותר הוא 20MB"
                 )
                 return
             
