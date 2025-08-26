@@ -30,8 +30,6 @@ from config import config
 from database import CodeSnippet, DatabaseManager, db
 from code_processor import code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
-# New import for advanced handler setup helper
-from advanced_bot_handlers import setup_advanced_handlers
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
@@ -1082,11 +1080,11 @@ class CodeKeeperBot:
             document = update.message.document
             user_id = update.effective_user.id
             
-            # בדיקת גודל הקובץ (עד 10MB)
-            if document.file_size > 10 * 1024 * 1024:
+            # בדיקת גודל הקובץ (עד 20MB)
+            if document.file_size > 20 * 1024 * 1024:
                 await update.message.reply_text(
                     "❌ הקובץ גדול מדי!\n"
-                    "📏 הגודל המקסימלי המותר הוא 10MB"
+                    "📏 הגודל המקסימלי המותר הוא 20MB"
                 )
                 return
             
