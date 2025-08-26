@@ -253,6 +253,15 @@ class BackupMenuHandler:
 					f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
 					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
 				)
+			# הוסף תיוג אם קיים
+			try:
+				md = getattr(info, 'metadata', None) or {}
+				le = md.get('label_emoji') or ""
+				lt = md.get('label_text') or ""
+				if le or lt:
+					line = f"{line} — תיוג: {le} {lt}"
+			except Exception:
+				pass
 			lines.append(line)
 			row = []
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
