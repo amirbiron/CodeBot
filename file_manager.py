@@ -419,8 +419,7 @@ class BackupManager:
         """מחיקת גיבוי"""
         
         try:
-            deleted_any: bool = False
-            # מחיקה מקבצים בדיסק (ברירת מחדל + legacy)
+            # חפש את הגיבוי בשתי התיקיות (ברירת מחדל + legacy)
             candidate_files: List[Path] = []
             try:
                 candidate_files.extend(list(self.backup_dir.glob(f"{backup_id}.zip")))
@@ -440,99 +439,21 @@ class BackupManager:
                         try:
                             metadata_content = zip_file.read("metadata.json")
                             metadata = json.loads(metadata_content)
-                            # אם אין user_id במטאדטה, נאפשר מחיקה לפי בעלות משוערת (ה-backup_id כולל את ה-user_id)
-                            if metadata.get("user_id") == user_id or (isinstance(metadata.get("backup_id"), str) and f"_{user_id}_" in metadata.get("backup_id", "")):
+                            if metadata.get("user_id") == user_id:
                                 backup_file.unlink()
-                                logger.info(f"נמחק גיבוי מקומי: {backup_id}")
-                                deleted_any = True
+                                logger.info(f"נמחק גיבוי: {backup_id}")
+                                return True
                         except Exception:
-                            # אין מטאדטה – בדיקת backup_id לפי דפוס
-                            base = os.path.basename(str(backup_file))
-                            if str(user_id) in base:
-                                with suppress(Exception):
-                                    backup_file.unlink()
-                                    logger.info(f"נמחק גיבוי מקומי (ללא מטאדטה): {backup_id}")
-                                    deleted_any = True
+                            # אין מטאדטה – דלג
+                            continue
                 except Exception:
                     continue
             
-            # מחיקה מ-GridFS אם קיים
-            try:
-                fs = self._get_gridfs()
-                if fs is not None:
-                    # נבצע מעבר על כל הקבצים ונאתר לפי filename/metadata
-                    to_delete_ids: List[Any] = []  # type: ignore[name-defined]
-                    for fdoc in fs.find():
-                        try:
-                            md = getattr(fdoc, 'metadata', None) or {}
-                            matches_id = False
-                            try:
-                                if getattr(fdoc, 'filename', '') == f"{backup_id}.zip":
-                                    matches_id = True
-                            except Exception:
-                                pass
-                            if not matches_id:
-                                try:
-                                    if md.get('backup_id') == backup_id:
-                                        matches_id = True
-                                except Exception:
-                                    pass
-                            if not matches_id:
-                                continue
-                            owner_ok = False
-                            try:
-                                if md.get('user_id') == user_id or (isinstance(md.get('backup_id'), str) and f"_{user_id}_" in md.get('backup_id', '')):
-                                    owner_ok = True
-                            except Exception:
-                                owner_ok = False
-                            if owner_ok:
-                                to_delete_ids.append(fdoc._id)
-                        except Exception:
-                            continue
-                    for _id in to_delete_ids:
-                        with suppress(Exception):
-                            fs.delete(_id)
-                            deleted_any = True
-                    # נקה קובץ cache מקומי אם נוצר בהצגה
-                    try:
-                        local_cache = self.backup_dir / f"{backup_id}.zip"
-                        if local_cache.exists():
-                            local_cache.unlink()
-                            deleted_any = True
-                    except Exception:
-                        pass
-            except Exception as e:
-                logger.debug(f"GridFS deletion attempt failed for {backup_id}: {e}")
-            
-            if not deleted_any:
-                logger.warning(f"גיבוי לא נמצא או לא שייך למשתמש: {backup_id}")
-                return False
-            return True
+            logger.warning(f"גיבוי לא נמצא או לא שייך למשתמש: {backup_id}")
+            return False
         
         except Exception as e:
             logger.error(f"שגיאה במחיקת גיבוי: {e}")
             return False
-
-    def delete_backups_for_repo(self, user_id: int, repo_full: str, exclude_backup_id: Optional[str] = None) -> int:
-        """מוחק את כל הגיבויים מסוג github_repo_zip עבור ריפו מסוים של המשתמש.
-        מחזיר את מספר הגיבויים שנמחקו."""
-        deleted_count: int = 0
-        try:
-            backups = self.list_backups(user_id)
-            for b in backups:
-                try:
-                    if getattr(b, 'backup_type', '') != 'github_repo_zip':
-                        continue
-                    if getattr(b, 'repo', None) != repo_full:
-                        continue
-                    if exclude_backup_id and getattr(b, 'backup_id', None) == exclude_backup_id:
-                        continue
-                    if self.delete_backup(b.backup_id, user_id):
-                        deleted_count += 1
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.warning(f"delete_backups_for_repo failed for {repo_full}: {e}")
-        return deleted_count
 
 backup_manager = BackupManager()
