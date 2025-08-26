@@ -1,0 +1,11 @@
+[run]
+omit =
+    get-pip.py
+    */site-packages/*
+
+[report]
+exclude_lines =
+    if __name__ == .__main__.: 
+    pragma: no cover
+    nosec
+
