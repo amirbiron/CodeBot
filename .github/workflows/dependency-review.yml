@@ -13,8 +13,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Dependency review
+      - name: Dependency review (public repos)
+        if: ${{ github.event.repository.private == false }}
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+      - name: Skip on private repos (no GHAS)
+        if: ${{ github.event.repository.private == true }}
+        run: |
+          echo "Dependency review skipped: repository is private without GitHub Advanced Security."
+          echo "Enable Security & analysis → Dependency graph and GitHub Advanced Security to use this check."
 
