@@ -16,7 +16,7 @@ services:
     # הגדרות בנייה
     buildCommand: |
       pip install --upgrade pip
-      pip install -r requirements.txt
+      pip install --no-cache-dir --upgrade -r requirements.txt
     
     # פקודת הפעלה
     startCommand: python main.py
