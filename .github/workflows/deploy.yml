@@ -301,26 +301,10 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
-  # ===================================
-  # שלב 3.5: החזרת בדיקות נפרדות
-  # ===================================
-  pr-lint-check:
-    name: ✅ PR Lint Passed
-    runs-on: ubuntu-latest
-    needs: [code-quality]
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Lint OK
-        run: echo "Lint checks completed (see job 'Code Quality & Security')"
-
-  pr-tests-check:
-    name: ✅ PR Tests Passed
-    runs-on: ubuntu-latest
-    needs: [unit-tests]
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Tests OK
-        run: echo "Unit tests completed (see job 'Unit Tests')"
+  # שלב 3.5: אין עטיפה נוספת — השתמש ישירות בבדיקות:
+  # Required checks should reference job names:
+  #   • 🔍 Code Quality & Security
+  #   • 🧪 Unit Tests
 
   # ===================================
   # שלב 4: פריסה ל-Render Staging
@@ -608,21 +592,9 @@ jobs:
           echo "📊 Collecting deployment metrics..."
           # כאן נוסיף איסוף מטריקות לצורכי ניטור
 
-# ===================================
-# Workflow נוסף: Security Scanning
-# ===================================
----
-name: 🔒 Security Scan
-
-on:
-  schedule:
-    - cron: '0 2 * * 1'  # כל יום שני ב-2:00
-  workflow_dispatch:
-
-jobs:
-  security-scan:
-    name: 🛡️ Security Analysis
-    runs-on: ubuntu-latest
+## ===================================
+## Workflow נוסף: Security Scanning הועבר לקובץ נפרד
+## ===================================
     
     steps:
       - uses: actions/checkout@v4
@@ -638,30 +610,9 @@ jobs:
       - name: 🔍 Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-# ===================================
-# Workflow נוסף: Performance Testing
-# ===================================
----
-name: ⚡ Performance Tests
-
-on:
-  schedule:
-    - cron: '0 4 * * *'  # יומי ב-4:00
-  workflow_dispatch:
-
-jobs:
-  performance-test:
-    name: 🚀 Load Testing
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: 🔥 Run Load Tests
-        run: |
-          echo "🔥 Running performance tests..."
-          # כאן נוסיף בדיקות ביצועים
-          # k6 run performance/load-test.js
+## ===================================
+## Workflow נוסף: Performance Testing הועבר לקובץ נפרד
+## ===================================
 
 # ===================================
 # הוראות הגדרה ב-GitHub + Render
