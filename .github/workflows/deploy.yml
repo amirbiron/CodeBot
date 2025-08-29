@@ -301,17 +301,7 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
-  # ===================================
-  # שלב 3.5: Branch Protection Gate (תאימות זמנית ל-Branch protection קיים)
-  # ===================================
-  branch-protection-gate:
-    name: ✅ Branch Protection Gate
-    runs-on: ubuntu-latest
-    needs: [code-quality, unit-tests]
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: All prerequisite checks succeeded
-        run: echo "All prerequisite checks succeeded"
+  # שלב 3.5: (בוטל) — השתמש ישירות בבדיקות Code Quality & Security ו‑Unit Tests
 
   # ===================================
   # שלב 4: פריסה ל-Render Staging
