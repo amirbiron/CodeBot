@@ -271,7 +271,7 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
                         CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|choose_upload_folder|upload_folder_root|upload_folder_current|upload_folder_custom|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu|github_create_repo_from_zip|github_new_repo_name|github_set_new_repo_visibility:.*)')
+                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|choose_upload_folder|upload_folder_root|upload_folder_current|upload_folder_custom|upload_folder_create|create_folder|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu|github_create_repo_from_zip|github_new_repo_name|github_set_new_repo_visibility:.*)')
             )
 
         # Inline query handler
@@ -313,7 +313,11 @@ class CodeKeeperBot:
             if context.user_data.get('waiting_for_repo_url') or \
                context.user_data.get('waiting_for_delete_file_path') or \
                context.user_data.get('waiting_for_download_file_path') or \
-               context.user_data.get('waiting_for_new_repo_name'):
+               context.user_data.get('waiting_for_new_repo_name') or \
+               context.user_data.get('waiting_for_selected_folder') or \
+               context.user_data.get('waiting_for_new_folder_path') or \
+               context.user_data.get('waiting_for_paste_content') or \
+               context.user_data.get('waiting_for_paste_filename'):
                 logger.info(f"🔗 Routing GitHub-related text input from user {update.effective_user.id}")
                 return await github_handler.handle_text_input(update, context)
             return False
@@ -525,10 +529,12 @@ class CodeKeeperBot:
         safe_file_name = html_escape(file_name)
         safe_tags = ", ".join(html_escape(t) for t in tags) if tags else 'ללא'
         
+        # בקשת קוד ולאחריו הערה אופציונלית
         await update.message.reply_text(
             f"📝 מוכן לשמור את <code>{safe_file_name}</code>\n"
             f"🏷️ תגיות: {safe_tags}\n\n"
-            "אנא שלח את קטע הקוד:",
+            "אנא שלח את קטע הקוד:\n"
+            "(אחרי שנקבל את הקוד, אשאל אם תרצה להוסיף הערה)",
             parse_mode=ParseMode.HTML
         )
     
@@ -1292,6 +1298,16 @@ class CodeKeeperBot:
                 "רוצה לשמור אותו? השתמש ב/save או שלח שוב עם שם קובץ.",
                 reply_to_message_id=update.message.message_id
             )
+        # שלב ביניים לקליטת הערה אחרי קוד
+        elif 'saving_file' in context.user_data and context.user_data['saving_file'].get('note_asked') and 'pending_code_buffer' in context.user_data:
+            note_text = (text or '').strip()
+            if note_text.lower() in {"דלג", "skip", "ללא", ""}:
+                context.user_data['saving_file']['note_value'] = ""
+            else:
+                # הגבלת אורך הערה
+                context.user_data['saving_file']['note_value'] = note_text[:280]
+            # קרא שוב לשמירה בפועל (תדלג על השאלה כי note_asked=true)
+            await self._save_code_snippet(update, context, context.user_data.get('pending_code_buffer', ''))
     
     async def _save_code_snippet(self, update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
         """שמירה בפועל של קטע קוד"""
@@ -1308,12 +1324,29 @@ class CodeKeeperBot:
         detected_language = code_processor.detect_language(code, saving_data['file_name'])
         logger.info(f"זוהתה שפה: {detected_language} עבור הקובץ {saving_data['file_name']}")
         
-        # יצירת אובייקט קטע קוד
+        # אם טרם נשמרה הערה, נשאל כעת
+        if not saving_data.get('note_asked'):
+            saving_data['note_asked'] = True
+            context.user_data['saving_file'] = saving_data
+            context.user_data['pending_code_buffer'] = code
+            await update.message.reply_text(
+                "📝 רוצה להוסיף הערה קצרה לקובץ?\n"
+                "כתוב/כתבי אותה עכשיו או שלח/י 'דלג' כדי לשמור בלי הערה."
+            )
+            return
+
+        # שלב שני: כבר נשאלה הערה, בדוק אם התקבלה
+        note = saving_data.get('note_value') or ""
+        if 'pending_code_buffer' in context.user_data:
+            code = context.user_data.pop('pending_code_buffer')
+
+        # יצירת אובייקט קטע קוד כולל הערה (description)
         snippet = CodeSnippet(
             user_id=saving_data['user_id'],
             file_name=saving_data['file_name'],
             code=code,
             programming_language=detected_language,
+            description=note,
             tags=saving_data['tags']
         )
         
@@ -1324,6 +1357,7 @@ class CodeKeeperBot:
                 f"📁 **{saving_data['file_name']}**\n"
                 f"🔤 שפה: {detected_language}\n"
                 f"🏷️ תגיות: {', '.join(saving_data['tags']) if saving_data['tags'] else 'ללא'}\n"
+                f"📝 הערה: {note or '—'}\n"
                 f"📊 גודל: {len(code)} תווים",
                 parse_mode=ParseMode.HTML
             )

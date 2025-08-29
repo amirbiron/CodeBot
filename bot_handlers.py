@@ -118,7 +118,10 @@ class AdvancedBotHandlers:
                 InlineKeyboardButton("✏️ עריכה", callback_data=f"edit_{file_id}")
             ],
             [
-                InlineKeyboardButton("💾 הורדה", callback_data=f"download_{file_id}"),
+                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_id}"),
+                InlineKeyboardButton("💾 הורדה", callback_data=f"download_{file_id}")
+            ],
+            [
                 InlineKeyboardButton("🌐 שיתוף", callback_data=f"share_{file_id}")
             ]
         ]

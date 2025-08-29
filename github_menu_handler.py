@@ -202,11 +202,15 @@ class GitHubMenuHandler:
 
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if token and session.get("selected_repo"):
+            # העבר את "בחר תיקיית יעד" למעלה, ישירות אחרי "בחר ריפו"
+            keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
+            # הוסף כפתור ליצירת תיקייה חדשה
+            keyboard.append([InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")])
+            # כפתורי העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             keyboard.append(
                 [InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")]
             )
-            keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
             # פעולות נוספות בטוחות
             keyboard.append(
                 [InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="download_file_menu")]
@@ -272,6 +276,7 @@ class GitHubMenuHandler:
             else:
                 folder_display = session.get("selected_folder") or "root"
                 keyboard = [
+                    [InlineKeyboardButton("✍️ הדבק קוד", callback_data="upload_paste_code")],
                     [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
                     [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
                     [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
@@ -287,6 +292,21 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
                 return
+        elif query.data == "upload_paste_code":
+            # התחלת זרימת "הדבק קוד"
+            # נקה דגלים ישנים
+            try:
+                context.user_data.pop("waiting_for_paste_content", None)
+                context.user_data.pop("waiting_for_paste_filename", None)
+                context.user_data.pop("paste_content", None)
+            except Exception:
+                pass
+            context.user_data["waiting_for_paste_content"] = True
+            await query.edit_message_text(
+                "✍️ שלח/י כאן את הקוד להעלאה כטקסט.\n\n"
+                "לאחר מכן אבקש את שם הקובץ (כולל סיומת).",
+            )
+            return
         elif query.data == "gh_upload_cat:repos":
             await self.show_upload_repos(update, context)
         elif query.data == "gh_upload_cat:zips":
@@ -437,6 +457,8 @@ class GitHubMenuHandler:
             await self.show_pre_upload_check(update, context)
         elif query.data == "upload_folder_custom":
             await self.ask_upload_folder(update, context)
+        elif query.data == "upload_folder_create":
+            await self.create_upload_folder(update, context)
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:
@@ -624,29 +646,6 @@ class GitHubMenuHandler:
                 ])
             )
             return
-
-        elif query.data.startswith("github_repo_restore_backup_setpurge:"):
-            # בצע את ההעלאה לריפו מתוך קובץ ה-ZIP שמור בדיסק
-            purge_flag = query.data.split(":", 1)[1] == "1"
-            zip_path = context.user_data.get("pending_repo_restore_zip_path")
-            if not zip_path or not os.path.exists(zip_path):
-                await query.edit_message_text("❌ קובץ ZIP לא נמצא")
-                return
-            try:
-                await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר...")
-                await self.restore_zip_file_to_repo(update, context, zip_path, purge_flag)
-                await query.edit_message_text("✅ השחזור הועלה לריפו בהצלחה")
-            except Exception as e:
-                await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {e}")
-            finally:
-                context.user_data.pop("pending_repo_restore_zip_path", None)
-                # נקה נעילת יעד תמידית גם במקרה של כישלון, כדי לא להיתקע על ריפו קודם
-                try:
-                    context.user_data.pop("zip_restore_expected_repo_full", None)
-                except Exception:
-                    pass
-            return
-
         elif query.data == "github_backup_help":
             help_text = (
                 "<b>הסבר על הכפתורים:</b>\n\n"
@@ -727,6 +726,7 @@ class GitHubMenuHandler:
                 [InlineKeyboardButton("📂 assets", callback_data="folder_assets")],
                 [InlineKeyboardButton("📂 images", callback_data="folder_images")],
                 [InlineKeyboardButton("✏️ אחר (הקלד ידנית)", callback_data="folder_custom")],
+                [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")],
                 [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -736,8 +736,11 @@ class GitHubMenuHandler:
         elif query.data.startswith("folder_"):
             folder = query.data.replace("folder_", "")
             if folder == "custom":
+                # בקש קלט לתיקייה מותאמת אישית
+                context.user_data["waiting_for_selected_folder"] = True
                 await query.edit_message_text(
-                    "✏️ הקלד שם תיקייה:\n" "(השאר ריק או הקלד / להעלאה ל-root)"
+                    "✏️ הקלד שם תיקייה (לדוגמה: src/images)\n"
+                    "השאר ריק או הקלד / כדי לבחור root"
                 )
                 return FOLDER_SELECT
             elif folder == "root":
@@ -748,6 +751,17 @@ class GitHubMenuHandler:
                 session["selected_folder"] = folder.replace("_", "/")
                 await query.answer(f"✅ תיקייה עודכנה ל-{session['selected_folder']}", show_alert=False)
                 await self.github_menu_command(update, context)
+
+        elif query.data in ("create_folder", "upload_folder_create"):
+            # בקש מהמשתמש נתיב תיקייה חדשה ליצירה (ניצור .gitkeep בתוך התיקייה)
+            return_to_pre = (query.data == "upload_folder_create")
+            context.user_data["waiting_for_new_folder_path"] = True
+            context.user_data["return_to_pre_upload"] = return_to_pre
+            await query.edit_message_text(
+                "➕ יצירת תיקייה חדשה\n\n"
+                "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.")
+            return REPO_SELECT
 
         elif query.data == "github_menu":
             # חזרה לתפריט הראשי של GitHub
@@ -1154,7 +1168,6 @@ class GitHubMenuHandler:
             # החלף מצב מחיקה בטוחה
             context.user_data["safe_delete"] = not context.user_data.get("safe_delete", True)
             await self.show_repo_browser(update, context, only_keyboard=True)
-
         elif query.data == "multi_execute":
             # בצע פעולה על הבחירה (ZIP בהורדה | מחיקה במצב מחיקה)
             selection = list(dict.fromkeys(context.user_data.get("multi_selection", [])))
@@ -1784,7 +1797,6 @@ class GitHubMenuHandler:
             await query.edit_message_text("בחר/י ריפו (מתוך תגיות הקבצים השמורים):", reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת רשימת ריפואים: {e}")
-
     async def show_upload_repo_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE,_repo_tag: str):
         """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם"""
         user_id = update.effective_user.id
@@ -2075,8 +2087,10 @@ class GitHubMenuHandler:
                     repo = g.get_repo(repo_name)
 
                     # בניית נתיב הקובץ
-                    folder = context.user_data.get("target_folder") or session.get(
-                        "selected_folder"
+                    folder = (
+                        context.user_data.get("upload_target_folder")
+                        or context.user_data.get("target_folder")
+                        or session.get("selected_folder")
                     )
                     if folder and folder.strip() and folder != "root":
                         # הסר / מיותרים
@@ -2162,7 +2176,7 @@ class GitHubMenuHandler:
             await self.analyze_repository(update, context, text)
             return True
 
-        # הזנת שם ריפו חדש לזרימת יצירה מ‑ZIP
+        # הזנת שם ריפו חדש לזרימת יצירה מּZIP
         if context.user_data.get("waiting_for_new_repo_name"):
             # נקה את מצב ההמתנה
             context.user_data["waiting_for_new_repo_name"] = False
@@ -2181,6 +2195,142 @@ class GitHubMenuHandler:
                 f"✅ שם הריפו נקבע: <code>{safe}</code>\nשלח עכשיו קובץ ZIP לפריסה.",
                 parse_mode="HTML"
             )
+            return True
+
+        # זרימת הדבקת קוד: שלב 1 - קבלת תוכן
+        if context.user_data.get("waiting_for_paste_content"):
+            context.user_data["waiting_for_paste_content"] = False
+            code_text = text or ""
+            if not code_text.strip():
+                context.user_data["waiting_for_paste_content"] = True
+                await update.message.reply_text("⚠️ קיבלתי תוכן ריק. הדבק/י את הקוד שוב.")
+                return True
+            context.user_data["paste_content"] = code_text
+            context.user_data["waiting_for_paste_filename"] = True
+            await update.message.reply_text(
+                "📄 איך לקרוא לקובץ?\nהקלד/י שם כולל סיומת (לדוגמה: app.py או index.ts)."
+            )
+            return True
+
+        # זרימת הדבקת קוד: שלב 2 - קבלת שם קובץ ופתיחת מסך הבדיקות
+        if context.user_data.get("waiting_for_paste_filename"):
+            context.user_data["waiting_for_paste_filename"] = False
+            raw_name = (text or "").strip()
+            # ולידציה בסיסית לשם קובץ
+            safe_name = raw_name.replace("\\", "/").split("/")[-1]
+            safe_name = re.sub(r"\s+", "_", safe_name)
+            safe_name = safe_name.strip()
+            if not safe_name or "." not in safe_name:
+                context.user_data["waiting_for_paste_filename"] = True
+                await update.message.reply_text("⚠️ שם קובץ לא תקין. ודא שם + סיומת, לדוגמה: main.py")
+                return True
+
+            if not session.get("selected_repo"):
+                await update.message.reply_text("❌ קודם בחר/י ריפו. שלח/י /github")
+                return True
+
+            content = context.user_data.get("paste_content") or ""
+            try:
+                from database import db
+                from datetime import datetime
+                doc = {
+                    "user_id": user_id,
+                    "file_name": safe_name,
+                    "content": content,
+                    "created_at": datetime.utcnow(),
+                    "tags": ["pasted"],
+                }
+                res = db.collection.insert_one(doc)
+                context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+                # נקה תוכן זמני
+                context.user_data.pop("paste_content", None)
+                await self.show_pre_upload_check(update, context)
+            except Exception as e:
+                await update.message.reply_text(f"❌ שגיאה בשמירת הקובץ הזמני: {safe_html_escape(str(e))}", parse_mode="HTML")
+            return True
+
+        # בחירת תיקייה (מתוך "בחר תיקיית יעד" הכללי)
+        if context.user_data.get("waiting_for_selected_folder"):
+            context.user_data["waiting_for_selected_folder"] = False
+            folder_raw = (text or "").strip()
+            # Normalize: allow '/' or empty for root
+            if folder_raw in {"", "/"}:
+                session["selected_folder"] = None
+                await update.message.reply_text("✅ תיקיית יעד עודכנה ל-root")
+            else:
+                # clean slashes and collapse duplicates
+                folder_clean = re.sub(r"/+", "/", folder_raw.strip("/"))
+                session["selected_folder"] = folder_clean
+                await update.message.reply_text(
+                    f"✅ תיקיית יעד עודכנה ל-<code>{safe_html_escape(folder_clean)}</code>",
+                    parse_mode="HTML",
+                )
+            # חזרה לתפריט GitHub
+            await self.github_menu_command(update, context)
+            return True
+
+        # יצירת תיקייה חדשה (גם מהתפריט וגם מתוך בדיקות לפני העלאה)
+        if context.user_data.get("waiting_for_new_folder_path"):
+            context.user_data["waiting_for_new_folder_path"] = False
+            folder_raw = (text or "").strip()
+            if folder_raw in {"", "/"}:
+                await update.message.reply_text("❌ יש להזין נתיב תיקייה תקין (לדוגמה: src/new)")
+                return True
+            folder_clean = re.sub(r"/+", "/", folder_raw.strip("/"))
+
+            # צור קובץ .gitkeep בתיקייה החדשה כדי ליצור אותה בגיט
+            token = self.get_user_token(user_id)
+            repo_full = session.get("selected_repo")
+            if not (token and repo_full):
+                await update.message.reply_text("❌ חסר טוקן או ריפו לא נבחר")
+                return True
+            try:
+                g = Github(token)
+                repo = g.get_repo(repo_full)
+                target_branch = context.user_data.get("upload_target_branch") or getattr(repo, "default_branch", None) or "main"
+                file_path = f"{folder_clean}/.gitkeep"
+                content = "placeholder to keep directory"
+                # נסה ליצור, ואם קיים נעדכן
+                try:
+                    existing = repo.get_contents(file_path, ref=target_branch)
+                    repo.update_file(
+                        path=file_path,
+                        message=f"Update .gitkeep via bot in {folder_clean}",
+                        content=content,
+                        sha=existing.sha,
+                        branch=target_branch,
+                    )
+                except Exception:
+                    repo.create_file(
+                        path=file_path,
+                        message=f"Create folder {folder_clean} via bot",
+                        content=content,
+                        branch=target_branch,
+                    )
+
+                # אם נוצר מתוך זרימת ה-pre-upload, עדכן את תיקיית היעד וחזור לבדיקה
+                if context.user_data.get("return_to_pre_upload"):
+                    context.user_data["return_to_pre_upload"] = False
+                    context.user_data["upload_target_folder"] = folder_clean
+                    await update.message.reply_text(
+                        f"✅ התיקייה נוצרה: <code>{safe_html_escape(folder_clean)}</code>\nחוזר למסך הבדיקות…",
+                        parse_mode="HTML",
+                    )
+                    await self.show_pre_upload_check(update, context)
+                else:
+                    # אחרת, עדכן גם את התיקייה הנבחרת לשימוש עתידי וחזור לתפריט
+                    session["selected_folder"] = folder_clean
+                    await update.message.reply_text(
+                        f"✅ התיקייה נוצרה ונבחרה: <code>{safe_html_escape(folder_clean)}</code>",
+                        parse_mode="HTML",
+                    )
+                    await self.github_menu_command(update, context)
+            except Exception as e:
+                logger.error(f"Failed to create folder {folder_clean}: {e}", exc_info=True)
+                await update.message.reply_text(
+                    f"❌ יצירת תיקייה נכשלה: {safe_html_escape(str(e))}",
+                    parse_mode="HTML",
+                )
             return True
 
         # ברירת מחדל: סיים
@@ -2315,7 +2465,6 @@ class GitHubMenuHandler:
             await status_message.edit_text(
                 error_message, reply_markup=InlineKeyboardMarkup(keyboard)
             )
-
     def _create_analysis_summary(self, analysis: Dict[str, Any]) -> str:
         """יוצר סיכום של הניתוח"""
         # Escape HTML special characters
@@ -2872,7 +3021,6 @@ class GitHubMenuHandler:
         context.user_data["multi_mode"] = False
         context.user_data["multi_selection"] = []
         await self.show_repo_browser(update, context)
-
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False):
         """מציג דפדפן ריפו לפי נתיב ושימוש (download/delete)"""
         query = update.callback_query
@@ -3519,7 +3667,6 @@ class GitHubMenuHandler:
             f"🆕 צור PR — בחר סניף head (base יהיה ברירת המחדל של הריפו)",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
-
     async def show_confirm_create_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -3905,6 +4052,7 @@ class GitHubMenuHandler:
             kb = []
             kb.append([InlineKeyboardButton("🌿 בחר ענף יעד", callback_data="choose_upload_branch")])
             kb.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="choose_upload_folder")])
+            kb.append([InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")])
             kb.append([InlineKeyboardButton("🔄 רענן בדיקות", callback_data="refresh_saved_checks")])
             if push_allowed and not archived:
                 kb.append([InlineKeyboardButton("✅ אשר והעלה", callback_data="confirm_saved_upload")])
@@ -3972,6 +4120,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📁 root (ראשי)", callback_data="upload_folder_root")],
             [InlineKeyboardButton(f"📂 השתמש בתיקייה שנבחרה: {current}", callback_data="upload_folder_current")],
             [InlineKeyboardButton("✏️ הזן נתיב ידנית", callback_data="upload_folder_custom")],
+            [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")],
             [InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")],
         ]
         await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
@@ -4160,7 +4309,6 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
         ]
         await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-
     async def create_branch_from_tag(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
         """יוצר ענף חדש שמצביע ל-commit של התגית לשחזור נוח"""
         query = update.callback_query

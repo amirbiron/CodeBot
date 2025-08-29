@@ -205,6 +205,16 @@ jobs:
           name: coverage-reports
           path: htmlcov/
 
+  # Aggregator to expose a single required status for all matrix runs
+  unit-tests-gate:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: All unit test matrix runs succeeded
+        run: echo "All unit test matrix runs succeeded"
+
   # ===================================
   # שלב 3: בניית Docker Images
   # ===================================
@@ -301,17 +311,7 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
-  # ===================================
-  # שלב 3.5: Branch Protection Gate
-  # ===================================
-  branch-protection-gate:
-    name: ✅ Branch Protection Gate
-    runs-on: ubuntu-latest
-    needs: [code-quality, unit-tests]
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: All prerequisite checks succeeded
-        run: echo "All prerequisite checks succeeded"
+  # שלב 3.5: (בוטל) — השתמש ישירות בבדיקות Code Quality & Security ו‑Unit Tests
 
   # ===================================
   # שלב 4: פריסה ל-Render Staging
@@ -599,21 +599,9 @@ jobs:
           echo "📊 Collecting deployment metrics..."
           # כאן נוסיף איסוף מטריקות לצורכי ניטור
 
-# ===================================
-# Workflow נוסף: Security Scanning
-# ===================================
----
-name: 🔒 Security Scan
-
-on:
-  schedule:
-    - cron: '0 2 * * 1'  # כל יום שני ב-2:00
-  workflow_dispatch:
-
-jobs:
-  security-scan:
-    name: 🛡️ Security Analysis
-    runs-on: ubuntu-latest
+## ===================================
+## Workflow נוסף: Security Scanning הועבר לקובץ נפרד
+## ===================================
     
     steps:
       - uses: actions/checkout@v4
@@ -629,30 +617,9 @@ jobs:
       - name: 🔍 Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
 
-# ===================================
-# Workflow נוסף: Performance Testing
-# ===================================
----
-name: ⚡ Performance Tests
-
-on:
-  schedule:
-    - cron: '0 4 * * *'  # יומי ב-4:00
-  workflow_dispatch:
-
-jobs:
-  performance-test:
-    name: 🚀 Load Testing
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: 🔥 Run Load Tests
-        run: |
-          echo "🔥 Running performance tests..."
-          # כאן נוסיף בדיקות ביצועים
-          # k6 run performance/load-test.js
+## ===================================
+## Workflow נוסף: Performance Testing הועבר לקובץ נפרד
+## ===================================
 
 # ===================================
 # הוראות הגדרה ב-GitHub + Render
