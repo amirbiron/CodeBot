@@ -205,6 +205,16 @@ jobs:
           name: coverage-reports
           path: htmlcov/
 
+  # Aggregator to expose a single required status for all matrix runs
+  unit-tests-gate:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: All unit test matrix runs succeeded
+        run: echo "All unit test matrix runs succeeded"
+
   # ===================================
   # שלב 3: בניית Docker Images
   # ===================================
