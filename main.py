@@ -529,10 +529,12 @@ class CodeKeeperBot:
         safe_file_name = html_escape(file_name)
         safe_tags = ", ".join(html_escape(t) for t in tags) if tags else 'ללא'
         
+        # בקשת קוד ולאחריו הערה אופציונלית
         await update.message.reply_text(
             f"📝 מוכן לשמור את <code>{safe_file_name}</code>\n"
             f"🏷️ תגיות: {safe_tags}\n\n"
-            "אנא שלח את קטע הקוד:",
+            "אנא שלח את קטע הקוד:\n"
+            "(אחרי שנקבל את הקוד, אשאל אם תרצה להוסיף הערה)",
             parse_mode=ParseMode.HTML
         )
     
@@ -1296,6 +1298,16 @@ class CodeKeeperBot:
                 "רוצה לשמור אותו? השתמש ב/save או שלח שוב עם שם קובץ.",
                 reply_to_message_id=update.message.message_id
             )
+        # שלב ביניים לקליטת הערה אחרי קוד
+        elif 'saving_file' in context.user_data and context.user_data['saving_file'].get('note_asked') and 'pending_code_buffer' in context.user_data:
+            note_text = (text or '').strip()
+            if note_text.lower() in {"דלג", "skip", "ללא", ""}:
+                context.user_data['saving_file']['note_value'] = ""
+            else:
+                # הגבלת אורך הערה
+                context.user_data['saving_file']['note_value'] = note_text[:280]
+            # קרא שוב לשמירה בפועל (תדלג על השאלה כי note_asked=true)
+            await self._save_code_snippet(update, context, context.user_data.get('pending_code_buffer', ''))
     
     async def _save_code_snippet(self, update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
         """שמירה בפועל של קטע קוד"""
@@ -1312,12 +1324,29 @@ class CodeKeeperBot:
         detected_language = code_processor.detect_language(code, saving_data['file_name'])
         logger.info(f"זוהתה שפה: {detected_language} עבור הקובץ {saving_data['file_name']}")
         
-        # יצירת אובייקט קטע קוד
+        # אם טרם נשמרה הערה, נשאל כעת
+        if not saving_data.get('note_asked'):
+            saving_data['note_asked'] = True
+            context.user_data['saving_file'] = saving_data
+            context.user_data['pending_code_buffer'] = code
+            await update.message.reply_text(
+                "📝 רוצה להוסיף הערה קצרה לקובץ?\n"
+                "כתוב/כתבי אותה עכשיו או שלח/י 'דלג' כדי לשמור בלי הערה."
+            )
+            return
+
+        # שלב שני: כבר נשאלה הערה, בדוק אם התקבלה
+        note = saving_data.get('note_value') or ""
+        if 'pending_code_buffer' in context.user_data:
+            code = context.user_data.pop('pending_code_buffer')
+
+        # יצירת אובייקט קטע קוד כולל הערה (description)
         snippet = CodeSnippet(
             user_id=saving_data['user_id'],
             file_name=saving_data['file_name'],
             code=code,
             programming_language=detected_language,
+            description=note,
             tags=saving_data['tags']
         )
         
@@ -1328,6 +1357,7 @@ class CodeKeeperBot:
                 f"📁 **{saving_data['file_name']}**\n"
                 f"🔤 שפה: {detected_language}\n"
                 f"🏷️ תגיות: {', '.join(saving_data['tags']) if saving_data['tags'] else 'ללא'}\n"
+                f"📝 הערה: {note or '—'}\n"
                 f"📊 גודל: {len(code)} תווים",
                 parse_mode=ParseMode.HTML
             )
