@@ -302,16 +302,25 @@ jobs:
           sarif_file: 'trivy-results.sarif'
 
   # ===================================
-  # שלב 3.5: Branch Protection Gate
+  # שלב 3.5: החזרת בדיקות נפרדות
   # ===================================
-  branch-protection-gate:
-    name: ✅ Branch Protection Gate
+  pr-lint-check:
+    name: ✅ PR Lint Passed
     runs-on: ubuntu-latest
-    needs: [code-quality, unit-tests]
+    needs: [code-quality]
     if: github.event_name == 'pull_request'
     steps:
-      - name: All prerequisite checks succeeded
-        run: echo "All prerequisite checks succeeded"
+      - name: Lint OK
+        run: echo "Lint checks completed (see job 'Code Quality & Security')"
+
+  pr-tests-check:
+    name: ✅ PR Tests Passed
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Tests OK
+        run: echo "Unit tests completed (see job 'Unit Tests')"
 
   # ===================================
   # שלב 4: פריסה ל-Render Staging
