@@ -315,7 +315,9 @@ class CodeKeeperBot:
                context.user_data.get('waiting_for_download_file_path') or \
                context.user_data.get('waiting_for_new_repo_name') or \
                context.user_data.get('waiting_for_selected_folder') or \
-               context.user_data.get('waiting_for_new_folder_path'):
+               context.user_data.get('waiting_for_new_folder_path') or \
+               context.user_data.get('waiting_for_paste_content') or \
+               context.user_data.get('waiting_for_paste_filename'):
                 logger.info(f"🔗 Routing GitHub-related text input from user {update.effective_user.id}")
                 return await github_handler.handle_text_input(update, context)
             return False

@@ -276,6 +276,7 @@ class GitHubMenuHandler:
             else:
                 folder_display = session.get("selected_folder") or "root"
                 keyboard = [
+                    [InlineKeyboardButton("✍️ הדבק קוד", callback_data="upload_paste_code")],
                     [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
                     [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
                     [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
@@ -291,6 +292,21 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
                 return
+        elif query.data == "upload_paste_code":
+            # התחלת זרימת "הדבק קוד"
+            # נקה דגלים ישנים
+            try:
+                context.user_data.pop("waiting_for_paste_content", None)
+                context.user_data.pop("waiting_for_paste_filename", None)
+                context.user_data.pop("paste_content", None)
+            except Exception:
+                pass
+            context.user_data["waiting_for_paste_content"] = True
+            await query.edit_message_text(
+                "✍️ שלח/י כאן את הקוד להעלאה כטקסט.\n\n"
+                "לאחר מכן אבקש את שם הקובץ (כולל סיומת).",
+            )
+            return
         elif query.data == "gh_upload_cat:repos":
             await self.show_upload_repos(update, context)
         elif query.data == "gh_upload_cat:zips":
@@ -2179,6 +2195,58 @@ class GitHubMenuHandler:
                 f"✅ שם הריפו נקבע: <code>{safe}</code>\nשלח עכשיו קובץ ZIP לפריסה.",
                 parse_mode="HTML"
             )
+            return True
+
+        # זרימת הדבקת קוד: שלב 1 - קבלת תוכן
+        if context.user_data.get("waiting_for_paste_content"):
+            context.user_data["waiting_for_paste_content"] = False
+            code_text = text or ""
+            if not code_text.strip():
+                context.user_data["waiting_for_paste_content"] = True
+                await update.message.reply_text("⚠️ קיבלתי תוכן ריק. הדבק/י את הקוד שוב.")
+                return True
+            context.user_data["paste_content"] = code_text
+            context.user_data["waiting_for_paste_filename"] = True
+            await update.message.reply_text(
+                "📄 איך לקרוא לקובץ?\nהקלד/י שם כולל סיומת (לדוגמה: app.py או index.ts)."
+            )
+            return True
+
+        # זרימת הדבקת קוד: שלב 2 - קבלת שם קובץ ופתיחת מסך הבדיקות
+        if context.user_data.get("waiting_for_paste_filename"):
+            context.user_data["waiting_for_paste_filename"] = False
+            raw_name = (text or "").strip()
+            # ולידציה בסיסית לשם קובץ
+            safe_name = raw_name.replace("\\", "/").split("/")[-1]
+            safe_name = re.sub(r"\s+", "_", safe_name)
+            safe_name = safe_name.strip()
+            if not safe_name or "." not in safe_name:
+                context.user_data["waiting_for_paste_filename"] = True
+                await update.message.reply_text("⚠️ שם קובץ לא תקין. ודא שם + סיומת, לדוגמה: main.py")
+                return True
+
+            if not session.get("selected_repo"):
+                await update.message.reply_text("❌ קודם בחר/י ריפו. שלח/י /github")
+                return True
+
+            content = context.user_data.get("paste_content") or ""
+            try:
+                from database import db
+                from datetime import datetime
+                doc = {
+                    "user_id": user_id,
+                    "file_name": safe_name,
+                    "content": content,
+                    "created_at": datetime.utcnow(),
+                    "tags": ["pasted"],
+                }
+                res = db.collection.insert_one(doc)
+                context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+                # נקה תוכן זמני
+                context.user_data.pop("paste_content", None)
+                await self.show_pre_upload_check(update, context)
+            except Exception as e:
+                await update.message.reply_text(f"❌ שגיאה בשמירת הקובץ הזמני: {safe_html_escape(str(e))}", parse_mode="HTML")
             return True
 
         # בחירת תיקייה (מתוך "בחר תיקיית יעד" הכללי)
