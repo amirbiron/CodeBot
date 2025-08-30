@@ -30,7 +30,7 @@ COPY constraints.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 ######################################
-# שלב 2: Production stage (Chainguard)
+# שלב 2: Production stage (Alpine)
 FROM python:3.11-alpine AS production
 
 # משתני סביבה לייצור

@@ -38,7 +38,7 @@ jobs:
       - name: "🧪 Trivy Dockerfile base image scan"
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: 'python:3.11-alpine'
+          image-ref: 'cgr.dev/chainguard/python:latest'
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
