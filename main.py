@@ -973,9 +973,8 @@ class CodeKeeperBot:
                         clean = strip_root(name)
                         if clean:
                             files.append((clean, data))
-                # upload via trees API (תמיכה גם בריפו חדש ללא commit ראשון)
+                # העלאה: אם הריפו ריק לחלוטין, Git Data API עלול להחזיר 409. במקרה כזה נשתמש ב‑Contents API להעלאה קובץ‑קובץ.
                 from github.GithubException import GithubException
-                import time as _time
                 target_branch = (repo.default_branch or 'main')
                 base_ref = None
                 base_commit = None
@@ -986,10 +985,32 @@ class CodeKeeperBot:
                     base_tree = base_commit.tree
                 except GithubException as _e:
                     logger.info(f"No base ref found for new repo (expected for empty repo): {str(_e)}")
+
+                if base_commit is None:
+                    # ריפו ריק: נעלה קבצים באמצעות Contents API (commit לכל קובץ)
+                    created_count = 0
+                    for path, raw in files:
+                        try:
+                            try:
+                                text = raw.decode('utf-8')
+                                repo.create_file(path=path, message="Initial import from ZIP via bot", content=text, branch=target_branch)
+                            except UnicodeDecodeError:
+                                # תוכן בינארי – שלח כ-bytes; PyGithub ידאג לקידוד Base64
+                                repo.create_file(path=path, message="Initial import from ZIP via bot (binary)", content=raw, branch=target_branch)
+                            created_count += 1
+                        except Exception as e_file:
+                            logger.warning(f"[create_repo_from_zip] Failed to create file {path}: {e_file}")
+                    await update.message.reply_text(
+                        f"✅ נוצר ריפו חדש והוזנו {created_count} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return
+
+                # אחרת: יש commit בסיס – נשתמש ב‑Git Trees API לביצוע commit מרוכז אחד
                 from github.InputGitTreeElement import InputGitTreeElement
-                new_tree_elems = []
                 import base64
                 text_exts = ('.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh', '.gitignore')
+                new_tree_elems = []
                 for path, raw in files:
                     try:
                         if path.lower().endswith(text_exts):
@@ -999,15 +1020,11 @@ class CodeKeeperBot:
                     except Exception:
                         blob = repo.create_git_blob(base64.b64encode(raw).decode('ascii'), 'base64')
                     new_tree_elems.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
-                new_tree = repo.create_git_tree(new_tree_elems, base_tree) if base_tree else repo.create_git_tree(new_tree_elems)
-                commit_message = f"Initial import from ZIP via bot"
-                parents = [base_commit] if base_commit else []
+                new_tree = repo.create_git_tree(new_tree_elems, base_tree)
+                commit_message = "Initial import from ZIP via bot"
+                parents = [base_commit]
                 new_commit = repo.create_git_commit(commit_message, new_tree, parents)
-                if base_ref:
-                    base_ref.edit(new_commit.sha)
-                else:
-                    # צור ref ראשוני
-                    repo.create_git_ref(ref=f"refs/heads/{target_branch}", sha=new_commit.sha)
+                base_ref.edit(new_commit.sha)
                 await update.message.reply_text(
                     f"✅ נוצר ריפו חדש והוזנו {len(new_tree_elems)} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
                     parse_mode=ParseMode.HTML
