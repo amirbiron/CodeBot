@@ -7,7 +7,7 @@ from typing import Any, Dict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
 
-from file_manager import backup_manager
+from services import backup_service as backup_manager
 
 logger = logging.getLogger(__name__)
 

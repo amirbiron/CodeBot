@@ -10,6 +10,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, ConversationHandler
 
 from handlers.states import EDIT_CODE, EDIT_NAME
+from services import code_service
 
 logger = logging.getLogger(__name__)
 
@@ -241,8 +242,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         file_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
         editing_file_index = context.user_data.get('editing_file_index')
         files_cache = context.user_data.get('files_cache')
-        from code_processor import code_processor
-        is_valid, cleaned_code, error_message = code_processor.validate_code_input(new_code, file_name, user_id)
+        is_valid, cleaned_code, error_message = code_service.validate_code_input(new_code, file_name, user_id)
         if not is_valid:
             await update.message.reply_text(
                 f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
@@ -250,7 +250,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
             )
             return EDIT_CODE
-        detected_language = code_processor.detect_language(cleaned_code, file_name)
+        detected_language = code_service.detect_language(cleaned_code, file_name)
         from database import db
         success = db.save_file(user_id, file_name, cleaned_code, detected_language)
         if success:
@@ -265,7 +265,8 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 ],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            updated_file = db.get_latest_version(user_id, file_name)
+            from database import db as _db
+            updated_file = _db.get_latest_version(user_id, file_name)
             version_num = updated_file.get('version', 1) if updated_file else 1
             try:
                 if files_cache is not None and editing_file_index is not None and str(editing_file_index) in files_cache:

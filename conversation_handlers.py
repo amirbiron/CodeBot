@@ -22,6 +22,7 @@ from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
+from services import code_service
 
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""

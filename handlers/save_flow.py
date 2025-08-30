@@ -4,6 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from telegram.ext import ContextTypes, ConversationHandler
 
 from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE
+from services import code_service
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +89,7 @@ async def save_file_final(update, context, filename, user_id):
     context.user_data['filename_to_save'] = filename
     code = context.user_data.get('code_to_save')
     try:
-        from code_processor import code_processor
-        detected_language = code_processor.detect_language(code, filename)
+        detected_language = code_service.detect_language(code, filename)
         from database import db, CodeSnippet
         note = (context.user_data.get('note_to_save') or '').strip()
         snippet = CodeSnippet(
