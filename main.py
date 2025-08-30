@@ -19,6 +19,7 @@ from datetime import datetime, timezone, timedelta
 import atexit
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
+import os
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeChat
 from telegram.constants import ParseMode
@@ -75,6 +76,29 @@ reporter = create_reporter(
     service_id=os.getenv('REPORTER_SERVICE_ID', 'srv-d29d72adbo4c73bcuep0'),
     service_name="CodeBot"
 )
+
+# ===== עזר: שליחת הודעת אדמין =====
+def get_admin_ids() -> list[int]:
+    try:
+        raw = os.getenv('ADMIN_USER_IDS')
+        if not raw:
+            return []
+        return [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
+    except Exception:
+        return []
+
+async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    try:
+        admin_ids = get_admin_ids()
+        if not admin_ids:
+            return
+        for admin_id in admin_ids:
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=text)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """רישום פעילות משתמש"""
@@ -788,28 +812,59 @@ class CodeKeeperBot:
                 if not (token and repo_full):
                     await update.message.reply_text("❌ אין טוקן או ריפו נבחר")
                     return
-                # ולידציית יעד: נעלנו ריפו צפוי בתחילת ה-flow; אל תאפשר 'בריחה' לריפו אחר
+                # יעד נעול לבטיחות: אם נקבע בתחילת הזרימה, תמיד נעדיף אותו
                 expected_repo_full = context.user_data.get('zip_restore_expected_repo_full')
+                repo_full_effective = expected_repo_full or repo_full
                 if expected_repo_full and expected_repo_full != repo_full:
-                    logger.critical(f"[restore_zip] Target mismatch: expected={expected_repo_full}, got={repo_full}. Aborting.")
-                    await update.message.reply_text(
-                        f"❌ שגיאת יעד: ציפינו ל־{expected_repo_full}, אך התקבל {repo_full}. נעצר ללא שחזור.",
-                        parse_mode=ParseMode.HTML
-                    )
-                    raise ValueError(f"Target mismatch: expected {expected_repo_full}, got {repo_full}")
-                # אם לא נשמר יעד צפוי (גרסה ישנה), קבע אותו כעת כבלמים קדמיים
+                    # דווח על סטייה אבל המשך בבטחה עם היעד הנעול
+                    logger.warning(f"[restore_zip] Target mismatch: expected={expected_repo_full}, got={repo_full}. Proceeding with expected (locked) target.")
+                    try:
+                        await update.message.reply_text(
+                            f"⚠️ נמצא פער בין היעד הנוכחי ({repo_full}) ליעד הנעול. נשתמש ביעד הנעול: {expected_repo_full}")
+                    except Exception:
+                        pass
+                # אם לא נשמר יעד צפוי (גרסה ישנה), קבע אותו כעת
                 if not expected_repo_full:
                     try:
                         context.user_data['zip_restore_expected_repo_full'] = repo_full
                     except Exception:
                         pass
                 g = Github(token)
-                repo = g.get_repo(repo_full)
+                # נסיון גישה ליעד הנעול/האפקטיבי עם נפילה בטוחה
+                try:
+                    repo = g.get_repo(repo_full_effective)
+                except Exception as e:
+                    logger.exception(f"[restore_zip] Locked target not accessible: {repo_full_effective}: {e}")
+                    # נפילה בטוחה: אם אותו בעלים והריפו הנוכחי שונה – נסה את הריפו הנוכחי
+                    fallback_used = False
+                    if repo_full and repo_full != repo_full_effective:
+                        try:
+                            expected_owner = (expected_repo_full or repo_full_effective).split('/')[0]
+                            current_owner = repo_full.split('/')[0]
+                        except Exception:
+                            expected_owner = None
+                            current_owner = None
+                        if expected_owner and current_owner and current_owner == expected_owner:
+                            try:
+                                await update.message.reply_text(
+                                    f"⚠️ היעד הנעול {repo_full_effective} לא נגיש. מנסה להשתמש ביעד הנוכחי {repo_full} (אותו בעלים).")
+                            except Exception:
+                                pass
+                            try:
+                                repo = g.get_repo(repo_full)
+                                repo_full_effective = repo_full
+                                fallback_used = True
+                            except Exception as e2:
+                                logger.exception(f"[restore_zip] Fallback to current repo failed: {e2}")
+                    if 'repo' not in locals():
+                        await update.message.reply_text(
+                            f"❌ היעד {repo_full_effective} לא נגיש ואין נפילה בטוחה. עצירה. אנא בחרו ריפו מחדש.")
+                        raise
                 target_branch = repo.default_branch or 'main'
                 purge_first = bool(context.user_data.get('github_restore_zip_purge'))
                 await update.message.reply_text(
                     ("🧹 מנקה קבצים קיימים...\n" if purge_first else "") +
-                    f"📤 מעלה {len(files)} קבצים לריפו {repo_full} (branch: {target_branch})..."
+                    f"📤 מעלה {len(files)} קבצים לריפו {repo_full_effective} (branch: {target_branch})..."
                 )
                 # בסיס לעץ
                 base_ref = repo.get_git_ref(f"heads/{target_branch}")
@@ -848,6 +903,13 @@ class CodeKeeperBot:
             except Exception as e:
                 logger.exception(f"GitHub restore-to-repo failed: {e}")
                 await update.message.reply_text(f"❌ שגיאה בשחזור לריפו: {e}")
+                # התראת OOM לאדמין אם מזוהה חריגת זיכרון
+                try:
+                    msg = str(e)
+                    if isinstance(e, MemoryError) or 'Ran out of memory' in msg or 'out of memory' in msg.lower():
+                        await notify_admins(context, f"🚨 OOM בשחזור ZIP לריפו: {msg}")
+                except Exception:
+                    pass
             finally:
                 context.user_data['upload_mode'] = None
                 context.user_data.pop('github_restore_zip_purge', None)
@@ -942,9 +1004,8 @@ class CodeKeeperBot:
                         clean = strip_root(name)
                         if clean:
                             files.append((clean, data))
-                # upload via trees API (תמיכה גם בריפו חדש ללא commit ראשון)
+                # העלאה: אם הריפו ריק לחלוטין, Git Data API עלול להחזיר 409. במקרה כזה נשתמש ב‑Contents API להעלאה קובץ‑קובץ.
                 from github.GithubException import GithubException
-                import time as _time
                 target_branch = (repo.default_branch or 'main')
                 base_ref = None
                 base_commit = None
@@ -955,10 +1016,32 @@ class CodeKeeperBot:
                     base_tree = base_commit.tree
                 except GithubException as _e:
                     logger.info(f"No base ref found for new repo (expected for empty repo): {str(_e)}")
+
+                if base_commit is None:
+                    # ריפו ריק: נעלה קבצים באמצעות Contents API (commit לכל קובץ)
+                    created_count = 0
+                    for path, raw in files:
+                        try:
+                            try:
+                                text = raw.decode('utf-8')
+                                repo.create_file(path=path, message="Initial import from ZIP via bot", content=text, branch=target_branch)
+                            except UnicodeDecodeError:
+                                # תוכן בינארי – שלח כ-bytes; PyGithub ידאג לקידוד Base64
+                                repo.create_file(path=path, message="Initial import from ZIP via bot (binary)", content=raw, branch=target_branch)
+                            created_count += 1
+                        except Exception as e_file:
+                            logger.warning(f"[create_repo_from_zip] Failed to create file {path}: {e_file}")
+                    await update.message.reply_text(
+                        f"✅ נוצר ריפו חדש והוזנו {created_count} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
+                        parse_mode=ParseMode.HTML
+                    )
+                    return
+
+                # אחרת: יש commit בסיס – נשתמש ב‑Git Trees API לביצוע commit מרוכז אחד
                 from github.InputGitTreeElement import InputGitTreeElement
-                new_tree_elems = []
                 import base64
                 text_exts = ('.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh', '.gitignore')
+                new_tree_elems = []
                 for path, raw in files:
                     try:
                         if path.lower().endswith(text_exts):
@@ -968,15 +1051,11 @@ class CodeKeeperBot:
                     except Exception:
                         blob = repo.create_git_blob(base64.b64encode(raw).decode('ascii'), 'base64')
                     new_tree_elems.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
-                new_tree = repo.create_git_tree(new_tree_elems, base_tree) if base_tree else repo.create_git_tree(new_tree_elems)
-                commit_message = f"Initial import from ZIP via bot"
-                parents = [base_commit] if base_commit else []
+                new_tree = repo.create_git_tree(new_tree_elems, base_tree)
+                commit_message = "Initial import from ZIP via bot"
+                parents = [base_commit]
                 new_commit = repo.create_git_commit(commit_message, new_tree, parents)
-                if base_ref:
-                    base_ref.edit(new_commit.sha)
-                else:
-                    # צור ref ראשוני
-                    repo.create_git_ref(ref=f"refs/heads/{target_branch}", sha=new_commit.sha)
+                base_ref.edit(new_commit.sha)
                 await update.message.reply_text(
                     f"✅ נוצר ריפו חדש והוזנו {len(new_tree_elems)} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
                     parse_mode=ParseMode.HTML
@@ -984,6 +1063,13 @@ class CodeKeeperBot:
             except Exception as e:
                 logger.exception(f"Create new repo from ZIP failed: {e}")
                 await update.message.reply_text(f"❌ שגיאה ביצירת ריפו מ‑ZIP: {e}")
+                # התראת OOM לאדמין אם מזוהה חריגת זיכרון
+                try:
+                    msg = str(e)
+                    if isinstance(e, MemoryError) or 'Ran out of memory' in msg or 'out of memory' in msg.lower():
+                        await notify_admins(context, f"🚨 OOM ביצירת ריפו מ‑ZIP: {msg}")
+                except Exception:
+                    pass
             finally:
                 # נקה דגלי זרימה
                 context.user_data['upload_mode'] = None
@@ -1427,7 +1513,42 @@ class CodeKeeperBot:
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בשגיאות"""
         logger.error(f"שגיאה: {context.error}", exc_info=context.error)
-        
+
+        # זיהוי חריגת זיכרון (גלובלי)
+        try:
+            err = context.error
+            err_text = str(err) if err else ""
+            is_oom = isinstance(err, MemoryError) or (
+                isinstance(err_text, str) and (
+                    'Ran out of memory' in err_text or 'out of memory' in err_text.lower() or 'MemoryError' in err_text
+                )
+            )
+            if is_oom:
+                # נסה לצרף סטטוס זיכרון
+                mem_status = ""
+                try:
+                    from utils import get_memory_usage  # import מקומי למניעת תלות בזמן בדיקות
+                    mu = get_memory_usage()
+                    mem_status = f" (RSS={mu.get('rss_mb')}MB, VMS={mu.get('vms_mb')}MB, %={mu.get('percent')})"
+                except Exception:
+                    pass
+                # שלח התראה לאדמינים
+                try:
+                    await notify_admins(context, f"🚨 OOM זוהתה בבוט{mem_status}. חריגה: {err_text[:500]}")
+                except Exception:
+                    pass
+                # אם המשתמש אדמין – שלח גם אליו פירוט
+                try:
+                    if isinstance(update, Update) and update.effective_user:
+                        admin_ids = get_admin_ids()
+                        if admin_ids and update.effective_user.id in admin_ids:
+                            await context.bot.send_message(chat_id=update.effective_user.id,
+                                                           text=f"🚨 OOM זוהתה{mem_status}. התקבלה שגיאה: {err_text[:500]}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         if isinstance(update, Update) and update.effective_message:
             await update.effective_message.reply_text(
                 "❌ אירעה שגיאה. אנא נסה שוב מאוחר יותר."
