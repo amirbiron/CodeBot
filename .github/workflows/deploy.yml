@@ -11,12 +11,6 @@ on:
     branches: [ main, develop ]
     tags: [ 'v*' ]
   
-  # הפעלה על Pull Requests
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - '**'
-  
   # הפעלה ידנית
   workflow_dispatch:
     inputs:
@@ -304,10 +298,19 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
         continue-on-error: true
-      
+
+      - name: Check if SARIF exists
+        id: has_trivy_sarif
+        run: |
+          if [ -f trivy-results.sarif ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 📊 Upload Security Scan Results
+        if: steps.has_trivy_sarif.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@v3
-        if: ${{ hashFiles('trivy-results.sarif') != '' }}
         with:
           sarif_file: 'trivy-results.sarif'
 
