@@ -488,6 +488,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             total_files = len(files)
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             page = 1
+            context.user_data['files_last_page'] = page
             start_index = (page - 1) * FILES_PAGE_SIZE
             end_index = min(start_index + FILES_PAGE_SIZE, total_files)
 
@@ -561,6 +562,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             page = int(data.split("_")[-1])
         except Exception:
             page = 1
+        context.user_data['files_last_page'] = page
         if page < 1:
             page = 1
 
@@ -831,25 +833,32 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             ],
             [
                 InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_{file_index}"),
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")
+                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}")
             ],
             [
-                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
-                InlineKeyboardButton("📊 מידע", callback_data=f"info_{file_index}")
+                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}"),
+                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}")
             ],
             [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}")
-            ],
-            [InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="files")]
+            ]
         ]
+
+        # כפתור חזרה לדף האחרון שנצפה ברשימת הקבצים (אם קיים)
+        last_page = context.user_data.get('files_last_page')
+        back_cb = f"files_page_{last_page}" if last_page else "files"
+        keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # הוסף הצגת הערה אם קיימת
+        note = file_data.get('description') or ''
+        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         await query.edit_message_text(
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
-            f"🧠 **שפה:** {language}\n\n"
+            f"🧠 **שפה:** {language}{note_line}"
             f"🎮 בחר פעולה מתקדמת:",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -888,20 +897,22 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             code_preview = code
         
         # כפתורים מתקדמים לעריכה
+        last_page = context.user_data.get('files_last_page')
+        back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
                 InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")
             ],
             [
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}"),
-                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}")
+                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"),
+                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")
             ],
             [
-                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
-                InlineKeyboardButton("📊 מידע מלא", callback_data=f"info_{file_index}")
+                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
+                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")
             ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]
+            [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1636,21 +1647,21 @@ async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_
             ],
             [
                 InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"),
+                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
             ],
             [
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}"),
-                InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}"),
-                InlineKeyboardButton("📊 מידע מלא", callback_data=f"info_direct_{file_name}")
+                InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"),
+                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")
             ],
             [InlineKeyboardButton("🔙 לרשימה", callback_data="files")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # הצגת הערה אם קיימת
+        note = file_data.get('description') or ''
+        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}\n\n"
+            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
             parse_mode='Markdown'
