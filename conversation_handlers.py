@@ -276,6 +276,26 @@ async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     return ConversationHandler.END
 
+# --- Redirect file view/edit handlers to split module implementations ---
+from handlers.file_view import (
+    handle_file_menu as handle_file_menu,
+    handle_view_file as handle_view_file,
+    handle_edit_code as handle_edit_code,
+    receive_new_code as receive_new_code,
+    handle_edit_name as handle_edit_name,
+    handle_edit_note as handle_edit_note,
+    receive_new_name as receive_new_name,
+    handle_versions_history as handle_versions_history,
+    handle_download_file as handle_download_file,
+    handle_delete_confirmation as handle_delete_confirmation,
+    handle_delete_file as handle_delete_file,
+    handle_file_info as handle_file_info,
+    handle_view_direct_file as handle_view_direct_file,
+    handle_edit_code_direct as handle_edit_code_direct,
+    handle_edit_name_direct as handle_edit_name_direct,
+    handle_edit_note_direct as handle_edit_note_direct,
+)
+
 async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מצב ייבוא ZIP של ריפו: מבקש לשלוח ZIP ומכין את ה-upload_mode."""
     context.user_data.pop('waiting_for_github_upload', None)
