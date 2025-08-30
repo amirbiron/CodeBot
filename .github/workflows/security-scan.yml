@@ -1,6 +1,13 @@
 name: "🔒 Security Scan"
 
 on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'constraints.txt'
+      - 'constraints.lock.txt'
+      - 'requirements.prod.txt'
   schedule:
     - cron: '0 2 1 * *'
   workflow_dispatch:
