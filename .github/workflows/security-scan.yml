@@ -28,8 +28,10 @@ jobs:
         uses: github/codeql-action/analyze@v3
 
       - name: "📣 Post scan summary as Issue"
+        id: scan_summary
         uses: actions/github-script@v7
         with:
+          result-encoding: string
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
@@ -79,3 +81,12 @@ jobs:
             } else {
               await github.rest.issues.create({ owner, repo, title, body });
             }
+            return body;
+
+      - name: "📨 Notify Telegram"
+        if: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != '' }}
+        run: |
+          MSG="${{ steps.scan_summary.outputs.result }}"
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode "text=${MSG}"
