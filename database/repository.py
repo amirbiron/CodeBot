@@ -391,3 +391,14 @@ class Repository:
             logger.error(f"Failed to get backup rating: {e}")
             return None
 
+    def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
+        try:
+            coll = self.manager.backup_ratings_collection
+            if coll is None:
+                return 0
+            res = coll.delete_many({"user_id": user_id, "backup_id": {"$in": backup_ids}})
+            return int(res.deleted_count or 0)
+        except Exception as e:
+            logger.error(f"Failed to delete backup ratings: {e}")
+            return 0
+

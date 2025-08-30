@@ -415,6 +415,85 @@ class BackupManager:
             results["errors"].append(str(e))
         return results
 
+    def delete_backups(self, user_id: int, backup_ids: List[str]) -> Dict[str, Any]:
+        """מוחק מספר גיבויי ZIP לפי backup_id ממערכת הקבצים ומ-GridFS (אם בשימוש).
+
+        החזרה: {"deleted": int, "errors": [str, ...]}
+        """
+        results: Dict[str, Any] = {"deleted": 0, "errors": []}
+        try:
+            if not backup_ids:
+                return results
+            filenames = [f"{bid}.zip" for bid in backup_ids]
+
+            # מחיקה ממערכת הקבצים (כולל נתיבי legacy)
+            search_dirs: List[Path] = [self.backup_dir]
+            try:
+                if getattr(self, "legacy_backup_dir", None):
+                    if isinstance(self.legacy_backup_dir, Path):
+                        search_dirs.append(self.legacy_backup_dir)
+            except Exception:
+                pass
+            try:
+                app_backups = Path("/app/backups")
+                if app_backups != self.backup_dir:
+                    search_dirs.append(app_backups)
+            except Exception:
+                pass
+
+            deleted_fs = 0
+            for d in search_dirs:
+                for fn in filenames:
+                    try:
+                        p = d / fn
+                        if p.exists():
+                            # בדוק שיוך משתמש אם יש metadata.json
+                            try:
+                                with zipfile.ZipFile(p, 'r') as zf:
+                                    md = None
+                                    with suppress(Exception):
+                                        raw = zf.read('metadata.json')
+                                        md = json.loads(raw) if raw else None
+                                    if md and md.get('user_id') is not None and md.get('user_id') != user_id:
+                                        # שייך למשתמש אחר — דלג
+                                        continue
+                            except Exception:
+                                pass
+                            p.unlink()
+                            deleted_fs += 1
+                    except Exception as e:
+                        results["errors"].append(f"fs:{fn}:{e}")
+
+            # מחיקה מ-GridFS (אם קיים)
+            fs = None
+            try:
+                fs = self._get_gridfs()
+            except Exception:
+                fs = None
+            if fs is not None:
+                for bid, fn in zip(backup_ids, filenames):
+                    try:
+                        # לפי filename
+                        with suppress(Exception):
+                            for fdoc in fs.find({"filename": fn}):
+                                fs.delete(fdoc._id)
+                                results["deleted"] += 1
+                        # לפי metadata.backup_id
+                        with suppress(Exception):
+                            for fdoc in fs.find({"metadata.backup_id": bid}):
+                                fs.delete(fdoc._id)
+                                results["deleted"] += 1
+                    except Exception as e:
+                        results["errors"].append(f"gridfs:{fn}:{e}")
+
+            # אם אין GridFS — ספר מחיקות FS
+            if fs is None:
+                results["deleted"] += deleted_fs
+
+        except Exception as e:
+            results["errors"].append(str(e))
+        return results
+
     def delete_backup(self, backup_id: str, user_id: int) -> bool:
         """מחיקת גיבוי"""
         

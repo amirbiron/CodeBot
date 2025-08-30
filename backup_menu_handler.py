@@ -148,6 +148,64 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
+		elif data == "backup_delete_mode_on":
+			context.user_data["backup_delete_mode"] = True
+			context.user_data["backup_delete_selected"] = set()
+			await self._show_backups_list(update, context)
+		elif data == "backup_delete_mode_off":
+			context.user_data.pop("backup_delete_mode", None)
+			context.user_data.pop("backup_delete_selected", None)
+			await self._show_backups_list(update, context)
+		elif data.startswith("backup_toggle_del:"):
+			bid = data.split(":", 1)[1]
+			sel = context.user_data.setdefault("backup_delete_selected", set())
+			if bid in sel:
+				sel.remove(bid)
+			else:
+				sel.add(bid)
+			await self._show_backups_list(update, context)
+		elif data == "backup_delete_confirm":
+			sel = list(context.user_data.get("backup_delete_selected", set()) or [])
+			if not sel:
+				await query.answer("לא נבחרו פריטים", show_alert=True)
+				return
+			# הצג מסך אימות סופי
+			txt = "האם אתה בטוח שברצונך למחוק את:"\
+				+ "\n" + "\n".join(sel[:15]) + ("\n…" if len(sel) > 15 else "")
+			kb = [
+				[InlineKeyboardButton("✅ אישור מחיקה", callback_data="backup_delete_execute")],
+				[InlineKeyboardButton("🔙 ביטול", callback_data="backup_delete_mode_off")],
+			]
+			await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))
+		elif data == "backup_delete_execute":
+			sel = list(context.user_data.get("backup_delete_selected", set()) or [])
+			if not sel:
+				await query.edit_message_text("לא נבחרו פריטים למחיקה")
+				return
+			# מחיקה בפועל
+			try:
+				res = backup_manager.delete_backups(user_id, sel)
+				try:
+					# נקה דירוגים
+					from database import db as _db
+					_db.delete_backup_ratings(user_id, sel)
+				except Exception:
+					pass
+				deleted = res.get("deleted", 0)
+				errs = res.get("errors", [])
+				msg = f"✅ נמחקו {deleted} גיבויים"
+				if errs:
+					msg += f"\n⚠️ כשלים: {len(errs)}"
+				await query.edit_message_text(msg)
+				# נקה מצב מחיקה ורענן רשימה
+				context.user_data.pop("backup_delete_mode", None)
+				context.user_data.pop("backup_delete_selected", None)
+				try:
+					await self._show_backups_list(update, context)
+				except Exception:
+					pass
+			except Exception as e:
+				await query.edit_message_text(f"❌ שגיאה במחיקה: {e}")
 		elif data.startswith("backup_rate:"):
 			# פורמט: backup_rate:<backup_id>:<rating_key>
 			try:
@@ -305,6 +363,8 @@ class BackupMenuHandler:
 			id_to_version = {}
 		lines = [f"📦 קבצי ZIP שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
+		delete_mode = bool(context.user_data.get("backup_delete_mode"))
+		selected = set(context.user_data.get("backup_delete_selected", set()))
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
@@ -328,11 +388,15 @@ class BackupMenuHandler:
 				second_line += f" {rating}"
 			lines.append(second_line)
 			row = []
-			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
-			if btype not in {"github_repo_zip"}:
-				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-			# כפתור הורדה תמיד זמין עם טקסט תמציתי
-			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
+			if delete_mode:
+				mark = "✅" if info.backup_id in selected else "⬜️"
+				row.append(InlineKeyboardButton(f"{mark} בחר למחיקה", callback_data=f"backup_toggle_del:{info.backup_id}"))
+			else:
+				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
+				if btype not in {"github_repo_zip"}:
+					row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
+				# כפתור הורדה תמיד זמין עם טקסט תמציתי
+				row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
@@ -341,7 +405,7 @@ class BackupMenuHandler:
 			nav.extend(row)
 		if nav:
 			keyboard.append(nav)
-		# פעולות נוספות - כפתור חזרה דינמי
+		# פעולות נוספות - כפתור חזרה דינמי + מצב מחיקה
 		if zip_back_to == 'files':
 			back_cb = 'files'
 		elif zip_back_to == 'github_upload':
@@ -350,6 +414,13 @@ class BackupMenuHandler:
 			back_cb = 'github_backup_menu'
 		else:
 			back_cb = 'backup_menu'
+		controls_row = []
+		if delete_mode:
+			controls_row.append(InlineKeyboardButton("🗑 אשר ומחק", callback_data="backup_delete_confirm"))
+			controls_row.append(InlineKeyboardButton("❌ צא ממצב מחיקה", callback_data="backup_delete_mode_off"))
+		else:
+			controls_row.append(InlineKeyboardButton("🗑 מחיקה מרובה", callback_data="backup_delete_mode_on"))
+		keyboard.append(controls_row)
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
 

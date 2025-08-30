@@ -246,6 +246,9 @@ class DatabaseManager:
     def get_backup_rating(self, user_id: int, backup_id: str) -> Optional[str]:
         return self._get_repo().get_backup_rating(user_id, backup_id)
 
+    def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
+        return self._get_repo().delete_backup_ratings(user_id, backup_ids)
+
     # Users and tokens
     def save_github_token(self, user_id: int, token: str) -> bool:
         return self._get_repo().save_github_token(user_id, token)
