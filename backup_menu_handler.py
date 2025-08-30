@@ -288,32 +288,45 @@ class BackupMenuHandler:
 		start = (page - 1) * PAGE_SIZE
 		end = min(start + PAGE_SIZE, total)
 		items = backups[start:end]
-		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+		# חשב גרסאות (vN) לכל ריפו לפי סדר כרונולוגי (הכי ישן = v1)
+		repo_to_sorted: Dict[str, list] = {}
+		id_to_version: Dict[str, int] = {}
+		try:
+			for b in backups:
+				repo_name = getattr(b, 'repo', None)
+				if not repo_name:
+					continue
+				repo_to_sorted.setdefault(repo_name, []).append(b)
+			for repo_name, arr in repo_to_sorted.items():
+				arr.sort(key=lambda x: getattr(x, 'created_at', None))
+				for idx, b in enumerate(arr, start=1):
+					id_to_version[getattr(b, 'backup_id', '')] = idx
+		except Exception:
+			id_to_version = {}
+		lines = [f"📦 קבצי ZIP שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
+			# שורת כותרת לפריט
 			if repo_name:
 				repo_display = _repo_only(repo_name)
-				line = (
-					f"• {repo_display} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
-					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype} — ID: {info.backup_id}"
-				)
+				first_line = f"• {repo_display} — {_format_date(getattr(info, 'created_at', ''))}"
 			else:
-				line = (
-					f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
-					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
-				)
-			lines.append(line)
-			# הוסף שורת דירוג שמורה (אם יש)
+				first_line = f"• {getattr(info, 'backup_id', '')} — {_format_date(getattr(info, 'created_at', ''))}"
+			lines.append(first_line)
+			# שורה שנייה עם גודל | קבצים | גרסה (+דירוג אם קיים)
 			try:
-				rating = db.get_backup_rating(user_id, info.backup_id)
-				if rating:
-					lines.append(f"  {rating} / 👍 טוב / 🤷 סביר" if "מצוין" in rating else (f"  🏆 מצוין / {rating} / 🤷 סביר" if "טוב" in rating else f"  🏆 מצוין / 👍 טוב / {rating}"))
-				else:
-					lines.append("  🏆 מצוין / 👍 טוב / 🤷 סביר")
+				rating = db.get_backup_rating(user_id, info.backup_id) or ""
 			except Exception:
-				lines.append("  🏆 מצוין / 👍 טוב / 🤷 סביר")
+				rating = ""
+			vnum = id_to_version.get(getattr(info, 'backup_id', ''), 1)
+			files_cnt = getattr(info, 'file_count', 0) or 0
+			files_txt = f"{files_cnt:,}"
+			second_line = f"  ↳ גודל: {_format_bytes(getattr(info, 'total_size', 0))} | קבצים: {files_txt} | גרסה: v{vnum}"
+			if rating:
+				second_line += f" {rating}"
+			lines.append(second_line)
 			row = []
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 			if btype not in {"github_repo_zip"}:
