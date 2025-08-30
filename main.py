@@ -788,28 +788,59 @@ class CodeKeeperBot:
                 if not (token and repo_full):
                     await update.message.reply_text("❌ אין טוקן או ריפו נבחר")
                     return
-                # ולידציית יעד: נעלנו ריפו צפוי בתחילת ה-flow; אל תאפשר 'בריחה' לריפו אחר
+                # יעד נעול לבטיחות: אם נקבע בתחילת הזרימה, תמיד נעדיף אותו
                 expected_repo_full = context.user_data.get('zip_restore_expected_repo_full')
+                repo_full_effective = expected_repo_full or repo_full
                 if expected_repo_full and expected_repo_full != repo_full:
-                    logger.critical(f"[restore_zip] Target mismatch: expected={expected_repo_full}, got={repo_full}. Aborting.")
-                    await update.message.reply_text(
-                        f"❌ שגיאת יעד: ציפינו ל־{expected_repo_full}, אך התקבל {repo_full}. נעצר ללא שחזור.",
-                        parse_mode=ParseMode.HTML
-                    )
-                    raise ValueError(f"Target mismatch: expected {expected_repo_full}, got {repo_full}")
-                # אם לא נשמר יעד צפוי (גרסה ישנה), קבע אותו כעת כבלמים קדמיים
+                    # דווח על סטייה אבל המשך בבטחה עם היעד הנעול
+                    logger.warning(f"[restore_zip] Target mismatch: expected={expected_repo_full}, got={repo_full}. Proceeding with expected (locked) target.")
+                    try:
+                        await update.message.reply_text(
+                            f"⚠️ נמצא פער בין היעד הנוכחי ({repo_full}) ליעד הנעול. נשתמש ביעד הנעול: {expected_repo_full}")
+                    except Exception:
+                        pass
+                # אם לא נשמר יעד צפוי (גרסה ישנה), קבע אותו כעת
                 if not expected_repo_full:
                     try:
                         context.user_data['zip_restore_expected_repo_full'] = repo_full
                     except Exception:
                         pass
                 g = Github(token)
-                repo = g.get_repo(repo_full)
+                # נסיון גישה ליעד הנעול/האפקטיבי עם נפילה בטוחה
+                try:
+                    repo = g.get_repo(repo_full_effective)
+                except Exception as e:
+                    logger.exception(f"[restore_zip] Locked target not accessible: {repo_full_effective}: {e}")
+                    # נפילה בטוחה: אם אותו בעלים והריפו הנוכחי שונה – נסה את הריפו הנוכחי
+                    fallback_used = False
+                    if repo_full and repo_full != repo_full_effective:
+                        try:
+                            expected_owner = (expected_repo_full or repo_full_effective).split('/')[0]
+                            current_owner = repo_full.split('/')[0]
+                        except Exception:
+                            expected_owner = None
+                            current_owner = None
+                        if expected_owner and current_owner and current_owner == expected_owner:
+                            try:
+                                await update.message.reply_text(
+                                    f"⚠️ היעד הנעול {repo_full_effective} לא נגיש. מנסה להשתמש ביעד הנוכחי {repo_full} (אותו בעלים).")
+                            except Exception:
+                                pass
+                            try:
+                                repo = g.get_repo(repo_full)
+                                repo_full_effective = repo_full
+                                fallback_used = True
+                            except Exception as e2:
+                                logger.exception(f"[restore_zip] Fallback to current repo failed: {e2}")
+                    if 'repo' not in locals():
+                        await update.message.reply_text(
+                            f"❌ היעד {repo_full_effective} לא נגיש ואין נפילה בטוחה. עצירה. אנא בחרו ריפו מחדש.")
+                        raise
                 target_branch = repo.default_branch or 'main'
                 purge_first = bool(context.user_data.get('github_restore_zip_purge'))
                 await update.message.reply_text(
                     ("🧹 מנקה קבצים קיימים...\n" if purge_first else "") +
-                    f"📤 מעלה {len(files)} קבצים לריפו {repo_full} (branch: {target_branch})..."
+                    f"📤 מעלה {len(files)} קבצים לריפו {repo_full_effective} (branch: {target_branch})..."
                 )
                 # בסיס לעץ
                 base_ref = repo.get_git_ref(f"heads/{target_branch}")
