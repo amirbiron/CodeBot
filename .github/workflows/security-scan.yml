@@ -12,6 +12,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,3 +26,56 @@ jobs:
 
       - name: "🔍 Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@v3
+
+      - name: "📣 Post scan summary as Issue"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const link = `https://github.com/${owner}/${repo}/security/code-scanning`;
+            let alerts = [];
+            let body = '';
+            try {
+              alerts = await github.paginate(
+                github.rest.codeScanning.listAlertsForRepo,
+                { owner, repo, state: 'open', per_page: 100 }
+              );
+              const sevCounts = { critical: 0, high: 0, medium: 0, low: 0, warning: 0, error: 0, note: 0, unknown: 0 };
+              for (const a of alerts) {
+                const sev = (a.rule && (a.rule.security_severity_level || a.rule.severity)) || a.severity || 'unknown';
+                const key = String(sev).toLowerCase();
+                if (Object.prototype.hasOwnProperty.call(sevCounts, key)) sevCounts[key] += 1; else sevCounts.unknown += 1;
+              }
+              const total = alerts.length;
+              body = [
+                `דוח סריקת אבטחה (CodeQL) הושלם.`,
+                `\n\nקישורים: [Code Scanning](${link})` ,
+                `\n\nסיכום התראות פתוחות:`,
+                `\n- קריטי: ${sevCounts.critical}`,
+                `\n- גבוה: ${sevCounts.high}`,
+                `\n- בינוני: ${sevCounts.medium}`,
+                `\n- נמוך: ${sevCounts.low}`,
+                `\n- אזהרה: ${sevCounts.warning}`,
+                `\n- שגיאה: ${sevCounts.error}`,
+                `\n- הערה: ${sevCounts.note}`,
+                `\n- לא ידוע: ${sevCounts.unknown}`,
+                `\n\nסה"כ: ${total}`
+              ].join('');
+            } catch (err) {
+              core.warning(`Failed to fetch Code Scanning alerts: ${err.message}`);
+              body = [
+                `דוח סריקת אבטחה (CodeQL) הושלם.`,
+                `\n\nקישורים: [Code Scanning](${link})`,
+                `\n\nלא ניתן היה למשוך התראות דרך ה‑API. בדקו ידנית בלשונית Security.`
+              ].join('');
+            }
+            const title = '🛡️ Security Scan Summary';
+            // Try to find existing open issue with same title (avoid label dependency)
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+            const match = (existing.data || []).find(i => i.title === title);
+            if (match) {
+              await github.rest.issues.update({ owner, repo, issue_number: match.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
