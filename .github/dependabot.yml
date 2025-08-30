@@ -7,6 +7,16 @@ updates:
     directory: "/" # Location of package manifests (requirements.txt)
     schedule:
       interval: "weekly" # Check for updates once a week
+      time: "02:00"
+      day: "wednesday"
+    allow:
+      - dependency-type: "all"
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      time: "02:30"
+      day: "wednesday"
   # Removed monitoring for /telegram_terminal_bot (not part of deploy scope)
     # You can add reviewers or assignees automatically if you want
     # assignees:

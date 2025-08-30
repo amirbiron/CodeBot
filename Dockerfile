@@ -20,8 +20,11 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות מערכת לבילד
+# hadolint ignore=DL3008
 RUN set -eux; \
     apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
+    # שדרוג תיקוני אבטחה של מערכת בסיס
+    apt-get -y upgrade; \
     apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -37,6 +40,7 @@ WORKDIR /app
 
 # העתקת requirements והתקנת dependencies
 COPY requirements.txt .
+COPY constraints.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ===================================
@@ -52,8 +56,11 @@ ENV PYTHONPATH="/app:$PYTHONPATH"
 ENV DEBIAN_FRONTEND=noninteractive
 
 # התקנת תלויות runtime
+# hadolint ignore=DL3008,DL4006
 RUN set -eux; \
     apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
+    # שדרוג תיקוני אבטחה כדי לטפל ב‑zlib/libxml2/sqlite וכד'
+    apt-get -y upgrade; \
     echo "tzdata tzdata/Areas select Etc" | debconf-set-selections; \
     echo "tzdata tzdata/Zones/Etc select UTC" | debconf-set-selections; \
     apt-get install -y --no-install-recommends \
@@ -119,6 +126,7 @@ FROM production as development
 USER root
 
 # התקנת כלי פיתוח
+# hadolint ignore=DL3008
 RUN set -eux; \
     apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
     apt-get install -y --no-install-recommends \
@@ -155,6 +163,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # התקנת תלויות Alpine
+# hadolint ignore=DL3018
 RUN apk add --no-cache \
     gcc \
     python3-dev \
@@ -174,7 +183,7 @@ RUN addgroup -g 1000 botuser && \
 
 # התקנת Python packages
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # העתקת קבצים

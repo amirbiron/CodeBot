@@ -2,6 +2,7 @@
 # Code Keeper Bot Dependencies
 
 # Core Telegram Bot
+-c constraints.txt
 python-telegram-bot[job-queue]==20.7
 
 # Database
@@ -17,7 +18,7 @@ textstat==0.7.3
 
 # Web Requests & APIs
 requests==2.31.0
-aiohttp==3.9.1
+aiohttp==3.9.4
 httpx==0.25.2
 
 # GitHub Integration
@@ -28,7 +29,7 @@ python-dotenv==1.0.0
 pathlib2==2.3.7
 
 # Image Processing (for syntax highlighting images)
-Pillow==10.1.0
+Pillow==10.2.0
 cairosvg==2.7.1
 
 # Utilities
@@ -68,7 +69,7 @@ subprocess32==3.5.4
 alembic==1.13.1
 
 # Web Server
-gunicorn==21.2.0
+gunicorn==23.0.0
 uvicorn==0.24.0
 whitenoise==6.6.0
 
@@ -95,7 +96,7 @@ markdown==3.5.1
 html2text==2020.1.16
 
 # Version Control Integration
-gitpython==3.1.40
+gitpython==3.1.41
 
 # API Rate Limiting
 ratelimit==2.2.1
