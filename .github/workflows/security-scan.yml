@@ -154,15 +154,21 @@ jobs:
                 `<br/><br/>לא ניתן היה למשוך התראות דרך ה‑API. בדקו ידנית בלשונית Security.`
               ].join('');
             }
-            const title = '🛡️ Security Scan Summary';
-            // Try to find existing open issue with same title (avoid label dependency)
-            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
-            const match = (existing.data || []).find(i => i.title === title);
-            if (match) {
-              await github.rest.issues.update({ owner, repo, issue_number: match.number, body: mdBody });
-            } else {
-              await github.rest.issues.create({ owner, repo, title, body: mdBody });
+            const baseTitle = '🛡️ Security Scan Summary';
+            const timestamp = new Date().toISOString().slice(0,16).replace('T',' ') + 'Z';
+            const title = `${baseTitle} – ${timestamp}`;
+            // Close previous open issues with same base title, then create a fresh one for visibility
+            try {
+              const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+              for (const issue of existing.data || []) {
+                if ((issue.title || '').startsWith(baseTitle)) {
+                  await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+                }
+              }
+            } catch (e) {
+              core.warning(`Failed to close previous scan issues: ${e.message}`);
             }
+            await github.rest.issues.create({ owner, repo, title, body: mdBody });
             core.setOutput('html', htmlBody);
             core.setOutput('text', mdBody);
             return mdBody;

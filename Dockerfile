@@ -164,7 +164,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # התקנת תלויות Alpine
 # hadolint ignore=DL3018
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache && apk add --no-cache \
     gcc \
     python3-dev \
     musl-dev \
