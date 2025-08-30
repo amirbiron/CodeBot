@@ -52,6 +52,8 @@ class UserStats:
         try:
             users_collection = mongodb.db.users
             week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            # השוואת ימים תתבצע לפי אובייקטי date כדי להימנע מהשוואת naive מול aware
+            week_ago_date = week_ago.date()
             
             # מצא משתמשים פעילים בשבוע האחרון
             active_users = []
@@ -64,8 +66,11 @@ class UserStats:
             for user in users:
                 # חשב כמה ימים המשתמש היה פעיל
                 usage_days = user.get("usage_days", [])
-                recent_days = [day for day in usage_days 
-                             if datetime.strptime(day, "%Y-%m-%d") >= week_ago]
+                # הפוך מחרוזות תאריך (YYYY-MM-DD) ל-date והשווה ל-week_ago_date
+                recent_days = [
+                    day for day in usage_days
+                    if datetime.strptime(day, "%Y-%m-%d").date() >= week_ago_date
+                ]
                 
                 if recent_days:
                     active_users.append({
