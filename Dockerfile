@@ -19,7 +19,9 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apk add --no-cache gcc g++ musl-dev
 
 # יצירת משתמש לא-root
-RUN groupadd -r botuser && useradd -r -g botuser botuser
+# Alpine: create non-root user
+RUN addgroup -g 1000 botuser && \
+    adduser -D -s /bin/sh -u 1000 -G botuser botuser
 
 # יצירת תיקיות עבודה
 WORKDIR /app
@@ -43,7 +45,9 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     cairo pango gdk-pixbuf fontconfig ttf-dejavu tzdata curl
 
 # יצירת משתמש לא-root
-RUN groupadd -r botuser && useradd -r -g botuser botuser
+# Alpine: create non-root user
+RUN addgroup -g 1000 botuser && \
+    adduser -D -s /bin/sh -u 1000 -G botuser botuser
 
 # יצירת תיקיות
 RUN mkdir -p /app /app/logs /app/backups /app/temp \
