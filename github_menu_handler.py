@@ -175,6 +175,14 @@ class GitHubMenuHandler:
         session = self.get_user_session(user_id)
         token = self.get_user_token(user_id)
 
+        # נקה דגלי זרימת "הדבק קוד" אם היו פעילים, כדי למנוע תקיעה בזרימה
+        try:
+            context.user_data.pop("waiting_for_paste_content", None)
+            context.user_data.pop("waiting_for_paste_filename", None)
+            context.user_data.pop("paste_content", None)
+        except Exception:
+            pass
+
         # בנה הודעת סטטוס
         status_msg = "<b>🔧 תפריט GitHub</b>\n\n"
         if token:
@@ -290,6 +298,37 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
                 return
+        elif query.data == "cancel_paste_flow":
+            # ביטול מפורש של זרימת "הדבק קוד": נקה דגלים וחזור לתפריט העלאה
+            try:
+                context.user_data.pop("waiting_for_paste_content", None)
+                context.user_data.pop("waiting_for_paste_filename", None)
+                context.user_data.pop("paste_content", None)
+            except Exception:
+                pass
+            # נווט חזרה למסך "העלה קובץ חדש"
+            # על ידי קריאה עצמית לסעיף upload_file
+            if not session.get("selected_repo"):
+                await query.edit_message_text("❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'")
+            else:
+                folder_display = session.get("selected_folder") or "root"
+                keyboard = [
+                    [InlineKeyboardButton("✍️ הדבק קוד", callback_data="upload_paste_code")],
+                    [InlineKeyboardButton("🗂 לפי ריפו", callback_data="gh_upload_cat:repos")],
+                    [InlineKeyboardButton("📦 קבצי ZIP", callback_data="gh_upload_cat:zips")],
+                    [InlineKeyboardButton("📂 קבצים גדולים", callback_data="gh_upload_cat:large")],
+                    [InlineKeyboardButton("📁 שאר הקבצים", callback_data="gh_upload_cat:other")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
+                ]
+                await query.edit_message_text(
+                    f"📤 <b>העלאת קובץ לריפו</b>\n"
+                    f"ריפו: <code>{session['selected_repo']}</code>\n"
+                    f"📂 תיקייה: <code>{folder_display}</code>\n\n"
+                    f"בחר מקור להעלאה:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                )
+            return
         elif query.data == "upload_paste_code":
             # התחלת זרימת "הדבק קוד"
             # נקה דגלים ישנים
@@ -303,6 +342,12 @@ class GitHubMenuHandler:
             await query.edit_message_text(
                 "✍️ שלח/י כאן את הקוד להעלאה כטקסט.\n\n"
                 "לאחר מכן אבקש את שם הקובץ (כולל סיומת).",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                        InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                    ]
+                ]),
             )
             return
         elif query.data == "gh_upload_cat:repos":
@@ -475,6 +520,15 @@ class GitHubMenuHandler:
         elif query.data == "back_to_menu":
             await self.github_menu_command(update, context)
 
+        elif query.data == "folder_select_done":
+            # סיום בחירת תיקייה דרך הדפדפן והצגת מצב
+            context.user_data.pop("folder_select_mode", None)
+            await self.github_menu_command(update, context)
+        elif query.data.startswith("folder_set_session:"):
+            folder_path = query.data.split(":", 1)[1]
+            session["selected_folder"] = (folder_path or "").strip("/") or None
+            await query.answer(f"✅ תיקיית יעד עודכנה ל-{session['selected_folder'] or 'root'}", show_alert=False)
+            await self.show_repo_browser(update, context)
         elif query.data == "noop":
             await query.answer(cache_time=0)  # לא עושה כלום, רק לכפתור התצוגה
 
@@ -724,19 +778,17 @@ class GitHubMenuHandler:
             return REPO_SELECT
 
         elif query.data == "set_folder":
-            keyboard = [
-                [InlineKeyboardButton("📁 root (ראשי)", callback_data="folder_root")],
-                [InlineKeyboardButton("📂 src", callback_data="folder_src")],
-                [InlineKeyboardButton("📂 docs", callback_data="folder_docs")],
-                [InlineKeyboardButton("📂 assets", callback_data="folder_assets")],
-                [InlineKeyboardButton("📂 images", callback_data="folder_images")],
-                [InlineKeyboardButton("✏️ אחר (הקלד ידנית)", callback_data="folder_custom")],
-                [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")],
-                [InlineKeyboardButton("🔙 חזור לתפריט", callback_data="github_menu")],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text("📂 בחר תיקיית יעד:", reply_markup=reply_markup)
+            # פתח דפדפן ריפו לבחירת תיקיה אמיתית מתוך הריפו
+            # סימון מצב בחירת תיקיה עבור session
+            context.user_data["folder_select_mode"] = "session"
+            # אתחל מצב דפדוף
+            current = (session.get("selected_folder") or "").strip("/")
+            context.user_data["browse_action"] = "download"
+            context.user_data["browse_path"] = current
+            context.user_data["browse_page"] = 0
+            context.user_data["multi_mode"] = False
+            context.user_data["multi_selection"] = []
+            await self.show_repo_browser(update, context)
 
         elif query.data.startswith("folder_"):
             folder = query.data.replace("folder_", "")
@@ -772,6 +824,7 @@ class GitHubMenuHandler:
             # חזרה לתפריט הראשי של GitHub
             context.user_data["waiting_for_github_upload"] = False
             context.user_data["in_github_menu"] = False
+            context.user_data.pop("folder_select_mode", None)
             # נקה דגל סינון גיבויים לפי ריפו, אם קיים
             # נקה דגלים זמניים של יצירת ריפו חדש
             try:
@@ -2212,12 +2265,26 @@ class GitHubMenuHandler:
             code_text = text or ""
             if not code_text.strip():
                 context.user_data["waiting_for_paste_content"] = True
-                await update.message.reply_text("⚠️ קיבלתי תוכן ריק. הדבק/י את הקוד שוב.")
+                await update.message.reply_text(
+                    "⚠️ קיבלתי תוכן ריק. הדבק/י את הקוד שוב.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                            InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                        ]
+                    ])
+                )
                 return True
             context.user_data["paste_content"] = code_text
             context.user_data["waiting_for_paste_filename"] = True
             await update.message.reply_text(
-                "📄 איך לקרוא לקובץ?\nהקלד/י שם כולל סיומת (לדוגמה: app.py או index.ts)."
+                "📄 איך לקרוא לקובץ?\nהקלד/י שם כולל סיומת (לדוגמה: app.py או index.ts).",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                        InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                    ]
+                ])
             )
             return True
 
@@ -2231,7 +2298,15 @@ class GitHubMenuHandler:
             safe_name = safe_name.strip()
             if not safe_name or "." not in safe_name:
                 context.user_data["waiting_for_paste_filename"] = True
-                await update.message.reply_text("⚠️ שם קובץ לא תקין. ודא שם + סיומת, לדוגמה: main.py")
+                await update.message.reply_text(
+                    "⚠️ שם קובץ לא תקין. ודא שם + סיומת, לדוגמה: main.py",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                            InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                        ]
+                    ])
+                )
                 return True
 
             if not session.get("selected_repo"):
@@ -3066,14 +3141,19 @@ class GitHubMenuHandler:
         if crumbs_row:
             entry_rows.append(crumbs_row)
         for folder in folders:
-            # לכל תיקייה נוסיף שתי אופציות: פתיחה ובחירה להעלאה
+            # לכל תיקייה נוסיף שתי אופציות: פתיחה ובחירה כיעד
+            select_cb = (
+                f"folder_set_session:{folder.path}"
+                if context.user_data.get("folder_select_mode") == "session"
+                else f"upload_select_folder:{folder.path}"
+            )
             entry_rows.append(
                 [
                     InlineKeyboardButton(
                         f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}"
                     ),
                     InlineKeyboardButton(
-                        "📌 בחר כיעד", callback_data=f"upload_select_folder:{folder.path}"
+                        "📌 בחר כיעד", callback_data=select_cb
                     ),
                 ]
             )
@@ -3138,6 +3218,10 @@ class GitHubMenuHandler:
             # חזרה למעלה
             parent = "/".join(path.split("/")[:-1])
             bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
+        # כפתור חזרה/סיום לבחירת תיקייה
+        if context.user_data.get("folder_select_mode") == "session":
+            bottom.append(InlineKeyboardButton("✅ סיום בחירה", callback_data="folder_select_done"))
+            bottom.append(InlineKeyboardButton("🔙 ביטול", callback_data="github_menu"))
         # סדר כפתורים לשורות כדי למנוע צפיפות
         row = []
         if context.user_data.get("browse_action") == "download":
