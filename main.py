@@ -1513,7 +1513,42 @@ class CodeKeeperBot:
     async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בשגיאות"""
         logger.error(f"שגיאה: {context.error}", exc_info=context.error)
-        
+
+        # זיהוי חריגת זיכרון (גלובלי)
+        try:
+            err = context.error
+            err_text = str(err) if err else ""
+            is_oom = isinstance(err, MemoryError) or (
+                isinstance(err_text, str) and (
+                    'Ran out of memory' in err_text or 'out of memory' in err_text.lower() or 'MemoryError' in err_text
+                )
+            )
+            if is_oom:
+                # נסה לצרף סטטוס זיכרון
+                mem_status = ""
+                try:
+                    from utils import get_memory_usage  # import מקומי למניעת תלות בזמן בדיקות
+                    mu = get_memory_usage()
+                    mem_status = f" (RSS={mu.get('rss_mb')}MB, VMS={mu.get('vms_mb')}MB, %={mu.get('percent')})"
+                except Exception:
+                    pass
+                # שלח התראה לאדמינים
+                try:
+                    await notify_admins(context, f"🚨 OOM זוהתה בבוט{mem_status}. חריגה: {err_text[:500]}")
+                except Exception:
+                    pass
+                # אם המשתמש אדמין – שלח גם אליו פירוט
+                try:
+                    if isinstance(update, Update) and update.effective_user:
+                        admin_ids = get_admin_ids()
+                        if admin_ids and update.effective_user.id in admin_ids:
+                            await context.bot.send_message(chat_id=update.effective_user.id,
+                                                           text=f"🚨 OOM זוהתה{mem_status}. התקבלה שגיאה: {err_text[:500]}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         if isinstance(update, Update) and update.effective_message:
             await update.effective_message.reply_text(
                 "❌ אירעה שגיאה. אנא נסה שוב מאוחר יותר."
