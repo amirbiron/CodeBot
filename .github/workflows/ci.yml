@@ -54,7 +54,6 @@ jobs:
   unit-tests:
     name: "🧪 Unit Tests (${{ matrix.python-version }})"
     runs-on: ubuntu-latest
-    needs: code-quality
     strategy:
       fail-fast: false
       matrix:
