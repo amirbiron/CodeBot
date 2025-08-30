@@ -28,7 +28,7 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
 
 from config import config
 from database import CodeSnippet, DatabaseManager, db
-from code_processor import code_processor
+from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter

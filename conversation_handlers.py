@@ -22,6 +22,9 @@ from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
+from services import code_service
+from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
+from handlers.pagination import build_pagination_row
 
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
@@ -72,8 +75,8 @@ def _format_bytes(num: int) -> str:
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
 
-# הגדרת שלבי השיחה
-GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME = range(5)
+# הגדרת שלבי השיחה (מועברים למודול משותף)
+from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME
 
 # קבועי עימוד
 FILES_PAGE_SIZE = 10
@@ -93,31 +96,16 @@ reporter = create_reporter(
 )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """טיפול בפקודת /start - מציג את התפריט הראשי"""
+    """Handle /start and show the main menu."""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
     username = update.effective_user.username
-    
-    # שמור משתמש במסד נתונים (INSERT OR IGNORE)
     from database import db
     db.save_user(user_id, username)
-    # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(user_id, username)
-    
     safe_user_name = html_escape(user_name) if user_name else ""
-    
-    welcome_text = (
-        f"🤖 שלום {safe_user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
-        "🔹 שמור ונהל קטעי קוד בחכמה\n"
-        "🔹 עריכה מתקדמת עם גרסאות\n"
-        "🔹 חיפוש והצגה חכמה\n"
-        "🔹 הורדה וניהול מלא\n"
-        "🔹 העלאת קבצים ל-GitHub\n"
-        "🔹 ניתוח ריפו\n\n"
-        "בחר פעולה מהתפריט למטה 👇\n\n"
-        "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
-    )
-    
+    from i18n.strings_he import MESSAGES
+    welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
     reporter.report_activity(user_id)
@@ -276,6 +264,26 @@ async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     return ConversationHandler.END
 
+# --- Redirect file view/edit handlers to split module implementations ---
+from handlers.file_view import (
+    handle_file_menu as handle_file_menu,
+    handle_view_file as handle_view_file,
+    handle_edit_code as handle_edit_code,
+    receive_new_code as receive_new_code,
+    handle_edit_name as handle_edit_name,
+    handle_edit_note as handle_edit_note,
+    receive_new_name as receive_new_name,
+    handle_versions_history as handle_versions_history,
+    handle_download_file as handle_download_file,
+    handle_delete_confirmation as handle_delete_confirmation,
+    handle_delete_file as handle_delete_file,
+    handle_file_info as handle_file_info,
+    handle_view_direct_file as handle_view_direct_file,
+    handle_edit_code_direct as handle_edit_code_direct,
+    handle_edit_name_direct as handle_edit_name_direct,
+    handle_edit_note_direct as handle_edit_note_direct,
+)
+
 async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מצב ייבוא ZIP של ריפו: מבקש לשלוח ZIP ומכין את ה-upload_mode."""
     context.user_data.pop('waiting_for_github_upload', None)
@@ -415,7 +423,7 @@ async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """הצגת תפריט GitHub"""
     # שימוש ב-instance הגלובלי במקום ליצור חדש
     if 'github_handler' not in context.bot_data:
-        from github_menu_handler import GitHubMenuHandler
+        from handlers.github.menu import GitHubMenuHandler
         context.bot_data['github_handler'] = GitHubMenuHandler()
     
     # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
@@ -488,7 +496,6 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             page = 1
             context.user_data['files_last_page'] = page
-            # סימון מקור הרשימה: "שאר הקבצים" (רגיל)
             context.user_data['files_origin'] = { 'type': 'regular' }
             start_index = (page - 1) * FILES_PAGE_SIZE
             end_index = min(start_index + FILES_PAGE_SIZE, total_files)
@@ -504,18 +511,11 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 button_text = f"{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
-            # שורת עימוד
-            pagination_row = []
-            if page > 1:
-                pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
-            if page < total_pages:
-                pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+            pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
                 keyboard.append(pagination_row)
 
-            # כפתור חזרה
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
-
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             header_text = (
@@ -565,7 +565,6 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         except Exception:
             page = 1
         context.user_data['files_last_page'] = page
-        # סימון מקור הרשימה: "שאר הקבצים" (רגיל)
         context.user_data['files_origin'] = { 'type': 'regular' }
         if page < 1:
             page = 1
@@ -590,18 +589,11 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             button_text = f"{emoji} {file_name}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
-        # שורת עימוד
-        pagination_row = []
-        if page > 1:
-            pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
-        if page < total_pages:
-            pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
             keyboard.append(pagination_row)
 
-        # כפתור חזרה
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
-
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         header_text = (
@@ -620,168 +612,15 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         await query.edit_message_text("❌ שגיאה בטעינת עמוד הקבצים")
     return ConversationHandler.END
 
-async def start_save_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """התחלת תהליך שמירה מתקדם"""
-    cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
-    await update.message.reply_text(
-        "✨ *מצוין!* בואו נצור קוד חדש!\n\n"
-        "📝 שלח לי את קטע הקוד המבריק שלך.\n"
-        "💡 אני אזהה את השפה אוטומטית ואארגן הכל!",
-        reply_markup=cancel_markup,
-        parse_mode='Markdown'
-    )
-    reporter.report_activity(update.effective_user.id)
-    return GET_CODE
+from handlers.save_flow import start_save_flow as start_save_flow
 
-async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """קבלת הקוד עם אנליזה מתקדמת"""
-    code = update.message.text
-    context.user_data['code_to_save'] = code
-    
-    # אנליזה מהירה של הקוד
-    lines = len(code.split('\n'))
-    chars = len(code)
-    words = len(code.split())
-    
-    await update.message.reply_text(
-        f"✅ *קוד מתקדם התקבל בהצלחה!*\n\n"
-        f"📊 **סטטיסטיקות מהירות:**\n"
-        f"• 📏 שורות: {lines:,}\n"
-        f"• 🔤 תווים: {chars:,}\n"
-        f"• 📝 מילים: {words:,}\n\n"
-        f"💭 עכשיו תן לי שם קובץ חכם (למשל: `my_amazing_script.py`)\n"
-        f"🧠 השם יעזור לי לזהות את השפה ולארגן הכל מושלם!",
-        parse_mode='Markdown'
-    )
-    return GET_FILENAME
+from handlers.save_flow import get_code as get_code
 
-async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """שמירת שם הקובץ עם בדיקות מתקדמות"""
-    filename = update.message.text.strip()
-    user_id = update.message.from_user.id
-    
-    # בדיקה מתקדמת של שם קובץ
-    if not re.match(r'^[\w\.\-\_]+\.[a-zA-Z0-9]+$', filename):
-        await update.message.reply_text(
-            "🤔 השם נראה קצת מוזר...\n"
-            "💡 נסה שם כמו: `script.py` או `index.html`\n"
-            "✅ אותיות, מספרים, נקודות וקווים מותרים!"
-        )
-        return GET_FILENAME
+from handlers.save_flow import get_filename as get_filename
 
-    # בדיקת כפילות מתקדמת
-    from database import db
-    existing_file = db.get_latest_version(user_id, filename)
-    
-    if existing_file:
-        keyboard = [
-            [InlineKeyboardButton("🔄 החלף את הקובץ הקיים", callback_data=f"replace_{filename}")],
-            [InlineKeyboardButton("✏️ שנה שם קובץ", callback_data="rename_file")],
-            [InlineKeyboardButton("🚫 בטל ושמור במקום אחר", callback_data="cancel_save")]
-        ]
-        
-        context.user_data['pending_filename'] = filename
-        
-        await update.message.reply_text(
-            f"⚠️ *אופס!* הקובץ `{filename}` כבר קיים במערכת!\n\n"
-            f"🤔 מה תרצה לעשות?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
-        return GET_FILENAME
+from handlers.save_flow import get_note as get_note
 
-    # במקום לשמור מיד — בקש הערה אופציונלית
-    context.user_data['pending_filename'] = filename
-    await update.message.reply_text(
-        "📝 רוצה להוסיף הערה קצרה לקובץ?\n"
-        "כתוב/כתבי אותה עכשיו או שלח/י 'דלג' כדי לשמור בלי הערה."
-    )
-    return GET_NOTE
-
-async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """קבלת הערה אופציונלית לקובץ החדש ולאחר מכן שמירה"""
-    note_text = (update.message.text or '').strip()
-    # מילת מפתח לדילוג
-    if note_text.lower() in {"דלג", "skip", "ללא"}:
-        context.user_data['note_to_save'] = ""
-    else:
-        # הגבלת אורך הערה
-        context.user_data['note_to_save'] = note_text[:280]
-    filename = context.user_data.get('pending_filename') or context.user_data.get('filename_to_save')
-    user_id = update.message.from_user.id
-    return await save_file_final(update, context, filename, user_id)
-
-async def save_file_final(update, context, filename, user_id):
-    """שמירה סופית של הקובץ"""
-    context.user_data['filename_to_save'] = filename
-    code = context.user_data.get('code_to_save')
-    
-    try:
-        # זיהוי שפה חכם
-        from code_processor import code_processor
-        detected_language = code_processor.detect_language(code, filename)
-        
-        # שמירה במסד נתונים כולל הערה (description)
-        from database import db, CodeSnippet
-        note = (context.user_data.get('note_to_save') or '').strip()
-        snippet = CodeSnippet(
-            user_id=user_id,
-            file_name=filename,
-            code=code,
-            programming_language=detected_language,
-            description=note,
-        )
-        success = db.save_code_snippet(snippet)
-        
-        if success:
-            # כפתורים מתקדמים למיד אחרי שמירה
-            keyboard = [
-                [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{filename}"),
-                    InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{filename}")
-                ],
-                [
-                    InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{filename}"),
-                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}")
-                ],
-                [
-                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
-                    InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}")
-                ],
-                [
-                    InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{filename}"),
-                    InlineKeyboardButton("🔙 לרשימה", callback_data="files")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            note_display = note if note else '—'
-            await update.message.reply_text(
-                f"🎉 *קובץ נשמר בהצלחה!*\n\n"
-                f"📄 **שם:** `{filename}`\n"
-                f"🧠 **שפה זוהתה:** {detected_language}\n"
-                f"📝 **הערה:** {note_display}\n\n"
-                f"🎮 בחר פעולה מהכפתורים החכמים:",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(
-                "💥 אופס! קרתה שגיאה טכנית.\n"
-                "🔧 המערכת מתקדמת - ננסה שוב מאוחר יותר!",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-        
-    except Exception as e:
-        logger.error(f"Failed to save file for user {user_id}: {e}")
-        await update.message.reply_text(
-            "🤖 המערכת החכמה שלנו נתקלה בבעיה זמנית.\n"
-            "⚡ ננסה שוב בקרוב!",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-
-    context.user_data.clear()
-    return ConversationHandler.END
+from handlers.save_flow import save_file_final as save_file_final
 
 async def handle_duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """טיפול בכפתורי הכפילות"""
@@ -2446,10 +2285,9 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
 
         # ניווט
         nav = []
-        if page > 1:
-            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"batch_files_page_{page-1}"))
-        if page < total_pages:
-            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"batch_files_page_{page+1}"))
+        row = build_pagination_row(page, total, PAGE_SIZE, "batch_files_page_")
+        if row:
+            nav.extend(row)
         if nav:
             keyboard.append(nav)
 
