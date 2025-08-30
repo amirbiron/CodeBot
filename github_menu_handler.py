@@ -447,6 +447,13 @@ class GitHubMenuHandler:
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_folder":
             await self.show_upload_folder_menu(update, context)
+        elif query.data.startswith("upload_select_folder:"):
+            # בחירת תיקייה מתוך דפדפן הריפו
+            folder_path = query.data.split(":", 1)[1]
+            # normalize to no leading/trailing slashes
+            folder_norm = (folder_path or "").strip("/")
+            context.user_data["upload_target_folder"] = folder_norm
+            await self.show_pre_upload_check(update, context)
         elif query.data == "upload_folder_root":
             context.user_data["upload_target_folder"] = ""
             await self.show_pre_upload_check(update, context)
@@ -3055,11 +3062,15 @@ class GitHubMenuHandler:
         if crumbs_row:
             entry_rows.append(crumbs_row)
         for folder in folders:
+            # לכל תיקייה נוסיף שתי אופציות: פתיחה ובחירה להעלאה
             entry_rows.append(
                 [
                     InlineKeyboardButton(
                         f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}"
-                    )
+                    ),
+                    InlineKeyboardButton(
+                        "📌 בחר כיעד", callback_data=f"upload_select_folder:{folder.path}"
+                    ),
                 ]
             )
         multi_mode = context.user_data.get("multi_mode", False)
