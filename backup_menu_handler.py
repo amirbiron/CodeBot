@@ -52,7 +52,7 @@ def _repo_only(repo_full: str) -> str:
 	except Exception:
 		return str(repo_full)
 
-def _build_download_button_text(info, force_hide_size: bool = False) -> str:
+def _build_download_button_text(info, force_hide_size: bool = False, vnum: int = None) -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
 	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
 	MAX_LEN = 64
@@ -65,52 +65,64 @@ def _build_download_button_text(info, force_hide_size: bool = False) -> str:
 	date_part = _format_date(getattr(info, 'created_at', ''))
 	size_part = _format_bytes(getattr(info, 'total_size', 0))
 
-	def build(base_text: str, prim: str, include_size: bool = True) -> str:
+	def build(base_text: str, prim: str, include_size: bool = True, version_text: str = "") -> str:
+		mid = f" — {date_part}"
+		if version_text:
+			mid += f" — ({version_text})"
 		if include_size:
-			return f"⬇️ {base_text} {prim} — {date_part} — {size_part}"
-		return f"⬇️ {base_text} {prim} — {date_part}"
+			return f"⬇️ {base_text} {prim}{mid} — {size_part}"
+		return f"⬇️ {base_text} {prim}{mid}"
 
 	# אם יש צורך להסתיר את הגודל (למשל במצב מחיקה), בנה טקסט ללא הגודל
+	version_text = f"v{vnum}" if vnum else ""
 	if force_hide_size:
 		prim_use = _truncate_middle(primary, 32)
-		text = build(base, prim_use, include_size=False)
+		text = build(base, prim_use, include_size=False, version_text=version_text)
 		if len(text) <= MAX_LEN:
 			return text
 		for limit in (28, 24, 20, 16, 12, 8, 6, 4):
 			prim_use = _truncate_middle(primary, limit)
-			text = build(base, prim_use, include_size=False)
+			text = build(base, prim_use, include_size=False, version_text=version_text)
 			if len(text) <= MAX_LEN:
 				return text
-		return f"⬇️ zip — {date_part}"
+		fallback = f"⬇️ zip — {date_part}"
+		if version_text:
+			fallback += f" — ({version_text})"
+		return fallback
+
+	# גרסת מיזוג: בטל מסלול כפול ישן של force_hide_size ללא גרסה
 
 	# התחלה עם תצורה מלאה
 	prim_use = _truncate_middle(primary, 32)
-	text = build(base, prim_use, include_size=True)
+	text = build(base, prim_use, include_size=True, version_text=version_text)
 	if len(text) <= MAX_LEN:
 		return text
 	# 1) קצר עוד את השם העיקרי
 	for limit in (28, 24, 20, 16, 12, 8):
 		prim_use = _truncate_middle(primary, limit)
-		text = build(base, prim_use, include_size=True)
+		text = build(base, prim_use, include_size=True, version_text=version_text)
 		if len(text) <= MAX_LEN:
 			return text
 	# 2) השמט את הגודל כדי לשמר את התאריך
-	text = build(base, prim_use, include_size=False)
+	text = build(base, prim_use, include_size=False, version_text=version_text)
 	if len(text) <= MAX_LEN:
 		return text
 	# 3) קצר את הקידומת ל-"zip"
 	short_base = "zip"
-	text = build(short_base, prim_use, include_size=False)
+	text = build(short_base, prim_use, include_size=False, version_text=version_text)
 	if len(text) <= MAX_LEN:
 		return text
 	# 4) נסה לקצר עוד את השם עם הקידומת הקצרה
 	for limit in (10, 8, 6, 4):
 		prim_use = _truncate_middle(primary, limit)
-		text = build(short_base, prim_use, include_size=False)
+		text = build(short_base, prim_use, include_size=False, version_text=version_text)
 		if len(text) <= MAX_LEN:
 			return text
 	# 5) נפילה סופית: הצג רק תאריך עם קידומת קצרה
-	return f"⬇️ {short_base} — {date_part}"
+	last = f"⬇️ {short_base} — {date_part}"
+	if version_text:
+		last += f" — ({version_text})"
+	return last
 
 class BackupMenuHandler:
 	"""תפריט גיבוי ושחזור מלא + נקודות שמירה בגיט"""
@@ -409,13 +421,13 @@ class BackupMenuHandler:
 				mark = "✅" if info.backup_id in selected else "⬜️"
 				row.append(InlineKeyboardButton(f"{mark} בחר למחיקה", callback_data=f"backup_toggle_del:{info.backup_id}"))
 				# הצג גם כפתור הורדה אך בלי גודל על הכפתור עצמו
-				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True), callback_data=f"backup_download_id:{info.backup_id}"))
+				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True, vnum=vnum), callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
 				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 				if btype not in {"github_repo_zip"}:
 					row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
 				# כפתור הורדה תמיד זמין עם טקסט תמציתי
-				row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
+				row.append(InlineKeyboardButton(_build_download_button_text(info, vnum=vnum), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
