@@ -204,8 +204,6 @@ class GitHubMenuHandler:
         if token and session.get("selected_repo"):
             # העבר את "בחר תיקיית יעד" למעלה, ישירות אחרי "בחר ריפו"
             keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
-            # הוסף כפתור ליצירת תיקייה חדשה
-            keyboard.append([InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")])
             # כפתורי העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             keyboard.append(
