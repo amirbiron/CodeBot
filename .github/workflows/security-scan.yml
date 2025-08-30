@@ -7,8 +7,9 @@ on:
       - 'requirements.txt'
       - 'constraints.txt'
       - 'constraints.lock.txt'
+      - 'requirements.prod.txt'
   schedule:
-    - cron: '0 2 1,15 * *'
+    - cron: '0 2 1 * *'
   workflow_dispatch:
 
 jobs:
