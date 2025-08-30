@@ -7,8 +7,7 @@ from typing import Any, Dict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
 
-from services import backup_service as backup_manager
-from handlers.pagination import build_pagination_row
+from file_manager import backup_manager
 
 logger = logging.getLogger(__name__)
 
@@ -274,12 +273,13 @@ class BackupMenuHandler:
 			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
-		nav = []
-		row = build_pagination_row(page, total, PAGE_SIZE, "backup_page_")
-		if row:
-			nav.extend(row)
-		if nav:
-			keyboard.append(nav)
+		pagination = []
+		if page > 1:
+			pagination.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"backup_page_{page-1}"))
+		if page < total_pages:
+			pagination.append(InlineKeyboardButton("➡️ הבא", callback_data=f"backup_page_{page+1}"))
+		if pagination:
+			keyboard.append(pagination)
 		# פעולות נוספות - כפתור חזרה דינמי
 		if zip_back_to == 'files':
 			back_cb = 'files'
