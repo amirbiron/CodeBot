@@ -1,0 +1,19 @@
+name: "⚡ Performance Tests"
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  performance-test:
+    name: "🚀 Load Testing"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "🔥 Run Load Tests"
+        run: |
+          echo "🔥 Running performance tests..."
+          # Place your load-testing tool invocation here (e.g., k6, locust)
+          # k6 run performance/load-test.js

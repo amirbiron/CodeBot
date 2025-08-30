@@ -176,6 +176,7 @@ jobs:
 
   alembic-migrations:
     name: "Alembic migrations check"
+
     runs-on: ubuntu-latest
     services:
       postgres:

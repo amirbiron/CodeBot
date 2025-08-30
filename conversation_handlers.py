@@ -73,7 +73,7 @@ def _format_bytes(num: int) -> str:
 logger = logging.getLogger(__name__)
 
 # הגדרת שלבי השיחה
-GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
+GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME = range(5)
 
 # קבועי עימוד
 FILES_PAGE_SIZE = 10
@@ -684,7 +684,25 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return GET_FILENAME
 
-    # שמירה מתקדמת
+    # במקום לשמור מיד — בקש הערה אופציונלית
+    context.user_data['pending_filename'] = filename
+    await update.message.reply_text(
+        "📝 רוצה להוסיף הערה קצרה לקובץ?\n"
+        "כתוב/כתבי אותה עכשיו או שלח/י 'דלג' כדי לשמור בלי הערה."
+    )
+    return GET_NOTE
+
+async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """קבלת הערה אופציונלית לקובץ החדש ולאחר מכן שמירה"""
+    note_text = (update.message.text or '').strip()
+    # מילת מפתח לדילוג
+    if note_text.lower() in {"דלג", "skip", "ללא"}:
+        context.user_data['note_to_save'] = ""
+    else:
+        # הגבלת אורך הערה
+        context.user_data['note_to_save'] = note_text[:280]
+    filename = context.user_data.get('pending_filename') or context.user_data.get('filename_to_save')
+    user_id = update.message.from_user.id
     return await save_file_final(update, context, filename, user_id)
 
 async def save_file_final(update, context, filename, user_id):
@@ -697,9 +715,17 @@ async def save_file_final(update, context, filename, user_id):
         from code_processor import code_processor
         detected_language = code_processor.detect_language(code, filename)
         
-        # שמירה במסד נתונים
-        from database import db
-        success = db.save_file(user_id, filename, code, detected_language)
+        # שמירה במסד נתונים כולל הערה (description)
+        from database import db, CodeSnippet
+        note = (context.user_data.get('note_to_save') or '').strip()
+        snippet = CodeSnippet(
+            user_id=user_id,
+            file_name=filename,
+            code=code,
+            programming_language=detected_language,
+            description=note,
+        )
+        success = db.save_code_snippet(snippet)
         
         if success:
             # כפתורים מתקדמים למיד אחרי שמירה
@@ -723,11 +749,12 @@ async def save_file_final(update, context, filename, user_id):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            note_display = note if note else '—'
             await update.message.reply_text(
-                f"🎉 *קובץ נשמר בהצלחה מרשימה!*\n\n"
+                f"🎉 *קובץ נשמר בהצלחה!*\n\n"
                 f"📄 **שם:** `{filename}`\n"
                 f"🧠 **שפה זוהתה:** {detected_language}\n"
-                f"⚡ **מוכן לעבודה מתקדמת!**\n\n"
+                f"📝 **הערה:** {note_display}\n\n"
                 f"🎮 בחר פעולה מהכפתורים החכמים:",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
@@ -878,8 +905,11 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # הוסף הצגת הערה אם קיימת
+        note = file_data.get('description') or ''
+        note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
         await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}\n\n"
+            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -943,6 +973,40 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת הקוד החדש לעריכה"""
+    # אם אנו במצב עריכת הערה (description), ננתב לפונקציה יעודית
+    if context.user_data.get('editing_note_file'):
+        note_text = (update.message.text or '').strip()
+        file_name = context.user_data.pop('editing_note_file')
+        user_id = update.effective_user.id
+        try:
+            from database import db
+            # שלוף את המסמך האחרון ועדכן תיאור
+            doc = db.get_latest_version(user_id, file_name)
+            if not doc:
+                await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
+                return ConversationHandler.END
+            # צור גרסה חדשה עם אותו קוד ושם, עדכון שדה description
+            from database import CodeSnippet
+            snippet = CodeSnippet(
+                user_id=user_id,
+                file_name=file_name,
+                code=doc.get('code', ''),
+                programming_language=doc.get('programming_language', 'text'),
+                description=("" if note_text.lower() == 'מחק' else note_text)[:280]
+            )
+            ok = db.save_code_snippet(snippet)
+            if ok:
+                await update.message.reply_text(
+                    "✅ הערה עודכנה בהצלחה!",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]])
+                )
+            else:
+                await update.message.reply_text("❌ שגיאה בעדכון ההערה")
+        except Exception as e:
+            logger.error(f"Error updating note: {e}")
+            await update.message.reply_text("❌ שגיאה בעדכון ההערה")
+        return ConversationHandler.END
+
     new_code = update.message.text
     
     # בדיקה אם מדובר בעריכת קובץ גדול
@@ -1149,6 +1213,35 @@ async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"Error in handle_edit_name: {e}")
         await query.edit_message_text("❌ שגיאה בהתחלת עריכת שם")
     
+    return ConversationHandler.END
+
+async def handle_edit_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """התחלת עריכת הערה (description) מתצוגת רשימה עם אינדקס"""
+    query = update.callback_query
+    await query.answer()
+    try:
+        file_index = query.data.split('_')[2]
+        files_cache = context.user_data.get('files_cache', {})
+        file_data = files_cache.get(file_index)
+        if not file_data:
+            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            return ConversationHandler.END
+        file_name = file_data.get('file_name', 'קובץ')
+        current_note = file_data.get('description', '') or '—'
+        # הגדר דגל כדי ש-receive_new_code יעדכן הערה
+        context.user_data['editing_note_file'] = file_name
+        await query.edit_message_text(
+            f"📝 *עריכת הערה לקובץ*\n\n"
+            f"📄 **שם:** `{file_name}`\n"
+            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
+            f"✏️ שלח/י הערה חדשה (או 'מחק' כדי להסיר)",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
+            parse_mode='Markdown'
+        )
+        return EDIT_CODE
+    except Exception as e:
+        logger.error(f"Error in handle_edit_note: {e}")
+        await query.edit_message_text("❌ שגיאה בהתחלת עריכת הערה")
     return ConversationHandler.END
 
 async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1542,6 +1635,9 @@ async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_
                 InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
             ],
             [
+                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"),
+            ],
+            [
                 InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}"),
                 InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}")
             ],
@@ -1636,6 +1732,34 @@ async def handle_edit_name_direct(update: Update, context: ContextTypes.DEFAULT_
     
     return ConversationHandler.END
 
+async def handle_edit_note_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """עריכת הערה (description) עבור קובץ בשמו הישיר"""
+    query = update.callback_query
+    await query.answer()
+    try:
+        file_name = query.data.replace("edit_note_direct_", "")
+        user_id = update.effective_user.id
+        from database import db
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
+            return ConversationHandler.END
+        current_note = file_data.get('description', '') or '—'
+        context.user_data['editing_note_file'] = file_name
+        await query.edit_message_text(
+            f"📝 *עריכת הערה לקובץ*\n\n"
+            f"📄 **שם:** `{file_name}`\n"
+            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
+            f"✏️ שלח/י הערה חדשה (או שלח/י 'מחק' כדי להסיר).",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
+            parse_mode='Markdown'
+        )
+        return EDIT_CODE  # נשתמש באותו state קבלת טקסט; נמפה לפי דגל
+    except Exception as e:
+        logging.exception("Error in handle_edit_note_direct: %s", e)
+        await query.edit_message_text("❌ שגיאה בעריכת הערה")
+    return ConversationHandler.END
+
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מרכז בקרה מתקדם לכל הכפתורים"""
     query = update.callback_query
@@ -1662,6 +1786,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return await handle_edit_name_direct(update, context)
             else:
                 return await handle_edit_name(update, context)
+        elif data.startswith("edit_note_"):
+            if data.startswith("edit_note_direct_"):
+                return await handle_edit_note_direct(update, context)
+            else:
+                return await handle_edit_note(update, context)
         elif data.startswith("revert_version_"):
             return await handle_revert_version(update, context)
         elif data.startswith("versions_"):
@@ -1979,6 +2108,9 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             GET_FILENAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename),
                 CallbackQueryHandler(handle_duplicate_callback)
+            ],
+            GET_NOTE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)
             ],
             EDIT_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code)
