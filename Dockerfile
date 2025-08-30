@@ -29,8 +29,8 @@ RUN addgroup -g 1000 botuser && \
 # יצירת תיקיות עבודה
 WORKDIR /app
 
-# העתקת requirements והתקנת dependencies
-COPY requirements.txt .
+# העתקת requirements והתקנת dependencies (Production-only)
+COPY requirements.prod.txt requirements.txt
 COPY constraints.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
