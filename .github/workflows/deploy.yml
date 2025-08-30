@@ -6,17 +6,11 @@
 name: 🚀 Code Keeper Bot CI/CD
 
 on:
-  # הפעלה על push לענפים עיקריים
+  # הפעלה על push לענפים עיקריים בלבד (לא PR)
   push:
     branches: [ main, develop ]
     tags: [ 'v*' ]
-  
-  # הפעלה על Pull Requests
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - '**'
-  
+
   # הפעלה ידנית
   workflow_dispatch:
     inputs:
