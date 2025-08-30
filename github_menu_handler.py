@@ -847,6 +847,10 @@ class GitHubMenuHandler:
             else:
                 repo_name = query.data.replace("repo_", "")
                 session["selected_repo"] = repo_name
+                # איפוס תיקיות יעד ישנות בעת בחירת ריפו חדש
+                session["selected_folder"] = None
+                context.user_data.pop("upload_target_folder", None)
+                context.user_data.pop("upload_target_branch", None)
 
                 # נקה סטייטים זמניים של זרם שחזור/גיבוי כדי למנוע נעילה לריפו קודם
                 try:
