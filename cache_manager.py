@@ -114,10 +114,24 @@ class CacheManager:
     
     def invalidate_user_cache(self, user_id: int):
         """מחיקת כל ה-cache של משתמש ספציפי"""
-        pattern = f"*:user:{user_id}:*"
-        deleted = self.delete_pattern(pattern)
-        logger.info(f"נמחקו {deleted} ערכי cache עבור משתמש {user_id}")
-        return deleted
+        # התאמה רחבה יותר למפתחות כפי שהם נוצרים כיום ב-_make_key
+        # המפתחות נראים כך: "<prefix>:<func_name>:<self>:<user_id>:..."
+        # לכן נמחק לפי prefixes הרלוונטיים ולפי user_id גולמי.
+        total_deleted = 0
+        try:
+            patterns = [
+                f"*:user:{user_id}:*",                 # תמיכה לאחור אם יתווסף prefix "user:" בעתיד
+                f"user_files:*:{user_id}:*",           # רשימת קבצי משתמש
+                f"latest_version:*:{user_id}:*",       # גרסה אחרונה לקובץ
+                f"search_code:*:{user_id}:*",          # תוצאות חיפוש למשתמש
+                f"*:{user_id}:*",                      # נפילה לאחור: כל מפתח שמכיל את המזהה
+            ]
+            for p in patterns:
+                total_deleted += int(self.delete_pattern(p) or 0)
+        except Exception as e:
+            logger.warning(f"invalidate_user_cache failed for user {user_id}: {e}")
+        logger.info(f"נמחקו {total_deleted} ערכי cache עבור משתמש {user_id}")
+        return total_deleted
     
     def get_stats(self) -> Dict[str, Any]:
         """סטטיסטיקות cache"""
