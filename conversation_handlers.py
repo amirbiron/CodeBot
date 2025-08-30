@@ -24,6 +24,7 @@ from typing import List, Optional
 from html import escape as html_escape
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
+from handlers.pagination import build_pagination_row
 
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
@@ -495,7 +496,6 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             page = 1
             context.user_data['files_last_page'] = page
-            # סימון מקור הרשימה: "שאר הקבצים" (רגיל)
             context.user_data['files_origin'] = { 'type': 'regular' }
             start_index = (page - 1) * FILES_PAGE_SIZE
             end_index = min(start_index + FILES_PAGE_SIZE, total_files)
@@ -511,18 +511,11 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 button_text = f"{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
-            # שורת עימוד
-            pagination_row = []
-            if page > 1:
-                pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
-            if page < total_pages:
-                pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+            pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
                 keyboard.append(pagination_row)
 
-            # כפתור חזרה
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
-
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             header_text = (
@@ -572,7 +565,6 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         except Exception:
             page = 1
         context.user_data['files_last_page'] = page
-        # סימון מקור הרשימה: "שאר הקבצים" (רגיל)
         context.user_data['files_origin'] = { 'type': 'regular' }
         if page < 1:
             page = 1
@@ -597,18 +589,11 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             button_text = f"{emoji} {file_name}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
-        # שורת עימוד
-        pagination_row = []
-        if page > 1:
-            pagination_row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"files_page_{page-1}"))
-        if page < total_pages:
-            pagination_row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"files_page_{page+1}"))
+        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
             keyboard.append(pagination_row)
 
-        # כפתור חזרה
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
-
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         header_text = (
@@ -2300,10 +2285,9 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
 
         # ניווט
         nav = []
-        if page > 1:
-            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"batch_files_page_{page-1}"))
-        if page < total_pages:
-            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"batch_files_page_{page+1}"))
+        row = build_pagination_row(page, total, PAGE_SIZE, "batch_files_page_")
+        if row:
+            nav.extend(row)
         if nav:
             keyboard.append(nav)
 
