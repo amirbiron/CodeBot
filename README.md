@@ -690,8 +690,8 @@ print('זיכרון:', get_memory_usage())
 ### דרכי יצירת קשר
 - **Issues**: [GitHub Issues](https://github.com/yourusername/code-keeper-bot/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/code-keeper-bot/discussions)
-- **Email**: your.email@example.com
-- **Telegram**: [@your_username](https://t.me/your_username)
+- **Email**: amirbiron@gmail.com
+- **Telegram**: [@moominAmir](https://t.me/moominAmir)
 
 ### קהילה
 - [Telegram Group](https://t.me/code_keeper_bot_community)
