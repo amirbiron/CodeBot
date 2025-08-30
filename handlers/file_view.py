@@ -15,7 +15,8 @@ from services import code_service
 logger = logging.getLogger(__name__)
 
 
-def _get_main_keyboard():
+def _get_main_keyboard() -> list:
+    """Return main keyboard layout from conversation handlers or an empty fallback."""
     try:
         from conversation_handlers import MAIN_KEYBOARD
         return MAIN_KEYBOARD
@@ -24,6 +25,7 @@ def _get_main_keyboard():
 
 
 async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show file action menu for a selected file from the list view."""
     query = update.callback_query
     await query.answer()
     try:
@@ -80,6 +82,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Display file content with actions (edit, history, download)."""
     query = update.callback_query
     await query.answer()
     try:

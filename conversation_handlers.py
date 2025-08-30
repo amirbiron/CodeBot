@@ -23,6 +23,7 @@ from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
 from services import code_service
+from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
@@ -94,31 +95,16 @@ reporter = create_reporter(
 )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """טיפול בפקודת /start - מציג את התפריט הראשי"""
+    """Handle /start and show the main menu."""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
     username = update.effective_user.username
-    
-    # שמור משתמש במסד נתונים (INSERT OR IGNORE)
     from database import db
     db.save_user(user_id, username)
-    # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(user_id, username)
-    
     safe_user_name = html_escape(user_name) if user_name else ""
-    
-    welcome_text = (
-        f"🤖 שלום {safe_user_name}! ברוך הבא לבוט שומר הקוד המתקדם!\n\n"
-        "🔹 שמור ונהל קטעי קוד בחכמה\n"
-        "🔹 עריכה מתקדמת עם גרסאות\n"
-        "🔹 חיפוש והצגה חכמה\n"
-        "🔹 הורדה וניהול מלא\n"
-        "🔹 העלאת קבצים ל-GitHub\n"
-        "🔹 ניתוח ריפו\n\n"
-        "בחר פעולה מהתפריט למטה 👇\n\n"
-        "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
-    )
-    
+    from i18n.strings_he import MESSAGES
+    welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
     reporter.report_activity(user_id)
