@@ -22,8 +22,8 @@
   - כולל Trivy על תמונת הדוקר לאחר build והעלאה לרג׳יסטרי (SARIF ל־Security). אינו רץ על PR.
 
 - סריקות אבטחה מתוזמנות ו־PR‑Triggered: `.github/workflows/security-scan.yml`
-  - רץ אוטומטית פעם בשבועיים (1 ו־15 בחודש, 02:00 UTC): Trivy על הריפו ועל התמונה, CodeQL, Issue מסכם, והתראת טלגרם אם מוגדרים סודות.
-  - רץ גם על PR שמשנה `Dockerfile`/`requirements.txt`/`constraints*.txt` כדי לחשוף CVEs לפני merge.
+  - רץ אוטומטית פעם בחודש (1 לחודש, 02:00 UTC): Trivy על הריפו ועל התמונה, CodeQL, Issue מסכם, והתראת טלגרם אם מוגדרים סודות.
+  - רץ גם על PR שמשנה `Dockerfile`/`requirements.txt`/`requirements.prod.txt`/`constraints*.txt` כדי לחשוף CVEs לפני merge.
 
 ### שלבי הגדרה (UI בלבד)
 1) פתיחת PR כ־Draft כדי להפעיל CI
@@ -68,7 +68,7 @@
 - Dependabot פותח PRים לעדכוני pip ו־docker פעם בשבוע.
 - על PR: רץ CI מלא. אם הכל ירוק, וכללי ההגנה מתקיימים, ו־`DEPENDABOT_AUTOMERGE`=true – יבוצע Auto‑merge לעדכוני patch (ו/או minor לפי כללים ב־workflow).
 - על push לענפים ראשיים: רץ deploy, כולל סריקת Trivy לתמונה והעלאת תוצאות ל־Security.
-- דו־שבועי: רץ סריקת Security יזומה (Trivy + CodeQL) ומייצר Issue מסכם.
+- חודשי: רץ סריקת Security יזומה (Trivy + CodeQL) ומייצר Issue מסכם.
 
 ### זהירות לגבי פריסה (Render)
 - בקובץ `render.yaml` מוגדר `autoDeploy: true` לשירות הראשי.
