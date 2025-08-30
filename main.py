@@ -19,6 +19,7 @@ from datetime import datetime, timezone, timedelta
 import atexit
 import pymongo.errors
 from pymongo.errors import DuplicateKeyError
+import os
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeChat
 from telegram.constants import ParseMode
@@ -75,6 +76,29 @@ reporter = create_reporter(
     service_id=os.getenv('REPORTER_SERVICE_ID', 'srv-d29d72adbo4c73bcuep0'),
     service_name="CodeBot"
 )
+
+# ===== עזר: שליחת הודעת אדמין =====
+def get_admin_ids() -> list[int]:
+    try:
+        raw = os.getenv('ADMIN_USER_IDS')
+        if not raw:
+            return []
+        return [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
+    except Exception:
+        return []
+
+async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+    try:
+        admin_ids = get_admin_ids()
+        if not admin_ids:
+            return
+        for admin_id in admin_ids:
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=text)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """רישום פעילות משתמש"""
@@ -879,6 +903,13 @@ class CodeKeeperBot:
             except Exception as e:
                 logger.exception(f"GitHub restore-to-repo failed: {e}")
                 await update.message.reply_text(f"❌ שגיאה בשחזור לריפו: {e}")
+                # התראת OOM לאדמין אם מזוהה חריגת זיכרון
+                try:
+                    msg = str(e)
+                    if isinstance(e, MemoryError) or 'Ran out of memory' in msg or 'out of memory' in msg.lower():
+                        await notify_admins(context, f"🚨 OOM בשחזור ZIP לריפו: {msg}")
+                except Exception:
+                    pass
             finally:
                 context.user_data['upload_mode'] = None
                 context.user_data.pop('github_restore_zip_purge', None)
@@ -1032,6 +1063,13 @@ class CodeKeeperBot:
             except Exception as e:
                 logger.exception(f"Create new repo from ZIP failed: {e}")
                 await update.message.reply_text(f"❌ שגיאה ביצירת ריפו מ‑ZIP: {e}")
+                # התראת OOM לאדמין אם מזוהה חריגת זיכרון
+                try:
+                    msg = str(e)
+                    if isinstance(e, MemoryError) or 'Ran out of memory' in msg or 'out of memory' in msg.lower():
+                        await notify_admins(context, f"🚨 OOM ביצירת ריפו מ‑ZIP: {msg}")
+                except Exception:
+                    pass
             finally:
                 # נקה דגלי זרימה
                 context.user_data['upload_mode'] = None
