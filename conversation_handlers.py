@@ -905,8 +905,11 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        # הוסף הצגת הערה אם קיימת
+        note = file_data.get('description') or ''
+        note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
         await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}\n\n"
+            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -970,6 +973,40 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת הקוד החדש לעריכה"""
+    # אם אנו במצב עריכת הערה (description), ננתב לפונקציה יעודית
+    if context.user_data.get('editing_note_file'):
+        note_text = (update.message.text or '').strip()
+        file_name = context.user_data.pop('editing_note_file')
+        user_id = update.effective_user.id
+        try:
+            from database import db
+            # שלוף את המסמך האחרון ועדכן תיאור
+            doc = db.get_latest_version(user_id, file_name)
+            if not doc:
+                await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
+                return ConversationHandler.END
+            # צור גרסה חדשה עם אותו קוד ושם, עדכון שדה description
+            from database import CodeSnippet
+            snippet = CodeSnippet(
+                user_id=user_id,
+                file_name=file_name,
+                code=doc.get('code', ''),
+                programming_language=doc.get('programming_language', 'text'),
+                description=("" if note_text.lower() == 'מחק' else note_text)[:280]
+            )
+            ok = db.save_code_snippet(snippet)
+            if ok:
+                await update.message.reply_text(
+                    "✅ הערה עודכנה בהצלחה!",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]])
+                )
+            else:
+                await update.message.reply_text("❌ שגיאה בעדכון ההערה")
+        except Exception as e:
+            logger.error(f"Error updating note: {e}")
+            await update.message.reply_text("❌ שגיאה בעדכון ההערה")
+        return ConversationHandler.END
+
     new_code = update.message.text
     
     # בדיקה אם מדובר בעריכת קובץ גדול
@@ -1569,6 +1606,9 @@ async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_
                 InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
             ],
             [
+                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"),
+            ],
+            [
                 InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}"),
                 InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}")
             ],
@@ -1663,6 +1703,34 @@ async def handle_edit_name_direct(update: Update, context: ContextTypes.DEFAULT_
     
     return ConversationHandler.END
 
+async def handle_edit_note_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """עריכת הערה (description) עבור קובץ בשמו הישיר"""
+    query = update.callback_query
+    await query.answer()
+    try:
+        file_name = query.data.replace("edit_note_direct_", "")
+        user_id = update.effective_user.id
+        from database import db
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
+            return ConversationHandler.END
+        current_note = file_data.get('description', '') or '—'
+        context.user_data['editing_note_file'] = file_name
+        await query.edit_message_text(
+            f"📝 *עריכת הערה לקובץ*\n\n"
+            f"📄 **שם:** `{file_name}`\n"
+            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
+            f"✏️ שלח/י הערה חדשה (או שלח/י 'מחק' כדי להסיר).",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
+            parse_mode='Markdown'
+        )
+        return EDIT_CODE  # נשתמש באותו state קבלת טקסט; נמפה לפי דגל
+    except Exception as e:
+        logging.exception("Error in handle_edit_note_direct: %s", e)
+        await query.edit_message_text("❌ שגיאה בעריכת הערה")
+    return ConversationHandler.END
+
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מרכז בקרה מתקדם לכל הכפתורים"""
     query = update.callback_query
@@ -1689,6 +1757,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return await handle_edit_name_direct(update, context)
             else:
                 return await handle_edit_name(update, context)
+        elif data.startswith("edit_note_"):
+            if data.startswith("edit_note_direct_"):
+                return await handle_edit_note_direct(update, context)
+            else:
+                return await handle_edit_note(update, context)
         elif data.startswith("revert_version_"):
             return await handle_revert_version(update, context)
         elif data.startswith("versions_"):
