@@ -4,23 +4,26 @@
 
 ### מה קיים בריפו
 - Dependabot: `.github/dependabot.yml`
-  - אקוסיסטם: pip
-  - תיקייה: `/` (קובץ `requirements.txt`)
-  - תדירות: weekly
+  - אקוסיסטמים: pip + docker
+  - תיקייה: `/` (קובצי `requirements.txt` ו־`Dockerfile`)
+  - תדירות: weekly (יום ד׳, 02:00–02:30 UTC)
 
-- וורקפלואו למיזוג אוטומטי לעדכוני patch של Dependabot: `.github/workflows/dependabot-auto-merge.yml`
-  - מוגבל ל־patch בלבד (`version-update:semver-patch`).
-  - מאופשר רק כשה־Secret `DEPENDABOT_AUTOMERGE` מוגדר לערך `true`.
-  - משתמש ב־"Allow auto-merge" של גיטהאב ובכללי Branch protection.
+- מיזוג אוטומטי ל־Dependabot: `.github/workflows/dependabot-auto-merge.yml`
+  - מאשר ומפעיל Auto‑merge לעדכוני patch; minor מאושר אם מוגדר כ־security או לפי allowlist.
+  - מאופשר רק כשה־Secret `DEPENDABOT_AUTOMERGE`=true.
+  - נשען על "Allow auto‑merge" וכללי Branch protection.
 
-- CI ל־PRים ב־`.github/workflows/ci.yml`:
-  - "🔍 Code Quality & Security" (לינטים/סטייל/בדיקות אבטחה קלות)
-  - "🧪 Unit Tests (3.9|3.10|3.11)" (מטריצת פייתון)
-  - ג׳ובים משלימים (hadolint, gitleaks, semgrep, yamllint, lychee, alembic אם קיים)
+- CI ל־PRים: `.github/workflows/ci.yml`
+  - רץ על Pull Request בלבד (לא על push ל־main) כדי למנוע כפילות.
+  - כולל: "🔍 Code Quality & Security", "🧪 Unit Tests" (פייתון 3.11/3.12), וכן hadolint, gitleaks, semgrep, yamllint, lychee, ועוד.
 
-- פריסה/Build ב־`.github/workflows/deploy.yml`:
-  - רץ על push ל־main/develop, על tags (v*), או ידנית (workflow_dispatch)
-  - אינו רץ על Pull Request – מונע עיכובים וכפילויות ב־PRים
+- Build/Deploy: `.github/workflows/deploy.yml`
+  - רץ על push ל־main/develop ו/או על תגיות `v*`, או ידנית.
+  - כולל Trivy על תמונת הדוקר לאחר build והעלאה לרג׳יסטרי (SARIF ל־Security). אינו רץ על PR.
+
+- סריקות אבטחה מתוזמנות ו־PR‑Triggered: `.github/workflows/security-scan.yml`
+  - רץ אוטומטית פעם בשבועיים (1 ו־15 בחודש, 02:00 UTC): Trivy על הריפו ועל התמונה, CodeQL, Issue מסכם, והתראת טלגרם אם מוגדרים סודות.
+  - רץ גם על PR שמשנה `Dockerfile`/`requirements.txt`/`constraints*.txt` כדי לחשוף CVEs לפני merge.
 
 ### שלבי הגדרה (UI בלבד)
 1) פתיחת PR כ־Draft כדי להפעיל CI
@@ -62,8 +65,10 @@
    ![Add Secret](images/add-secret-dependabot-automerge.svg)
 
 ### איך זה עובד בפועל
-- Dependabot יפתח Pull Requests לעדכוני pip פעם בשבוע.
-- ה־PR יריץ CI. אם כל הבדיקות ירוקות וכללי ההגנה מתקיימים, וה־Secret `DEPENDABOT_AUTOMERGE`=true – ה־workflow יאשר ויפעיל Auto‑merge (Squash) לעדכוני patch בלבד.
+- Dependabot פותח PRים לעדכוני pip ו־docker פעם בשבוע.
+- על PR: רץ CI מלא. אם הכל ירוק, וכללי ההגנה מתקיימים, ו־`DEPENDABOT_AUTOMERGE`=true – יבוצע Auto‑merge לעדכוני patch (ו/או minor לפי כללים ב־workflow).
+- על push לענפים ראשיים: רץ deploy, כולל סריקת Trivy לתמונה והעלאת תוצאות ל־Security.
+- דו־שבועי: רץ סריקת Security יזומה (Trivy + CodeQL) ומייצר Issue מסכם.
 
 ### זהירות לגבי פריסה (Render)
 - בקובץ `render.yaml` מוגדר `autoDeploy: true` לשירות הראשי.
