@@ -22,6 +22,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # התקנת תלויות מערכת לבילד
 RUN set -eux; \
     apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
+    # שדרוג תיקוני אבטחה של מערכת בסיס
+    apt-get -y upgrade; \
     apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -54,6 +56,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # התקנת תלויות runtime
 RUN set -eux; \
     apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
+    # שדרוג תיקוני אבטחה כדי לטפל ב‑zlib/libxml2/sqlite וכד'
+    apt-get -y upgrade; \
     echo "tzdata tzdata/Areas select Etc" | debconf-set-selections; \
     echo "tzdata tzdata/Zones/Etc select UTC" | debconf-set-selections; \
     apt-get install -y --no-install-recommends \

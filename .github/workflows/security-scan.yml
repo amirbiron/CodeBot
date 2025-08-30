@@ -19,6 +19,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: "🧪 Trivy FS scan (repo)"
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln,secret,config'
+          output: trivy-fs.txt
+
+      - name: "🧪 Trivy Dockerfile base image scan"
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: 'python:3.11-slim'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          output: trivy-image.txt
+
       - name: "🔍 CodeQL Analysis"
         uses: github/codeql-action/init@v3
         with:
@@ -39,6 +59,12 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const link = `https://github.com/${owner}/${repo}/security/code-scanning`;
+            // Attach trivy summaries if present
+            const fs = require('fs');
+            let trivyFs = '';
+            let trivyImg = '';
+            try { trivyFs = fs.readFileSync('trivy-fs.txt', 'utf8'); } catch(e) {}
+            try { trivyImg = fs.readFileSync('trivy-image.txt', 'utf8'); } catch(e) {}
             let alerts = [];
             let mdBody = '';
             let htmlBody = '';
@@ -85,7 +111,9 @@ jobs:
                 `\n- Error: ${sevCounts.error}`,
                 `\n- Note: ${sevCounts.note}`,
                 `\n- Unknown: ${sevCounts.unknown}`,
-                `\n\nTotal: ${total}`
+                `\n\nTotal: ${total}`,
+                trivyFs ? `\n\n<details><summary>Trivy FS (CRITICAL/HIGH)</summary>\n\n\n\n\n\n${'```'}\n${trivyFs}\n${'```'}\n</details>` : '',
+                trivyImg ? `\n\n<details><summary>Trivy Image python:3.11-slim (CRITICAL/HIGH)</summary>\n\n${'```'}\n${trivyImg}\n${'```'}\n</details>` : ''
               ].join('');
 
               htmlBody = [
