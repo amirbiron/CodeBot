@@ -602,20 +602,6 @@ jobs:
 ## ===================================
 ## Workflow נוסף: Security Scanning הועבר לקובץ נפרד
 ## ===================================
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: 🔍 CodeQL Analysis
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
-      
-      - name: 🏗️ Autobuild
-        uses: github/codeql-action/autobuild@v3
-      
-      - name: 🔍 Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
 
 ## ===================================
 ## Workflow נוסף: Performance Testing הועבר לקובץ נפרד
