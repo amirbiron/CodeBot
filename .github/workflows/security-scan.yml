@@ -18,12 +18,10 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
-
       - name: "🔎 Debug Telegram notify config"
         run: |
           echo "Has TELEGRAM_BOT_TOKEN: $([ -n "${{ env.TELEGRAM_BOT_TOKEN }}" ] && echo yes || echo no)"
           echo "Has TELEGRAM_CHAT_ID: $([ -n "${{ env.TELEGRAM_CHAT_ID }}" ] && echo yes || echo no)"
-
       - name: "🧪 Trivy FS scan (repo)"
         uses: aquasecurity/trivy-action@0.24.0
         with:
