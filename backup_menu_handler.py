@@ -383,7 +383,11 @@ class BackupMenuHandler:
 			vnum = id_to_version.get(getattr(info, 'backup_id', ''), 1)
 			files_cnt = getattr(info, 'file_count', 0) or 0
 			files_txt = f"{files_cnt:,}"
-			second_line = f"  ↳ גודל: {_format_bytes(getattr(info, 'total_size', 0))} | קבצים: {files_txt} | גרסה: v{vnum}"
+			if delete_mode:
+				mark = "✅" if info.backup_id in selected else "⬜️"
+				second_line = f"  ↳ {mark} | קבצים: {files_txt} | גרסה: v{vnum}"
+			else:
+				second_line = f"  ↳ גודל: {_format_bytes(getattr(info, 'total_size', 0))} | קבצים: {files_txt} | גרסה: v{vnum}"
 			if rating:
 				second_line += f" {rating}"
 			lines.append(second_line)
