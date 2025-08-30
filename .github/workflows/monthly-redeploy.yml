@@ -5,10 +5,25 @@ on:
     - cron: '0 3 1 * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   redeploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Monthly cache-bust commit
+        run: |
+          echo "$(date -u +%F\ %T)Z" > .build-bust
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .build-bust
+          git commit -m "chore(ci): monthly cache-bust $(date -u +%F)" || echo "No changes"
+          git push || true
+
       - name: Trigger Render Deploy Hook
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
