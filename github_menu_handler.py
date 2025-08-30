@@ -4113,7 +4113,8 @@ class GitHubMenuHandler:
         query = update.callback_query
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
-        current = session.get("selected_folder") or "root"
+        # הצג את התיקייה הפעילה הנוכחית: עדיפות ל-override זמני מזרימת ההעלאה, אחרת התיקייה שנבחרה במפגש, אחרת root
+        current = (context.user_data.get("upload_target_folder") or session.get("selected_folder") or "root")
         kb = [
             [InlineKeyboardButton("📁 root (ראשי)", callback_data="upload_folder_root")],
             [InlineKeyboardButton(f"📂 השתמש בתיקייה שנבחרה: {current}", callback_data="upload_folder_current")],
