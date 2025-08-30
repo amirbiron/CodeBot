@@ -16,6 +16,7 @@ class DatabaseManager:
         self.db = None
         self.collection = None
         self.large_files_collection = None
+        self.backup_ratings_collection = None
         self._repo = None
         self.connect()
 
@@ -40,6 +41,7 @@ class DatabaseManager:
             self.db = self.client[config.DATABASE_NAME]
             self.collection = self.db.code_snippets
             self.large_files_collection = self.db.large_files
+            self.backup_ratings_collection = self.db.backup_ratings
             self.client.admin.command('ping')
             self._create_indexes()
             logger.info("התחברות למסד הנתונים הצליחה עם Connection Pooling מתקדם")
@@ -120,9 +122,17 @@ class DatabaseManager:
             ], name="user_tags_size_idx"),
         ]
 
+        # backup_ratings indexes
+        backup_ratings_indexes = [
+            IndexModel([("user_id", ASCENDING), ("backup_id", ASCENDING)], name="user_backup_unique", unique=True),
+            IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
+        ]
+
         try:
             self.collection.create_indexes(indexes)
             self.large_files_collection.create_indexes(large_files_indexes)
+            if self.backup_ratings_collection is not None:
+                self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
         except Exception as e:
             msg = str(e)
             if 'IndexOptionsConflict' in msg or 'already exists with a different name' in msg:
@@ -153,6 +163,8 @@ class DatabaseManager:
                         pass
                     self.collection.create_indexes(indexes)
                     self.large_files_collection.create_indexes(large_files_indexes)
+                    if self.backup_ratings_collection is not None:
+                        self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
                 except Exception:
                     logger.warning("נכשל עדכון אינדקסים לאחר קונפליקט")
             else:
@@ -226,6 +238,16 @@ class DatabaseManager:
 
     def get_all_user_files_combined(self, user_id: int) -> Dict[str, List[Dict]]:
         return self._get_repo().get_all_user_files_combined(user_id)
+
+    # Backup ratings API
+    def save_backup_rating(self, user_id: int, backup_id: str, rating: str) -> bool:
+        return self._get_repo().save_backup_rating(user_id, backup_id, rating)
+
+    def get_backup_rating(self, user_id: int, backup_id: str) -> Optional[str]:
+        return self._get_repo().get_backup_rating(user_id, backup_id)
+
+    def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
+        return self._get_repo().delete_backup_ratings(user_id, backup_ids)
 
     # Users and tokens
     def save_github_token(self, user_id: int, token: str) -> bool:

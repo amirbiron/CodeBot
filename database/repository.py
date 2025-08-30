@@ -353,3 +353,52 @@ class Repository:
             logger.error(f"שגיאה בשמירת משתמש: {e}")
             return False
 
+    # --- Backup ratings ---
+    def save_backup_rating(self, user_id: int, backup_id: str, rating: str) -> bool:
+        try:
+            coll = self.manager.backup_ratings_collection
+            if coll is None:
+                logger.warning("backup_ratings_collection is not initialized")
+                return False
+            doc = {
+                "user_id": user_id,
+                "backup_id": backup_id,
+                "rating": rating,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+            coll.update_one(
+                {"user_id": user_id, "backup_id": backup_id},
+                {"$set": {"rating": rating, "updated_at": datetime.now(timezone.utc)},
+                 "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save backup rating: {e}")
+            return False
+
+    def get_backup_rating(self, user_id: int, backup_id: str) -> Optional[str]:
+        try:
+            coll = self.manager.backup_ratings_collection
+            if coll is None:
+                return None
+            doc = coll.find_one({"user_id": user_id, "backup_id": backup_id})
+            if doc:
+                return doc.get("rating")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get backup rating: {e}")
+            return None
+
+    def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
+        try:
+            coll = self.manager.backup_ratings_collection
+            if coll is None:
+                return 0
+            res = coll.delete_many({"user_id": user_id, "backup_id": {"$in": backup_ids}})
+            return int(res.deleted_count or 0)
+        except Exception as e:
+            logger.error(f"Failed to delete backup ratings: {e}")
+            return 0
+

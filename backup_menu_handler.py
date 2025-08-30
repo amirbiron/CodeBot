@@ -8,6 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFi
 from telegram.ext import ContextTypes
 
 from services import backup_service as backup_manager
+from database import db
 from handlers.pagination import build_pagination_row
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def _repo_only(repo_full: str) -> str:
 	except Exception:
 		return str(repo_full)
 
-def _build_download_button_text(info) -> str:
+def _build_download_button_text(info, force_hide_size: bool = False) -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
 	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
 	MAX_LEN = 64
@@ -68,6 +69,19 @@ def _build_download_button_text(info) -> str:
 		if include_size:
 			return f"⬇️ {base_text} {prim} — {date_part} — {size_part}"
 		return f"⬇️ {base_text} {prim} — {date_part}"
+
+	# אם יש צורך להסתיר את הגודל (למשל במצב מחיקה), בנה טקסט ללא הגודל
+	if force_hide_size:
+		prim_use = _truncate_middle(primary, 32)
+		text = build(base, prim_use, include_size=False)
+		if len(text) <= MAX_LEN:
+			return text
+		for limit in (28, 24, 20, 16, 12, 8, 6, 4):
+			prim_use = _truncate_middle(primary, limit)
+			text = build(base, prim_use, include_size=False)
+			if len(text) <= MAX_LEN:
+				return text
+		return f"⬇️ zip — {date_part}"
 
 	# התחלה עם תצורה מלאה
 	prim_use = _truncate_middle(primary, 32)
@@ -147,6 +161,102 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
+		elif data == "backup_delete_mode_on":
+			context.user_data["backup_delete_mode"] = True
+			context.user_data["backup_delete_selected"] = set()
+			await self._show_backups_list(update, context)
+		elif data == "backup_delete_mode_off":
+			context.user_data.pop("backup_delete_mode", None)
+			context.user_data.pop("backup_delete_selected", None)
+			await self._show_backups_list(update, context)
+		elif data.startswith("backup_toggle_del:"):
+			bid = data.split(":", 1)[1]
+			sel = context.user_data.setdefault("backup_delete_selected", set())
+			if bid in sel:
+				sel.remove(bid)
+			else:
+				sel.add(bid)
+			await self._show_backups_list(update, context)
+		elif data == "backup_delete_confirm":
+			sel = list(context.user_data.get("backup_delete_selected", set()) or [])
+			if not sel:
+				await query.answer("לא נבחרו פריטים", show_alert=True)
+				return
+			# הצג מסך אימות סופי
+			txt = "האם אתה בטוח שברצונך למחוק את:"\
+				+ "\n" + "\n".join(sel[:15]) + ("\n…" if len(sel) > 15 else "")
+			kb = [
+				[InlineKeyboardButton("✅ אישור מחיקה", callback_data="backup_delete_execute")],
+				[InlineKeyboardButton("🔙 ביטול", callback_data="backup_delete_mode_off")],
+			]
+			await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))
+		elif data == "backup_delete_execute":
+			sel = list(context.user_data.get("backup_delete_selected", set()) or [])
+			if not sel:
+				await query.edit_message_text("לא נבחרו פריטים למחיקה")
+				return
+			# מחיקה בפועל
+			try:
+				res = backup_manager.delete_backups(user_id, sel)
+				try:
+					# נקה דירוגים
+					from database import db as _db
+					_db.delete_backup_ratings(user_id, sel)
+				except Exception:
+					pass
+				deleted = res.get("deleted", 0)
+				errs = res.get("errors", [])
+				msg = f"✅ נמחקו {deleted} גיבויים"
+				if errs:
+					msg += f"\n⚠️ כשלים: {len(errs)}"
+				await query.edit_message_text(msg)
+				# נקה מצב מחיקה ורענן רשימה
+				context.user_data.pop("backup_delete_mode", None)
+				context.user_data.pop("backup_delete_selected", None)
+				try:
+					await self._show_backups_list(update, context)
+				except Exception:
+					pass
+			except Exception as e:
+				await query.edit_message_text(f"❌ שגיאה במחיקה: {e}")
+		elif data.startswith("backup_rate:"):
+			# פורמט: backup_rate:<backup_id>:<rating_key>
+			try:
+				_, b_id, rating_key = data.split(":", 2)
+			except Exception:
+				await query.answer("בקשה לא תקפה", show_alert=True)
+				return
+			# שמור דירוג
+			rating_map = {
+				"excellent": "🏆 מצוין",
+				"good": "👍 טוב",
+				"ok": "🤷 סביר",
+			}
+			rating_value = rating_map.get(rating_key, rating_key)
+			try:
+				db.save_backup_rating(user_id, b_id, rating_value)
+				# נסה לערוך את הודעת הסיכום אם שמרנו אותה בסשן
+				try:
+					summary_cache = context.user_data.get("backup_summaries", {})
+					meta = summary_cache.get(b_id)
+					if meta:
+						chat_id = meta.get("chat_id")
+						message_id = meta.get("message_id")
+						base_text = meta.get("text") or ""
+						await context.bot.edit_message_text(
+							chat_id=chat_id,
+							message_id=message_id,
+							text=f"{base_text}\n{rating_value} / 👍 טוב / 🤷 סביר"
+						)
+				except Exception:
+					pass
+				try:
+					await query.edit_message_text(f"נשמר הדירוג: {rating_value}")
+				except Exception:
+					await query.answer("נשמר הדירוג", show_alert=False)
+			except Exception as e:
+				await query.answer(f"שמירת דירוג נכשלה: {e}", show_alert=True)
+			return
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
@@ -249,29 +359,63 @@ class BackupMenuHandler:
 		start = (page - 1) * PAGE_SIZE
 		end = min(start + PAGE_SIZE, total)
 		items = backups[start:end]
-		lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
+		# חשב גרסאות (vN) לכל ריפו לפי סדר כרונולוגי (הכי ישן = v1)
+		repo_to_sorted: Dict[str, list] = {}
+		id_to_version: Dict[str, int] = {}
+		try:
+			for b in backups:
+				repo_name = getattr(b, 'repo', None)
+				if not repo_name:
+					continue
+				repo_to_sorted.setdefault(repo_name, []).append(b)
+			for repo_name, arr in repo_to_sorted.items():
+				arr.sort(key=lambda x: getattr(x, 'created_at', None))
+				for idx, b in enumerate(arr, start=1):
+					id_to_version[getattr(b, 'backup_id', '')] = idx
+		except Exception:
+			id_to_version = {}
+		lines = [f"📦 קבצי ZIP שמורים — סה\"כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
 		keyboard = []
+		delete_mode = bool(context.user_data.get("backup_delete_mode"))
+		selected = set(context.user_data.get("backup_delete_selected", set()))
 		for info in items:
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
+			# שורת כותרת לפריט
 			if repo_name:
 				repo_display = _repo_only(repo_name)
-				line = (
-					f"• {repo_display} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
-					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype} — ID: {info.backup_id}"
-				)
+				first_line = f"• {repo_display} — {_format_date(getattr(info, 'created_at', ''))}"
 			else:
-				line = (
-					f"• {info.backup_id} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
-					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
-				)
-			lines.append(line)
+				first_line = f"• {getattr(info, 'backup_id', '')} — {_format_date(getattr(info, 'created_at', ''))}"
+			lines.append(first_line)
+			# שורה שנייה עם גודל | קבצים | גרסה (+דירוג אם קיים)
+			try:
+				rating = db.get_backup_rating(user_id, info.backup_id) or ""
+			except Exception:
+				rating = ""
+			vnum = id_to_version.get(getattr(info, 'backup_id', ''), 1)
+			files_cnt = getattr(info, 'file_count', 0) or 0
+			files_txt = f"{files_cnt:,}"
+			if delete_mode:
+				mark = "✅" if info.backup_id in selected else "⬜️"
+				second_line = f"  ↳ {mark} | קבצים: {files_txt} | גרסה: v{vnum}"
+			else:
+				second_line = f"  ↳ גודל: {_format_bytes(getattr(info, 'total_size', 0))} | קבצים: {files_txt} | גרסה: v{vnum}"
+			if rating:
+				second_line += f" {rating}"
+			lines.append(second_line)
 			row = []
-			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
-			if btype not in {"github_repo_zip"}:
-				row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-			# כפתור הורדה תמיד זמין עם טקסט תמציתי
-			row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
+			if delete_mode:
+				mark = "✅" if info.backup_id in selected else "⬜️"
+				row.append(InlineKeyboardButton(f"{mark} בחר למחיקה", callback_data=f"backup_toggle_del:{info.backup_id}"))
+				# הצג גם כפתור הורדה אך בלי גודל על הכפתור עצמו
+				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True), callback_data=f"backup_download_id:{info.backup_id}"))
+			else:
+				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
+				if btype not in {"github_repo_zip"}:
+					row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
+				# כפתור הורדה תמיד זמין עם טקסט תמציתי
+				row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
@@ -280,7 +424,7 @@ class BackupMenuHandler:
 			nav.extend(row)
 		if nav:
 			keyboard.append(nav)
-		# פעולות נוספות - כפתור חזרה דינמי
+		# פעולות נוספות - כפתור חזרה דינמי + מצב מחיקה
 		if zip_back_to == 'files':
 			back_cb = 'files'
 		elif zip_back_to == 'github_upload':
@@ -289,8 +433,31 @@ class BackupMenuHandler:
 			back_cb = 'github_backup_menu'
 		else:
 			back_cb = 'backup_menu'
+		controls_row = []
+		if delete_mode:
+			controls_row.append(InlineKeyboardButton("🗑 אשר ומחק", callback_data="backup_delete_confirm"))
+			controls_row.append(InlineKeyboardButton("❌ צא ממצב מחיקה", callback_data="backup_delete_mode_off"))
+		else:
+			controls_row.append(InlineKeyboardButton("🗑 מחיקה מרובה", callback_data="backup_delete_mode_on"))
+		keyboard.append(controls_row)
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+
+	async def send_rating_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		"""שולח הודעת תיוג עם 3 כפתורים עבור גיבוי מסוים."""
+		try:
+			keyboard = [
+				[InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
+				[InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
+				[InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+			]
+			await context.bot.send_message(
+				chat_id=update.effective_chat.id,
+				text="תיוג:",
+				reply_markup=InlineKeyboardMarkup(keyboard)
+			)
+		except Exception:
+			pass
 	
 	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
 		query = update.callback_query

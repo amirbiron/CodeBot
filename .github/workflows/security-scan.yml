@@ -3,11 +3,9 @@ name: "🔒 Security Scan"
 on:
   pull_request:
     paths:
-      - 'Dockerfile'
-      - 'requirements.txt'
-      - 'constraints.txt'
-      - 'constraints.lock.txt'
-      - 'requirements.prod.txt'
+      - '**/Dockerfile'
+      - '**/requirements*.txt'
+      - '**/constraints*.txt'
   schedule:
     - cron: '0 2 1 * *'
   workflow_dispatch:
@@ -186,7 +184,7 @@ jobs:
             return mdBody;
 
       - name: "📨 Notify Telegram"
-        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' && github.event_name == 'schedule' }}
         run: |
           printf '%s' "${{ steps.scan_summary.outputs.text }}" | head -c 3500 | \
           curl -sS -o /tmp/tg.json -w "%{http_code}" -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

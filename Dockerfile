@@ -19,7 +19,12 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apk upgrade --no-cache && \
     python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 # התקנת תלויות מערכת לבילד (נדרש ל-build של psutil וכד')
-RUN apk add --no-cache gcc g++ musl-dev python3-dev linux-headers
+RUN apk add --no-cache \
+    gcc=13.2.1_git20240309-r1 \
+    g++=13.2.1_git20240309-r1 \
+    musl-dev=1.2.5-r1 \
+    python3-dev=3.12.11-r0 \
+    linux-headers=6.6-r0
 
 # יצירת משתמש לא-root
 # Alpine: create non-root user
@@ -45,8 +50,16 @@ ENV PATH="/home/botuser/.local/bin:$PATH"
 ENV PYTHONPATH="/app:$PYTHONPATH"
 # התקנת תלויות runtime
 RUN apk upgrade --no-cache && apk add --no-cache \
-    cairo pango gdk-pixbuf fontconfig ttf-dejavu tzdata curl \
-    libxml2 sqlite-libs zlib
+    cairo=1.18.4-r0 \
+    pango=1.52.2-r0 \
+    gdk-pixbuf=2.42.12-r0 \
+    fontconfig=2.15.0-r1 \
+    font-dejavu=2.37-r5 \
+    tzdata=2025b-r0 \
+    curl=8.12.1-r0 \
+    libxml2=2.12.10-r0 \
+    sqlite-libs=3.45.3-r2 \
+    zlib=1.3.1-r1
 
 # שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
