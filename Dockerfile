@@ -15,6 +15,9 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+# עדכון חבילות מערכת ושדרוג כלי פייתון בסיסיים (pip/setuptools/wheel)
+RUN apk upgrade --no-cache && \
+    python -m pip install --upgrade pip setuptools wheel
 # התקנת תלויות מערכת לבילד (נדרש ל-build של psutil וכד')
 RUN apk add --no-cache gcc g++ musl-dev python3-dev linux-headers
 
@@ -43,6 +46,9 @@ ENV PYTHONPATH="/app:$PYTHONPATH"
 # התקנת תלויות runtime
 RUN apk upgrade --no-cache && apk add --no-cache \
     cairo pango gdk-pixbuf fontconfig ttf-dejavu tzdata curl
+
+# שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
+RUN python -m pip install --upgrade pip setuptools wheel
 
 # יצירת משתמש לא-root
 # Alpine: create non-root user
