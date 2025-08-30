@@ -50,6 +50,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/home/botuser/.local/bin:$PATH"
 ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV PYTHONFAULTHANDLER=1
 # התקנת תלויות runtime
 RUN apk upgrade --no-cache && apk add --no-cache \
     cairo=1.18.4-r0 \
