@@ -1,15 +1,33 @@
-name: "♻️ Monthly Render Redeploy"
+name: Monthly Render Redeploy
 
 on:
   schedule:
     - cron: '0 3 1 * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
 jobs:
   redeploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Render Deploy Hook
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Monthly cache-bust commit
         run: |
+          echo "$(date -u +%F\ %T)Z" > .build-bust
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .build-bust
+          git commit -m "chore(ci): monthly cache-bust $(date -u +%F)" || echo "No changes"
+          git push || true
+
+      - name: Trigger Render Deploy Hook
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK not set"; exit 0;
+          fi
           curl -sS -X POST "$RENDER_DEPLOY_HOOK" || true
