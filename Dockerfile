@@ -15,6 +15,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_DEFAULT_TIMEOUT=100
+ENV PIP_INDEX_URL=https://pypi.org/simple
 # עדכון חבילות מערכת ושדרוג כלי פייתון בסיסיים (pip/setuptools/wheel)
 RUN apk upgrade --no-cache && \
     python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
@@ -37,7 +39,7 @@ WORKDIR /app
 # העתקת requirements והתקנת dependencies (Production-only)
 COPY requirements.prod.txt requirements.txt
 COPY constraints.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --user --no-cache-dir -r requirements.txt -c constraints.txt --retries 5 --timeout 60 -i https://pypi.org/simple
 
 ######################################
 # שלב 2: Production stage (Alpine)
