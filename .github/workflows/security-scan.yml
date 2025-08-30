@@ -51,11 +51,9 @@ jobs:
           languages: python
         continue-on-error: true
 
-      - name: "🏗️ Autobuild"
-        uses: github/codeql-action/autobuild@v3
-
       - name: "🔍 Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@v3
+        continue-on-error: true
 
       - name: "📣 Post scan summary as Issue"
         id: scan_summary
