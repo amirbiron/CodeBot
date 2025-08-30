@@ -14,14 +14,10 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      # Allowlist עבור minor (pip + docker): רק חבילות בטוחות
+      # Allowlist עבור minor (pip + docker): לאכוף auto-merge רחב יותר
+      # השארנו allowlist לדוקר, וב-pip נאשר כמעט כל minor כשמדובר ב-security
       ALLOWLIST_PIP: |
-        aiohttp
-        pillow
-        gunicorn
-        gitpython
-        requests
-        setuptools
+        .*
       ALLOWLIST_DOCKER: |
         python
     steps:
@@ -51,12 +47,8 @@ jobs:
             if [ "$eco" = "pip" ]; then
               # names is a JSON array; strip brackets/quotes and split by comma
               list=$(echo "$names" | tr -d '[]"' | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | xargs -I{} echo {})
+              # ברירת מחדל: לאפשר minor ב-pip (נדרש עדכון תדיר ל-HIGH)
               allowed=true
-              for n in $list; do
-                if ! echo "$ALLOWLIST_PIP" | tr '[:upper:]' '[:lower:]' | grep -qx "$n"; then
-                  allowed=false; break;
-                fi
-              done
             elif [ "$eco" = "docker" ]; then
               # For docker, dependency-names is like the image name (e.g., python)
               n=$(echo "$names" | tr -d '[]"' | tr ',' '\n' | head -n1 | tr '[:upper:]' '[:lower:]')
@@ -67,15 +59,22 @@ jobs:
           fi
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
 
+      - name: Prefer auto-merge when security-related
+        id: security
+        run: |
+          # אם PR מוגדר כ-security update ע"י Dependabot, נאפשר auto-merge גם ל-minor
+          sec='${{ steps.meta.outputs.security-advisory-ghsa-id }}'
+          if [ -n "$sec" ]; then echo "security=true" >> "$GITHUB_OUTPUT"; else echo "security=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Approve patch/minor update (allowed)
-        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
+        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.security.outputs.security == 'true' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
         uses: peter-evans/approve-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ github.event.pull_request.number }}
 
       - name: Enable auto-merge (squash) for patch/minor updates
-        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
+        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.security.outputs.security == 'true' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

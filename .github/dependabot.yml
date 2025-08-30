@@ -6,17 +6,23 @@ updates:
   - package-ecosystem: "pip" # Use the pip package manager for Python
     directory: "/" # Location of package manifests (requirements.txt)
     schedule:
-      interval: "weekly" # Check for updates once a week
+      interval: "daily"
       time: "02:00"
-      day: "wednesday"
     allow:
       - dependency-type: "all"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps(pip)"
+      include: "scope"
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "daily"
       time: "02:30"
-      day: "wednesday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(docker)"
+      include: "scope"
   # Removed monitoring for /telegram_terminal_bot (not part of deploy scope)
     # You can add reviewers or assignees automatically if you want
     # assignees:
