@@ -25,37 +25,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
 
-      - name: Install pur (direct deps updater)
-        run: |
-          python -m pip install pur
-
-      - name: Backup requirements.txt
-        run: |
-          cp requirements.txt requirements.before.txt
-
-      - name: Update direct dependencies with pur (prefer latest)
-        run: |
-          python -m pur -r requirements.txt -o requirements.txt
-
-      - name: Restore blocked pins (avoid breaking majors)
-        shell: bash
-        env:
-          BLOCKLIST: |
-            ^redis==
-        run: |
-          set -euo pipefail
-          while read -r pattern; do
-            [ -z "${pattern}" ] && continue
-            prev=$(grep -Ei "${pattern}" requirements.before.txt || true)
-            if [ -n "$prev" ]; then
-              key=$(echo "$pattern" | sed -E 's/^\^?([A-Za-z0-9_-]+).*/\1/I')
-              # Replace the line for this package back to previous pin
-              sed -i -E "s/^(${key}==).*$/$(echo "$prev" | sed -e 's/[\&/]/\\&/g')/I" requirements.txt || true
-            fi
-          done <<< "${BLOCKLIST}"
-          echo "Diff after pur + blocklist (first 100 lines):"
-          git --no-pager diff --no-index -- requirements.before.txt requirements.txt | sed -n '1,100p' || true
-
       - name: Install project (eager upgrade of transitive deps)
         run: |
           # Ensure constraints are respected while upgrading transitive deps
