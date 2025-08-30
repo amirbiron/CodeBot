@@ -4,7 +4,7 @@
 # ===================================
 
 # שלב 1: Build stage
-FROM python:3.11-slim as builder
+FROM python:3.13-slim as builder
 
 # מידע על התמונה
 LABEL maintainer="Code Keeper Bot Team"
@@ -45,7 +45,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ===================================
 # שלב 2: Production stage
-FROM python:3.11-slim as production
+FROM python:3.13-slim as production
 
 # משתני סביבה לייצור
 ENV PYTHONUNBUFFERED=1
@@ -156,7 +156,7 @@ CMD ["python", "main.py"]
 # Production slim build
 # ===================================
 
-FROM python:3.11-alpine as production-slim
+FROM python:3.13-alpine as production-slim
 
 # משתני סביבה
 ENV PYTHONUNBUFFERED=1
