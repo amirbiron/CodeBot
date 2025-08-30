@@ -1,10 +1,9 @@
 # ===================================
-# Code Keeper Bot - Production Dockerfile
-# בוט שומר קבצי קוד - דוקר לייצור
+# Code Keeper Bot - Production Dockerfile (Chainguard Python)
 # ===================================
 
-# שלב 1: Build stage
-FROM python:3.11-slim as builder
+# שלב 1: Build stage (wheel build if needed)
+FROM cgr.dev/chainguard/python:latest AS builder
 
 # מידע על התמונה
 LABEL maintainer="Code Keeper Bot Team"
@@ -43,9 +42,9 @@ COPY requirements.txt .
 COPY constraints.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
-# ===================================
-# שלב 2: Production stage
-FROM python:3.11-slim as production
+######################################
+# שלב 2: Production stage (Chainguard)
+FROM cgr.dev/chainguard/python:latest AS production
 
 # משתני סביבה לייצור
 ENV PYTHONUNBUFFERED=1
@@ -117,83 +116,5 @@ except Exception as e: \
 # פקודת הפעלה - Render compatible
 CMD ["sh", "-c", "python main.py"]
 
-# ===================================
-# Multi-stage build עם development
-# ===================================
-
-FROM production as development
-
-USER root
-
-# התקנת כלי פיתוח
-# hadolint ignore=DL3008
-RUN set -eux; \
-    apt-get update || (sed -i 's|http://|https://|g' /etc/apt/sources.list && apt-get update); \
-    apt-get install -y --no-install-recommends \
-    git \
-    vim \
-    htop \
-    ca-certificates \
-    ; \
-    update-ca-certificates; \
-    rm -rf /var/lib/apt/lists/*
-
-# התקנת dev dependencies
-COPY requirements-dev.txt* ./
-RUN if [ -f requirements-dev.txt ]; then \
-        pip install --user --no-cache-dir -r requirements-dev.txt; \
-    fi
-
-USER botuser
-
-# Override עבור פיתוח
-ENV DEBUG=true
-ENV LOG_LEVEL=DEBUG
-
-CMD ["python", "main.py"]
-
-# ===================================
-# Production slim build
-# ===================================
-
-FROM python:3.11-alpine as production-slim
-
-# משתני סביבה
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# התקנת תלויות Alpine
-# hadolint ignore=DL3018
-RUN apk upgrade --no-cache && apk add --no-cache \
-    gcc \
-    python3-dev \
-    musl-dev \
-    cairo \
-    pango \
-    gdk-pixbuf \
-    fontconfig \
-    ttf-dejavu \
-    tzdata \
-    curl \
-    linux-headers
-
-# יצירת משתמש
-RUN addgroup -g 1000 botuser && \
-    adduser -D -s /bin/sh -u 1000 -G botuser botuser
-
-# התקנת Python packages
-WORKDIR /app
-COPY requirements.txt constraints.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# העתקת קבצים
-COPY --chown=botuser:botuser . .
-
-# מעבר למשתמש
-USER botuser
-
-# בדיקת תקינות
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "from config import config; print('OK')"
-
-CMD ["python", "main.py"]
+######################################
+# שלב dev נפרד הוסר; משתמשים באותו בסיס בטוח
