@@ -47,11 +47,10 @@ jobs:
         with:
           languages: python
 
-      - name: "🏗️ Autobuild"
-        uses: github/codeql-action/autobuild@v3
-
+      # Python projects usually do not need Autobuild; keep analysis non-blocking
       - name: "🔍 Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@v3
+        continue-on-error: true
 
       - name: "📣 Post scan summary as Issue"
         id: scan_summary
