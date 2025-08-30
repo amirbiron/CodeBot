@@ -11,6 +11,19 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Allowlist עבור minor (pip + docker): רק חבילות בטוחות
+      ALLOWLIST_PIP: |
+        aiohttp
+        pillow
+        gunicorn
+        gitpython
+        requests
+        setuptools
+      ALLOWLIST_DOCKER: |
+        python
     steps:
       - name: Check automerge secret
         id: automerge
@@ -26,19 +39,58 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve patch update
-        if: ${{ steps.automerge.outputs.enabled == 'true' && steps.meta.outputs.update-type == 'version-update:semver-patch' }}
+      - name: Compute allowlisted (minor updates)
+        id: allow
+        run: |
+          upd_type='${{ steps.meta.outputs.update-type }}'
+          eco='${{ steps.meta.outputs.package-ecosystem }}'
+          names='${{ steps.meta.outputs.dependency-names }}'
+          echo "Update type: $upd_type; ecosystem: $eco; deps: $names"
+          allowed=false
+          if [ "$upd_type" = "version-update:semver-minor" ]; then
+            if [ "$eco" = "pip" ]; then
+              # names is a JSON array; strip brackets/quotes and split by comma
+              list=$(echo "$names" | tr -d '[]"' | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | xargs -I{} echo {})
+              allowed=true
+              for n in $list; do
+                if ! echo "$ALLOWLIST_PIP" | tr '[:upper:]' '[:lower:]' | grep -qx "$n"; then
+                  allowed=false; break;
+                fi
+              done
+            elif [ "$eco" = "docker" ]; then
+              # For docker, dependency-names is like the image name (e.g., python)
+              n=$(echo "$names" | tr -d '[]"' | tr ',' '\n' | head -n1 | tr '[:upper:]' '[:lower:]')
+              if echo "$ALLOWLIST_DOCKER" | tr '[:upper:]' '[:lower:]' | grep -qx "$n"; then
+                allowed=true
+              fi
+            fi
+          fi
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+
+      - name: Approve patch/minor update (allowed)
+        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
         uses: peter-evans/approve-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ github.event.pull_request.number }}
 
-      - name: Enable auto-merge (squash) for patch updates
-        if: ${{ steps.automerge.outputs.enabled == 'true' && steps.meta.outputs.update-type == 'version-update:semver-patch' }}
+      - name: Enable auto-merge (squash) for patch/minor updates
+        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ github.event.pull_request.number }}
           merge-method: squash
         continue-on-error: true
+
+      - name: Notify (manual review required)
+        if: ${{ steps.automerge.outputs.enabled == 'true' && !(steps.meta.outputs.update-type == 'version-update:semver-patch' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            MSG="⚠️ Dependabot opened PR requiring manual review:\nRepo: ${{ github.repository }}\nPR: #${{ github.event.pull_request.number }}\nType: ${{ steps.meta.outputs.update-type }}\nEcosystem: ${{ steps.meta.outputs.package-ecosystem }}\nDeps: ${{ steps.meta.outputs.dependency-names }}"
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "parse_mode=HTML" \
+              --data-urlencode "text=${MSG}"
+          fi
 
