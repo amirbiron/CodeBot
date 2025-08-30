@@ -40,6 +40,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/home/botuser/.local/bin:$PATH"
 ENV PYTHONPATH="/app:$PYTHONPATH"
+# Cache-bust חודשי: קובץ זה מתעדכן ב־workflow כדי לאלץ OS upgrade מחדש
+COPY .build-bust /tmp/.build-bust
 # התקנת תלויות runtime
 RUN apk upgrade --no-cache && apk add --no-cache \
     cairo pango gdk-pixbuf fontconfig ttf-dejavu tzdata curl
