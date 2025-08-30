@@ -19,6 +19,7 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apk upgrade --no-cache && \
     python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 # התקנת תלויות מערכת לבילד (נדרש ל-build של psutil וכד')
+# hadolint ignore=DL3018
 RUN apk add --no-cache gcc g++ musl-dev python3-dev linux-headers
 
 # יצירת משתמש לא-root
@@ -44,6 +45,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/home/botuser/.local/bin:$PATH"
 ENV PYTHONPATH="/app:$PYTHONPATH"
 # התקנת תלויות runtime
+# hadolint ignore=DL3018
 RUN apk upgrade --no-cache && apk add --no-cache \
     cairo pango gdk-pixbuf fontconfig ttf-dejavu tzdata curl \
     libxml2 sqlite-libs zlib
