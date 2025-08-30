@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-
 jobs:
   redeploy:
     runs-on: ubuntu-latest
