@@ -15,8 +15,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-# התקנת תלויות מערכת לבילד
-RUN apk add --no-cache gcc g++ musl-dev
+# התקנת תלויות מערכת לבילד (נדרש ל-build של psutil וכד')
+RUN apk add --no-cache gcc g++ musl-dev python3-dev linux-headers
 
 # יצירת משתמש לא-root
 # Alpine: create non-root user
