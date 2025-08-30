@@ -4901,10 +4901,11 @@ class GitHubMenuHandler:
             raise RuntimeError("חסר טוקן או ריפו")
         # חגורת בטיחות: אשר שהיעד תואם את היעד שננעל בתחילת ה-flow
         expected = context.user_data.get("zip_restore_expected_repo_full")
-        if expected and expected != repo_full:
-            logger.critical(f"[restore_zip_from_backup] Target mismatch: expected={expected}, got={repo_full}. Aborting.")
-            raise ValueError(f"Target mismatch: expected {expected}, got {repo_full}")
-        if not expected:
+        if expected:
+            if expected != repo_full:
+                logger.warning(f"[restore_zip_from_backup] Selected repo changed since flow start: expected={expected}, current_selected={repo_full}. Forcing expected.")
+            repo_full = expected
+        else:
             try:
                 context.user_data["zip_restore_expected_repo_full"] = repo_full
             except Exception:
