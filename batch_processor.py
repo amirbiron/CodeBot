@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import db
-from code_processor import code_processor
+from services import code_service as code_processor
 from cache_manager import cache
 from html import escape as html_escape
 import tempfile
