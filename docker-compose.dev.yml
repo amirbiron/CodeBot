@@ -60,7 +60,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development
+      target: production
     container_name: code-keeper-bot-dev
     restart: unless-stopped
     environment:
