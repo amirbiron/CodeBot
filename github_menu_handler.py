@@ -528,7 +528,9 @@ class GitHubMenuHandler:
             folder_path = query.data.split(":", 1)[1]
             session["selected_folder"] = (folder_path or "").strip("/") or None
             await query.answer(f"✅ תיקיית יעד עודכנה ל-{session['selected_folder'] or 'root'}", show_alert=False)
-            await self.show_repo_browser(update, context)
+            # יציאה ממסך בחירת תיקייה וחזרה לתפריט הראשי כדי למנוע שגיאת "Message is not modified"
+            context.user_data.pop("folder_select_mode", None)
+            await self.github_menu_command(update, context)
         elif query.data == "noop":
             await query.answer(cache_time=0)  # לא עושה כלום, רק לכפתור התצוגה
 
@@ -3126,6 +3128,8 @@ class GitHubMenuHandler:
         # בניית פריטים (תיקיות קודם, אחר כך קבצים)
         folders = [c for c in contents if c.type == "dir"]
         files = [c for c in contents if c.type == "file"]
+        # במצב בחירת תיקייה, לא נציג קבצים כלל
+        folder_selecting = bool(context.user_data.get("folder_select_mode"))
         entry_rows = []
         # Breadcrumbs
         crumbs_row = []
@@ -3159,36 +3163,37 @@ class GitHubMenuHandler:
             )
         multi_mode = context.user_data.get("multi_mode", False)
         selection = set(context.user_data.get("multi_selection", []))
-        for f in files:
-            if multi_mode:
-                checked = "☑️" if f.path in selection else "⬜️"
-                entry_rows.append(
-                    [
-                        InlineKeyboardButton(
-                            f"{checked} {f.name}", callback_data=f"browse_toggle_select:{f.path}"
-                        )
-                    ]
-                )
-            else:
-                if context.user_data.get("browse_action") == "download":
-                    size_val = getattr(f, "size", 0) or 0
-                    large_flag = " ⚠️" if size_val and size_val > MAX_INLINE_FILE_BYTES else ""
+        if not folder_selecting:
+            for f in files:
+                if multi_mode:
+                    checked = "☑️" if f.path in selection else "⬜️"
                     entry_rows.append(
                         [
                             InlineKeyboardButton(
-                                f"⬇️ {f.name}{large_flag}",
-                                callback_data=f"browse_select_download:{f.path}",
+                                f"{checked} {f.name}", callback_data=f"browse_toggle_select:{f.path}"
                             )
                         ]
                     )
                 else:
-                    entry_rows.append(
-                        [
-                            InlineKeyboardButton(
-                                f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}"
-                            )
-                        ]
-                    )
+                    if context.user_data.get("browse_action") == "download":
+                        size_val = getattr(f, "size", 0) or 0
+                        large_flag = " ⚠️" if size_val and size_val > MAX_INLINE_FILE_BYTES else ""
+                        entry_rows.append(
+                            [
+                                InlineKeyboardButton(
+                                    f"⬇️ {f.name}{large_flag}",
+                                    callback_data=f"browse_select_download:{f.path}",
+                                )
+                            ]
+                        )
+                    else:
+                        entry_rows.append(
+                            [
+                                InlineKeyboardButton(
+                                    f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}"
+                                )
+                            ]
+                        )
         # עימוד
         page_size = 10
         total_items = len(entry_rows)
@@ -3224,7 +3229,7 @@ class GitHubMenuHandler:
             bottom.append(InlineKeyboardButton("🔙 ביטול", callback_data="github_menu"))
         # סדר כפתורים לשורות כדי למנוע צפיפות
         row = []
-        if context.user_data.get("browse_action") == "download":
+        if (not folder_selecting) and context.user_data.get("browse_action") == "download":
             row.append(
                 InlineKeyboardButton(
                     "📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"
@@ -3233,48 +3238,49 @@ class GitHubMenuHandler:
         if len(row) >= 1:
             keyboard.append(row)
         row = []
-        if context.user_data.get("browse_action") == "download":
+        if (not folder_selecting) and context.user_data.get("browse_action") == "download":
             row.append(
                 InlineKeyboardButton(
                     "🔗 שתף קישור לתיקייה", callback_data=f"share_folder_link:{path or ''}"
                 )
             )
-        if not multi_mode:
-            row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
-            keyboard.append(row)
-        else:
-            keyboard.append(row)
-            row = []
-            if context.user_data.get("browse_action") == "download":
-                row.append(
-                    InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute")
-                )
-                row.append(
-                    InlineKeyboardButton(
-                        "🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"
-                    )
-                )
+        if not folder_selecting:
+            if not multi_mode:
+                row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
                 keyboard.append(row)
             else:
-                safe_label = (
-                    "מצב מחיקה בטוח: פעיל"
-                    if context.user_data.get("safe_delete", True)
-                    else "מצב מחיקה בטוח: כבוי"
-                )
-                row.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
                 keyboard.append(row)
+                row = []
+                if context.user_data.get("browse_action") == "download":
+                    row.append(
+                        InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute")
+                    )
+                    row.append(
+                        InlineKeyboardButton(
+                            "🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"
+                        )
+                    )
+                    keyboard.append(row)
+                else:
+                    safe_label = (
+                        "מצב מחיקה בטוח: פעיל"
+                        if context.user_data.get("safe_delete", True)
+                        else "מצב מחיקה בטוח: כבוי"
+                    )
+                    row.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
+                    keyboard.append(row)
+                    row = [
+                        InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"),
+                        InlineKeyboardButton(
+                            "🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"
+                        ),
+                    ]
+                    keyboard.append(row)
                 row = [
-                    InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"),
-                    InlineKeyboardButton(
-                        "🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"
-                    ),
+                    InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"),
+                    InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"),
                 ]
                 keyboard.append(row)
-            row = [
-                InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"),
-                InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"),
-            ]
-            keyboard.append(row)
         keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data="github_menu")])
         if bottom:
             keyboard.append(bottom)
@@ -3284,6 +3290,32 @@ class GitHubMenuHandler:
             try:
                 await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
             except Exception:
+                if folder_selecting:
+                    await query.edit_message_text(
+                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                        f"בחר תיקייה יעד או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="HTML",
+                    )
+                else:
+                    await query.edit_message_text(
+                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                        f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="HTML",
+                    )
+        else:
+            if folder_selecting:
+                await query.edit_message_text(
+                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                    f"בחר תיקייה יעד או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                )
+            else:
                 await query.edit_message_text(
                     f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
                     f"📂 נתיב: <code>/{path or ''}</code>\n\n"
@@ -3291,14 +3323,6 @@ class GitHubMenuHandler:
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode="HTML",
                 )
-        else:
-            await query.edit_message_text(
-                f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-                f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-                f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="HTML",
-            )
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""

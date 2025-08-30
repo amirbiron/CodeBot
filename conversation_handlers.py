@@ -488,6 +488,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             page = 1
             context.user_data['files_last_page'] = page
+            # סימון מקור הרשימה: "שאר הקבצים" (רגיל)
+            context.user_data['files_origin'] = { 'type': 'regular' }
             start_index = (page - 1) * FILES_PAGE_SIZE
             end_index = min(start_index + FILES_PAGE_SIZE, total_files)
 
@@ -543,8 +545,9 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     user_id = update.effective_user.id
     from database import db
     try:
-        # קרא את כל הקבצים כדי לחשב עימוד
-        files = db.get_user_files(user_id)
+        # קרא את כל הקבצים כדי לחשב עימוד, אך הצג רק "שאר הקבצים"
+        all_files = db.get_user_files(user_id)
+        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         if not files:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
@@ -562,6 +565,8 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         except Exception:
             page = 1
         context.user_data['files_last_page'] = page
+        # סימון מקור הרשימה: "שאר הקבצים" (רגיל)
+        context.user_data['files_origin'] = { 'type': 'regular' }
         if page < 1:
             page = 1
 
@@ -844,9 +849,15 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             ]
         ]
 
-        # כפתור חזרה לדף האחרון שנצפה ברשימת הקבצים (אם קיים)
+        # כפתור חזרה בהתאם למקור הרשימה (שאר הקבצים/לפי ריפו)
         last_page = context.user_data.get('files_last_page')
-        back_cb = f"files_page_{last_page}" if last_page else "files"
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        else:
+            back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -897,7 +908,13 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         # כפתורים מתקדמים לעריכה
         last_page = context.user_data.get('files_last_page')
-        back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        else:
+            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
@@ -2054,6 +2071,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("by_repo:"):
             # הצגת קבצים לפי תגית ריפו
             tag = data.split(":", 1)[1]
+            # סימון מקור הרשימה: "לפי ריפו" עם התגית שנבחרה
+            context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
             from database import db
             user_id = update.effective_user.id
             files = db.search_code(user_id, query="", tags=[tag], limit=200)

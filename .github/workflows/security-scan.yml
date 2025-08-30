@@ -2,7 +2,7 @@ name: "🔒 Security Scan"
 
 on:
   schedule:
-    - cron: '0 2 * * 1'
+    - cron: '0 2 1 * *'
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,3 +26,116 @@ jobs:
 
       - name: "🔍 Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@v3
+
+      - name: "📣 Post scan summary as Issue"
+        id: scan_summary
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const link = `https://github.com/${owner}/${repo}/security/code-scanning`;
+            let alerts = [];
+            let mdBody = '';
+            let htmlBody = '';
+            let defaultBranch = '';
+            let latestCommit = null;
+            try {
+              const repoInfo = await github.rest.repos.get({ owner, repo });
+              defaultBranch = repoInfo.data.default_branch || 'main';
+              const commits = await github.rest.repos.listCommits({ owner, repo, sha: defaultBranch, per_page: 1 });
+              latestCommit = commits.data && commits.data[0] ? commits.data[0] : null;
+            } catch (e) {
+              core.warning(`Failed to fetch default branch/commit: ${e.message}`);
+            }
+            try {
+              alerts = await github.paginate(
+                github.rest.codeScanning.listAlertsForRepo,
+                { owner, repo, state: 'open', per_page: 100 }
+              );
+              const sevCounts = { critical: 0, high: 0, medium: 0, low: 0, warning: 0, error: 0, note: 0, unknown: 0 };
+              for (const a of alerts) {
+                const sev = (a.rule && (a.rule.security_severity_level || a.rule.severity)) || a.severity || 'unknown';
+                const key = String(sev).toLowerCase();
+                if (Object.prototype.hasOwnProperty.call(sevCounts, key)) sevCounts[key] += 1; else sevCounts.unknown += 1;
+              }
+              const total = alerts.length;
+              const commitSha = latestCommit?.sha ? latestCommit.sha.substring(0, 7) : '—';
+              const commitUrl = latestCommit?.html_url || '';
+              const commitAuthor = latestCommit?.author?.login || latestCommit?.commit?.author?.name || '—';
+              const commitDate = latestCommit?.commit?.author?.date ? new Date(latestCommit.commit.author.date).toISOString().slice(0,16).replace('T',' ') + 'Z' : '—';
+              const commitMsg = latestCommit?.commit?.message?.split('\n')[0] || '';
+
+              mdBody = [
+                `🛡️ Security Scan Summary`,
+                `\n\nRepository: ${owner}/${repo}`,
+                `\nDefault branch: ${defaultBranch || '—'}`,
+                commitUrl ? `\nLatest commit: [${commitSha}](${commitUrl}) by @${commitAuthor} on ${commitDate} — ${commitMsg}` : `\nLatest commit: ${commitSha} by @${commitAuthor} on ${commitDate} — ${commitMsg}`,
+                `\n\nLink: [Code Scanning](${link})`,
+                `\n\nOpen alerts summary:`,
+                `\n- Critical: ${sevCounts.critical}`,
+                `\n- High: ${sevCounts.high}`,
+                `\n- Medium: ${sevCounts.medium}`,
+                `\n- Low: ${sevCounts.low}`,
+                `\n- Warning: ${sevCounts.warning}`,
+                `\n- Error: ${sevCounts.error}`,
+                `\n- Note: ${sevCounts.note}`,
+                `\n- Unknown: ${sevCounts.unknown}`,
+                `\n\nTotal: ${total}`
+              ].join('');
+
+              htmlBody = [
+                `<b>🛡️ Security Scan Summary</b>`,
+                `<br/><br/>Repository: <code>${owner}/${repo}</code>`,
+                `<br/>Default branch: <code>${defaultBranch || '—'}</code>`,
+                latestCommit ? `<br/>Latest commit: <a href="${commitUrl}"><code>${commitSha}</code></a> by <b>@${commitAuthor}</b> on ${commitDate} — ${commitMsg}` : '',
+                `<br/><br/>Link: <a href="${link}">Code Scanning</a>`,
+                `<br/><br/><b>Open alerts summary:</b>`,
+                `<br/>• Critical: ${sevCounts.critical}`,
+                `<br/>• High: ${sevCounts.high}`,
+                `<br/>• Medium: ${sevCounts.medium}`,
+                `<br/>• Low: ${sevCounts.low}`,
+                `<br/>• Warning: ${sevCounts.warning}`,
+                `<br/>• Error: ${sevCounts.error}`,
+                `<br/>• Note: ${sevCounts.note}`,
+                `<br/>• Unknown: ${sevCounts.unknown}`,
+                `<br/><br/>Total: <b>${total}</b>`
+              ].join('');
+            } catch (err) {
+              core.warning(`Failed to fetch Code Scanning alerts: ${err.message}`);
+              mdBody = [
+                `🛡️ Security Scan Summary`,
+                `\n\nRepository: ${owner}/${repo}`,
+                `\n\nLink: [Code Scanning](${link})`,
+                `\n\nלא ניתן היה למשוך התראות דרך ה‑API. בדקו ידנית בלשונית Security.`
+              ].join('');
+              htmlBody = [
+                `<b>🛡️ Security Scan Summary</b>`,
+                `<br/><br/>Repository: <code>${owner}/${repo}</code>`,
+                `<br/><br/>Link: <a href="${link}">Code Scanning</a>`,
+                `<br/><br/>לא ניתן היה למשוך התראות דרך ה‑API. בדקו ידנית בלשונית Security.`
+              ].join('');
+            }
+            const title = '🛡️ Security Scan Summary';
+            // Try to find existing open issue with same title (avoid label dependency)
+            const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+            const match = (existing.data || []).find(i => i.title === title);
+            if (match) {
+              await github.rest.issues.update({ owner, repo, issue_number: match.number, body: mdBody });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body: mdBody });
+            }
+            core.setOutput('html', htmlBody);
+            core.setOutput('text', mdBody);
+            return mdBody;
+
+      - name: "📨 Notify Telegram"
+        if: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != '' }}
+        run: |
+          MSG_HTML="${{ steps.scan_summary.outputs.html }}"
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${MSG_HTML}"
