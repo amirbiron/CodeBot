@@ -303,12 +303,16 @@ class CodeKeeperBot:
         async def handle_github_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # העבר כל קלט רלוונטי למנהל GitHub לפי דגלים ב-user_data
             text = (update.message.text or '').strip()
-            main_menu_texts = {"➕ הוסף קוד חדש", "📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים", "🔧 GitHub"}
+            main_menu_texts = {"➕ הוסף קוד חדש", "📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים", "🔧 GitHub", "🏠 תפריט ראשי"}
             if text in main_menu_texts:
                 # נקה דגלים כדי למנוע טריגר שגוי
                 context.user_data.pop('waiting_for_repo_url', None)
                 context.user_data.pop('waiting_for_delete_file_path', None)
                 context.user_data.pop('waiting_for_download_file_path', None)
+                # נקה גם דגלי "הדבק קוד" כדי לצאת יפה מהזרימה
+                context.user_data.pop('waiting_for_paste_content', None)
+                context.user_data.pop('waiting_for_paste_filename', None)
+                context.user_data.pop('paste_content', None)
                 return False
             if context.user_data.get('waiting_for_repo_url') or \
                context.user_data.get('waiting_for_delete_file_path') or \
@@ -1291,8 +1295,10 @@ class CodeKeeperBot:
             await self._save_code_snippet(update, context, text)
             return
         
-        # זיהוי אם זה נראה כמו קוד
-        if self._looks_like_code(text):
+        # זיהוי אם זה נראה כמו קוד, למעט בזמן זרימת "הדבק קוד" של GitHub
+        if self._looks_like_code(text) and not (
+            context.user_data.get('waiting_for_paste_content') or context.user_data.get('waiting_for_paste_filename')
+        ):
             await update.message.reply_text(
                 "🤔 נראה שזה קטע קוד!\n"
                 "רוצה לשמור אותו? השתמש ב/save או שלח שוב עם שם קובץ.",
