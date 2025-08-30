@@ -7,6 +7,12 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+<!-- CI/CD Badges -->
+[![CI](https://github.com/amirbiron/CodeBot/actions/workflows/ci.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/ci.yml)
+[![Deploy](https://github.com/amirbiron/CodeBot/actions/workflows/deploy.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/deploy.yml)
+[![Security Scan](https://github.com/amirbiron/CodeBot/actions/workflows/security-scan.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/security-scan.yml)
+[![Performance Tests](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml)
+
 ## 📋 תוכן עניינים
 
 - [✨ פיצ'רים עיקריים](#-פיצרים-עיקריים)
