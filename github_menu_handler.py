@@ -3227,6 +3227,8 @@ class GitHubMenuHandler:
         if context.user_data.get("folder_select_mode") == "session":
             bottom.append(InlineKeyboardButton("✅ סיום בחירה", callback_data="folder_select_done"))
             bottom.append(InlineKeyboardButton("🔙 ביטול", callback_data="github_menu"))
+            # הוסף כפתור יצירת תיקייה חדשה במצב בחירת תיקייה
+            keyboard.append([InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")])
         # סדר כפתורים לשורות כדי למנוע צפיפות
         row = []
         if (not folder_selecting) and context.user_data.get("browse_action") == "download":
