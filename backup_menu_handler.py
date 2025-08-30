@@ -52,7 +52,7 @@ def _repo_only(repo_full: str) -> str:
 	except Exception:
 		return str(repo_full)
 
-def _build_download_button_text(info) -> str:
+def _build_download_button_text(info, force_hide_size: bool = False) -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
 	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
 	MAX_LEN = 64
@@ -69,6 +69,19 @@ def _build_download_button_text(info) -> str:
 		if include_size:
 			return f"⬇️ {base_text} {prim} — {date_part} — {size_part}"
 		return f"⬇️ {base_text} {prim} — {date_part}"
+
+	# אם יש צורך להסתיר את הגודל (למשל במצב מחיקה), בנה טקסט ללא הגודל
+	if force_hide_size:
+		prim_use = _truncate_middle(primary, 32)
+		text = build(base, prim_use, include_size=False)
+		if len(text) <= MAX_LEN:
+			return text
+		for limit in (28, 24, 20, 16, 12, 8, 6, 4):
+			prim_use = _truncate_middle(primary, limit)
+			text = build(base, prim_use, include_size=False)
+			if len(text) <= MAX_LEN:
+				return text
+		return f"⬇️ zip — {date_part}"
 
 	# התחלה עם תצורה מלאה
 	prim_use = _truncate_middle(primary, 32)
@@ -395,6 +408,8 @@ class BackupMenuHandler:
 			if delete_mode:
 				mark = "✅" if info.backup_id in selected else "⬜️"
 				row.append(InlineKeyboardButton(f"{mark} בחר למחיקה", callback_data=f"backup_toggle_del:{info.backup_id}"))
+				# הצג גם כפתור הורדה אך בלי גודל על הכפתור עצמו
+				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True), callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
 				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 				if btype not in {"github_repo_zip"}:
