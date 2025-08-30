@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fuzzywuzzy import fuzz, process
 
-from services import code_service as code_processor
+from code_processor import code_processor
 from config import config
 from database import db
 

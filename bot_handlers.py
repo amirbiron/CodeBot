@@ -16,7 +16,7 @@ from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
 from telegram.constants import ParseMode
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
-from services import code_service as code_processor
+from code_processor import code_processor
 from config import config
 from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
