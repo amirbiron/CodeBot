@@ -172,9 +172,7 @@ jobs:
       - name: "📨 Notify Telegram"
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
         run: |
-          MSG="${{ steps.scan_summary.outputs.text }}"
-          MAX=3500
-          if [ ${#MSG} -gt $MAX ]; then MSG="${MSG:0:$MAX}\n...(truncated)"; fi
+          printf '%s' "${{ steps.scan_summary.outputs.text }}" | head -c 3500 | \
           curl -sS -o /tmp/tg.json -w "%{http_code}" -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${MSG}" || true
+            --data-urlencode "text@-" || true
