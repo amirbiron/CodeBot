@@ -40,6 +40,16 @@ def _truncate_middle(text: str, max_len: int) -> str:
 	back = keep - front
 	return text[:front] + '…' + text[-back:]
 
+# עזר: מחזיר רק את שם הריפו ללא ה-owner (owner/repo → repo)
+def _repo_only(repo_full: str) -> str:
+	try:
+		if not repo_full:
+			return ""
+		repo_full = str(repo_full)
+		return repo_full.split('/', 1)[1] if '/' in repo_full else repo_full
+	except Exception:
+		return str(repo_full)
+
 def _build_download_button_text(info) -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
 	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
@@ -47,7 +57,7 @@ def _build_download_button_text(info) -> str:
 	base = "backup zip"
 	# שם עיקרי
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
-		primary = str(info.repo)
+		primary = _repo_only(str(info.repo))
 	else:
 		primary = "full"
 	date_part = _format_date(getattr(info, 'created_at', ''))
@@ -244,8 +254,9 @@ class BackupMenuHandler:
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
 			if repo_name:
+				repo_display = _repo_only(repo_name)
 				line = (
-					f"• {repo_name} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
+					f"• {repo_display} — {info.created_at.strftime('%d/%m/%Y %H:%M')} — "
 					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype} — ID: {info.backup_id}"
 				)
 			else:
