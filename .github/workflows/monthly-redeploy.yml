@@ -10,21 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Render Deploy Hook
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
-          curl -sS -X POST "$RENDER_DEPLOY_HOOK" || true
-name: "♻️ Monthly Render Redeploy"
-
-on:
-  schedule:
-    - cron: '0 3 1 * *'
-  workflow_dispatch:
-
-jobs:
-  redeploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger Render Deploy Hook
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
-        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK not set"; exit 0;
+          fi
           curl -sS -X POST "$RENDER_DEPLOY_HOOK" || true
