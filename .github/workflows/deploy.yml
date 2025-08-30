@@ -298,10 +298,19 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
         continue-on-error: true
-      
+
+      - name: Check if SARIF exists
+        id: has_trivy_sarif
+        run: |
+          if [ -f trivy-results.sarif ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 📊 Upload Security Scan Results
+        if: steps.has_trivy_sarif.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@v3
-        if: ${{ hashFiles('trivy-results.sarif') != '' }}
         with:
           sarif_file: 'trivy-results.sarif'
 
@@ -596,20 +605,6 @@ jobs:
 ## ===================================
 ## Workflow נוסף: Security Scanning הועבר לקובץ נפרד
 ## ===================================
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: 🔍 CodeQL Analysis
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
-      
-      - name: 🏗️ Autobuild
-        uses: github/codeql-action/autobuild@v3
-      
-      - name: 🔍 Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
 
 ## ===================================
 ## Workflow נוסף: Performance Testing הועבר לקובץ נפרד
