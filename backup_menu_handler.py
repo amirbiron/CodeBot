@@ -421,21 +421,13 @@ class BackupMenuHandler:
 				mark = "✅" if info.backup_id in selected else "⬜️"
 				row.append(InlineKeyboardButton(f"{mark} בחר למחיקה", callback_data=f"backup_toggle_del:{info.backup_id}"))
 				# הצג גם כפתור הורדה אך בלי גודל על הכפתור עצמו
-<<<<<<< HEAD
 				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True, vnum=vnum), callback_data=f"backup_download_id:{info.backup_id}"))
-=======
-				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True), callback_data=f"backup_download_id:{info.backup_id}"))
->>>>>>> origin/main
 			else:
 				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 				if btype not in {"github_repo_zip"}:
 					row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
 				# כפתור הורדה תמיד זמין עם טקסט תמציתי
-<<<<<<< HEAD
 				row.append(InlineKeyboardButton(_build_download_button_text(info, vnum=vnum), callback_data=f"backup_download_id:{info.backup_id}"))
-=======
-				row.append(InlineKeyboardButton(_build_download_button_text(info), callback_data=f"backup_download_id:{info.backup_id}"))
->>>>>>> origin/main
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
