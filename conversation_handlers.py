@@ -1215,6 +1215,35 @@ async def handle_edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     return ConversationHandler.END
 
+async def handle_edit_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """התחלת עריכת הערה (description) מתצוגת רשימה עם אינדקס"""
+    query = update.callback_query
+    await query.answer()
+    try:
+        file_index = query.data.split('_')[2]
+        files_cache = context.user_data.get('files_cache', {})
+        file_data = files_cache.get(file_index)
+        if not file_data:
+            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            return ConversationHandler.END
+        file_name = file_data.get('file_name', 'קובץ')
+        current_note = file_data.get('description', '') or '—'
+        # הגדר דגל כדי ש-receive_new_code יעדכן הערה
+        context.user_data['editing_note_file'] = file_name
+        await query.edit_message_text(
+            f"📝 *עריכת הערה לקובץ*\n\n"
+            f"📄 **שם:** `{file_name}`\n"
+            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
+            f"✏️ שלח/י הערה חדשה (או 'מחק' כדי להסיר)",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
+            parse_mode='Markdown'
+        )
+        return EDIT_CODE
+    except Exception as e:
+        logger.error(f"Error in handle_edit_note: {e}")
+        await query.edit_message_text("❌ שגיאה בהתחלת עריכת הערה")
+    return ConversationHandler.END
+
 async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת השם החדש לקובץ"""
     new_name = update.message.text.strip()
