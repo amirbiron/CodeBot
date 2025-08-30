@@ -73,7 +73,7 @@ def _format_bytes(num: int) -> str:
 logger = logging.getLogger(__name__)
 
 # הגדרת שלבי השיחה
-GET_CODE, GET_FILENAME, EDIT_CODE, EDIT_NAME = range(4)
+GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME = range(5)
 
 # קבועי עימוד
 FILES_PAGE_SIZE = 10
@@ -684,7 +684,25 @@ async def get_filename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
         return GET_FILENAME
 
-    # שמירה מתקדמת
+    # במקום לשמור מיד — בקש הערה אופציונלית
+    context.user_data['pending_filename'] = filename
+    await update.message.reply_text(
+        "📝 רוצה להוסיף הערה קצרה לקובץ?\n"
+        "כתוב/כתבי אותה עכשיו או שלח/י 'דלג' כדי לשמור בלי הערה."
+    )
+    return GET_NOTE
+
+async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """קבלת הערה אופציונלית לקובץ החדש ולאחר מכן שמירה"""
+    note_text = (update.message.text or '').strip()
+    # מילת מפתח לדילוג
+    if note_text.lower() in {"דלג", "skip", "ללא"}:
+        context.user_data['note_to_save'] = ""
+    else:
+        # הגבלת אורך הערה
+        context.user_data['note_to_save'] = note_text[:280]
+    filename = context.user_data.get('pending_filename') or context.user_data.get('filename_to_save')
+    user_id = update.message.from_user.id
     return await save_file_final(update, context, filename, user_id)
 
 async def save_file_final(update, context, filename, user_id):
@@ -697,9 +715,17 @@ async def save_file_final(update, context, filename, user_id):
         from code_processor import code_processor
         detected_language = code_processor.detect_language(code, filename)
         
-        # שמירה במסד נתונים
-        from database import db
-        success = db.save_file(user_id, filename, code, detected_language)
+        # שמירה במסד נתונים כולל הערה (description)
+        from database import db, CodeSnippet
+        note = (context.user_data.get('note_to_save') or '').strip()
+        snippet = CodeSnippet(
+            user_id=user_id,
+            file_name=filename,
+            code=code,
+            programming_language=detected_language,
+            description=note,
+        )
+        success = db.save_code_snippet(snippet)
         
         if success:
             # כפתורים מתקדמים למיד אחרי שמירה
@@ -723,11 +749,12 @@ async def save_file_final(update, context, filename, user_id):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            note_display = note if note else '—'
             await update.message.reply_text(
-                f"🎉 *קובץ נשמר בהצלחה מרשימה!*\n\n"
+                f"🎉 *קובץ נשמר בהצלחה!*\n\n"
                 f"📄 **שם:** `{filename}`\n"
                 f"🧠 **שפה זוהתה:** {detected_language}\n"
-                f"⚡ **מוכן לעבודה מתקדמת!**\n\n"
+                f"📝 **הערה:** {note_display}\n\n"
                 f"🎮 בחר פעולה מהכפתורים החכמים:",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
@@ -1979,6 +2006,9 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             GET_FILENAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_filename),
                 CallbackQueryHandler(handle_duplicate_callback)
+            ],
+            GET_NOTE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)
             ],
             EDIT_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code)
