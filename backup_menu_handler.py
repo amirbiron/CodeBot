@@ -8,6 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFi
 from telegram.ext import ContextTypes
 
 from services import backup_service as backup_manager
+from database import db
 from handlers.pagination import build_pagination_row
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,44 @@ class BackupMenuHandler:
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
 			await self._download_by_id(update, context, backup_id)
+		elif data.startswith("backup_rate:"):
+			# פורמט: backup_rate:<backup_id>:<rating_key>
+			try:
+				_, b_id, rating_key = data.split(":", 2)
+			except Exception:
+				await query.answer("בקשה לא תקפה", show_alert=True)
+				return
+			# שמור דירוג
+			rating_map = {
+				"excellent": "🏆 מצוין",
+				"good": "👍 טוב",
+				"ok": "🤷 סביר",
+			}
+			rating_value = rating_map.get(rating_key, rating_key)
+			try:
+				db.save_backup_rating(user_id, b_id, rating_value)
+				# נסה לערוך את הודעת הסיכום אם שמרנו אותה בסשן
+				try:
+					summary_cache = context.user_data.get("backup_summaries", {})
+					meta = summary_cache.get(b_id)
+					if meta:
+						chat_id = meta.get("chat_id")
+						message_id = meta.get("message_id")
+						base_text = meta.get("text") or ""
+						await context.bot.edit_message_text(
+							chat_id=chat_id,
+							message_id=message_id,
+							text=f"{base_text}\n{rating_value} / 👍 טוב / 🤷 סביר"
+						)
+				except Exception:
+					pass
+				try:
+					await query.edit_message_text(f"נשמר הדירוג: {rating_value}")
+				except Exception:
+					await query.answer("נשמר הדירוג", show_alert=False)
+			except Exception as e:
+				await query.answer(f"שמירת דירוג נכשלה: {e}", show_alert=True)
+			return
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
@@ -266,6 +305,15 @@ class BackupMenuHandler:
 					f"{_format_bytes(info.total_size)} — {info.file_count} קבצים — סוג: {btype}"
 				)
 			lines.append(line)
+			# הוסף שורת דירוג שמורה (אם יש)
+			try:
+				rating = db.get_backup_rating(user_id, info.backup_id)
+				if rating:
+					lines.append(f"  {rating} / 👍 טוב / 🤷 סביר" if "מצוין" in rating else (f"  🏆 מצוין / {rating} / 🤷 סביר" if "טוב" in rating else f"  🏆 מצוין / 👍 טוב / {rating}"))
+				else:
+					lines.append("  🏆 מצוין / 👍 טוב / 🤷 סביר")
+			except Exception:
+				lines.append("  🏆 מצוין / 👍 טוב / 🤷 סביר")
 			row = []
 			# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 			if btype not in {"github_repo_zip"}:
@@ -291,6 +339,22 @@ class BackupMenuHandler:
 			back_cb = 'backup_menu'
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+
+	async def send_rating_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		"""שולח הודעת תיוג עם 3 כפתורים עבור גיבוי מסוים."""
+		try:
+			keyboard = [
+				[InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
+				[InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
+				[InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+			]
+			await context.bot.send_message(
+				chat_id=update.effective_chat.id,
+				text="תיוג:",
+				reply_markup=InlineKeyboardMarkup(keyboard)
+			)
+		except Exception:
+			pass
 	
 	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
 		query = update.callback_query

@@ -1058,6 +1058,32 @@ class GitHubMenuHandler:
                             await query.message.reply_document(
                                 document=out_buf, filename=filename, caption=caption
                             )
+                            # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
+                            try:
+                                backup_id = metadata.get("backup_id")
+                                date_str = _dt.now(_tz.utc).strftime('%d/%m/%y %H:%M')
+                                try:
+                                    # חשב גרסת גיבוי (מספר רצים לאותו ריפו)
+                                    infos = backup_manager.list_backups(user_id)
+                                    vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
+                                    v_text = f"(v{vcount}) " if vcount else ""
+                                except Exception:
+                                    v_text = ""
+                                summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
+                                msg = await query.message.reply_text(summary_line)
+                                try:
+                                    s = context.user_data.setdefault("backup_summaries", {})
+                                    s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
+                                except Exception:
+                                    pass
+                                try:
+                                    backup_handler = context.bot_data.get('backup_handler')
+                                    if backup_handler and hasattr(backup_handler, 'send_rating_prompt'):
+                                        await backup_handler.send_rating_prompt(update, context, backup_id)
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
                     except Exception as e:
                         logger.error(f"Error fetching repo zipball: {e}")
                         try:
@@ -1144,6 +1170,31 @@ class GitHubMenuHandler:
                 await query.message.reply_document(
                     document=zip_buffer, filename=filename, caption=caption
                 )
+                # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
+                try:
+                    backup_id = metadata.get("backup_id")
+                    date_str = datetime.now(timezone.utc).strftime('%d/%m/%y %H:%M')
+                    try:
+                        infos = backup_manager.list_backups(user_id)
+                        vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
+                        v_text = f"(v{vcount}) " if vcount else ""
+                    except Exception:
+                        v_text = ""
+                    summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
+                    msg = await query.message.reply_text(summary_line)
+                    try:
+                        s = context.user_data.setdefault("backup_summaries", {})
+                        s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
+                    except Exception:
+                        pass
+                    try:
+                        backup_handler = context.bot_data.get('backup_handler')
+                        if backup_handler and hasattr(backup_handler, 'send_rating_prompt'):
+                            await backup_handler.send_rating_prompt(update, context, backup_id)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"Error creating ZIP: {e}")
                 try:
