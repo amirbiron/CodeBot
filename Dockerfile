@@ -39,6 +39,7 @@ WORKDIR /app
 
 # העתקת requirements והתקנת dependencies
 COPY requirements.txt .
+COPY constraints.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ===================================
@@ -178,7 +179,7 @@ RUN addgroup -g 1000 botuser && \
 
 # התקנת Python packages
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt constraints.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # העתקת קבצים
