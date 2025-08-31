@@ -1866,6 +1866,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception:
                 p = 1
             return await show_batch_zips_menu(update, context, page=p)
+        elif data.startswith("batch_zip_use_for_batch:"):
+            # בחירה ב-ZIP לצורך עיבוד Batch: עבור כרגע לבחירת קבצים/בחירה כוללת
+            # נשמור את ה-ID למקרה שנרצה בעתיד להגביל לפי ZIP ספציפי
+            zid = data.split(":", 1)[1]
+            try:
+                context.user_data['batch_selected_zip_id'] = zid
+            except Exception:
+                pass
+            context.user_data['batch_target'] = { 'type': 'zips' }
+            return await show_batch_files_menu(update, context, page=1)
         elif data.startswith("batch_zip_download_id:"):
             backup_id = data.split(":", 1)[1]
             try:
@@ -2341,7 +2351,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
                 line += f" — ריפו: {info.repo}"
             lines.append(line)
             keyboard.append([
-                InlineKeyboardButton("⬇️ הורד", callback_data=f"batch_zip_download_id:{info.backup_id}")
+                InlineKeyboardButton("📊 בדיקת Batch", callback_data=f"batch_zip_use_for_batch:{info.backup_id}")
             ])
 
         nav = []
