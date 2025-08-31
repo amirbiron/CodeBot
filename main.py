@@ -275,7 +275,24 @@ class CodeKeeperBot:
             self.application.add_handler(MessageHandler(filters.ALL, maintenance_reply), group=-100)
             self.application.add_handler(CallbackQueryHandler(maintenance_reply), group=-100)
             logger.warning("MAINTENANCE_MODE is ON — all updates will receive maintenance message")
-            return
+            # אל תחסום לגמרי: לאחר warmup אוטומטי, הסר תחזוקה (ללא Redeploy)
+            async def _auto_clear_maintenance(app: Application):
+                try:
+                    await asyncio.sleep(max(1, int(config.MAINTENANCE_AUTO_WARMUP_SECS)))
+                    # הסרה רכה: מחיקה של ה-handlers של תחזוקה בלבד
+                    try:
+                        app.remove_handler(maintenance_reply, group=-100)  # type: ignore[arg-type]
+                    except Exception:
+                        pass
+                    try:
+                        app.remove_handler(CallbackQueryHandler(maintenance_reply), group=-100)  # type: ignore[arg-type]
+                    except Exception:
+                        pass
+                    logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
+                except Exception:
+                    pass
+            self.application.create_task(_auto_clear_maintenance(self.application))
+            # ממשיכים לרשום את שאר ה-handlers כדי שיקלטו אוטומטית אחרי ה-warmup
 
         # ספור את ה-handlers
         handler_count = len(self.application.handlers)
