@@ -81,12 +81,13 @@ def _build_download_button_text(info, force_hide_size: bool = False, vnum: int =
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
 		primary = _repo_only(str(info.repo))
 	else:
-		primary = "full"
+		# עבור ZIP כללי/ידני, הצג את ה-backup_id כשם עיקרי במקום "full"
+		primary = getattr(info, 'backup_id', 'full')
 	date_part = _format_date(getattr(info, 'created_at', ''))
 
 	def build_button_text(prim: str, version_text: str = "", rating_text: str = "") -> str:
-		# פורמט סופי: ⬇️ BKP zip <name> vN <rating?> - <date>
-		parts = ["⬇️", "BKP", "zip", prim]
+		# פורמט סופי: BKP zip <name> vN <rating?> - <date>
+		parts = ["BKP", "zip", prim]
 		if version_text:
 			parts.append(version_text)
 		if rating_text:
@@ -182,11 +183,15 @@ class BackupMenuHandler:
 			await self._restore_by_id(update, context, backup_id)
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
-			# במקום הורדה ישירה, הצג תצוגת פרטים עם פעולות
-			await self._show_backup_details(update, context, backup_id)
+			# הורדה בפועל של קובץ הגיבוי לפי מזהה
+			await self._download_by_id(update, context, backup_id)
 		elif data.startswith("backup_details:"):
 			backup_id = data.split(":", 1)[1]
 			await self._show_backup_details(update, context, backup_id)
+		elif data.startswith("backup_rate_menu:"):
+			# פתיחת מסך תיוג עם 3 כפתורים (🏆 / 👍 / 🤷)
+			backup_id = data.split(":", 1)[1]
+			await self.send_rating_prompt(update, context, backup_id)
 		elif data.startswith("backup_delete_one_confirm:"):
 			backup_id = data.split(":", 1)[1]
 			kb = [
@@ -457,8 +462,17 @@ class BackupMenuHandler:
 					btn_text = f"✔️ {btn_text}"
 				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
-				# מעבר לתצוגת פרטים: הורדה/מחיקה/תיוג יתבצעו במסך ייעודי
-				row.append(InlineKeyboardButton("📄 פרטים", callback_data=f"backup_details:{info.backup_id}"))
+				# הצג שם מלא של ה‑ZIP על הכפתור לפי התבנית
+				# טקסט כפתור בסגנון "BKP zip <name> vN <emoji?> - <date>"
+				btn_text = _build_download_button_text(info, force_hide_size=False, vnum=vnum, rating=rating)
+				if highlight:
+					btn_text = f"✔️ {btn_text}"
+				# במצב העלאה לריפו (GitHub → העלאת קובץ → קבצי ZIP): לחיצה תפתח דפדוף בתוך ה‑ZIP
+				if zip_back_to == 'github_upload':
+					row.append(InlineKeyboardButton(btn_text, callback_data=f"gh_upload_zip_browse:{info.backup_id}"))
+				else:
+					# ברירת מחדל: מעבר למסך פרטים עם פעולות
+					row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_details:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []

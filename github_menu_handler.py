@@ -369,6 +369,155 @@ class GitHubMenuHandler:
                 await backup_handler._show_backups_list(update, context, page=1)
             except Exception as e:
                 await query.edit_message_text(f"❌ שגיאה בטעינת קבצי ZIP: {e}")
+        elif query.data.startswith("gh_upload_zip_browse:"):
+            # עיון בקובץ ZIP שמור ובחירת קובץ מתוכו להעלאה לריפו
+            backup_id = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get("selected_repo")
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
+                return
+            try:
+                infos = backup_manager.list_backups(user_id)
+                match = next((b for b in infos if getattr(b, 'backup_id', '') == backup_id), None)
+                if not match or not match.file_path or not os.path.exists(match.file_path):
+                    await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+                    return
+                # קרא שמות קבצים מתוך ה‑ZIP (ללא תיקיות ו-metadata.json)
+                import zipfile as _zip
+                names: list[str] = []
+                with _zip.ZipFile(match.file_path, 'r') as zf:
+                    for n in zf.namelist():
+                        if n.endswith('/'):
+                            continue
+                        if n == 'metadata.json':
+                            continue
+                        names.append(n)
+                if not names:
+                    await query.edit_message_text("ℹ️ אין קבצים ב‑ZIP")
+                    return
+                # עימוד בסיסי
+                page = int(context.user_data.get('gh_zip_browse_page', 1))
+                PAGE = 10
+                total = len(names)
+                total_pages = (total + PAGE - 1) // PAGE
+                if page < 1:
+                    page = 1
+                if page > total_pages:
+                    page = total_pages
+                start = (page - 1) * PAGE
+                end = min(start + PAGE, total)
+                slice_names = names[start:end]
+                # בנה כפתורים לבחירת קובץ להעלאה + עימוד + חזרה
+                kb = []
+                for n in slice_names:
+                    safe_label = n if len(n) <= 64 else (n[:30] + '…' + n[-30:])
+                    kb.append([InlineKeyboardButton(safe_label, callback_data=f"gh_upload_zip_select:{backup_id}:{n}")])
+                # עימוד
+                nav = []
+                if page > 1:
+                    nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"gh_upload_zip_page:{backup_id}:{page-1}"))
+                if page < total_pages:
+                    nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"gh_upload_zip_page:{backup_id}:{page+1}"))
+                if nav:
+                    kb.append(nav)
+                # חזור לרשימת ה‑ZIPים של העלאה
+                kb.append([InlineKeyboardButton("🔙 חזור", callback_data="gh_upload_cat:zips")])
+                await query.edit_message_text(
+                    f"בחר קובץ מתוך ZIP להעלאה לריפו:\n<code>{backup_id}</code>\nעמוד {page}/{total_pages}",
+                    reply_markup=InlineKeyboardMarkup(kb),
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בקריאת ZIP: {e}")
+        elif query.data.startswith("gh_upload_zip_page:"):
+            # ניווט עמודים בעיון ה‑ZIP
+            try:
+                _, backup_id, page_str = query.data.split(":", 2)
+                context.user_data['gh_zip_browse_page'] = max(1, int(page_str))
+                # הביא מחדש את אותו מסך
+                await self.handle_menu_callback(update, context)
+                # החלף את ה-callback ל-browse כדי להפעיל את העדכון
+                update.callback_query.data = f"gh_upload_zip_browse:{backup_id}"
+                await self.handle_menu_callback(update, context)
+            except Exception:
+                await query.answer("שגיאת עימוד", show_alert=True)
+        elif query.data.startswith("gh_upload_zip_select:"):
+            # בחירת קובץ ספציפי מתוך ZIP להעלאה לריפו
+            try:
+                _, backup_id, inner_path = query.data.split(":", 2)
+            except Exception:
+                await query.answer("בקשה לא תקפה", show_alert=True)
+                return
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get("selected_repo")
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
+                return
+            # בדוק את ה‑ZIP והוצא את התוכן של הקובץ
+            try:
+                infos = backup_manager.list_backups(user_id)
+                match = next((b for b in infos if getattr(b, 'backup_id', '') == backup_id), None)
+                if not match or not match.file_path or not os.path.exists(match.file_path):
+                    await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
+                    return
+                import zipfile as _zip
+                with _zip.ZipFile(match.file_path, 'r') as zf:
+                    try:
+                        raw = zf.read(inner_path)
+                    except Exception:
+                        await query.edit_message_text("❌ קובץ לא נמצא בתוך ה‑ZIP")
+                        return
+                # המרת תוכן לטקסט (utf-8 או latin-1)
+                try:
+                    content_text = raw.decode('utf-8')
+                except Exception:
+                    try:
+                        content_text = raw.decode('latin-1')
+                    except Exception as e:
+                        await query.edit_message_text(f"❌ לא ניתן לפענח את הקובץ: {e}")
+                        return
+                # יעד: נתיב התיקייה שנבחרה + שם הקובץ המקורי מה‑ZIP
+                target_folder = (context.user_data.get("upload_target_folder") or session.get("selected_folder") or "").strip("/")
+                target_path = f"{target_folder}/{inner_path}" if target_folder else inner_path
+                # ודא שימוש בנתיב נקי ללא כפילויות '/'
+                import re as _re
+                target_path = _re.sub(r"/+", "/", target_path.strip("/"))
+                # בצע יצירה/עדכון
+                from github import Github
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                branch = context.user_data.get("upload_target_branch") or repo.default_branch or "main"
+                try:
+                    existing = repo.get_contents(target_path, ref=branch)
+                    result = repo.update_file(
+                        path=target_path,
+                        message=f"Update {inner_path} via Telegram bot",
+                        content=content_text,
+                        sha=existing.sha,
+                        branch=branch,
+                    )
+                    await query.edit_message_text(f"✅ הקובץ עודכן בהצלחה ל-<code>{target_path}</code>", parse_mode="HTML")
+                except Exception:
+                    result = repo.create_file(
+                        path=target_path,
+                        message=f"Upload {inner_path} via Telegram bot",
+                        content=content_text,
+                        branch=branch,
+                    )
+                    await query.edit_message_text(f"✅ הקובץ הועלה בהצלחה ל-<code>{target_path}</code>", parse_mode="HTML")
+                # הצע פעולות המשך: בחר קובץ נוסף מה‑ZIP או חזור
+                kb = [
+                    [InlineKeyboardButton("➕ העלה קובץ נוסף מה‑ZIP", callback_data=f"gh_upload_zip_browse:{backup_id}")],
+                    [InlineKeyboardButton("🔙 חזור", callback_data="gh_upload_cat:zips")],
+                ]
+                await query.message.reply_text("🎯 בחר פעולה:", reply_markup=InlineKeyboardMarkup(kb))
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בהעלאה: {e}")
         elif query.data == "gh_upload_cat:large":
             await self.upload_large_files_menu(update, context)
         elif query.data == "gh_upload_cat:other":
@@ -1114,12 +1263,27 @@ class GitHubMenuHandler:
                         except BadRequest as br:
                             if "message is not modified" not in str(br).lower():
                                 raise
-                    # חזרה לתפריט הגיבוי/שחזור של GitHub
+                    # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים עבור הריפו הנוכחי
                     try:
-                        await self.show_github_backup_menu(update, context)
-                    except BadRequest as br:
-                        if "message is not modified" not in str(br).lower():
-                            raise
+                        backup_handler = context.bot_data.get('backup_handler')
+                        if backup_handler is None:
+                            from backup_menu_handler import BackupMenuHandler
+                            backup_handler = BackupMenuHandler()
+                            context.bot_data['backup_handler'] = backup_handler
+                        # הגדר הקשר חזרה לסאב‑תפריט GitHub וגבילת הרשימה לריפו הנוכחי
+                        try:
+                            context.user_data['zip_back_to'] = 'github'
+                            context.user_data['github_backup_context_repo'] = repo.full_name
+                            context.user_data['backup_highlight_id'] = metadata.get('backup_id')
+                        except Exception:
+                            pass
+                        await backup_handler._show_backups_list(update, context, page=1)
+                    except Exception as br:
+                        try:
+                            await self.show_github_backup_menu(update, context)
+                        except BadRequest as br2:
+                            if "message is not modified" not in str(br2).lower():
+                                raise
                     return
 
                 zip_buffer = BytesIO()
@@ -1227,11 +1391,26 @@ class GitHubMenuHandler:
                         raise
                 return
             # החזר לדפדפן באותו מקום
+            # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים עבור הריפו הנוכחי
             try:
-                await self.show_repo_browser(update, context)
-            except BadRequest as br:
-                if "message is not modified" not in str(br).lower():
-                    raise
+                backup_handler = context.bot_data.get('backup_handler')
+                if backup_handler is None:
+                    from backup_menu_handler import BackupMenuHandler
+                    backup_handler = BackupMenuHandler()
+                    context.bot_data['backup_handler'] = backup_handler
+                try:
+                    context.user_data['zip_back_to'] = 'github'
+                    context.user_data['github_backup_context_repo'] = repo.full_name
+                    context.user_data['backup_highlight_id'] = metadata.get('backup_id')
+                except Exception:
+                    pass
+                await backup_handler._show_backups_list(update, context, page=1)
+            except Exception as br:
+                try:
+                    await self.show_repo_browser(update, context)
+                except BadRequest as br2:
+                    if "message is not modified" not in str(br2).lower():
+                        raise
 
         elif query.data.startswith("inline_download_file:"):
             # הורדת קובץ שנבחר דרך אינליין
