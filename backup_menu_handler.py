@@ -532,6 +532,11 @@ class BackupMenuHandler:
 			rating = db.get_backup_rating(user_id, backup_id) or ""
 		except Exception:
 			rating = ""
+		# שלוף הערה אם קיימת
+		try:
+			note_text = db.get_backup_note(user_id, backup_id) or ""
+		except Exception:
+			note_text = ""
 		when = _format_date(getattr(match, 'created_at', ''))
 		size_txt = _format_bytes(getattr(match, 'total_size', 0))
 		files_cnt = getattr(match, 'file_count', 0) or 0
@@ -545,6 +550,8 @@ class BackupMenuHandler:
 		]
 		if rating:
 			lines.append(f"🏷 תיוג: {rating}")
+		if note_text:
+			lines.append(f"📝 הערה: {note_text}")
 		kb = [
 			[InlineKeyboardButton("⬇️ הורדה", callback_data=f"backup_download_id:{backup_id}")],
 			[InlineKeyboardButton("🗑 מחק", callback_data=f"backup_delete_one_confirm:{backup_id}")],
