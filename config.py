@@ -39,6 +39,12 @@ class BotConfig:
 
     # קידומת לשם נקודת שמירה ב-Git (ל-tags ולענפים בגיבוי)
     GIT_CHECKPOINT_PREFIX: str = "checkpoint"
+
+    # Google Drive OAuth (Desktop App / Device Flow)
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_OAUTH_SCOPES: str = "https://www.googleapis.com/auth/drive.file"
+    GOOGLE_TOKEN_REFRESH_MARGIN_SECS: int = 120
     
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
@@ -71,6 +77,10 @@ def load_config() -> BotConfig:
         MAX_FILES_PER_USER=int(os.getenv('MAX_FILES_PER_USER', '1000')),
         HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark'),
         GIT_CHECKPOINT_PREFIX=os.getenv('GIT_CHECKPOINT_PREFIX', 'checkpoint'),
+        GOOGLE_CLIENT_ID=os.getenv('GOOGLE_CLIENT_ID'),
+        GOOGLE_CLIENT_SECRET=os.getenv('GOOGLE_CLIENT_SECRET'),
+        GOOGLE_OAUTH_SCOPES=os.getenv('GOOGLE_OAUTH_SCOPES', 'https://www.googleapis.com/auth/drive.file'),
+        GOOGLE_TOKEN_REFRESH_MARGIN_SECS=int(os.getenv('GOOGLE_TOKEN_REFRESH_MARGIN_SECS', '120')),
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),

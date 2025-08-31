@@ -353,6 +353,97 @@ class Repository:
             logger.error(f"שגיאה בשמירת משתמש: {e}")
             return False
 
+    # --- Google Drive tokens & preferences ---
+    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:
+        try:
+            users_collection = self.manager.db.users
+            # Encrypt sensitive fields
+            from secret_manager import encrypt_secret
+            enc_access = encrypt_secret(token_data.get("access_token", "") or "")
+            enc_refresh = encrypt_secret(token_data.get("refresh_token", "") or "")
+            stored = {
+                "access_token": enc_access if enc_access else token_data.get("access_token"),
+                "refresh_token": enc_refresh if enc_refresh else token_data.get("refresh_token"),
+                "token_type": token_data.get("token_type"),
+                "expiry": token_data.get("expiry"),
+                "scope": token_data.get("scope"),
+                "expires_in": token_data.get("expires_in"),
+                "obtained_at": datetime.now(timezone.utc).isoformat(),
+            }
+            result = users_collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"drive_tokens": stored, "updated_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            return bool(result.acknowledged)
+        except Exception as e:
+            logger.error(f"Failed to save Drive tokens: {e}")
+            return False
+
+    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            users_collection = self.manager.db.users
+            user = users_collection.find_one({"user_id": user_id})
+            if not user:
+                return None
+            data = user.get("drive_tokens")
+            if not data:
+                return None
+            # Decrypt
+            from secret_manager import decrypt_secret
+            acc = data.get("access_token")
+            ref = data.get("refresh_token")
+            acc_dec = decrypt_secret(acc) if acc else None
+            ref_dec = decrypt_secret(ref) if ref else None
+            out = dict(data)
+            if acc_dec:
+                out["access_token"] = acc_dec
+            if ref_dec:
+                out["refresh_token"] = ref_dec
+            return out
+        except Exception as e:
+            logger.error(f"Failed to get Drive tokens: {e}")
+            return None
+
+    def delete_drive_tokens(self, user_id: int) -> bool:
+        try:
+            users_collection = self.manager.db.users
+            res = users_collection.update_one(
+                {"user_id": user_id}, {"$unset": {"drive_tokens": ""}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+            )
+            return bool(res.acknowledged)
+        except Exception as e:
+            logger.error(f"Failed to delete Drive tokens: {e}")
+            return False
+
+    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+        try:
+            users_collection = self.manager.db.users
+            # merge with existing prefs
+            existing = users_collection.find_one({"user_id": user_id}) or {}
+            merged = dict(existing.get("drive_prefs") or {})
+            merged.update(prefs or {})
+            res = users_collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"drive_prefs": merged, "updated_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            return bool(res.acknowledged)
+        except Exception as e:
+            logger.error(f"Failed to save Drive prefs: {e}")
+            return False
+
+    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            users_collection = self.manager.db.users
+            user = users_collection.find_one({"user_id": user_id})
+            if not user:
+                return None
+            return user.get("drive_prefs")
+        except Exception as e:
+            logger.error(f"Failed to get Drive prefs: {e}")
+            return None
+
     # --- Backup ratings ---
     def save_backup_rating(self, user_id: int, backup_id: str, rating: str) -> bool:
         try:

@@ -35,6 +35,7 @@ from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
+from handlers.drive.menu import GoogleDriveMenuHandler
 from file_manager import backup_manager
 from large_files_handler import large_files_handler
 from user_stats import user_stats
@@ -367,6 +368,11 @@ class CodeKeeperBot:
         backup_handler = BackupMenuHandler()
         self.application.bot_data['backup_handler'] = backup_handler
         logger.info("✅ BackupMenuHandler instance created and stored in bot_data")
+
+        # יצירת GoogleDriveMenuHandler ושמירה
+        drive_handler = GoogleDriveMenuHandler()
+        self.application.bot_data['drive_handler'] = drive_handler
+        logger.info("✅ GoogleDriveMenuHandler instance created and stored in bot_data")
         
         # הוסף פקודת github
         self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
@@ -381,6 +387,14 @@ class CodeKeeperBot:
                         CallbackQueryHandler(github_handler.handle_menu_callback, 
                                pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|choose_upload_folder|upload_select_folder:.*|upload_folder_root|upload_folder_current|upload_folder_custom|upload_folder_create|create_folder|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_backup_db_list|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu|github_create_repo_from_zip|github_new_repo_name|github_set_new_repo_visibility:.*|upload_paste_code|cancel_paste_flow|gh_upload_zip_browse:.*|gh_upload_zip_page:.*|gh_upload_zip_select:.*|gh_upload_zip_select_idx:.*|backup_add_note:.*)')
             )
+
+        # הוסף את ה-callbacks של Google Drive
+        self.application.add_handler(
+            CallbackQueryHandler(
+                drive_handler.handle_callback,
+                pattern=r'^(drive_menu|drive_auth|drive_backup_now|drive_sel_zip|drive_sel_all|drive_sel_adv|drive_adv_by_repo|drive_adv_large|drive_adv_other|drive_choose_folder|drive_folder_default|drive_folder_set|drive_schedule|drive_set_schedule:.*|drive_adv_multi_toggle|drive_adv_upload_selected|drive_logout)$'
+            )
+        )
 
         # Inline query handler
         self.application.add_handler(InlineQueryHandler(github_handler.handle_inline_query))
@@ -460,6 +474,15 @@ class CodeKeeperBot:
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_github_text),
             group=-1  # עדיפות גבוהה מאוד
         )
+        # הוסף handler טקסט ל-Drive (קוד אישור)
+        async def handle_drive_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            return await drive_handler.handle_text(update, context)
+
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_drive_text),
+            group=-1
+        )
+
         
         logger.info("✅ GitHub handler נוסף בהצלחה")
         
@@ -553,6 +576,16 @@ class CodeKeeperBot:
             filters.Regex("^⚡ עיבוד Batch$"), 
             handle_batch_button
         ))
+        # כפתור לתפריט Google Drive
+        async def show_drive_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await drive_handler.menu(update, context)
+        self.application.add_handler(MessageHandler(
+            filters.Regex("^☁️ Google Drive$"),
+            show_drive_menu
+        ))
+
+        # פקודה /drive
+        self.application.add_handler(CommandHandler("drive", show_drive_menu))
         # כפתור חדש לתפריט גיבוי/שחזור
         # הוסר: כפתורי גיבוי/שחזור מהמקלדת הראשית. כעת תחת /github -> 🧰 גיבוי ושחזור
         # self.application.add_handler(MessageHandler(

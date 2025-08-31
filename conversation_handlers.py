@@ -86,7 +86,7 @@ MAIN_KEYBOARD = [
     ["🗜️ יצירת ZIP", "➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "🔧 GitHub"],
     ["⚡ עיבוד Batch", "📥 ייבוא ZIP מריפו"],
-    ["ℹ️ הסבר על הבוט"]
+    ["☁️ Google Drive", "ℹ️ הסבר על הבוט"]
 ]
 
 reporter = create_reporter(
