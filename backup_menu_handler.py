@@ -64,14 +64,14 @@ def _build_download_button_text(info, force_hide_size: bool = False, vnum: int =
 	date_part = _format_date(getattr(info, 'created_at', ''))
 
 	def build_button_text(prim: str, version_text: str = "", rating_text: str = "") -> str:
-		# פורמט סופי: ⬇️ BKP <name> vN <rating?> — <date>
-		parts = ["⬇️", "BKP", prim]
+		# פורמט סופי: ⬇️ BKP zip <name> vN <rating?> - <date>
+		parts = ["⬇️", "BKP", "zip", prim]
 		if version_text:
 			parts.append(version_text)
 		if rating_text:
 			parts.append(rating_text)
 		left = " ".join([p for p in parts if p])
-		return f"{left} — {date_part}"
+		return f"{left} - {date_part}"
 
 	# אם יש צורך להסתיר את הגודל (למשל במצב מחיקה), בנה טקסט ללא הגודל
 	version_text = f"v{vnum}" if vnum else ""
