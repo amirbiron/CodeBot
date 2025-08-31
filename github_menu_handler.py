@@ -819,10 +819,30 @@ class GitHubMenuHandler:
             return_to_pre = (query.data == "upload_folder_create")
             context.user_data["waiting_for_new_folder_path"] = True
             context.user_data["return_to_pre_upload"] = return_to_pre
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="create_folder_back"), InlineKeyboardButton("❌ ביטול", callback_data="create_folder_cancel")]]
             await query.edit_message_text(
                 "➕ יצירת תיקייה חדשה\n\n"
                 "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
-                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.")
+                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return REPO_SELECT
+
+        elif query.data == "create_folder_back":
+            # חזרה למסך הקודם בתהליך יצירת תיקייה
+            context.user_data["waiting_for_new_folder_path"] = False
+            if context.user_data.get("return_to_pre_upload"):
+                context.user_data["return_to_pre_upload"] = False
+                await self.show_pre_upload_check(update, context)
+            else:
+                await self.show_repo_browser(update, context)
+            return REPO_SELECT
+
+        elif query.data == "create_folder_cancel":
+            # ביטול יצירת תיקייה וחזרה לתפריט GitHub
+            context.user_data["waiting_for_new_folder_path"] = False
+            context.user_data["return_to_pre_upload"] = False
+            await self.github_menu_command(update, context)
             return REPO_SELECT
 
         elif query.data == "github_menu":
