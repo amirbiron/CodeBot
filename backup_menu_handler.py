@@ -52,6 +52,27 @@ def _repo_only(repo_full: str) -> str:
 	except Exception:
 		return str(repo_full)
 
+def _rating_to_emoji(rating: str) -> str:
+	"""המרת מחרוזת דירוג (למשל "🏆 מצוין") לאימוג'י בלבד ("🏆")."""
+	try:
+		if not isinstance(rating, str):
+			return ""
+		r = rating.strip()
+		if not r:
+			return ""
+		if "🏆" in r:
+			return "🏆"
+		if "👍" in r:
+			return "👍"
+		if "🤷" in r:
+			return "🤷"
+		# אם כבר אימוג'י בלבד הועבר
+		if r in {"🏆", "👍", "🤷"}:
+			return r
+		# ברירת מחדל: בלי טקסט
+		return ""
+	except Exception:
+		return ""
 def _build_download_button_text(info, force_hide_size: bool = False, vnum: int = None, rating: str = "") -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
 	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
@@ -75,7 +96,7 @@ def _build_download_button_text(info, force_hide_size: bool = False, vnum: int =
 
 	# אם יש צורך להסתיר את הגודל (למשל במצב מחיקה), בנה טקסט ללא הגודל
 	version_text = f"v{vnum}" if vnum else ""
-	rating_text = rating.strip() if isinstance(rating, str) else ""
+	rating_text = _rating_to_emoji(rating)
 	if force_hide_size:
 		prim_use = _truncate_middle(primary, 24)
 		text = build_button_text(prim_use, version_text, rating_text)
