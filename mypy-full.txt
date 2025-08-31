@@ -1,0 +1,192 @@
+config.py:30: error: Incompatible types in assignment (expression has type "None", variable has type "list[Any]")  [assignment]
+services/__init__.py:1: error: Need type annotation for "__all__" (hint: "__all__: List[<type>] = ...")  [var-annotated]
+database/models.py:17: error: Incompatible types in assignment (expression has type "None", variable has type "list[str]")  [assignment]
+database/models.py:19: error: Incompatible types in assignment (expression has type "None", variable has type "datetime")  [assignment]
+database/models.py:20: error: Incompatible types in assignment (expression has type "None", variable has type "datetime")  [assignment]
+database/models.py:42: error: Incompatible types in assignment (expression has type "None", variable has type "list[str]")  [assignment]
+database/models.py:43: error: Incompatible types in assignment (expression has type "None", variable has type "datetime")  [assignment]
+database/models.py:44: error: Incompatible types in assignment (expression has type "None", variable has type "datetime")  [assignment]
+utils.py:25: error: Library stubs not installed for "aiofiles"  [import-untyped]
+utils.py:25: note: Hint: "python3 -m pip install types-aiofiles"
+utils.py:64: error: Incompatible default for argument "context" (default has type "None", argument has type "dict[str, Any]")  [assignment]
+utils.py:64: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+utils.py:64: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+utils.py:77: error: Incompatible default for argument "details" (default has type "None", argument has type "dict[str, Any]")  [assignment]
+utils.py:77: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+utils.py:77: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+utils.py:332: error: Incompatible default for argument "forbidden_patterns" (default has type "None", argument has type "list[str]")  [assignment]
+utils.py:332: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+utils.py:332: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+utils.py:640: error: Incompatible default for argument "default" (default has type "None", argument has type "dict[Any, Any]")  [assignment]
+utils.py:640: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+utils.py:640: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+utils.py:644: error: Statement is unreachable  [unreachable]
+utils.py:677: error: Need type annotation for "_cache" (hint: "_cache: Dict[<type>, <type>] = ...")  [var-annotated]
+utils.py:678: error: Need type annotation for "_cache_times" (hint: "_cache_times: Dict[<type>, <type>] = ...")  [var-annotated]
+utils.py:726: error: Dict entry 0 has incompatible type "str": "str"; expected "str": "float"  [dict-item]
+utils.py:728: error: Incompatible default for argument "log_file" (default has type "None", argument has type "str")  [assignment]
+utils.py:728: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+utils.py:728: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+utils.py:746: error: Argument 1 to "append" of "list" has incompatible type "FileHandler"; expected "StreamHandler[TextIO]"  [arg-type]
+utils.py:780: error: Argument "key" to "max" has incompatible type overloaded function; expected "Callable[[Any], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"  [arg-type]
+utils.py:782: error: Argument "key" to "max" has incompatible type overloaded function; expected "Callable[[Any], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"  [arg-type]
+integrations.py:16: error: Library stubs not installed for "requests"  [import-untyped]
+integrations.py:184: error: Incompatible default for argument "language" (default has type "None", argument has type "str")  [assignment]
+integrations.py:184: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+integrations.py:184: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+integrations.py:338: error: Argument 1 to "fromtimestamp" of "datetime" has incompatible type "object"; expected "float"  [arg-type]
+integrations.py:379: error: Incompatible default for argument "commit_message" (default has type "None", argument has type "str")  [assignment]
+integrations.py:379: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+integrations.py:379: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+integrations.py:447: error: Incompatible default for argument "events" (default has type "None", argument has type "list[str]")  [assignment]
+integrations.py:447: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+integrations.py:447: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+integrations.py:451: error: Statement is unreachable  [unreachable]
+cache_manager.py:11: error: Library stubs not installed for "redis"  [import-untyped]
+cache_manager.py:11: note: Hint: "python3 -m pip install types-redis"
+cache_manager.py:11: note: (or run "mypy --install-types" to install all missing stub packages)
+cache_manager.py:11: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+code_processor.py:101: error: Incompatible default for argument "filename" (default has type "None", argument has type "str")  [assignment]
+code_processor.py:101: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+code_processor.py:101: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+code_processor.py:101: error: Incompatible default for argument "user_id" (default has type "None", argument has type "int")  [assignment]
+code_processor.py:354: error: Incompatible default for argument "filename" (default has type "None", argument has type "str")  [assignment]
+code_processor.py:354: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+code_processor.py:354: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+code_processor.py:386: error: Argument "key" to "max" has incompatible type overloaded function; expected "Callable[[Any], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"  [arg-type]
+code_processor.py:594: error: Incompatible types in assignment (expression has type "bytes", variable has type "BytesIO")  [assignment]
+code_processor.py:597: error: Incompatible return value type (got "BytesIO", expected "bytes")  [return-value]
+code_processor.py:601: error: Incompatible return value type (got "None", expected "bytes")  [return-value]
+code_processor.py:776: error: Incompatible return value type (got "list[dict[str, int | str | Any]]", expected "list[dict[str, str]]")  [return-value]
+code_processor.py:804: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:805: error: Incompatible types (expression has type "int | None", TypedDict item "line" has type "int")  [typeddict-item]
+code_processor.py:816: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:837: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:846: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:864: error: Incompatible return value type (got "_ResultDict@786", expected "dict[str, Any]")  [return-value]
+code_preview.py:22: error: Function "builtins.any" is not valid as a type  [valid-type]
+code_preview.py:22: note: Perhaps you meant "typing.Any" instead of "any"?
+code_preview.py:71: error: Function "builtins.any" is not valid as a type  [valid-type]
+code_preview.py:71: note: Perhaps you meant "typing.Any" instead of "any"?
+database/manager.py:202: error: Incompatible default for argument "programming_language" (default has type "None", argument has type "str")  [assignment]
+database/manager.py:202: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+database/manager.py:202: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+database/manager.py:202: error: Incompatible default for argument "tags" (default has type "None", argument has type "list[str]")  [assignment]
+database/manager.py:268: error: Incompatible default for argument "username" (default has type "None", argument has type "str")  [assignment]
+database/manager.py:268: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+database/manager.py:268: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+database/repository.py:104: error: Incompatible default for argument "programming_language" (default has type "None", argument has type "str")  [assignment]
+database/repository.py:104: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+database/repository.py:104: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+database/repository.py:104: error: Incompatible default for argument "tags" (default has type "None", argument has type "list[str]")  [assignment]
+database/repository.py:342: error: Incompatible default for argument "username" (default has type "None", argument has type "str")  [assignment]
+database/repository.py:342: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+database/repository.py:342: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+autocomplete_manager.py:47: error: Function "builtins.any" is not valid as a type  [valid-type]
+autocomplete_manager.py:47: note: Perhaps you meant "typing.Any" instead of "any"?
+autocomplete_manager.py:85: error: Function "builtins.any" is not valid as a type  [valid-type]
+autocomplete_manager.py:85: note: Perhaps you meant "typing.Any" instead of "any"?
+lazy_loader.py:95: error: Function "builtins.any" is not valid as a type  [valid-type]
+lazy_loader.py:95: note: Perhaps you meant "typing.Any" instead of "any"?
+lazy_loader.py:121: error: Function "builtins.any" is not valid as a type  [valid-type]
+lazy_loader.py:121: note: Perhaps you meant "typing.Any" instead of "any"?
+lazy_loader.py:123: error: Need type annotation for "structure"  [var-annotated]
+lazy_loader.py:172: error: Statement is unreachable  [unreachable]
+file_manager.py:14: error: Unused "type: ignore" comment  [unused-ignore]
+file_manager.py:48: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+file_manager.py:60: error: Unused "type: ignore" comment  [unused-ignore]
+file_manager.py:78: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+file_manager.py:276: error: Argument "user_id" to "BackupInfo" has incompatible type "int | Any | None"; expected "int"  [arg-type]
+file_manager.py:337: error: Argument "user_id" to "BackupInfo" has incompatible type "int | Any | None"; expected "int"  [arg-type]
+services/code_service.py:5: error: Unused "type: ignore" comment  [unused-ignore]
+services/code_service.py:55: error: Statement is unreachable  [unreachable]
+services/code_service.py:62: error: Statement is unreachable  [unreachable]
+services/code_service.py:69: error: Statement is unreachable  [unreachable]
+services/code_service.py:76: error: Statement is unreachable  [unreachable]
+services/code_service.py:83: error: Statement is unreachable  [unreachable]
+services/code_service.py:90: error: Statement is unreachable  [unreachable]
+search_engine.py:74: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+search_engine.py:75: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+search_engine.py:76: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+search_engine.py:77: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+search_engine.py:130: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+search_engine.py:200: error: Need type annotation for "file_scores"  [var-annotated]
+search_engine.py:296: error: Need type annotation for "file_scores"  [var-annotated]
+search_engine.py:434: error: Statement is unreachable  [unreachable]
+search_engine.py:562: error: Argument 1 to "_apply_filter" of "SearchQueryParser" has incompatible type "object"; expected "SearchFilter"  [arg-type]
+search_engine.py:564: error: "object" has no attribute "append"  [attr-defined]
+search_engine.py:566: error: "object" has no attribute "append"  [attr-defined]
+github_menu_handler.py:83: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+github_menu_handler.py:91: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+github_menu_handler.py:92: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+github_menu_handler.py:490: error: Assignment to variable "br" outside except: block  [misc]
+github_menu_handler.py:1024: error: Library stubs not installed for "requests"  [import-untyped]
+github_menu_handler.py:1024: note: Hint: "python3 -m pip install types-requests"
+github_menu_handler.py:1291: error: Incompatible types in assignment (expression has type "list[Any]", variable has type "set[Any]")  [assignment]
+github_menu_handler.py:1448: error: Incompatible types in assignment (expression has type "list[Any]", variable has type "set[Any]")  [assignment]
+github_menu_handler.py:1463: error: Value of type "set[Any]" is not indexable  [index]
+github_menu_handler.py:1929: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
+github_menu_handler.py:4173: error: Unused "type: ignore" comment  [unused-ignore]
+github_menu_handler.py:4173: error: Incompatible types in assignment (expression has type "Any | None", variable has type "str")  [assignment]
+github_menu_handler.py:4173: note: Error code "assignment" not covered by "type: ignore" comment
+github_menu_handler.py:4899: error: Statement is unreachable  [unreachable]
+batch_processor.py:33: error: Incompatible types in assignment (expression has type "None", variable has type "dict[str, Any]")  [assignment]
+batch_processor.py:50: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+backup_menu_handler.py:23: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+backup_menu_handler.py:59: error: Statement is unreachable  [unreachable]
+backup_menu_handler.py:76: error: Incompatible default for argument "vnum" (default has type "None", argument has type "int")  [assignment]
+backup_menu_handler.py:76: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
+backup_menu_handler.py:76: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
+backup_menu_handler.py:140: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+backup_menu_handler.py:404: error: Argument "key" to "sort" of "list" has incompatible type "Callable[[Any], Any | None]"; expected "Callable[[Any], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"  [arg-type]
+backup_menu_handler.py:404: error: Incompatible return value type (got "Any | None", expected "SupportsDunderLT[Any] | SupportsDunderGT[Any]")  [return-value]
+backup_menu_handler.py:459: error: Incompatible types in assignment (expression has type "list[Any] | None", variable has type "list[Any]")  [assignment]
+large_files_handler.py:426: error: Return value expected  [return-value]
+conversation_handlers.py:70: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
+conversation_handlers.py:325: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
+conversation_handlers.py:351: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
+conversation_handlers.py:654: error: Name "handle_file_menu" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:722: error: Name "handle_view_file" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:790: error: Name "handle_edit_code" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:840: error: Name "receive_new_code" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1048: error: Name "handle_edit_name" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1083: error: Name "handle_edit_note" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1112: error: Name "receive_new_name" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1175: error: Name "handle_versions_history" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1264: error: Name "handle_download_file" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1291: error: Argument 2 to "get_latest_version" of "DatabaseManager" has incompatible type "str | None"; expected "str"  [arg-type]
+conversation_handlers.py:1332: error: Name "handle_delete_confirmation" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1371: error: Name "handle_delete_file" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1415: error: Name "handle_file_info" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1469: error: Name "handle_view_direct_file" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1530: error: Name "handle_edit_code_direct" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1565: error: Name "handle_edit_name_direct" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1600: error: Name "handle_edit_note_direct" already defined (possibly by an import)  [no-redef]
+conversation_handlers.py:1921: error: Incompatible types in assignment (expression has type "dict[Any, Any]", variable has type "BufferedReader")  [assignment]
+conversation_handlers.py:1922: error: "BufferedReader" has no attribute "get"  [attr-defined]
+conversation_handlers.py:2209: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
+conversation_handlers.py:2246: error: List item 0 has incompatible type "Any | None"; expected "str"  [list-item]
+conversation_handlers.py:2247: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2251: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2254: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2258: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2261: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2398: error: List item 0 has incompatible type "Any | None"; expected "str"  [list-item]
+conversation_handlers.py:2399: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2403: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2407: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2412: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+conversation_handlers.py:2416: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
+bot_handlers.py:97: error: Too many arguments for "highlight_code"  [call-arg]
+bot_handlers.py:375: error: Module has no attribute "validate_syntax"  [attr-defined]
+bot_handlers.py:495: error: Need type annotation for "all_tags" (hint: "all_tags: Dict[<type>, <type>] = ...")  [var-annotated]
+bot_handlers.py:594: error: "AdvancedBotHandlers" has no attribute "_download_file"  [attr-defined]
+bot_handlers.py:611: error: Too many arguments for "highlight_code"  [call-arg]
+batch_commands.py:207: error: Incompatible types in assignment (expression has type "BatchJob | None", variable has type "BatchJob")  [assignment]
+batch_commands.py:495: error: Need type annotation for "languages" (hint: "languages: Dict[<type>, <type>] = ...")  [var-annotated]
+main.py:998: error: All conditional function variants must have identical signatures  [misc]
+main.py:998: note: Original:
+main.py:998: note:     def strip_root(path: str) -> str
+main.py:998: note: Redefinition:
+main.py:998: note:     def strip_root(p: str) -> str
+Found 134 errors in 23 files (checked 43 source files)
