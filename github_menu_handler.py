@@ -1114,12 +1114,27 @@ class GitHubMenuHandler:
                         except BadRequest as br:
                             if "message is not modified" not in str(br).lower():
                                 raise
-                    # חזרה לתפריט הגיבוי/שחזור של GitHub
+                    # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים עבור הריפו הנוכחי
                     try:
-                        await self.show_github_backup_menu(update, context)
-                    except BadRequest as br:
-                        if "message is not modified" not in str(br).lower():
-                            raise
+                        backup_handler = context.bot_data.get('backup_handler')
+                        if backup_handler is None:
+                            from backup_menu_handler import BackupMenuHandler
+                            backup_handler = BackupMenuHandler()
+                            context.bot_data['backup_handler'] = backup_handler
+                        # הגדר הקשר חזרה לסאב‑תפריט GitHub וגבילת הרשימה לריפו הנוכחי
+                        try:
+                            context.user_data['zip_back_to'] = 'github'
+                            context.user_data['github_backup_context_repo'] = repo.full_name
+                            context.user_data['backup_highlight_id'] = metadata.get('backup_id')
+                        except Exception:
+                            pass
+                        await backup_handler._show_backups_list(update, context, page=1)
+                    except Exception as br:
+                        try:
+                            await self.show_github_backup_menu(update, context)
+                        except BadRequest as br2:
+                            if "message is not modified" not in str(br2).lower():
+                                raise
                     return
 
                 zip_buffer = BytesIO()
@@ -1227,11 +1242,26 @@ class GitHubMenuHandler:
                         raise
                 return
             # החזר לדפדפן באותו מקום
+            # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים עבור הריפו הנוכחי
             try:
-                await self.show_repo_browser(update, context)
-            except BadRequest as br:
-                if "message is not modified" not in str(br).lower():
-                    raise
+                backup_handler = context.bot_data.get('backup_handler')
+                if backup_handler is None:
+                    from backup_menu_handler import BackupMenuHandler
+                    backup_handler = BackupMenuHandler()
+                    context.bot_data['backup_handler'] = backup_handler
+                try:
+                    context.user_data['zip_back_to'] = 'github'
+                    context.user_data['github_backup_context_repo'] = repo.full_name
+                    context.user_data['backup_highlight_id'] = metadata.get('backup_id')
+                except Exception:
+                    pass
+                await backup_handler._show_backups_list(update, context, page=1)
+            except Exception as br:
+                try:
+                    await self.show_repo_browser(update, context)
+                except BadRequest as br2:
+                    if "message is not modified" not in str(br2).lower():
+                        raise
 
         elif query.data.startswith("inline_download_file:"):
             # הורדת קובץ שנבחר דרך אינליין

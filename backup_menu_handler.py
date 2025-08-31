@@ -182,11 +182,15 @@ class BackupMenuHandler:
 			await self._restore_by_id(update, context, backup_id)
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
-			# במקום הורדה ישירה, הצג תצוגת פרטים עם פעולות
-			await self._show_backup_details(update, context, backup_id)
+			# הורדה בפועל של קובץ הגיבוי לפי מזהה
+			await self._download_by_id(update, context, backup_id)
 		elif data.startswith("backup_details:"):
 			backup_id = data.split(":", 1)[1]
 			await self._show_backup_details(update, context, backup_id)
+		elif data.startswith("backup_rate_menu:"):
+			# פתיחת מסך תיוג עם 3 כפתורים (🏆 / 👍 / 🤷)
+			backup_id = data.split(":", 1)[1]
+			await self.send_rating_prompt(update, context, backup_id)
 		elif data.startswith("backup_delete_one_confirm:"):
 			backup_id = data.split(":", 1)[1]
 			kb = [
@@ -457,8 +461,12 @@ class BackupMenuHandler:
 					btn_text = f"✔️ {btn_text}"
 				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
-				# מעבר לתצוגת פרטים: הורדה/מחיקה/תיוג יתבצעו במסך ייעודי
-				row.append(InlineKeyboardButton("📄 פרטים", callback_data=f"backup_details:{info.backup_id}"))
+				# הצג שם מלא של ה‑ZIP על הכפתור לפי התבנית, מעבר למסך פרטים עם 4 כפתורים
+				# טקסט כפתור בסגנון "⬇️ BKP zip <name> vN <emoji?> - <date>"
+				btn_text = _build_download_button_text(info, force_hide_size=False, vnum=vnum, rating=rating)
+				if highlight:
+					btn_text = f"✔️ {btn_text}"
+				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_details:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
