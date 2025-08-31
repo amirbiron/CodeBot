@@ -372,7 +372,8 @@ class AdvancedBotHandlers:
             return
         
         # בדיקת תחביר
-        validation = code_processor.validate_syntax(file_data['code'], file_data['programming_language'])
+        from code_processor import CodeProcessor
+        validation = CodeProcessor().validate_syntax(file_data['code'], file_data['programming_language'])
         
         if validation['is_valid']:
             response = f"✅ **תחביר תקין עבור:** `{file_name}`\n\n"
@@ -591,7 +592,7 @@ class AdvancedBotHandlers:
             
             elif data.startswith("download_"):
                 file_name = data.replace("download_", "")
-                await self._download_file(query, user_id, file_name)
+                await self._send_file_download(query, user_id, file_name)
             
             # ועוד callback handlers...
             
@@ -674,5 +675,12 @@ class AdvancedBotHandlers:
         except Exception as e:
             logger.error(f"שגיאה בשיתוף Gist: {e}")
             await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
+
+    async def _send_file_download(self, query, user_id: int, file_name: str):
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
+            return
+        await query.message.reply_document(document=InputFile(io.BytesIO(file_data['code'].encode('utf-8')), filename=f"{file_name}"))
 
 # פקודות נוספות ייוצרו בהמשך...

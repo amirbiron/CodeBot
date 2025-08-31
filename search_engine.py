@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from fuzzywuzzy import fuzz, process
 
@@ -546,7 +546,12 @@ class SearchQueryParser:
         # "func:connect size:>100"
         # "date:2024 NOT test"
         
-        parsed = {
+        from typing import List, cast, TypedDict
+        class _Parsed(TypedDict):
+            terms: List[str]
+            filters: SearchFilter
+            operators: List[str]
+        parsed: _Parsed = {
             'terms': [],
             'filters': SearchFilter(),
             'operators': []
@@ -565,7 +570,8 @@ class SearchQueryParser:
             else:
                 parsed['terms'].append(token)
         
-        return parsed
+        from typing import cast, Dict, Any
+        return cast(Dict[str, Any], parsed)
     
     def _apply_filter(self, filters: SearchFilter, key: str, value: str):
         """החלת מסנן"""

@@ -54,16 +54,11 @@ code_processor.py:354: error: Incompatible default for argument "filename" (defa
 code_processor.py:354: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 code_processor.py:354: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 code_processor.py:386: error: Argument "key" to "max" has incompatible type overloaded function; expected "Callable[[Any], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"  [arg-type]
-code_processor.py:594: error: Incompatible types in assignment (expression has type "bytes", variable has type "BytesIO")  [assignment]
-code_processor.py:597: error: Incompatible return value type (got "BytesIO", expected "bytes")  [return-value]
-code_processor.py:601: error: Incompatible return value type (got "None", expected "bytes")  [return-value]
-code_processor.py:776: error: Incompatible return value type (got "list[dict[str, int | str | Any]]", expected "list[dict[str, str]]")  [return-value]
-code_processor.py:804: error: Unused "type: ignore" comment  [unused-ignore]
-code_processor.py:805: error: Incompatible types (expression has type "int | None", TypedDict item "line" has type "int")  [typeddict-item]
-code_processor.py:816: error: Unused "type: ignore" comment  [unused-ignore]
-code_processor.py:837: error: Unused "type: ignore" comment  [unused-ignore]
-code_processor.py:846: error: Unused "type: ignore" comment  [unused-ignore]
-code_processor.py:864: error: Incompatible return value type (got "_ResultDict@786", expected "dict[str, Any]")  [return-value]
+code_processor.py:806: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:807: error: Incompatible types (expression has type "int | None", TypedDict item "line" has type "int")  [typeddict-item]
+code_processor.py:818: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:839: error: Unused "type: ignore" comment  [unused-ignore]
+code_processor.py:848: error: Unused "type: ignore" comment  [unused-ignore]
 code_preview.py:22: error: Function "builtins.any" is not valid as a type  [valid-type]
 code_preview.py:22: note: Perhaps you meant "typing.Any" instead of "any"?
 code_preview.py:71: error: Function "builtins.any" is not valid as a type  [valid-type]
@@ -113,9 +108,6 @@ search_engine.py:130: note: By default the bodies of untyped functions are not c
 search_engine.py:200: error: Need type annotation for "file_scores"  [var-annotated]
 search_engine.py:296: error: Need type annotation for "file_scores"  [var-annotated]
 search_engine.py:434: error: Statement is unreachable  [unreachable]
-search_engine.py:562: error: Argument 1 to "_apply_filter" of "SearchQueryParser" has incompatible type "object"; expected "SearchFilter"  [arg-type]
-search_engine.py:564: error: "object" has no attribute "append"  [attr-defined]
-search_engine.py:566: error: "object" has no attribute "append"  [attr-defined]
 github_menu_handler.py:83: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
 github_menu_handler.py:91: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
 github_menu_handler.py:92: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
@@ -138,10 +130,7 @@ backup_menu_handler.py:76: error: Incompatible default for argument "vnum" (defa
 backup_menu_handler.py:76: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 backup_menu_handler.py:76: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
 backup_menu_handler.py:140: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
-backup_menu_handler.py:404: error: Argument "key" to "sort" of "list" has incompatible type "Callable[[Any], Any | None]"; expected "Callable[[Any], SupportsDunderLT[Any] | SupportsDunderGT[Any]]"  [arg-type]
-backup_menu_handler.py:404: error: Incompatible return value type (got "Any | None", expected "SupportsDunderLT[Any] | SupportsDunderGT[Any]")  [return-value]
-backup_menu_handler.py:459: error: Incompatible types in assignment (expression has type "list[Any] | None", variable has type "list[Any]")  [assignment]
-large_files_handler.py:426: error: Return value expected  [return-value]
+backup_menu_handler.py:465: error: Incompatible types in assignment (expression has type "list[Any] | None", variable has type "list[Any]")  [assignment]
 conversation_handlers.py:70: error: Incompatible types in assignment (expression has type "float", variable has type "int")  [assignment]
 conversation_handlers.py:325: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
 conversation_handlers.py:351: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
@@ -162,8 +151,6 @@ conversation_handlers.py:1469: error: Name "handle_view_direct_file" already def
 conversation_handlers.py:1530: error: Name "handle_edit_code_direct" already defined (possibly by an import)  [no-redef]
 conversation_handlers.py:1565: error: Name "handle_edit_name_direct" already defined (possibly by an import)  [no-redef]
 conversation_handlers.py:1600: error: Name "handle_edit_note_direct" already defined (possibly by an import)  [no-redef]
-conversation_handlers.py:1921: error: Incompatible types in assignment (expression has type "dict[Any, Any]", variable has type "BufferedReader")  [assignment]
-conversation_handlers.py:1922: error: "BufferedReader" has no attribute "get"  [attr-defined]
 conversation_handlers.py:2209: error: Need type annotation for "repo_to_count" (hint: "repo_to_count: Dict[<type>, <type>] = ...")  [var-annotated]
 conversation_handlers.py:2246: error: List item 0 has incompatible type "Any | None"; expected "str"  [list-item]
 conversation_handlers.py:2247: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
@@ -178,10 +165,8 @@ conversation_handlers.py:2407: error: List comprehension has incompatible type L
 conversation_handlers.py:2412: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
 conversation_handlers.py:2416: error: List comprehension has incompatible type List[Any | None]; expected List[str]  [misc]
 bot_handlers.py:97: error: Too many arguments for "highlight_code"  [call-arg]
-bot_handlers.py:375: error: Module has no attribute "validate_syntax"  [attr-defined]
-bot_handlers.py:495: error: Need type annotation for "all_tags" (hint: "all_tags: Dict[<type>, <type>] = ...")  [var-annotated]
-bot_handlers.py:594: error: "AdvancedBotHandlers" has no attribute "_download_file"  [attr-defined]
-bot_handlers.py:611: error: Too many arguments for "highlight_code"  [call-arg]
+bot_handlers.py:496: error: Need type annotation for "all_tags" (hint: "all_tags: Dict[<type>, <type>] = ...")  [var-annotated]
+bot_handlers.py:612: error: Too many arguments for "highlight_code"  [call-arg]
 batch_commands.py:207: error: Incompatible types in assignment (expression has type "BatchJob | None", variable has type "BatchJob")  [assignment]
 batch_commands.py:495: error: Need type annotation for "languages" (hint: "languages: Dict[<type>, <type>] = ...")  [var-annotated]
 main.py:998: error: All conditional function variants must have identical signatures  [misc]
@@ -189,4 +174,4 @@ main.py:998: note: Original:
 main.py:998: note:     def strip_root(path: str) -> str
 main.py:998: note: Redefinition:
 main.py:998: note:     def strip_root(p: str) -> str
-Found 134 errors in 23 files (checked 43 source files)
+Found 119 errors in 22 files (checked 43 source files)
