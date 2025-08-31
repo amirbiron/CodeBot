@@ -71,7 +71,9 @@ class GoogleDriveMenuHandler:
                     pass
             async def _poll_once(ctx: ContextTypes.DEFAULT_TYPE):
                 try:
-                    uid = user_id
+                    uid = ctx.job.data.get("user_id")
+                    chat_id = ctx.job.data.get("chat_id")
+                    message_id = ctx.job.data.get("message_id")
                     s = self._session(uid)
                     dc = s.get("device_code")
                     if not dc:
@@ -81,20 +83,30 @@ class GoogleDriveMenuHandler:
                         gdrive.save_tokens(uid, tokens)
                         # cancel job and notify
                         try:
-                            j = ctx.job
-                            j.schedule_removal()
+                            ctx.job.schedule_removal()
                         except Exception:
                             pass
                         jobs.pop(uid, None)
                         s.pop("device_code", None)
                         try:
-                            await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
+                            # עריכת ההודעה המקורית בלי להשתמש ב-callback_query שפקע
+                            await ctx.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text="✅ חיבור ל‑Drive הושלם!"
+                            )
                         except Exception:
                             pass
                 except Exception:
                     pass
             try:
-                job = context.application.job_queue.run_repeating(_poll_once, interval=sess["interval"], first=5, name=f"drive_auth_{user_id}")
+                job = context.application.job_queue.run_repeating(
+                    _poll_once,
+                    interval=sess["interval"],
+                    first=5,
+                    name=f"drive_auth_{user_id}",
+                    data={"user_id": user_id, "chat_id": query.message.chat_id, "message_id": query.message.message_id}
+                )
                 jobs[user_id] = job
             except Exception:
                 pass
@@ -162,7 +174,7 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("ביטלת את ההתחברות ל‑Drive.")
             return
         if data == "drive_backup_now":
-            # Show selection: ZIP, הכל, מתקדם
+            # Show selection: ZIP, הכל, מתקדם — הצג תמיד, בלי תלות בזרימות קודמות
             kb = [
                 [InlineKeyboardButton("📦 קבצי ZIP", callback_data="drive_sel_zip")],
                 [InlineKeyboardButton("🧰 הכל", callback_data="drive_sel_all")],
@@ -178,7 +190,10 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_sel_all":
             fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
-            fid = gdrive.upload_bytes(user_id, fn, data_bytes)
+            # Friendly name + subpath
+            friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
+            sub_path = gdrive.compute_subpath("all")
+            fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
             await query.edit_message_text("✅ גיבוי מלא הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
             return
         if data == "drive_sel_adv":
@@ -205,14 +220,37 @@ class GoogleDriveMenuHandler:
                 selected.add(category)
                 await query.edit_message_text("✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.")
             else:
-                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
-                fid = gdrive.upload_bytes(user_id, fn, data_bytes)
-                await query.edit_message_text("✅ גיבוי הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
+                # Immediate upload per category
+                if category == "by_repo":
+                    # Group by repo and upload each
+                    grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
+                    ok_any = False
+                    for repo_name, suggested, data_bytes in grouped:
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        sub_path = gdrive.compute_subpath("by_repo", repo_name)
+                        fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                        ok_any = ok_any or bool(fid)
+                    await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות" if ok_any else "❌ כשל בהעלאה")
+                else:
+                    fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
+                    friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
+                    sub_path = gdrive.compute_subpath(category)
+                    fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                    await query.edit_message_text("✅ גיבוי הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
             return
         if data == "drive_adv_multi_toggle":
             sess = self._session(user_id)
             sess["adv_multi"] = not bool(sess.get("adv_multi", False))
-            await self.handle_callback(update, context)
+            multi_on = bool(sess.get("adv_multi", False))
+            kb = [
+                [InlineKeyboardButton("לפי ריפו", callback_data="drive_adv_by_repo")],
+                [InlineKeyboardButton("קבצים גדולים", callback_data="drive_adv_large")],
+                [InlineKeyboardButton("שאר קבצים", callback_data="drive_adv_other")],
+                [InlineKeyboardButton(("✅ אפשרות מרובה" if multi_on else "⬜ אפשרות מרובה"), callback_data="drive_adv_multi_toggle")],
+                [InlineKeyboardButton("⬆️ העלה נבחרים", callback_data="drive_adv_upload_selected")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+            ]
+            await query.edit_message_text("בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_adv_upload_selected":
             sess = self._session(user_id)
@@ -222,9 +260,19 @@ class GoogleDriveMenuHandler:
                 return
             uploaded_any = False
             for c in cats:
-                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=c)
-                fid = gdrive.upload_bytes(user_id, fn, data_bytes)
-                uploaded_any = uploaded_any or bool(fid)
+                if c == "by_repo":
+                    grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
+                    for repo_name, suggested, data_bytes in grouped:
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        sub_path = gdrive.compute_subpath("by_repo", repo_name)
+                        fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                        uploaded_any = uploaded_any or bool(fid)
+                else:
+                    fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=c)
+                    friendly = gdrive.compute_friendly_name(user_id, c, "CodeBot")
+                    sub_path = gdrive.compute_subpath(c)
+                    fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                    uploaded_any = uploaded_any or bool(fid)
             sess["adv_selected"] = set()
             await query.edit_message_text("✅ הועלו הגיבויים שנבחרו" if uploaded_any else "❌ כשל בהעלאה")
             return
@@ -238,7 +286,7 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_folder_default":
             fid = gdrive.get_or_create_default_folder(user_id)
-            await query.edit_message_text("📁 נקבעה תיקיית יעד ברירת מחדל: CodeKeeper Backups" if fid else "❌ כשל בקביעת תיקייה")
+            await query.edit_message_text("📁 נקבעה תיקיית יעד ברירת מחדל: גיבויי_קודלי" if fid else "❌ כשל בקביעת תיקייה")
             return
         if data == "drive_folder_set":
             context.user_data["waiting_for_drive_folder_path"] = True
