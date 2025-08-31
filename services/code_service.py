@@ -1,3 +1,16 @@
+"""
+Code Service Module
+===================
+
+שירות עיבוד וניתוח קוד עבור Code Keeper Bot.
+
+מודול זה מספק wrapper לפונקציונליות עיבוד קוד, כולל:
+- זיהוי שפות תכנות
+- הדגשת תחביר
+- ניתוח קוד
+- חיפוש בקוד
+"""
+
 from typing import Any, Dict, List, Tuple
 
 # Thin wrapper around existing code_processor to allow future swap/refactor
@@ -8,6 +21,19 @@ except Exception:  # optional deps (e.g., cairosvg) might be missing locally
 
 
 def _fallback_detect_language(code: str, filename: str) -> str:
+    """
+    זיהוי שפת תכנות לפי סיומת קובץ (fallback).
+    
+    Args:
+        code: קוד המקור
+        filename: שם הקובץ
+    
+    Returns:
+        str: שם שפת התכנות שזוהתה
+    
+    Note:
+        פונקציה זו משמשת כ-fallback כאשר code_processor לא זמין
+    """
     ext = (filename or "").lower()
     mapping = {
         ".py": "python",
@@ -49,14 +75,40 @@ def _fallback_detect_language(code: str, filename: str) -> str:
 
 
 def detect_language(code: str, filename: str) -> str:
-    """Detect programming language for given code and filename."""
+    """
+    זיהוי שפת תכנות עבור קוד ושם קובץ נתונים.
+    
+    Args:
+        code: קוד המקור לניתוח
+        filename: שם הקובץ (כולל סיומת)
+    
+    Returns:
+        str: שם שפת התכנות שזוהתה
+    
+    Example:
+        >>> detect_language("print('Hello')", "test.py")
+        'python'
+    """
     if code_processor is not None:
         return code_processor.detect_language(code, filename)
     return _fallback_detect_language(code, filename)
 
 
 def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, str, str]:
-    """Validate and sanitize code input. Returns (is_valid, cleaned_code, error_message)."""
+    """
+    בודק ומנקה קלט קוד.
+    
+    Args:
+        code: קוד המקור לבדיקה
+        file_name: שם הקובץ
+        user_id: מזהה המשתמש
+    
+    Returns:
+        Tuple[bool, str, str]: (is_valid, cleaned_code, error_message)
+            - is_valid: האם הקוד תקין
+            - cleaned_code: הקוד המנוקה
+            - error_message: הודעת שגיאה (אם יש)
+    """
     if code_processor is None:
         # Minimal fallback: accept as-is
         return True, code, ""
@@ -64,7 +116,19 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
 
 
 def analyze_code(code: str, language: str) -> Dict[str, Any]:
-    """Run analysis on code snippet for the given language."""
+    """
+    מבצע ניתוח על קטע קוד עבור שפה נתונה.
+    
+    Args:
+        code: קוד המקור לניתוח
+        language: שפת התכנות
+    
+    Returns:
+        Dict[str, Any]: מילון עם תוצאות הניתוח, כולל:
+            - lines: מספר שורות
+            - complexity: מורכבות הקוד
+            - metrics: מטריקות נוספות
+    """
     if code_processor is None:
         return {"language": language, "length": len(code)}
     return code_processor.analyze_code(code, language)

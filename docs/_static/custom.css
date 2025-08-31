@@ -1,0 +1,132 @@
+/* Custom CSS for Code Keeper Bot Documentation */
+
+/* RTL Support for Hebrew */
+.rst-content {
+    direction: ltr;
+}
+
+.rst-content .hebrew {
+    direction: rtl;
+    text-align: right;
+}
+
+/* Code blocks styling */
+.highlight {
+    background: #f8f8f8;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    margin: 1em 0;
+}
+
+.highlight pre {
+    padding: 16px;
+    overflow: auto;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+/* API Reference styling */
+.class, .function, .method {
+    margin-bottom: 2em;
+    padding: 1em;
+    background: #f6f8fa;
+    border-left: 4px solid #0366d6;
+    border-radius: 4px;
+}
+
+.sig-name {
+    font-weight: bold;
+    color: #0366d6;
+}
+
+/* Navigation improvements */
+.wy-nav-content {
+    max-width: 1200px;
+}
+
+.wy-side-nav-search {
+    background-color: #2c3e50;
+}
+
+.wy-side-nav-search > a {
+    color: #fff;
+    font-size: 1.3em;
+}
+
+/* Tables */
+table.docutils {
+    border: 1px solid #e1e4e8;
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+}
+
+table.docutils th {
+    background: #f6f8fa;
+    padding: 10px;
+    border: 1px solid #e1e4e8;
+    font-weight: bold;
+}
+
+table.docutils td {
+    padding: 10px;
+    border: 1px solid #e1e4e8;
+}
+
+/* Notes and warnings */
+.admonition {
+    padding: 12px;
+    margin: 1em 0;
+    border-radius: 4px;
+}
+
+.admonition.note {
+    background: #d1ecf1;
+    border-left: 4px solid #bee5eb;
+}
+
+.admonition.warning {
+    background: #fff3cd;
+    border-left: 4px solid #ffeeba;
+}
+
+.admonition.danger {
+    background: #f8d7da;
+    border-left: 4px solid #f5c6cb;
+}
+
+/* Improve readability */
+.rst-content p {
+    line-height: 1.6;
+    margin-bottom: 1em;
+}
+
+.rst-content li {
+    line-height: 1.6;
+}
+
+/* Code examples */
+.literal-block {
+    background: #f6f8fa;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 1em;
+    margin: 1em 0;
+}
+
+/* Search results */
+#search-results .context {
+    color: #666;
+    font-size: 0.9em;
+}
+
+/* Mobile responsive */
+@media screen and (max-width: 768px) {
+    .wy-nav-content-wrap {
+        margin-left: 0;
+    }
+    
+    .wy-nav-side {
+        left: -300px;
+    }
+}

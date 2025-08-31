@@ -1,0 +1,432 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="he" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Code Keeper Bot - תיעוד API &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=2d7a82d5" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=0062297a"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/translations.js?v=a336edf7"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="אינדקס" href="genindex.html" />
+    <link rel="search" title="חיפוש" href="search.html" />
+    <link rel="next" title="התקנה והגדרה" href="installation.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="#" class="icon icon-home">
+            Code Keeper Bot
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">תוכן עניינים:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">התקנה והגדרה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id2">דרישות מערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id3">התקנה מהירה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id4">1. שכפל את הריפוזיטורי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id5">2. התקן תלויות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id6">3. הגדר משתני סביבה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id7">4. הפעל את הבוט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#docker">התקנה עם Docker</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#image">1. בנה את ה-Image</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#docker-compose">2. הפעל עם Docker Compose</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#telegram-bot">הגדרת Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id8">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id9">בדיקת התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id10">פתרון בעיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id11">תמיכה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">הגדרות תצורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">קובץ התצורה הראשי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">משתני סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#redis-cache">הגדרת Redis Cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">הגדרות אבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">תצורה לסביבות שונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#env">דוגמת קובץ .env מלא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">טיפים וטריקים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#main-application">Main Application</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#bot-handlers">Bot Handlers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#conversation-handlers">Conversation Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/index.html">מודולים ראשיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#module-file_manager">File Management</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/index.html#file_manager.BackupInfo"><code class="docutils literal notranslate"><span class="pre">BackupInfo</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupInfo.__init__"><code class="docutils literal notranslate"><span class="pre">BackupInfo.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="modules/index.html#file_manager.BackupManager"><code class="docutils literal notranslate"><span class="pre">BackupManager</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.__init__"><code class="docutils literal notranslate"><span class="pre">BackupManager.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.save_backup_bytes"><code class="docutils literal notranslate"><span class="pre">BackupManager.save_backup_bytes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.save_backup_file"><code class="docutils literal notranslate"><span class="pre">BackupManager.save_backup_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.list_backups"><code class="docutils literal notranslate"><span class="pre">BackupManager.list_backups()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.restore_from_backup"><code class="docutils literal notranslate"><span class="pre">BackupManager.restore_from_backup()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.delete_backups"><code class="docutils literal notranslate"><span class="pre">BackupManager.delete_backups()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.delete_backup"><code class="docutils literal notranslate"><span class="pre">BackupManager.delete_backup()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#github-integration">GitHub Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#backup-system">Backup System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#code-processing">Code Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#search-engine">Search Engine</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#repository-analysis">Repository Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#batch-processing">Batch Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#large-files-handling">Large Files Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#cache-management">Cache Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#user-statistics">User Statistics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#activity-reporting">Activity Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#utilities">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#lazy-loading">Lazy Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#integrations">Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#terminal-commands">Terminal Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#autocomplete-manager">Autocomplete Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#file-view-handler">File View Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#pagination-handler">Pagination Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#module-handlers.states">States Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#module-handlers.github">GitHub Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="services/index.html">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#module-services.code_service">Code Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#code-service-module">Code Service Module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.detect_language"><code class="docutils literal notranslate"><span class="pre">detect_language()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.validate_code_input"><code class="docutils literal notranslate"><span class="pre">validate_code_input()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.analyze_code"><code class="docutils literal notranslate"><span class="pre">analyze_code()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.extract_functions"><code class="docutils literal notranslate"><span class="pre">extract_functions()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.get_code_stats"><code class="docutils literal notranslate"><span class="pre">get_code_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.highlight_code"><code class="docutils literal notranslate"><span class="pre">highlight_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#github-service">GitHub Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#module-services.backup_service">Backup Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.save_backup_bytes"><code class="docutils literal notranslate"><span class="pre">save_backup_bytes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.list_backups"><code class="docutils literal notranslate"><span class="pre">list_backups()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.restore_from_backup"><code class="docutils literal notranslate"><span class="pre">restore_from_backup()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.delete_backups"><code class="docutils literal notranslate"><span class="pre">delete_backups()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="database/index.html">Database</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#database-manager">Database Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#models">Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#codesnippet-model">CodeSnippet Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#databasemanager-class">DatabaseManager Class</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#database-operations">Database Operations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#save-operations">Save Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#search-operations">Search Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#delete-operations">Delete Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#statistics-operations">Statistics Operations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">דוגמאות שימוש</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id2">שימוש בסיסי</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id3">יצירת אפליקציית בוט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id4">שמירת קוד חדש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id5">חיפוש קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#handlers">שימוש ב-Handlers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#command-handler">יצירת Command Handler</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#conversation-handler">יצירת Conversation Handler</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#services">שימוש ב-Services</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id6">זיהוי שפת תכנות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id7">ניתוח קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#github">אינטגרציה עם GitHub</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#gist">העלאת קוד ל-Gist</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#gists">שליפת Gists של משתמש</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id8">עבודה עם מסד הנתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id9">ביצוע שאילתות מורכבות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id10">עדכון קבצים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id11">סטטיסטיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id12">טיפול בשגיאות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id13">טיפול בשגיאות בסיסי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#retry-logic">Retry Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id14">בדיקות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id15">בדיקת יחידה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id16">בדיקת אינטגרציה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id17">דוגמאות מתקדמות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id18">עיבוד באצווה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="examples.html#id19">קאשינג</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">Code Keeper Bot</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="#" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Code Keeper Bot - תיעוד API</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="installation.html" class="btn btn-neutral float-right" title="התקנה והגדרה" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="code-keeper-bot-api">
+<h1>Code Keeper Bot - תיעוד API<a class="headerlink" href="#code-keeper-bot-api" title="Link to this heading"></a></h1>
+<p>ברוכים הבאים לתיעוד ה-API של Code Keeper Bot!</p>
+<p>בוט זה מספק ממשק טלגרם מתקדם לניהול ושמירת קטעי קוד, עם תמיכה בשפות תכנות מרובות,
+אינטגרציה עם GitHub, וכלי ניהול מתקדמים.</p>
+<div class="toctree-wrapper compound">
+<p class="caption" role="heading"><span class="caption-text">תוכן עניינים:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">התקנה והגדרה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id2">דרישות מערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id3">התקנה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#docker">התקנה עם Docker</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#telegram-bot">הגדרת Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id8">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id9">בדיקת התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id10">פתרון בעיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id11">תמיכה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">הגדרות תצורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">קובץ התצורה הראשי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">משתני סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#redis-cache">הגדרת Redis Cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">הגדרות אבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">תצורה לסביבות שונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#env">דוגמת קובץ .env מלא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">טיפים וטריקים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#main-application">Main Application</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#bot-handlers">Bot Handlers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#conversation-handlers">Conversation Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/index.html">מודולים ראשיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#module-file_manager">File Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#github-integration">GitHub Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#backup-system">Backup System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#code-processing">Code Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#search-engine">Search Engine</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#repository-analysis">Repository Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#batch-processing">Batch Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#large-files-handling">Large Files Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#cache-management">Cache Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#user-statistics">User Statistics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#activity-reporting">Activity Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#utilities">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#lazy-loading">Lazy Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#integrations">Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#terminal-commands">Terminal Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#autocomplete-manager">Autocomplete Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#file-view-handler">File View Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#pagination-handler">Pagination Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#module-handlers.states">States Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#module-handlers.github">GitHub Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="services/index.html">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#module-services.code_service">Code Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#github-service">GitHub Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#module-services.backup_service">Backup Service</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="database/index.html">Database</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#database-manager">Database Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#models">Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#database-operations">Database Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">דוגמאות שימוש</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id2">שימוש בסיסי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#handlers">שימוש ב-Handlers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#services">שימוש ב-Services</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#github">אינטגרציה עם GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id8">עבודה עם מסד הנתונים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id12">טיפול בשגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id14">בדיקות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="examples.html#id17">דוגמאות מתקדמות</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="id1">
+<h2>סקירה כללית<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<p><strong>Code Keeper Bot</strong> הוא בוט טלגרם מתקדם המאפשר:</p>
+<ul class="simple">
+<li><p>💾 שמירה וניהול של קטעי קוד</p></li>
+<li><p>🔍 חיפוש מתקדם בקוד</p></li>
+<li><p>🎨 הדגשת תחביר לשפות תכנות מרובות</p></li>
+<li><p>📊 סטטיסטיקות שימוש מפורטות</p></li>
+<li><p>🔗 אינטגרציה עם GitHub</p></li>
+<li><p>📦 גיבוי ושחזור נתונים</p></li>
+<li><p>🔐 אבטחה והצפנה</p></li>
+</ul>
+</section>
+<section id="id2">
+<h2>תכונות עיקריות<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt><strong>ניהול קוד:</strong></dt><dd><ul class="simple">
+<li><p>שמירת קטעי קוד עם מטא-דאטה</p></li>
+<li><p>תמיכה בשפות תכנות מרובות</p></li>
+<li><p>הדגשת תחביר אוטומטית</p></li>
+<li><p>חיפוש וסינון מתקדם</p></li>
+</ul>
+</dd>
+<dt><strong>אינטגרציות:</strong></dt><dd><ul class="simple">
+<li><p>העלאה ל-GitHub Gist</p></li>
+<li><p>ייצוא לפורמטים שונים</p></li>
+<li><p>שיתוף קוד בקלות</p></li>
+</ul>
+</dd>
+<dt><strong>כלי ניהול:</strong></dt><dd><ul class="simple">
+<li><p>גיבוי אוטומטי</p></li>
+<li><p>סטטיסטיקות שימוש</p></li>
+<li><p>ניהול משתמשים</p></li>
+</ul>
+</dd>
+</dl>
+</section>
+<section id="id3">
+<h2>התחלה מהירה<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">main</span> <span class="kn">import</span> <span class="n">create_application</span>
+<span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">config</span>
+
+<span class="c1"># יצירת אפליקציית הבוט</span>
+<span class="n">app</span> <span class="o">=</span> <span class="n">create_application</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">BOT_TOKEN</span><span class="p">)</span>
+
+<span class="c1"># הפעלת הבוט</span>
+<span class="n">app</span><span class="o">.</span><span class="n">run_polling</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="id4">
+<h2>דרישות מערכת<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Python 3.9+</p></li>
+<li><p>MongoDB 4.4+</p></li>
+<li><p>Telegram Bot API Token</p></li>
+<li><p>Redis (אופציונלי, לקאש)</p></li>
+</ul>
+</section>
+</section>
+<section id="indices-and-tables">
+<h1>Indices and tables<a class="headerlink" href="#indices-and-tables" title="Link to this heading"></a></h1>
+<ul class="simple">
+<li><p><a class="reference internal" href="genindex.html"><span class="std std-ref">אינדקס</span></a></p></li>
+<li><p><a class="reference internal" href="py-modindex.html"><span class="std std-ref">מודול אינדקס</span></a></p></li>
+<li><p><a class="reference internal" href="search.html"><span class="std std-ref">דף חיפוש</span></a></p></li>
+</ul>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="installation.html" class="btn btn-neutral float-right" title="התקנה והגדרה" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Development Team.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

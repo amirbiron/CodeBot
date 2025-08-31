@@ -1,3 +1,16 @@
+"""
+File View Handler Module
+========================
+
+מודול לניהול תצוגת קבצים וקוד בבוט טלגרם.
+
+מודול זה מספק פונקציונליות ל:
+- הצגת קבצי קוד
+- עריכת קבצים
+- ניהול גרסאות
+- ייצוא קבצים
+"""
+
 import logging
 import re
 from io import BytesIO
@@ -16,7 +29,15 @@ logger = logging.getLogger(__name__)
 
 
 def _get_main_keyboard() -> list:
-    """Return main keyboard layout from conversation handlers or an empty fallback."""
+    """
+    מחזיר את פריסת המקלדת הראשית.
+    
+    Returns:
+        list: רשימת כפתורי המקלדת הראשית
+    
+    Note:
+        מחזיר רשימה ריקה במקרה של שגיאה
+    """
     try:
         from conversation_handlers import MAIN_KEYBOARD
         return MAIN_KEYBOARD
@@ -25,7 +46,19 @@ def _get_main_keyboard() -> list:
 
 
 async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Show file action menu for a selected file from the list view."""
+    """
+    מציג תפריט פעולות עבור קובץ נבחר.
+    
+    Args:
+        update: אובייקט Update מטלגרם
+        context: הקונטקסט של השיחה
+    
+    Returns:
+        int: מצב השיחה החדש
+    
+    Note:
+        מציג אפשרויות כמו הצגה, עריכה, מחיקה ושיתוף
+    """
     query = update.callback_query
     await query.answer()
     try:

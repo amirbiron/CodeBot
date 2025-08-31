@@ -101,7 +101,16 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
         pass
 
 async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """רישום פעילות משתמש"""
+    """
+    רישום פעילות משתמש במערכת.
+    
+    Args:
+        update: אובייקט Update מטלגרם
+        context: הקונטקסט של השיחה
+    
+    Note:
+        פונקציה זו נקראת אוטומטית עבור כל פעולה של משתמש
+    """
     if update.effective_user:
         user_stats.log_user(
             update.effective_user.id,
@@ -118,8 +127,16 @@ LOCK_TIMEOUT_MINUTES = 5
 
 def get_lock_collection():
     """
-    Returns the lock collection from the same database the app uses
-    via DatabaseManager, avoiding reliance on the URI's default database.
+    מחזיר את קולקציית הנעילות ממסד הנתונים.
+    
+    Returns:
+        pymongo.collection.Collection: קולקציית הנעילות
+    
+    Raises:
+        SystemExit: אם מסד הנתונים לא אותחל כראוי
+    
+    Note:
+        משתמש במסד הנתונים שכבר נבחר ב-DatabaseManager
     """
     try:
         # Use the already-selected database from DatabaseManager
@@ -140,6 +157,12 @@ def get_lock_collection():
 # New: ensure TTL index on expires_at so stale locks get auto-removed
 
 def ensure_lock_indexes() -> None:
+    """
+    יוצר אינדקס TTL על שדה expires_at לניקוי אוטומטי של נעילות ישנות.
+    
+    Note:
+        אם יצירת האינדקס נכשלת, המערכת תמשיך לעבוד ללא TTL אוטומטי
+    """
     try:
         lock_collection = get_lock_collection()
         # TTL based on the absolute expiration time in the document
@@ -149,7 +172,12 @@ def ensure_lock_indexes() -> None:
         logger.warning(f"Could not ensure TTL index for lock collection: {e}")
 
 def cleanup_mongo_lock():
-    """Runs on script exit to remove the lock document."""
+    """
+    מנקה את נעילת MongoDB בעת יציאה מהתוכנית.
+    
+    Note:
+        פונקציה זו נרשמת עם atexit ורצה אוטומטית בסיום התוכנית
+    """
     try:
         # If DB client is not available, skip quietly
         try:
@@ -170,7 +198,15 @@ def cleanup_mongo_lock():
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
 
 def manage_mongo_lock():
-    """Acquire a distributed lock in MongoDB to ensure a single bot instance runs."""
+    """
+    רוכש נעילה מבוזרת ב-MongoDB כדי להבטיח שרק מופע אחד של הבוט רץ.
+    
+    Returns:
+        bool: True אם הנעילה נרכשה בהצלחה, False אחרת
+    
+    Note:
+        תומך בהמתנה לשחרור נעילה קיימת עבור blue/green deployments
+    """
     try:
         ensure_lock_indexes()
         lock_collection = get_lock_collection()
@@ -236,7 +272,20 @@ def manage_mongo_lock():
 # =============================================================================
 
 class CodeKeeperBot:
-    """המחלקה הראשית של הבוט"""
+    """
+    המחלקה הראשית של Code Keeper Bot.
+    
+    מחלקה זו מנהלת את כל הפונקציונליות של הבוט, כולל:
+    - הגדרת handlers לפקודות ומסרים
+    - ניהול שיחות מורכבות
+    - אינטגרציות עם שירותים חיצוניים
+    - ניהול מסד נתונים
+    
+    Attributes:
+        application: אובייקט Application של python-telegram-bot
+        github_handler: מנהל אינטגרציית GitHub
+        backup_handler: מנהל מערכת הגיבויים
+    """
     
     def __init__(self):
         # יצירת תיקייה זמנית עם הרשאות כתיבה
