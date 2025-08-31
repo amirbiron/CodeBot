@@ -538,6 +538,8 @@ class CodeProcessor:
         """יצירת תמונה של קוד עם הדגשת תחביר"""
         
         try:
+            width: int = 1200
+            font_size: int = 14
             # הדגשת הקוד
             highlighted_html = self.highlight_code(code, programming_language, 'html')
             
