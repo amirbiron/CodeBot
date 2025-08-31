@@ -209,7 +209,7 @@ class GitHubMenuHandler:
             keyboard.append(
                 [
                     InlineKeyboardButton(
-                        "🆕 צור ריפו חדש מ‑ZIP", callback_data="github_create_repo_from_zip"
+                        "🆕 צור ריפו חדש מּZIP", callback_data="github_create_repo_from_zip"
                     )
                 ]
             )
@@ -611,7 +611,6 @@ class GitHubMenuHandler:
 
         elif query.data == "github_backup_menu":
             await self.show_github_backup_menu(update, context)
-
         elif query.data == "github_restore_zip_to_repo":
             # התחלת שחזור ZIP ידני לריפו: הגדר מצב העלאה ובקש בחירת purge
             user_id = query.from_user.id
@@ -1068,7 +1067,6 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML",
             )
-
         elif query.data.startswith("download_zip:"):
             # הורדת התיקייה הנוכחית כקובץ ZIP
             current_path = query.data.split(":", 1)[1]
@@ -1637,7 +1635,6 @@ class GitHubMenuHandler:
             await self.show_confirm_merge_pr(update, context)
         elif query.data == "confirm_merge_pr":
             await self.confirm_merge_pr(update, context)
-
         elif query.data == "validate_repo":
             try:
                 await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
@@ -2201,8 +2198,19 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בהכנת קובץ גדול להעלאה: {e}")
 
-    async def handle_saved_file_upload(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str
+    async def create_upload_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Create a new folder path in user session (logical placeholder).
+        In GitHub, folders are virtual; the folder is created implicitly when uploading a file.
+        Here we just save the desired path and go back to the pre-upload check screen.
+        """
+        query = update.callback_query
+        session = self.get_user_session(update.effective_user.id)
+        # Ensure a folder path is set (empty means repo root)
+        folder = (session.get("selected_folder") or "").strip("/")
+        context.user_data["upload_target_folder"] = folder
+        await query.answer("תיקיית יעד נשמרה")
+        await self.show_pre_upload_check(update, context)
+        return ConversationHandler.END
     ):
         """מטפל בהעלאת קובץ שמור ל-GitHub"""
         user_id = update.effective_user.id
@@ -2834,7 +2842,6 @@ class GitHubMenuHandler:
             await status_message.edit_text(
                 error_message, reply_markup=InlineKeyboardMarkup(keyboard)
             )
-
     def _create_analysis_summary(self, analysis: Dict[str, Any]) -> str:
         """יוצר סיכום של הניתוח"""
         # Escape HTML special characters
@@ -4027,7 +4034,6 @@ class GitHubMenuHandler:
                 )
         except Exception as e:
             logger.error(f"notifications job error: {e}")
-
     async def show_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -4613,8 +4619,22 @@ class GitHubMenuHandler:
             "✏️ הקלד נתיב תיקייה יעד (למשל: src/utils או ריק ל-root).\nשלח טקסט חופשי עכשיו."
         )
 
-    async def create_checkpoint_doc(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str, name: str
+    async def create_upload_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Create a new folder path in user session (logical placeholder).
+        In GitHub, folders are virtual; the folder is created implicitly when uploading a file.
+        Here we just save the desired path and go back to the pre-upload check screen.
+        """
+        query = update.callback_query
+        session = self.get_user_session(update.effective_user.id)
+        # Ensure a folder path is set (empty means repo root)
+        folder = (session.get("selected_folder") or "").strip("/")
+        context.user_data["upload_target_folder"] = folder
+        await query.answer("תיקיית יעד נשמרה")
+        await self.show_pre_upload_check(update, context)
+        return ConversationHandler.END
+
+    async def handle_saved_file_upload(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str
     ):
         """יוצר קובץ הוראות שחזור לנקודת שמירה ושולח ל-flow של העלאה"""
         query = update.callback_query
@@ -5216,7 +5236,6 @@ class GitHubMenuHandler:
         except Exception as e:
             logger.exception("[create_revert_pr_from_tag] Unexpected error: %s", e)
             await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(str(e))}")
-
     async def show_github_backup_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט גיבוי/שחזור עבור הריפו הנבחר"""
         query = update.callback_query

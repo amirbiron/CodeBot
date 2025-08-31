@@ -656,5 +656,19 @@ class AdvancedBotHandlers:
             logger.error(f"שגיאה בשיתוף Gist: {e}")
             await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
 
+    async def _download_file(self, query, user_id: int, file_name: str):
+        from database import db as _db
+
+        file_data = _db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text(
+                f"❌ קובץ `{file_name}` לא נמצא.", parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        content = file_data.get("code", "")
+        buffer = io.BytesIO(content.encode("utf-8"))
+        buffer.name = file_name
+        await query.message.reply_document(document=buffer, filename=file_name)
+
 
 # פקודות נוספות ייוצרו בהמשך...
