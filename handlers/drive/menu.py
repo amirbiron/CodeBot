@@ -71,7 +71,9 @@ class GoogleDriveMenuHandler:
                     pass
             async def _poll_once(ctx: ContextTypes.DEFAULT_TYPE):
                 try:
-                    uid = user_id
+                    uid = ctx.job.data.get("user_id")
+                    chat_id = ctx.job.data.get("chat_id")
+                    message_id = ctx.job.data.get("message_id")
                     s = self._session(uid)
                     dc = s.get("device_code")
                     if not dc:
@@ -81,20 +83,30 @@ class GoogleDriveMenuHandler:
                         gdrive.save_tokens(uid, tokens)
                         # cancel job and notify
                         try:
-                            j = ctx.job
-                            j.schedule_removal()
+                            ctx.job.schedule_removal()
                         except Exception:
                             pass
                         jobs.pop(uid, None)
                         s.pop("device_code", None)
                         try:
-                            await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
+                            # עריכת ההודעה המקורית בלי להשתמש ב-callback_query שפקע
+                            await ctx.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text="✅ חיבור ל‑Drive הושלם!"
+                            )
                         except Exception:
                             pass
                 except Exception:
                     pass
             try:
-                job = context.application.job_queue.run_repeating(_poll_once, interval=sess["interval"], first=5, name=f"drive_auth_{user_id}")
+                job = context.application.job_queue.run_repeating(
+                    _poll_once,
+                    interval=sess["interval"],
+                    first=5,
+                    name=f"drive_auth_{user_id}",
+                    data={"user_id": user_id, "chat_id": query.message.chat_id, "message_id": query.message.message_id}
+                )
                 jobs[user_id] = job
             except Exception:
                 pass
@@ -162,7 +174,7 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("ביטלת את ההתחברות ל‑Drive.")
             return
         if data == "drive_backup_now":
-            # Show selection: ZIP, הכל, מתקדם
+            # Show selection: ZIP, הכל, מתקדם — הצג תמיד, בלי תלות בזרימות קודמות
             kb = [
                 [InlineKeyboardButton("📦 קבצי ZIP", callback_data="drive_sel_zip")],
                 [InlineKeyboardButton("🧰 הכל", callback_data="drive_sel_all")],
@@ -212,7 +224,16 @@ class GoogleDriveMenuHandler:
         if data == "drive_adv_multi_toggle":
             sess = self._session(user_id)
             sess["adv_multi"] = not bool(sess.get("adv_multi", False))
-            await self.handle_callback(update, context)
+            multi_on = bool(sess.get("adv_multi", False))
+            kb = [
+                [InlineKeyboardButton("לפי ריפו", callback_data="drive_adv_by_repo")],
+                [InlineKeyboardButton("קבצים גדולים", callback_data="drive_adv_large")],
+                [InlineKeyboardButton("שאר קבצים", callback_data="drive_adv_other")],
+                [InlineKeyboardButton(("✅ אפשרות מרובה" if multi_on else "⬜ אפשרות מרובה"), callback_data="drive_adv_multi_toggle")],
+                [InlineKeyboardButton("⬆️ העלה נבחרים", callback_data="drive_adv_upload_selected")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+            ]
+            await query.edit_message_text("בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_adv_upload_selected":
             sess = self._session(user_id)
