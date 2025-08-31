@@ -29,6 +29,10 @@ class BotConfig:
     MAX_FILES_PER_USER: int = 1000
     SUPPORTED_LANGUAGES: list = None
     
+    # מצב תחזוקה/דיפלוי
+    MAINTENANCE_MODE: bool = False
+    MAINTENANCE_MESSAGE: str = "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"
+    
     # הגדרות syntax highlighting
     HIGHLIGHT_THEME: str = "github-dark"
 
@@ -66,6 +70,8 @@ def load_config() -> BotConfig:
         MAX_FILES_PER_USER=int(os.getenv('MAX_FILES_PER_USER', '1000')),
         HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark'),
         GIT_CHECKPOINT_PREFIX=os.getenv('GIT_CHECKPOINT_PREFIX', 'checkpoint'),
+        MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
+        MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה

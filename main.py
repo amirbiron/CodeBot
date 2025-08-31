@@ -261,6 +261,22 @@ class CodeKeeperBot:
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
+        # Maintenance gate: if enabled, short-circuit most interactions
+        if config.MAINTENANCE_MODE:
+            async def maintenance_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                try:
+                    await (update.callback_query.edit_message_text if getattr(update, 'callback_query', None) else update.message.reply_text)(
+                        config.MAINTENANCE_MESSAGE
+                    )
+                except Exception:
+                    pass
+                return ConversationHandler.END
+            # Catch-all high-priority handlers during maintenance
+            self.application.add_handler(MessageHandler(filters.ALL, maintenance_reply), group=-100)
+            self.application.add_handler(CallbackQueryHandler(maintenance_reply), group=-100)
+            logger.warning("MAINTENANCE_MODE is ON — all updates will receive maintenance message")
+            return
+
         # ספור את ה-handlers
         handler_count = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers לפני: {handler_count}")
