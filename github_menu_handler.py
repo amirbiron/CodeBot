@@ -829,13 +829,9 @@ class GitHubMenuHandler:
             return REPO_SELECT
 
         elif query.data == "create_folder_back":
-            # חזרה למסך הקודם בתהליך יצירת תיקייה
+            # חזרה למסך "תיקיית יעד"
             context.user_data["waiting_for_new_folder_path"] = False
-            if context.user_data.get("return_to_pre_upload"):
-                context.user_data["return_to_pre_upload"] = False
-                await self.show_pre_upload_check(update, context)
-            else:
-                await self.show_repo_browser(update, context)
+            await self.show_upload_folder_menu(update, context)
             return REPO_SELECT
 
         elif query.data == "create_folder_cancel":
