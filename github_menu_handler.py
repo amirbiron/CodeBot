@@ -846,6 +846,21 @@ class GitHubMenuHandler:
         elif query.data == "github_backup_menu":
             await self.show_github_backup_menu(update, context)
 
+        elif query.data == "github_backup_db_list":
+            # מעבר לרשימת "גיבויי DB אחרונים" מתוך תפריט GitHub, עם חזרה ל-GitHub
+            try:
+                backup_handler = context.bot_data.get('backup_handler')
+                if backup_handler is None:
+                    from backup_menu_handler import BackupMenuHandler
+                    backup_handler = BackupMenuHandler()
+                    context.bot_data['backup_handler'] = backup_handler
+                # קבע הקשר חזרה ל-GitHub והסר סינון לפי ריפו לרשימה זו
+                context.user_data['zip_back_to'] = 'github'
+                context.user_data.pop('github_backup_context_repo', None)
+                await backup_handler._show_backups_list(update, context, page=1)
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בטעינת גיבויים: {e}")
+
         elif query.data == "github_restore_zip_to_repo":
             # התחלת שחזור ZIP ידני לריפו: הגדר מצב העלאה ובקש בחירת purge
             user_id = query.from_user.id
@@ -5142,7 +5157,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
-            [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="backup_list")],
+            [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="github_backup_db_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
