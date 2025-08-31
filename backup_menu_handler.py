@@ -251,7 +251,8 @@ class BackupMenuHandler:
 						)
 				except Exception:
 					pass
-				# רענון הרשימה אוטומטית כדי להציג את הדירוג המעודכן בכפתור
+				# סמן להדגשה בפריט שרק דורג ורענן את הרשימה כדי להציג כפתור מעודכן
+				context.user_data["backup_highlight_id"] = b_id
 				try:
 					await self._show_backups_list(update, context)
 				except Exception as e:
@@ -322,6 +323,7 @@ class BackupMenuHandler:
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.answer()
+		highlight_id = context.user_data.pop("backup_highlight_id", None)
 		backups = backup_manager.list_backups(user_id)
 		# ודא שתמיד מוצגים כל קבצי ה‑ZIP ללא סינון לפי משתמש
 		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
@@ -388,6 +390,7 @@ class BackupMenuHandler:
 		delete_mode = bool(context.user_data.get("backup_delete_mode"))
 		selected = set(context.user_data.get("backup_delete_selected", set()))
 		for info in items:
+			highlight = (getattr(info, 'backup_id', '') == highlight_id)
 			btype = getattr(info, 'backup_type', 'unknown')
 			repo_name = getattr(info, 'repo', None)
 			# שורת כותרת לפריט
@@ -416,13 +419,19 @@ class BackupMenuHandler:
 				mark = "✅" if info.backup_id in selected else "⬜️"
 				row.append(InlineKeyboardButton(f"{mark} בחר למחיקה", callback_data=f"backup_toggle_del:{info.backup_id}"))
 				# הצג גם כפתור הורדה אך בלי גודל על הכפתור עצמו
-				row.append(InlineKeyboardButton(_build_download_button_text(info, force_hide_size=True, vnum=vnum, rating=rating), callback_data=f"backup_download_id:{info.backup_id}"))
+				btn_text = _build_download_button_text(info, force_hide_size=True, vnum=vnum, rating=rating)
+				if highlight:
+					btn_text = f"✔️ {btn_text}"
+				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
 				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
 				if btype not in {"github_repo_zip"}:
 					row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
 				# כפתור הורדה תמיד זמין עם טקסט תמציתי
-				row.append(InlineKeyboardButton(_build_download_button_text(info, vnum=vnum, rating=rating), callback_data=f"backup_download_id:{info.backup_id}"))
+				btn_text = _build_download_button_text(info, vnum=vnum, rating=rating)
+				if highlight:
+					btn_text = f"✔️ {btn_text}"
+				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
