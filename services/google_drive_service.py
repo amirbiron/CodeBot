@@ -147,9 +147,11 @@ def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> O
     if not service:
         return None
     try:
-        q = f"name = '{name.replace("'", "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        safe_name = name.replace("'", "\\'")
+        q = "name = '{0}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false".format(safe_name)
         if parent_id:
-            q += f" and '{parent_id}' in parents"
+            safe_parent = str(parent_id).replace("'", "\\'")
+            q += f" and '{safe_parent}' in parents"
         results = service.files().list(q=q, fields="files(id, name)").execute()
         files = results.get("files", [])
         if files:
