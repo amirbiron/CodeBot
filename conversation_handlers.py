@@ -1929,6 +1929,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 f"📂 קבצים עם {tag}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+        elif data.startswith("batch_zip_page_"):
+            try:
+                p = int(data.split("_")[-1])
+            except Exception:
+                p = 1
+            return await show_batch_zips_menu(update, context, page=p)
+        elif data.startswith("batch_zip_use_for_batch:"):
+            # בחירה ב-ZIP לצורך עיבוד Batch: מעבר לבחירת קבצים/"בחר הכל"
+            zid = data.split(":", 1)[1]
+            try:
+                context.user_data['batch_selected_zip_id'] = zid
+            except Exception:
+                pass
+            context.user_data['batch_target'] = { 'type': 'zips' }
+            return await show_batch_files_menu(update, context, page=1)
         
     except telegram.error.BadRequest as e:
         if "Message is not modified" not in str(e):
