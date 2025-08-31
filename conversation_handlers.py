@@ -977,9 +977,8 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Get the new version number to display
-            from database import db
-            updated_file = db.get_latest_version(user_id, file_name)
-            version_num = updated_file.get('version', 1) if updated_file else 1
+            last_version = db.get_latest_version(user_id, file_name)
+            version_num = last_version.get('version', 1) if last_version else 1
             
             # רענון קאש של הקבצים אם קיים אינדקס רלוונטי
             try:

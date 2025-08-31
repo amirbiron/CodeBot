@@ -493,6 +493,9 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
             code = file_data.get('code', '')
         elif data.startswith('download_direct_'):
             file_name = data.replace('download_direct_', '', 1)
+            if not isinstance(file_name, str):
+                await query.edit_message_text("❌ שם קובץ שגוי להורדה")
+                return ConversationHandler.END
             from database import db
             user_id = update.effective_user.id
             latest = db.get_latest_version(user_id, file_name)
