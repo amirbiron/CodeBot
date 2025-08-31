@@ -413,8 +413,6 @@ class BackupMenuHandler:
 				second_line = f"  ↳ {mark} | קבצים: {files_txt} | גרסה: v{vnum}"
 			else:
 				second_line = f"  ↳ גודל: {_format_bytes(getattr(info, 'total_size', 0))} | קבצים: {files_txt} | גרסה: v{vnum}"
-			if rating:
-				second_line += f" {rating}"
 			lines.append(second_line)
 			row = []
 			if delete_mode:
