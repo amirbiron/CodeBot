@@ -1070,18 +1070,18 @@ class GitHubMenuHandler:
                                 except Exception:
                                     v_text = ""
                                 summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
-                                msg = await query.message.reply_text(summary_line)
+                                kb = [
+                                    [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
+                                    [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
+                                    [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                                ]
+                                msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
                                 try:
                                     s = context.user_data.setdefault("backup_summaries", {})
                                     s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
                                 except Exception:
                                     pass
-                                try:
-                                    backup_handler = context.bot_data.get('backup_handler')
-                                    if backup_handler and hasattr(backup_handler, 'send_rating_prompt'):
-                                        await backup_handler.send_rating_prompt(update, context, backup_id)
-                                except Exception:
-                                    pass
+                                # Rating buttons already attached above; no need to call external handler
                             except Exception:
                                 pass
                     except Exception as e:
@@ -1181,18 +1181,18 @@ class GitHubMenuHandler:
                     except Exception:
                         v_text = ""
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
-                    msg = await query.message.reply_text(summary_line)
+                    kb = [
+                        [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
+                        [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
+                        [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                    ]
+                    msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
                     try:
                         s = context.user_data.setdefault("backup_summaries", {})
                         s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
                     except Exception:
                         pass
-                    try:
-                        backup_handler = context.bot_data.get('backup_handler')
-                        if backup_handler and hasattr(backup_handler, 'send_rating_prompt'):
-                            await backup_handler.send_rating_prompt(update, context, backup_id)
-                    except Exception:
-                        pass
+                    # Rating buttons already attached above; no need to call external handler
                 except Exception:
                     pass
             except Exception as e:
