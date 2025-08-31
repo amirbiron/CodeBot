@@ -286,7 +286,7 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_folder_default":
             fid = gdrive.get_or_create_default_folder(user_id)
-            await query.edit_message_text("📁 נקבעה תיקיית יעד ברירת מחדל: CodeKeeper Backups" if fid else "❌ כשל בקביעת תיקייה")
+            await query.edit_message_text("📁 נקבעה תיקיית יעד ברירת מחדל: גיבויי_קודלי" if fid else "❌ כשל בקביעת תיקייה")
             return
         if data == "drive_folder_set":
             context.user_data["waiting_for_drive_folder_path"] = True

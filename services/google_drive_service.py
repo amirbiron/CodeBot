@@ -196,8 +196,8 @@ def get_or_create_default_folder(user_id: int) -> Optional[str]:
     folder_id = prefs.get("target_folder_id")
     if folder_id:
         return folder_id
-    # Create "CodeKeeper Backups" at root
-    fid = ensure_folder(user_id, "CodeKeeper Backups", None)
+    # Create default root folder at Drive
+    fid = ensure_folder(user_id, "גיבויי_קודלי", None)
     if fid:
         db.save_drive_prefs(user_id, {"target_folder_id": fid})
     return fid
