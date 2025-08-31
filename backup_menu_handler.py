@@ -467,9 +467,9 @@ class BackupMenuHandler:
 				btn_text = _build_download_button_text(info, force_hide_size=False, vnum=vnum, rating=rating)
 				if highlight:
 					btn_text = f"✔️ {btn_text}"
-				# במצב העלאה לריפו (GitHub → העלאת קובץ → קבצי ZIP): לחיצה תבצע שחזור לריפו
+				# במצב העלאה לריפו (GitHub → העלאת קובץ → קבצי ZIP): לחיצה תפתח דפדוף בתוך ה‑ZIP
 				if zip_back_to == 'github_upload':
-					row.append(InlineKeyboardButton(btn_text, callback_data=f"github_restore_zip_from_backup:{info.backup_id}"))
+					row.append(InlineKeyboardButton(btn_text, callback_data=f"gh_upload_zip_browse:{info.backup_id}"))
 				else:
 					# ברירת מחדל: מעבר למסך פרטים עם פעולות
 					row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_details:{info.backup_id}"))
