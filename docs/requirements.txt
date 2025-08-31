@@ -1,0 +1,25 @@
+# Documentation Requirements
+# =========================
+# Dependencies needed for building the documentation
+
+# Core Sphinx
+sphinx==8.2.3
+sphinx-rtd-theme==3.0.2
+
+# Sphinx Extensions
+sphinx-autodoc-typehints==3.2.0
+sphinxcontrib-napoleon==0.7
+sphinxcontrib-mermaid==0.9.2
+
+# Additional Documentation Tools
+sphinx-copybutton==0.5.2  # Copy button for code blocks
+sphinx-tabs==3.4.5  # Tabbed content
+sphinx-design==0.6.1  # Cards, grids, and more
+sphinx-autobuild==2024.10.3  # Live reload for development
+
+# Documentation Quality
+pydocstyle==6.3.0  # Docstring style checker
+doc8==1.1.2  # RST style checker
+
+# Optional: for generating API docs from source
+sphinx-apidoc==0.3.2

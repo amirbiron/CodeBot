@@ -1,0 +1,51 @@
+# Read the Docs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+# Required
+version: 2
+
+# Set the OS, Python version and other tools you might need
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.9"
+  jobs:
+    pre_build:
+      # Generate API documentation from source
+      - echo "Generating API documentation..."
+      - cd docs && sphinx-apidoc -o api -f -e -M ../ ../tests ../docs ../.* || true
+    post_build:
+      - echo "Documentation build complete!"
+
+# Build documentation in the docs/ directory with Sphinx
+sphinx:
+  configuration: docs/conf.py
+  fail_on_warning: false  # Set to true for stricter builds
+
+# Formats to build
+formats:
+  - pdf
+  - epub
+  - htmlzip
+
+# Python configuration
+python:
+  # Install method
+  install:
+    - requirements: docs/requirements.txt
+    # Try to install project requirements (may fail due to system deps)
+    - requirements: requirements.txt
+      # Continue even if some deps fail
+      extra_requirements:
+        - --no-deps
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+
+# Environment variables
+# These will be available during the build
+environment:
+  READTHEDOCS: "True"
+  BOT_TOKEN: "dummy_token_for_docs"
+  MONGODB_URL: "mongodb://localhost:27017/test"
