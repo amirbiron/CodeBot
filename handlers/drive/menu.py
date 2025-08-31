@@ -37,7 +37,7 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("📤 גבה עכשיו", callback_data="drive_backup_now")],
             [InlineKeyboardButton("🗂 בחר תיקיית יעד", callback_data="drive_choose_folder")],
             [InlineKeyboardButton("🗓 זמני גיבוי", callback_data="drive_schedule")],
-            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_advanced")],
+            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         await send("Google Drive — מחובר\nבחר פעולה:", reply_markup=InlineKeyboardMarkup(kb))
@@ -51,6 +51,9 @@ class GoogleDriveMenuHandler:
         if data == "drive_menu":
             await self.menu(update, context)
             return
+        # Backward compatibility: map old callback to new one
+        if data == "drive_advanced":
+            data = "drive_sel_adv"
         if data == "drive_auth":
             flow = gdrive.start_device_authorization(user_id)
             sess = self._session(user_id)
@@ -239,7 +242,29 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_folder_set":
             context.user_data["waiting_for_drive_folder_path"] = True
-            await query.edit_message_text("שלח נתיב תיקייה (למשל: Project/Backups/Code) — ניצור אם לא קיים")
+            kb = [
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_folder_back")],
+                [InlineKeyboardButton("❌ ביטול", callback_data="drive_folder_cancel")],
+            ]
+            await query.edit_message_text(
+                "שלח נתיב תיקייה (למשל: Project/Backups/Code) — ניצור אם לא קיים",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+            return
+        if data == "drive_folder_back":
+            # חזרה למסך בחירת תיקיית יעד
+            context.user_data.pop("waiting_for_drive_folder_path", None)
+            kb = [
+                [InlineKeyboardButton("📁 ברירת מחדל (CodeKeeper Backups)", callback_data="drive_folder_default")],
+                [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")],
+            ]
+            await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+            return
+        if data == "drive_folder_cancel":
+            # ביטול מצב הזנת נתיב וחזרה לתפריט דרייב
+            context.user_data.pop("waiting_for_drive_folder_path", None)
+            await self.menu(update, context)
             return
         if data == "drive_schedule":
             current = (db.get_drive_prefs(user_id) or {}).get("schedule")

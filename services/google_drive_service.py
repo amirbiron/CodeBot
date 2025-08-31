@@ -218,12 +218,44 @@ def ensure_path(user_id: int, path: str) -> Optional[str]:
     return parent
 
 
-def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None) -> Optional[str]:
+def _get_root_folder(user_id: int) -> Optional[str]:
+    """Return user's target root folder id, creating default if needed."""
+    prefs = db.get_drive_prefs(user_id) or {}
+    folder_id = prefs.get("target_folder_id")
+    if folder_id:
+        return folder_id
+    return get_or_create_default_folder(user_id)
+
+
+def ensure_subpath(user_id: int, sub_path: str) -> Optional[str]:
+    """Ensure nested subfolders under the user's root. Does not change prefs."""
+    root_id = _get_root_folder(user_id)
+    if not root_id:
+        return None
+    if not sub_path:
+        return root_id
+    parts = [p.strip() for p in sub_path.split('/') if p.strip()]
+    parent = root_id
+    for part in parts:
+        parent = ensure_folder(user_id, part, parent)
+        if not parent:
+            return None
+    return parent
+
+
+def _date_path() -> str:
+    now = _now_utc()
+    return f"{now.year:04d}/{now.month:02d}-{now.day:02d}"
+
+
+def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
     if not service:
         return None
+    if sub_path:
+        folder_id = ensure_subpath(user_id, sub_path)
     if not folder_id:
-        folder_id = get_or_create_default_folder(user_id)
+        folder_id = _get_root_folder(user_id)
     if not folder_id:
         return None
     if MediaIoBaseUpload is None:
@@ -250,7 +282,21 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 continue
             with open(path, "rb") as f:
                 data = f.read()
-            fid = upload_bytes(user_id, filename=f"{getattr(b, 'backup_id', 'backup')}.zip", data=data)
+            # Build nicer filename and categorize subfolders
+            created_at = getattr(b, 'created_at', None)
+            try:
+                ts = created_at.strftime('%Y-%m-%d_%H-%M') if created_at else None
+            except Exception:
+                ts = None
+            repo_name = getattr(b, 'repo', None)
+            if repo_name:
+                sub_path = f"לפי ריפו/{repo_name}/{_date_path()}"
+                base = f"{repo_name}_{ts}" if ts else f"{repo_name}"
+            else:
+                sub_path = f"קבצי ZIP/{_date_path()}"
+                base = f"zip_{ts}" if ts else (getattr(b, 'backup_id', 'backup') or 'backup')
+            fname = f"{base}.zip"
+            fid = upload_bytes(user_id, filename=fname, data=data, sub_path=sub_path)
             if fid:
                 uploaded += 1
                 ids.append(fid)
