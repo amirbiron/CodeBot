@@ -357,10 +357,18 @@ class GitHubMenuHandler:
             except Exception:
                 pass
             backup_handler = context.bot_data.get('backup_handler')
-            if backup_handler:
+            if backup_handler is None:
+                try:
+                    from backup_menu_handler import BackupMenuHandler  # טעינה עצלה למניעת תלות מעגלית
+                    backup_handler = BackupMenuHandler()
+                    context.bot_data['backup_handler'] = backup_handler
+                except Exception as e:
+                    await query.edit_message_text(f"❌ רכיב גיבוי לא זמין: {e}")
+                    return
+            try:
                 await backup_handler._show_backups_list(update, context, page=1)
-            else:
-                await query.edit_message_text("❌ רכיב גיבוי לא זמין")
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בטעינת קבצי ZIP: {e}")
         elif query.data == "gh_upload_cat:large":
             await self.upload_large_files_menu(update, context)
         elif query.data == "gh_upload_cat:other":
