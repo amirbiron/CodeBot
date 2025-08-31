@@ -22,7 +22,7 @@ aiohttp==3.9.4
 httpx==0.25.2
 
 # GitHub Integration
-PyGithub==2.1.1
+PyGithub==2.7.0
 
 # File Processing
 python-dotenv==1.0.0
