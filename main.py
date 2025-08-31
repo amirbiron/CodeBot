@@ -209,14 +209,14 @@ def manage_mongo_lock():
         תומך בהמתנה לשחרור נעילה קיימת עבור blue/green deployments
     """
     try:
+        # Allow disabling the lock via environment (for dev or single-instance deploys)
+        if os.getenv("LOCK_DISABLED", "false").lower() == "true":
+            logger.warning("MongoDB lock is disabled via LOCK_DISABLED=true; continuing without lock")
+            return True
         try:
             ensure_lock_indexes()
         except Exception:
             logger.warning("could not ensure lock indexes; continuing")
-        try:
-            manage_mongo_lock()
-        except Exception:
-            logger.warning("could not acquire mongo lock immediately; continuing")
         lock_collection = get_lock_collection()
         pid = os.getpid()
         now = datetime.now(timezone.utc)
@@ -229,6 +229,9 @@ def manage_mongo_lock():
         except DuplicateKeyError:
             # A lock already exists
             # First, attempt immediate takeover if the lock is expired
+            max_wait_seconds = int(os.getenv("LOCK_MAX_WAIT_SECONDS", "15"))
+            retry_interval_seconds = int(os.getenv("LOCK_RETRY_INTERVAL_SECONDS", "5"))
+            deadline = time.time() + max_wait_seconds if max_wait_seconds > 0 else None
             while True:
                 now = datetime.now(timezone.utc)
                 expires_at = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
@@ -245,28 +248,16 @@ def manage_mongo_lock():
                         logger.info(f"✅ MongoDB lock re-acquired by PID {pid} (expired lock)")
                         break
                 else:
-                    # Not expired: wait and retry instead of exiting to support blue/green deploys
-                    max_wait_seconds = int(os.getenv("LOCK_MAX_WAIT_SECONDS", "0"))  # 0 = wait indefinitely
-                    retry_interval_seconds = int(os.getenv("LOCK_RETRY_INTERVAL_SECONDS", "5"))
-
-                    if max_wait_seconds > 0:
-                        deadline = time.time() + max_wait_seconds
-                        while time.time() < deadline:
-                            time.sleep(retry_interval_seconds)
-                            now = datetime.now(timezone.utc)
-                            doc = lock_collection.find_one({"_id": LOCK_ID})
-                            if not doc or (doc.get("expires_at") and doc["expires_at"] < now):
-                                break
-                        # loop will re-check and attempt takeover at the top
-                        if time.time() >= deadline:
-                            logger.warning("Timeout waiting for existing lock to release. Exiting gracefully.")
+                    # Not expired: wait and retry until deadline (or indefinitely if deadline is None)
+                    if deadline is not None and time.time() >= deadline:
+                        # After waiting period, decide policy
+                        if os.getenv("LOCK_FALLBACK", "continue").lower() == "exit":
+                            logger.warning("Timeout waiting for lock; exiting due to LOCK_FALLBACK=exit")
                             return False
-                    else:
-                        # Infinite wait with periodic log
-                        logger.warning("Another bot instance is already running (lock present). Waiting for lock release…")
-                        time.sleep(retry_interval_seconds)
-                        continue
-                # If we reach here without breaking, loop will retry
+                        logger.warning("Timeout waiting for lock; continuing without lock (LOCK_FALLBACK=continue)")
+                        return True
+                    logger.warning("Another bot instance is already running (lock present). Waiting for lock release…")
+                    time.sleep(retry_interval_seconds)
             
         # Ensure lock is released on exit
         atexit.register(cleanup_mongo_lock)
