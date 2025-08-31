@@ -251,10 +251,18 @@ class BackupMenuHandler:
 						)
 				except Exception:
 					pass
+				# רענון הרשימה אוטומטית כדי להציג את הדירוג המעודכן בכפתור
 				try:
-					await query.edit_message_text(f"נשמר הדירוג: {rating_value}")
-				except Exception:
-					await query.answer("נשמר הדירוג", show_alert=False)
+					await self._show_backups_list(update, context)
+				except Exception as e:
+					msg = str(e).lower()
+					if "message is not modified" in msg:
+						pass
+					else:
+						try:
+							await query.edit_message_text(f"נשמר הדירוג: {rating_value}")
+						except Exception:
+							await query.answer("נשמר הדירוג", show_alert=False)
 			except Exception as e:
 				await query.answer(f"שמירת דירוג נכשלה: {e}", show_alert=True)
 			return
