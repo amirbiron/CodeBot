@@ -95,8 +95,9 @@ jobs:
           pip install pytest pytest-asyncio pytest-cov pytest-mock
       - name: 🔎 Dependency integrity (pip check)
         run: pip check || true
-      - name: 🧪 Smoke compile
-        run: python -m compileall -q .
+      - name: 🧪 Smoke compile (exclude .restore)
+        run: |
+          find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
       - name: 🧪 Run Tests
         env:
           BOT_TOKEN: ${{ secrets.TEST_BOT_TOKEN || '1234567890:TEST_TOKEN_FOR_TESTING' }}
