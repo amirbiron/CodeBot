@@ -413,8 +413,6 @@ class BackupMenuHandler:
 				second_line = f"  ↳ {mark} | קבצים: {files_txt} | גרסה: v{vnum}"
 			else:
 				second_line = f"  ↳ גודל: {_format_bytes(getattr(info, 'total_size', 0))} | קבצים: {files_txt} | גרסה: v{vnum}"
-			if rating:
-				second_line += f" {rating}"
 			lines.append(second_line)
 			row = []
 			if delete_mode:
@@ -429,6 +427,9 @@ class BackupMenuHandler:
 				# כפתור הורדה תמיד זמין עם טקסט תמציתי
 				row.append(InlineKeyboardButton(_build_download_button_text(info, vnum=vnum), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
+			# הוסף תווית דירוג (לא פעילה) מתחת לכפתור במצב רגיל
+			if not delete_mode and rating:
+				keyboard.append([InlineKeyboardButton(rating, callback_data="noop")])
 		# עימוד: הקודם/הבא
 		nav = []
 		row = build_pagination_row(page, total, PAGE_SIZE, "backup_page_")
