@@ -1705,7 +1705,9 @@ class GitHubMenuHandler:
                     sug_text = "\n".join(f"• {s}" for s in suggestions[:4])
                     message += f"\n\n💡 הצעות ממוקדות:\n{sug_text}"
 
-                await query.edit_message_text(message, parse_mode="HTML")
+                # הוסף כפתור חזרה לתפריט GitHub
+                kb = [[InlineKeyboardButton("🔙 חזרה לתפריט GitHub", callback_data="github_menu")]]
+                await query.edit_message_text(message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
             except Exception as e:
                 logger.exception("Repo validation failed")
                 await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
