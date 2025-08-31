@@ -2356,7 +2356,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
                 line += f" — ריפו: {info.repo}"
             lines.append(line)
             keyboard.append([
-                InlineKeyboardButton("⬇️ הורד", callback_data=f"batch_zip_download_id:{info.backup_id}")
+                InlineKeyboardButton("✅ בחר לעיבוד", callback_data=f"batch_zip_use_for_batch:{info.backup_id}")
             ])
 
         nav = []
