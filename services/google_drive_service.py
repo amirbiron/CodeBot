@@ -68,8 +68,12 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
 
 
 def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
-    """Attempts a single token exchange for a device_code. Returns token dict or None if authorization_pending.
-    Raises on fatal errors.
+    """Attempts a single token exchange for a device_code.
+
+    Returns:
+        - dict with tokens on success
+        - None if authorization is still pending or needs to slow down
+        - dict with {"error": <code>, "error_description": <str>} on user-facing errors
     """
     payload = {
         "client_id": config.GOOGLE_CLIENT_ID,
@@ -77,16 +81,24 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }
     resp = requests.post(TOKEN_URL, data=payload, timeout=20)
-    if resp.status_code == 428 or resp.status_code == 400:
+    if resp.status_code >= 400:
+        # Try to parse structured OAuth error
         try:
-            err = resp.json().get("error")
+            data = resp.json()
+            err = (data or {}).get("error")
+            desc = (data or {}).get("error_description")
         except Exception:
-            err = None
+            err, desc = None, None
+        # Pending/slowdown are not errors for the UI
         if err in {"authorization_pending", "slow_down"}:
             return None
-    resp.raise_for_status()
+        # Access denied / expired / invalid_grant are user-facing errors
+        if err in {"access_denied", "expired_token", "invalid_grant", "invalid_request", "invalid_client"}:
+            return {"error": err or "bad_request", "error_description": desc}
+        # Unknown 400 – return a generic error record
+        return {"error": err or f"http_{resp.status_code}", "error_description": desc or "token endpoint error"}
+    # Success
     tokens = resp.json()
-    # Normalize fields
     tokens["expiry"] = (_now_utc() + timedelta(seconds=int(tokens.get("expires_in", 3600)))).isoformat()
     return tokens
 
