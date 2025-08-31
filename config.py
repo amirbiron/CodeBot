@@ -40,6 +40,8 @@ class BotConfig:
     # קידומת לשם נקודת שמירה ב-Git (ל-tags ולענפים בגיבוי)
     GIT_CHECKPOINT_PREFIX: str = "checkpoint"
     
+    
+    
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
             self.SUPPORTED_LANGUAGES = [

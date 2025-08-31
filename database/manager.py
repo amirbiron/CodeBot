@@ -268,3 +268,5 @@ class DatabaseManager:
     def save_user(self, user_id: int, username: str = None) -> bool:
         return self._get_repo().save_user(user_id, username)
 
+    
+

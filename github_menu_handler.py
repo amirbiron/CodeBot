@@ -91,6 +91,8 @@ class GitHubMenuHandler:
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
         self.last_api_call: Dict[int, float] = {}
 
+    
+
     def get_user_session(self, user_id: int) -> Dict[str, Any]:
         """מחזיר או יוצר סשן משתמש בזיכרון"""
         if user_id not in self.user_sessions:
