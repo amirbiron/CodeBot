@@ -249,6 +249,13 @@ class DatabaseManager:
     def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
         return self._get_repo().delete_backup_ratings(user_id, backup_ids)
 
+    # Backup notes API (מאוחסן יחד עם דירוגים באותה קולקציה)
+    def save_backup_note(self, user_id: int, backup_id: str, note: str) -> bool:
+        return self._get_repo().save_backup_note(user_id, backup_id, note)
+
+    def get_backup_note(self, user_id: int, backup_id: str) -> Optional[str]:
+        return self._get_repo().get_backup_note(user_id, backup_id)
+
     # Users and tokens
     def save_github_token(self, user_id: int, token: str) -> bool:
         return self._get_repo().save_github_token(user_id, token)

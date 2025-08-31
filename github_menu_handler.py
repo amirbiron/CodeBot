@@ -856,7 +856,10 @@ class GitHubMenuHandler:
                     context.bot_data['backup_handler'] = backup_handler
                 # קבע הקשר חזרה ל-GitHub והסר סינון לפי ריפו לרשימה זו
                 context.user_data['zip_back_to'] = 'github'
-                context.user_data.pop('github_backup_context_repo', None)
+                try:
+                    context.user_data.pop('github_backup_context_repo')
+                except Exception:
+                    pass
                 await backup_handler._show_backups_list(update, context, page=1)
             except Exception as e:
                 await query.edit_message_text(f"❌ שגיאה בטעינת גיבויים: {e}")
@@ -1364,6 +1367,7 @@ class GitHubMenuHandler:
                                     [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
                                     [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
                                     [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                                    [InlineKeyboardButton("📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
                                 ]
                                 msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
                                 try:
@@ -1490,6 +1494,7 @@ class GitHubMenuHandler:
                         [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
                         [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
                         [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                        [InlineKeyboardButton("📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
                     ]
                     msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
                     try:
