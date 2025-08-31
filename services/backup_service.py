@@ -1,10 +1,10 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 from file_manager import backup_manager
 
 
 def save_backup_bytes(data: bytes, metadata: Dict[str, Any]) -> bool:
-    return backup_manager.save_backup_bytes(data, metadata)
+    return cast(bool, backup_manager.save_backup_bytes(data, metadata))
 
 
 def list_backups(user_id: int):

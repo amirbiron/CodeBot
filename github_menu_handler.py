@@ -1458,7 +1458,8 @@ class GitHubMenuHandler:
             branch = repo.default_branch or "main"
             lines = []
             for p in selection[:50]:
-                clean = p.strip("/")
+                # guard: ensure string before strip
+                clean = str(p).strip("/")
                 url = f"https://github.com/{repo.full_name}/blob/{branch}/{clean}"
                 lines.append(f"• {clean}: {url}")
             text = "🔗 קישורים לקבצים נבחרים:\n" + "\n".join(lines)
