@@ -69,9 +69,9 @@ jobs:
         run: |
           pip check
 
-      - name: 🧪 Smoke compile
+      - name: 🧪 Smoke compile (exclude .restore)
         run: |
-          python -m compileall -q .
+          find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
       
       - name: 🎨 Code Formatting (Black)
         run: |
@@ -170,9 +170,9 @@ jobs:
           pip check
 
         
-      - name: 🧪 Smoke compile
+      - name: 🧪 Smoke compile (exclude .restore)
         run: |
-          python -m compileall -q .
+          find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
       
       - name: 🧪 Run Tests
         env:

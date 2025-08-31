@@ -1569,11 +1569,34 @@ class GitHubMenuHandler:
                                 return 127, "Tool not installed"
                             except Exception as e:
                                 return 1, str(e)
+                        
+                        # העדפת כלים מה-venv המקומי אם קיים
+                        venv_bin = os.path.join(os.getcwd(), ".venv", "bin")
+                        venv_python = os.path.join(venv_bin, "python")
+                        
+                        def _resolve_tool_candidates(tool_name):
+                            candidates = []
+                            if os.path.isdir(venv_bin):
+                                candidates.append(os.path.join(venv_bin, tool_name))
+                            if os.path.isfile(venv_python):
+                                candidates.append([venv_python, "-m", tool_name])
+                            candidates.append(tool_name)
+                            return candidates
+
+                        def _run_any(tool_name, base_args, timeout=60):
+                            for candidate in _resolve_tool_candidates(tool_name):
+                                cmd = (candidate if isinstance(candidate, list) else [candidate]) + base_args
+                                rc, out = _run(cmd, timeout=timeout)
+                                # אם הכלי לא נמצא, נסה מועמד הבא
+                                if rc == 127:
+                                    continue
+                                return rc, out
+                            return 127, "Tool not installed"
                         results = {}
-                        results["flake8"] = _run(["flake8", "."]) 
-                        results["mypy"] = _run(["mypy", "."]) 
-                        results["bandit"] = _run(["bandit", "-q", "-r", "."]) 
-                        results["black"] = _run(["black", "--check", "."]) 
+                        results["flake8"] = _run_any("flake8", ["."])
+                        results["mypy"] = _run_any("mypy", ["."])
+                        results["bandit"] = _run_any("bandit", ["-q", "-r", "."]) 
+                        results["black"] = _run_any("black", ["--check", "."]) 
                         return results, repo_full
 
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
