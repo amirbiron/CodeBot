@@ -91,6 +91,50 @@ class GitHubMenuHandler:
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
         self.last_api_call: Dict[int, float] = {}
 
+    def _log_feature_usage(self, feature: str, user_id: Optional[int] = None, extra: Optional[Dict[str, Any]] = None):
+        try:
+            # Capture caller file and line
+            import inspect
+            frame = inspect.currentframe()
+            caller = frame.f_back if frame else None
+            filename = None
+            lineno = None
+            if caller is not None:
+                info = inspect.getframeinfo(caller)
+                filename = os.path.basename(info.filename)
+                lineno = info.lineno
+        except Exception:
+            filename = None
+            lineno = None
+        try:
+            from database import db
+            event: Dict[str, Any] = {
+                "feature": feature,
+                "user_id": user_id,
+                "file": filename,
+                "line": lineno,
+            }
+            if extra:
+                try:
+                    # Avoid huge payloads
+                    safe_extra = {k: (str(v)[:500] if not isinstance(v, (int, float, bool)) else v) for k, v in extra.items()}
+                except Exception:
+                    safe_extra = {}
+                event.update({"extra": safe_extra})
+            db.log_feature_usage(event)
+        except Exception as e:
+            try:
+                logger.warning(f"Failed to persist feature usage '{feature}': {e}")
+            except Exception:
+                pass
+        # Optional admin notify
+        try:
+            if getattr(config, 'FEATURE_USAGE_NOTIFY', False) and getattr(config, 'ADMIN_CHAT_ID', None):
+                # Delay sending; will be used via context in async flows where available
+                pass
+        except Exception:
+            pass
+
     def get_user_session(self, user_id: int) -> Dict[str, Any]:
         """מחזיר או יוצר סשן משתמש בזיכרון"""
         if user_id not in self.user_sessions:
@@ -472,6 +516,10 @@ class GitHubMenuHandler:
             file_id = query.data.split("_")[2]
             # Show pre-upload check screen before actual upload
             context.user_data["pending_saved_file_id"] = file_id
+            try:
+                self._log_feature_usage("upload_saved_select", user_id, {"file_id": file_id})
+            except Exception:
+                pass
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_branch":
             await self.show_upload_branch_menu(update, context)
@@ -2019,6 +2067,10 @@ class GitHubMenuHandler:
             }
             res = db.collection.insert_one(temp)
             context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+            try:
+                self._log_feature_usage("upload_large_precheck", user_id, {"temp_id": str(res.inserted_id)})
+            except Exception:
+                pass
             await self.show_pre_upload_check(update, context)
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בהכנת קובץ גדול להעלאה: {e}")
@@ -2069,6 +2121,13 @@ class GitHubMenuHandler:
                 content = content.decode("utf-8")
 
             logger.info(f"✅ תוכן מוכן להעלאה, גודל: {len(content)} chars")
+            try:
+                self._log_feature_usage("upload_saved_start", user_id, {
+                    "repo": session.get("selected_repo"),
+                    "file": file_data.get("file_name")
+                })
+            except Exception:
+                pass
 
             # התחבר ל-GitHub
 
@@ -2150,6 +2209,15 @@ class GitHubMenuHandler:
                 f"שלח /github כדי לחזור לתפריט.",
                 parse_mode="HTML",
             )
+            try:
+                self._log_feature_usage("upload_saved_success", user_id, {
+                    "repo": session.get("selected_repo"),
+                    "path": file_path,
+                    "branch": branch,
+                    "action": action
+                })
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"❌ שגיאה בהעלאת קובץ שמור: {str(e)}", exc_info=True)
@@ -2167,6 +2235,13 @@ class GitHubMenuHandler:
                 error_msg = f"❌ שגיאה בהעלאה:\n{error_msg}\n\nפרטים נוספים נשמרו בלוג."
 
             await update.callback_query.edit_message_text(error_msg)
+            try:
+                self._log_feature_usage("upload_saved_error", user_id, {
+                    "repo": session.get("selected_repo"),
+                    "error": str(e)[:500]
+                })
+            except Exception:
+                pass
 
     async def handle_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle file upload"""
@@ -4225,6 +4300,13 @@ class GitHubMenuHandler:
                 else:
                     await update.message.reply_text("❌ קובץ לא נמצא")
                 return
+            try:
+                self._log_feature_usage("upload_saved_precheck", user_id, {
+                    "repo": repo_name,
+                    "file": file_data.get("file_name")
+                })
+            except Exception:
+                pass
             filename = file_data.get("file_name") or "file"
             # Resolve target folder/branch (overrides take precedence)
             override_folder = (context.user_data.get("upload_target_folder") or "").strip()
@@ -4291,6 +4373,11 @@ class GitHubMenuHandler:
         if not file_id:
             await update.edit_message_text("❌ לא נמצא קובץ ממתין להעלאה")
         else:
+            try:
+                user_id = update.effective_user.id if update.effective_user else None
+                self._log_feature_usage("upload_saved_confirm", user_id, {"file_id": file_id})
+            except Exception:
+                pass
             await self.handle_saved_file_upload(update, context, file_id)
 
     async def refresh_saved_checks(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

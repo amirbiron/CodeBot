@@ -40,6 +40,11 @@ class BotConfig:
     # קידומת לשם נקודת שמירה ב-Git (ל-tags ולענפים בגיבוי)
     GIT_CHECKPOINT_PREFIX: str = "checkpoint"
     
+    # מנהל ואיסוף שימוש
+    ADMIN_CHAT_ID: Optional[int] = None
+    FEATURE_USAGE_NOTIFY: bool = False
+    FEATURE_USAGE_REPORT_DAYS: int = 3
+    
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
             self.SUPPORTED_LANGUAGES = [
@@ -74,6 +79,9 @@ def load_config() -> BotConfig:
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
+        ADMIN_CHAT_ID=(int(os.getenv('ADMIN_CHAT_ID')) if (os.getenv('ADMIN_CHAT_ID', '').strip().isdigit()) else None),
+        FEATURE_USAGE_NOTIFY=os.getenv('FEATURE_USAGE_NOTIFY', 'false').lower() == 'true',
+        FEATURE_USAGE_REPORT_DAYS=int(os.getenv('FEATURE_USAGE_REPORT_DAYS', '3')),
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה

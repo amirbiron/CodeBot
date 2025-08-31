@@ -268,3 +268,10 @@ class DatabaseManager:
     def save_user(self, user_id: int, username: str = None) -> bool:
         return self._get_repo().save_user(user_id, username)
 
+    # Feature usage
+    def log_feature_usage(self, event: Dict[str, Any]) -> bool:
+        return self._get_repo().log_feature_usage(event)
+
+    def aggregate_feature_usage(self, days: int = 3):
+        return self._get_repo().aggregate_feature_usage(days)
+

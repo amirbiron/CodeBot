@@ -1,6 +1,6 @@
 import logging
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
@@ -401,4 +401,34 @@ class Repository:
         except Exception as e:
             logger.error(f"Failed to delete backup ratings: {e}")
             return 0
+
+    # --- Feature usage logging & reporting ---
+    def log_feature_usage(self, event: Dict[str, Any]) -> bool:
+        try:
+            coll = self.manager.db.feature_usage
+            doc: Dict[str, Any] = {
+                "created_at": datetime.now(timezone.utc),
+            }
+            doc.update(event or {})
+            coll.insert_one(doc)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to log feature usage: {e}")
+            return False
+
+    def aggregate_feature_usage(self, days: int = 3) -> List[Dict[str, Any]]:
+        try:
+            coll = self.manager.db.feature_usage
+            since = datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+            pipeline = [
+                {"$match": {"created_at": {"$gte": since}}},
+                {"$group": {"_id": "$feature", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+            ]
+            rows = list(coll.aggregate(pipeline))
+            # Normalize shape
+            return [{"feature": (r.get("_id") or ""), "count": int(r.get("count", 0))} for r in rows]
+        except Exception as e:
+            logger.error(f"Failed to aggregate feature usage: {e}")
+            return []
 
