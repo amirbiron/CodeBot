@@ -280,6 +280,63 @@ def compute_subpath(category: str, repo_name: Optional[str] = None) -> str:
     return f"{base}/{_date_path()}"
 
 
+def _rating_to_emoji(rating: Optional[str]) -> str:
+    if not rating:
+        return ""
+    r = str(rating)
+    if "🏆" in r:
+        return "🏆"
+    if "👍" in r:
+        return "👍"
+    if "🤷" in r:
+        return "🤷"
+    return ""
+
+
+def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None) -> str:
+    label = _category_label(category)
+    date_str = _date_str_ddmmyyyy()
+    key = f"{category}:{entity_name}"
+    v = _next_version(user_id, key)
+    emoji = _rating_to_emoji(rating)
+    # BKP {label} {entity} v{N} {emoji?} - {dd-MM-YYYY}.zip
+    if emoji:
+        return f"BKP {label} {entity_name} v{v} {emoji} - {date_str}.zip"
+    return f"BKP {label} {entity_name} v{v} - {date_str}.zip"
+
+
+def _date_str_ddmmyyyy() -> str:
+    now = _now_utc()
+    return f"{now.day:02d}-{now.month:02d}-{now.year:04d}"
+
+
+def _next_version(user_id: int, key: str) -> int:
+    prefs = db.get_drive_prefs(user_id) or {}
+    counters = dict(prefs.get("drive_version_counters") or {})
+    current = int(counters.get(key, 0) or 0) + 1
+    counters[key] = current
+    db.save_drive_prefs(user_id, {"drive_version_counters": counters})
+    return current
+
+
+def _category_label(category: str) -> str:
+    mapping = {
+        "zip": "קבצי_ZIP",
+        "all": "הכל",
+        "by_repo": "לפי_ריפו",
+        "large": "קבצים_גדולים",
+        "other": "שאר_קבצים",
+    }
+    return mapping.get(category, category)
+
+
+def compute_subpath(category: str, repo_name: Optional[str] = None) -> str:
+    base = _category_label(category)
+    if category == "by_repo" and repo_name:
+        return f"{base}/{repo_name}/{_date_path()}"
+    return f"{base}/{_date_path()}"
+
+
 def compute_friendly_name(user_id: int, category: str, entity_name: str) -> str:
     label = _category_label(category)
     date_str = _date_str_ddmmyyyy()
@@ -322,9 +379,14 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 continue
             with open(path, "rb") as f:
                 data = f.read()
-            # Friendly filename + subpath (קבצי_ZIP/...)
+            # Friendly filename + subpath (קבצי_ZIP/...) + rating if קיים
             entity = "CodeBot"
-            fname = compute_friendly_name(user_id, "zip", entity)
+            try:
+                b_id = getattr(b, 'backup_id', None)
+                rating = db.get_backup_rating(user_id, b_id) if b_id else None
+            except Exception:
+                rating = None
+            fname = compute_friendly_name(user_id, "zip", entity, rating)
             sub_path = compute_subpath("zip")
             fid = upload_bytes(user_id, filename=fname, data=data, sub_path=sub_path)
             if fid:
