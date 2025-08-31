@@ -81,7 +81,8 @@ def _build_download_button_text(info, force_hide_size: bool = False, vnum: int =
 	if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
 		primary = _repo_only(str(info.repo))
 	else:
-		primary = "full"
+		# עבור ZIP כללי/ידני, הצג את ה-backup_id כשם עיקרי במקום "full"
+		primary = getattr(info, 'backup_id', 'full')
 	date_part = _format_date(getattr(info, 'created_at', ''))
 
 	def build_button_text(prim: str, version_text: str = "", rating_text: str = "") -> str:
@@ -461,12 +462,17 @@ class BackupMenuHandler:
 					btn_text = f"✔️ {btn_text}"
 				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
-				# הצג שם מלא של ה‑ZIP על הכפתור לפי התבנית, מעבר למסך פרטים עם 4 כפתורים
-				# טקסט כפתור בסגנון "⬇️ BKP zip <name> vN <emoji?> - <date>"
+				# הצג שם מלא של ה‑ZIP על הכפתור לפי התבנית
+				# טקסט כפתור בסגנון "BKP zip <name> vN <emoji?> - <date>"
 				btn_text = _build_download_button_text(info, force_hide_size=False, vnum=vnum, rating=rating)
 				if highlight:
 					btn_text = f"✔️ {btn_text}"
-				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_details:{info.backup_id}"))
+				# במצב העלאה לריפו (GitHub → העלאת קובץ → קבצי ZIP): לחיצה תבצע שחזור לריפו
+				if zip_back_to == 'github_upload':
+					row.append(InlineKeyboardButton(btn_text, callback_data=f"github_restore_zip_from_backup:{info.backup_id}"))
+				else:
+					# ברירת מחדל: מעבר למסך פרטים עם פעולות
+					row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_details:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
