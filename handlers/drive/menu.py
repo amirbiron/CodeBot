@@ -190,7 +190,10 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_sel_all":
             fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
-            fid = gdrive.upload_bytes(user_id, fn, data_bytes)
+            # Friendly name + subpath
+            friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
+            sub_path = gdrive.compute_subpath("all")
+            fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
             await query.edit_message_text("✅ גיבוי מלא הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
             return
         if data == "drive_sel_adv":
@@ -217,9 +220,23 @@ class GoogleDriveMenuHandler:
                 selected.add(category)
                 await query.edit_message_text("✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.")
             else:
-                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
-                fid = gdrive.upload_bytes(user_id, fn, data_bytes)
-                await query.edit_message_text("✅ גיבוי הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
+                # Immediate upload per category
+                if category == "by_repo":
+                    # Group by repo and upload each
+                    grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
+                    ok_any = False
+                    for repo_name, suggested, data_bytes in grouped:
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        sub_path = gdrive.compute_subpath("by_repo", repo_name)
+                        fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                        ok_any = ok_any or bool(fid)
+                    await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות" if ok_any else "❌ כשל בהעלאה")
+                else:
+                    fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
+                    friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
+                    sub_path = gdrive.compute_subpath(category)
+                    fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                    await query.edit_message_text("✅ גיבוי הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
             return
         if data == "drive_adv_multi_toggle":
             sess = self._session(user_id)
@@ -243,9 +260,19 @@ class GoogleDriveMenuHandler:
                 return
             uploaded_any = False
             for c in cats:
-                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=c)
-                fid = gdrive.upload_bytes(user_id, fn, data_bytes)
-                uploaded_any = uploaded_any or bool(fid)
+                if c == "by_repo":
+                    grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
+                    for repo_name, suggested, data_bytes in grouped:
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        sub_path = gdrive.compute_subpath("by_repo", repo_name)
+                        fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                        uploaded_any = uploaded_any or bool(fid)
+                else:
+                    fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=c)
+                    friendly = gdrive.compute_friendly_name(user_id, c, "CodeBot")
+                    sub_path = gdrive.compute_subpath(c)
+                    fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                    uploaded_any = uploaded_any or bool(fid)
             sess["adv_selected"] = set()
             await query.edit_message_text("✅ הועלו הגיבויים שנבחרו" if uploaded_any else "❌ כשל בהעלאה")
             return
