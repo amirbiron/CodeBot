@@ -534,7 +534,7 @@ class CodeProcessor:
             return html_code
     
     def create_code_image(self, code: str, programming_language: str, 
-                         width: int = 800, font_size: int = 12) -> bytes:
+                          output_format: str = 'html') -> Optional[bytes]:
         """יצירת תמונה של קוד עם הדגשת תחביר"""
         
         try:
@@ -589,9 +589,9 @@ class CodeProcessor:
                 y_position += font_size + 2
             
             # המרה לבייטים
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='PNG')
-            img_byte_arr = img_byte_arr.getvalue()
+            img_byte_arr_io = io.BytesIO()
+            img.save(img_byte_arr_io, format='PNG')
+            img_byte_arr: bytes = img_byte_arr_io.getvalue()
             
             logger.info(f"נוצרה תמונת קוד בגודל {width}px")
             return img_byte_arr
@@ -744,7 +744,7 @@ class CodeProcessor:
     def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, str]]:
         """חילוץ רשימת פונקציות מהקוד"""
         
-        functions = []
+        functions: List[Dict[str, str]] = []
         
         patterns = {
             'python': r'def\s+(\w+)\s*\([^)]*\)\s*:',
