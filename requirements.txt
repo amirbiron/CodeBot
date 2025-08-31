@@ -123,7 +123,7 @@ poetry-core>=1.0.0
 wheel
 
 # Documentation
-sphinx==8.2.3
-sphinx-rtd-theme==3.0.2
-sphinx-autodoc-typehints==3.2.0
+sphinx==7.4.7  # Last version supporting Python 3.9
+sphinx-rtd-theme==2.0.0
+sphinx-autodoc-typehints==2.5.0
 sphinxcontrib-napoleon==0.7

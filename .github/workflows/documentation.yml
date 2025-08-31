@@ -27,7 +27,7 @@ on:
           - 'false'
 
 env:
-  PYTHON_VERSION: '3.9'
+  PYTHON_VERSION: '3.11'
   SPHINX_BUILD_DIR: docs/_build/html
 
 jobs:
@@ -50,7 +50,7 @@ jobs:
     - name: 📦 Install documentation dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install sphinx==8.2.3 sphinx-rtd-theme==3.0.2 sphinx-autodoc-typehints==3.2.0 sphinxcontrib-napoleon==0.7
+        pip install sphinx==7.4.7 sphinx-rtd-theme==2.0.0 sphinx-autodoc-typehints==2.5.0 sphinxcontrib-napoleon==0.7
         # Try to install project dependencies (may fail due to missing system deps)
         pip install -r requirements.txt 2>/dev/null || true
     
