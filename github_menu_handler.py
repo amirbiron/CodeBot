@@ -33,9 +33,9 @@ from telegram.ext import (
     filters,
 )
 
-from repo_analyzer import RepoAnalyzer
 from config import config
 from file_manager import backup_manager
+from repo_analyzer import RepoAnalyzer
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -206,7 +206,13 @@ class GitHubMenuHandler:
         if token:
             keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
             # יצירת ריפו חדש מ-ZIP גם ללא ריפו נבחר
-            keyboard.append([InlineKeyboardButton("🆕 צור ריפו חדש מ‑ZIP", callback_data="github_create_repo_from_zip")])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "🆕 צור ריפו חדש מ‑ZIP", callback_data="github_create_repo_from_zip"
+                    )
+                ]
+            )
 
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if token and session.get("selected_repo"):
@@ -237,7 +243,9 @@ class GitHubMenuHandler:
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
             keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
-            keyboard.append([InlineKeyboardButton("✅ בדוק תקינות ריפו", callback_data="validate_repo")])
+            keyboard.append(
+                [InlineKeyboardButton("✅ בדוק תקינות ריפו", callback_data="validate_repo")]
+            )
             # כפתור יציאה (מחיקת טוקן) כאשר יש טוקן
             keyboard.append(
                 [InlineKeyboardButton("🚪 התנתק מגיטהאב", callback_data="logout_github")]
@@ -340,14 +348,15 @@ class GitHubMenuHandler:
                 pass
             context.user_data["waiting_for_paste_content"] = True
             await query.edit_message_text(
-                "✍️ שלח/י כאן את הקוד להעלאה כטקסט.\n\n"
-                "לאחר מכן אבקש את שם הקובץ (כולל סיומת).",
-                reply_markup=InlineKeyboardMarkup([
+                "✍️ שלח/י כאן את הקוד להעלאה כטקסט.\n\n" "לאחר מכן אבקש את שם הקובץ (כולל סיומת).",
+                reply_markup=InlineKeyboardMarkup(
                     [
-                        InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
-                        InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                        [
+                            InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                            InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                        ]
                     ]
-                ]),
+                ),
             )
             return
         elif query.data == "gh_upload_cat:repos":
@@ -355,11 +364,11 @@ class GitHubMenuHandler:
         elif query.data == "gh_upload_cat:zips":
             # הצג את כל קבצי ה‑ZIP ששמורים בבוט, ללא סינון לפי ריפו
             try:
-                context.user_data['zip_back_to'] = 'github_upload'
-                context.user_data.pop('github_backup_context_repo', None)
+                context.user_data["zip_back_to"] = "github_upload"
+                context.user_data.pop("github_backup_context_repo", None)
             except Exception:
                 pass
-            backup_handler = context.bot_data.get('backup_handler')
+            backup_handler = context.bot_data.get("backup_handler")
             if backup_handler:
                 await backup_handler._show_backups_list(update, context, page=1)
             else:
@@ -388,12 +397,20 @@ class GitHubMenuHandler:
                 [InlineKeyboardButton("✍️ הקלד שם ריפו", callback_data="github_new_repo_name")],
                 [
                     InlineKeyboardButton(
-                        "🔒 פרטי ✅" if context.user_data.get("new_repo_private", True) else "🔒 פרטי",
-                        callback_data="github_set_new_repo_visibility:1"
+                        (
+                            "🔒 פרטי ✅"
+                            if context.user_data.get("new_repo_private", True)
+                            else "🔒 פרטי"
+                        ),
+                        callback_data="github_set_new_repo_visibility:1",
                     ),
                     InlineKeyboardButton(
-                        "🌐 ציבורי ✅" if not context.user_data.get("new_repo_private", True) else "🌐 ציבורי",
-                        callback_data="github_set_new_repo_visibility:0"
+                        (
+                            "🌐 ציבורי ✅"
+                            if not context.user_data.get("new_repo_private", True)
+                            else "🌐 ציבורי"
+                        ),
+                        callback_data="github_set_new_repo_visibility:0",
                     ),
                 ],
                 [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
@@ -408,14 +425,18 @@ class GitHubMenuHandler:
                 f"נראות נוכחית: <b>{vis_text}</b>\n"
                 "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
             )
-            await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+            await query.edit_message_text(
+                help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb)
+            )
             return
         elif query.data == "github_new_repo_name":
             # בקשת שם לריפו החדש
             context.user_data["waiting_for_new_repo_name"] = True
             await query.edit_message_text(
                 "✏️ הקלד שם לריפו החדש (מותר אותיות, מספרים, נקודות, מקפים וקו תחתון).\nשלח טקסט עכשיו.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_create_repo_from_zip")]])
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🔙 חזור", callback_data="github_create_repo_from_zip")]]
+                ),
             )
             return
         elif query.data.startswith("github_set_new_repo_visibility:"):
@@ -429,11 +450,11 @@ class GitHubMenuHandler:
                 [
                     InlineKeyboardButton(
                         "🔒 פרטי ✅" if is_private else "🔒 פרטי",
-                        callback_data="github_set_new_repo_visibility:1"
+                        callback_data="github_set_new_repo_visibility:1",
                     ),
                     InlineKeyboardButton(
                         "🌐 ציבורי ✅" if not is_private else "🌐 ציבורי",
-                        callback_data="github_set_new_repo_visibility:0"
+                        callback_data="github_set_new_repo_visibility:0",
                     ),
                 ],
                 [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
@@ -449,7 +470,9 @@ class GitHubMenuHandler:
                 "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
             )
             try:
-                await query.edit_message_text(help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+                await query.edit_message_text(
+                    help_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb)
+                )
             except BadRequest as br:
                 if "message is not modified" not in str(br).lower():
                     raise
@@ -503,7 +526,7 @@ class GitHubMenuHandler:
             context.user_data["upload_target_folder"] = ""
             await self.show_pre_upload_check(update, context)
         elif query.data == "upload_folder_current":
-            context.user_data["upload_target_folder"] = (session.get("selected_folder") or "")
+            context.user_data["upload_target_folder"] = session.get("selected_folder") or ""
             await self.show_pre_upload_check(update, context)
         elif query.data == "upload_folder_custom":
             await self.ask_upload_folder(update, context)
@@ -527,7 +550,9 @@ class GitHubMenuHandler:
         elif query.data.startswith("folder_set_session:"):
             folder_path = query.data.split(":", 1)[1]
             session["selected_folder"] = (folder_path or "").strip("/") or None
-            await query.answer(f"✅ תיקיית יעד עודכנה ל-{session['selected_folder'] or 'root'}", show_alert=False)
+            await query.answer(
+                f"✅ תיקיית יעד עודכנה ל-{session['selected_folder'] or 'root'}", show_alert=False
+            )
             # יציאה ממסך בחירת תיקייה וחזרה לתפריט הראשי כדי למנוע שגיאת "Message is not modified"
             context.user_data.pop("folder_select_mode", None)
             await self.github_menu_command(update, context)
@@ -614,8 +639,16 @@ class GitHubMenuHandler:
                 # לא קריטי אם נכשלת שמירת סטייט - נאתר בהמשך
                 pass
             kb = [
-                [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1")],
-                [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_restore_zip_setpurge:0")],
+                [
+                    InlineKeyboardButton(
+                        "🧹 מחיקה מלאה לפני העלאה", callback_data="github_restore_zip_setpurge:1"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🚫 אל תמחק, רק עדכן", callback_data="github_restore_zip_setpurge:0"
+                    )
+                ],
                 [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
             ]
             try:
@@ -644,12 +677,14 @@ class GitHubMenuHandler:
             # השאר את היעד הצפוי אם כבר נקבע קודם
             if not context.user_data.get("zip_restore_expected_repo_full"):
                 try:
-                    context.user_data["zip_restore_expected_repo_full"] = session.get("selected_repo")
+                    context.user_data["zip_restore_expected_repo_full"] = session.get(
+                        "selected_repo"
+                    )
                 except Exception:
                     pass
             await query.edit_message_text(
-                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
-                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ")
+                + "שלח עכשיו קובץ ZIP לשחזור לריפו."
             )
             return
 
@@ -663,12 +698,14 @@ class GitHubMenuHandler:
                 return
             backups = backup_manager.list_backups(user_id)
             # סנן רק גיבויים עם metadata של אותו ריפו
-            backups = [b for b in backups if getattr(b, 'repo', None) == repo_full]
+            backups = [b for b in backups if getattr(b, "repo", None) == repo_full]
             if not backups:
                 await query.edit_message_text(
                     f"ℹ️ אין גיבויי ZIP שמורים עבור הריפו:\n<code>{repo_full}</code>",
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]])
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]]
+                    ),
                 )
                 return
             # הצג עד 10 אחרונים
@@ -676,10 +713,21 @@ class GitHubMenuHandler:
             lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
             kb = []
             for b in items:
-                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
-                kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
+                lines.append(
+                    f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB"
+                )
+                kb.append(
+                    [
+                        InlineKeyboardButton(
+                            "♻️ שחזר גיבוי זה לריפו",
+                            callback_data=f"github_restore_zip_from_backup:{b.backup_id}",
+                        )
+                    ]
+                )
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
-            await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            await query.edit_message_text(
+                "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+            )
             return
 
         elif query.data.startswith("github_restore_zip_from_backup:"):
@@ -695,16 +743,30 @@ class GitHubMenuHandler:
             context.user_data["pending_repo_restore_zip_path"] = match.file_path
             # נעל את יעד הריפו הצפוי עבור השחזור מתוך גיבוי
             try:
-                context.user_data["zip_restore_expected_repo_full"] = self.get_user_session(user_id).get("selected_repo")
+                context.user_data["zip_restore_expected_repo_full"] = self.get_user_session(
+                    user_id
+                ).get("selected_repo")
             except Exception:
                 pass
             await query.edit_message_text(
                 "האם למחוק קודם את התוכן בריפו לפני העלאה?",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_repo_restore_backup_setpurge:1")],
-                    [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_repo_restore_backup_setpurge:0")],
-                    [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
-                ])
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "🧹 מחיקה מלאה לפני העלאה",
+                                callback_data="github_repo_restore_backup_setpurge:1",
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "🚫 אל תמחק, רק עדכן",
+                                callback_data="github_repo_restore_backup_setpurge:0",
+                            )
+                        ],
+                        [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+                    ]
+                ),
             )
             return
         elif query.data == "github_backup_help":
@@ -720,7 +782,13 @@ class GitHubMenuHandler:
                 "🔙 <b>חזור</b>: חזרה לתפריט הראשי של GitHub."
             )
             try:
-                await query.edit_message_text(help_text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]]))
+                await query.edit_message_text(
+                    help_text,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]]
+                    ),
+                )
             except BadRequest as br:
                 if "message is not modified" not in str(br).lower():
                     raise
@@ -728,7 +796,7 @@ class GitHubMenuHandler:
 
         elif query.data == "backup_menu":
             # האצלת תצוגת תפריט הגיבוי/שחזור של DB ל-BackupMenuHandler
-            backup_handler = context.bot_data.get('backup_handler')
+            backup_handler = context.bot_data.get("backup_handler")
             if backup_handler:
                 await backup_handler.show_backup_menu(update, context)
             else:
@@ -739,7 +807,7 @@ class GitHubMenuHandler:
 
         elif query.data == "back_to_analysis_menu":
             await self.show_analyze_results_menu(update, context)
-        
+
         elif query.data == "back_to_summary":
             await self.show_analyze_results_menu(update, context)
 
@@ -798,8 +866,7 @@ class GitHubMenuHandler:
                 # בקש קלט לתיקייה מותאמת אישית
                 context.user_data["waiting_for_selected_folder"] = True
                 await query.edit_message_text(
-                    "✏️ הקלד שם תיקייה (לדוגמה: src/images)\n"
-                    "השאר ריק או הקלד / כדי לבחור root"
+                    "✏️ הקלד שם תיקייה (לדוגמה: src/images)\n" "השאר ריק או הקלד / כדי לבחור root"
                 )
                 return FOLDER_SELECT
             elif folder == "root":
@@ -808,18 +875,21 @@ class GitHubMenuHandler:
                 await self.github_menu_command(update, context)
             else:
                 session["selected_folder"] = folder.replace("_", "/")
-                await query.answer(f"✅ תיקייה עודכנה ל-{session['selected_folder']}", show_alert=False)
+                await query.answer(
+                    f"✅ תיקייה עודכנה ל-{session['selected_folder']}", show_alert=False
+                )
                 await self.github_menu_command(update, context)
 
         elif query.data in ("create_folder", "upload_folder_create"):
             # בקש מהמשתמש נתיב תיקייה חדשה ליצירה (ניצור .gitkeep בתוך התיקייה)
-            return_to_pre = (query.data == "upload_folder_create")
+            return_to_pre = query.data == "upload_folder_create"
             context.user_data["waiting_for_new_folder_path"] = True
             context.user_data["return_to_pre_upload"] = return_to_pre
             await query.edit_message_text(
                 "➕ יצירת תיקייה חדשה\n\n"
                 "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
-                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.")
+                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה."
+            )
             return REPO_SELECT
 
         elif query.data == "github_menu":
@@ -843,26 +913,26 @@ class GitHubMenuHandler:
                 pass
             await self.github_menu_command(update, context)
             return ConversationHandler.END
-        
+
         elif query.data == "git_checkpoint":
             await self.git_checkpoint(update, context)
-        
+
         elif query.data.startswith("git_checkpoint_doc:"):
             parts = query.data.split(":", 2)
             kind = parts[1] if len(parts) > 1 else ""
             name = parts[2] if len(parts) > 2 else ""
             await self.create_checkpoint_doc(update, context, kind, name)
-        
+
         elif query.data == "git_checkpoint_doc_skip":
             kb = [[InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")]]
             await query.edit_message_text(
                 "✅ נקודת שמירה נוצרה. ניתן לחזור לתפריט או להעלות קבצים שמורים.",
                 reply_markup=InlineKeyboardMarkup(kb),
             )
-        
+
         elif query.data == "restore_checkpoint_menu":
             await self.show_restore_checkpoint_menu(update, context)
-        
+
         elif query.data.startswith("restore_tags_page_"):
             try:
                 p = int(query.data.split("_")[-1])
@@ -870,11 +940,11 @@ class GitHubMenuHandler:
                 p = 0
             context.user_data["restore_tags_page"] = max(0, p)
             await self.show_restore_checkpoint_menu(update, context)
-        
+
         elif query.data.startswith("restore_select_tag:"):
             tag_name = query.data.split(":", 1)[1]
             await self.show_restore_tag_actions(update, context, tag_name)
-        
+
         elif query.data.startswith("restore_branch_from_tag:"):
             tag_name = query.data.split(":", 1)[1]
             await self.create_branch_from_tag(update, context, tag_name)
@@ -981,7 +1051,7 @@ class GitHubMenuHandler:
                     )
             else:
                 data = contents.decoded_content
-                base = __import__('os').path
+                base = __import__("os").path
                 filename = base.basename(contents.path) or "downloaded_file"
                 await query.message.reply_document(document=BytesIO(data), filename=filename)
             await self.github_menu_command(update, context)
@@ -1018,9 +1088,12 @@ class GitHubMenuHandler:
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
                     try:
-                        import requests
                         import zipfile as _zip
-                        from datetime import datetime as _dt, timezone as _tz
+                        from datetime import datetime as _dt
+                        from datetime import timezone as _tz
+
+                        import requests
+
                         url = repo.get_archive_link("zipball")
                         r = requests.get(url, timeout=60)
                         r.raise_for_status()
@@ -1043,7 +1116,7 @@ class GitHubMenuHandler:
                                     "file_count": file_count,
                                     "created_by": "Code Keeper Bot",
                                     "repo": repo.full_name,
-                                    "path": current_path or ""
+                                    "path": current_path or "",
                                 }
                                 zout.writestr("metadata.json", json.dumps(metadata, indent=2))
                                 for name in file_names:
@@ -1061,24 +1134,49 @@ class GitHubMenuHandler:
                             # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
                             try:
                                 backup_id = metadata.get("backup_id")
-                                date_str = _dt.now(_tz.utc).strftime('%d/%m/%y %H:%M')
+                                date_str = _dt.now(_tz.utc).strftime("%d/%m/%y %H:%M")
                                 try:
                                     # חשב גרסת גיבוי (מספר רצים לאותו ריפו)
                                     infos = backup_manager.list_backups(user_id)
-                                    vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
+                                    vcount = len(
+                                        [
+                                            b
+                                            for b in infos
+                                            if getattr(b, "repo", None) == repo.full_name
+                                        ]
+                                    )
                                     v_text = f"(v{vcount}) " if vcount else ""
                                 except Exception:
                                     v_text = ""
                                 summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                                 kb = [
-                                    [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
-                                    [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
-                                    [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                                    [
+                                        InlineKeyboardButton(
+                                            "🏆 מצוין",
+                                            callback_data=f"backup_rate:{backup_id}:excellent",
+                                        )
+                                    ],
+                                    [
+                                        InlineKeyboardButton(
+                                            "👍 טוב", callback_data=f"backup_rate:{backup_id}:good"
+                                        )
+                                    ],
+                                    [
+                                        InlineKeyboardButton(
+                                            "🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok"
+                                        )
+                                    ],
                                 ]
-                                msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
+                                msg = await query.message.reply_text(
+                                    summary_line, reply_markup=InlineKeyboardMarkup(kb)
+                                )
                                 try:
                                     s = context.user_data.setdefault("backup_summaries", {})
-                                    s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
+                                    s[backup_id] = {
+                                        "chat_id": msg.chat.id,
+                                        "message_id": msg.message_id,
+                                        "text": summary_line,
+                                    }
                                 except Exception:
                                     pass
                                 # Rating buttons already attached above; no need to call external handler
@@ -1145,9 +1243,9 @@ class GitHubMenuHandler:
                     "file_count": total_files,
                     "created_by": "Code Keeper Bot",
                     "repo": repo.full_name,
-                    "path": current_path or ""
+                    "path": current_path or "",
                 }
-                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(zip_buffer, "a", compression=zipfile.ZIP_DEFLATED) as zipf:
                     zipf.writestr("metadata.json", json.dumps(metadata, indent=2))
 
                 zip_buffer.seek(0)
@@ -1173,23 +1271,43 @@ class GitHubMenuHandler:
                 # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
                 try:
                     backup_id = metadata.get("backup_id")
-                    date_str = datetime.now(timezone.utc).strftime('%d/%m/%y %H:%M')
+                    date_str = datetime.now(timezone.utc).strftime("%d/%m/%y %H:%M")
                     try:
                         infos = backup_manager.list_backups(user_id)
-                        vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
+                        vcount = len(
+                            [b for b in infos if getattr(b, "repo", None) == repo.full_name]
+                        )
                         v_text = f"(v{vcount}) " if vcount else ""
                     except Exception:
                         v_text = ""
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     kb = [
-                        [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
-                        [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
-                        [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                        [
+                            InlineKeyboardButton(
+                                "🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent"
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "👍 טוב", callback_data=f"backup_rate:{backup_id}:good"
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok"
+                            )
+                        ],
                     ]
-                    msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
+                    msg = await query.message.reply_text(
+                        summary_line, reply_markup=InlineKeyboardMarkup(kb)
+                    )
                     try:
                         s = context.user_data.setdefault("backup_summaries", {})
-                        s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
+                        s[backup_id] = {
+                            "chat_id": msg.chat.id,
+                            "message_id": msg.message_id,
+                            "text": summary_line,
+                        }
                     except Exception:
                         pass
                     # Rating buttons already attached above; no need to call external handler
@@ -1523,7 +1641,11 @@ class GitHubMenuHandler:
         elif query.data == "validate_repo":
             try:
                 await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
-                import tempfile, requests, zipfile
+                import tempfile
+                import zipfile
+
+                import requests
+
                 g = Github(self.get_user_token(user_id))
                 repo_full = session.get("selected_repo")
                 if not repo_full:
@@ -1556,11 +1678,31 @@ class GitHubMenuHandler:
                                         d.write(s.read())
                         except Exception:
                             pass
+
                         # הרצת כלים על כל הריפו
                         def _run(cmd, timeout=60):
+                            import os
                             import subprocess
+
                             try:
-                                cp = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=timeout)
+                                env = os.environ.copy()
+                                venv_bin_candidates = [
+                                    env.get("VENV_BIN"),
+                                    "/workspace/.venv/bin",
+                                ]
+                                for candidate in venv_bin_candidates:
+                                    if candidate and os.path.isdir(candidate):
+                                        env["PATH"] = candidate + os.pathsep + env.get("PATH", "")
+                                        env.setdefault("VIRTUAL_ENV", os.path.dirname(candidate))
+                                        break
+                                cp = subprocess.run(
+                                    cmd,
+                                    cwd=root,
+                                    env=env,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=timeout,
+                                )
                                 out = (cp.stdout or "") + (cp.stderr or "")
                                 return cp.returncode, out.strip()
                             except subprocess.TimeoutExpired:
@@ -1569,11 +1711,12 @@ class GitHubMenuHandler:
                                 return 127, "Tool not installed"
                             except Exception as e:
                                 return 1, str(e)
+
                         results = {}
-                        results["flake8"] = _run(["flake8", "."]) 
-                        results["mypy"] = _run(["mypy", "."]) 
-                        results["bandit"] = _run(["bandit", "-q", "-r", "."]) 
-                        results["black"] = _run(["black", "--check", "."]) 
+                        results["flake8"] = _run(["flake8", "."])
+                        results["mypy"] = _run(["mypy", "."])
+                        results["bandit"] = _run(["bandit", "-q", "-r", "."])
+                        results["black"] = _run(["black", "--check", "."])
                         return results, repo_full
 
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
@@ -1581,13 +1724,24 @@ class GitHubMenuHandler:
 
                 # פורמט תוצאות מעוצב
                 def status_label(rc):
-                    return "OK" if rc == 0 else ("MISSING" if rc == 127 else ("TIMEOUT" if rc == 124 else "FAIL"))
+                    return (
+                        "OK"
+                        if rc == 0
+                        else ("MISSING" if rc == 127 else ("TIMEOUT" if rc == 124 else "FAIL"))
+                    )
 
                 def status_emoji(rc):
-                    return "✅" if rc == 0 else ("⛔" if rc == 127 else ("⏱️" if rc == 124 else "❌"))
+                    return (
+                        "✅" if rc == 0 else ("⛔" if rc == 127 else ("⏱️" if rc == 124 else "❌"))
+                    )
 
                 # תרגום סטטוסים לעברית להצגה
-                he_label = {"OK": "תקין", "FAIL": "נכשל", "TIMEOUT": "פג זמן", "MISSING": "לא מותקן"}
+                he_label = {
+                    "OK": "תקין",
+                    "FAIL": "נכשל",
+                    "TIMEOUT": "פג זמן",
+                    "MISSING": "לא מותקן",
+                }
 
                 counts = {"OK": 0, "FAIL": 0, "TIMEOUT": 0, "MISSING": 0}
                 max_tool_len = max((len(t) for t in results.keys()), default=0)
@@ -1597,9 +1751,13 @@ class GitHubMenuHandler:
                     counts[label] += 1
                     first_line = (output.splitlines() or [""])[0][:120]
                     suffix = f" — {escape(first_line)}" if label != "OK" and first_line else ""
-                    rows.append(f"{tool.ljust(max_tool_len)} | {status_emoji(rc)} {he_label.get(label, label)}{suffix}")
+                    rows.append(
+                        f"{tool.ljust(max_tool_len)} | {status_emoji(rc)} {he_label.get(label, label)}{suffix}"
+                    )
 
-                header = f"🧪 בדיקות מתקדמות לריפו <code>{safe_html_escape(repo_name_for_msg)}</code>\n"
+                header = (
+                    f"🧪 בדיקות מתקדמות לריפו <code>{safe_html_escape(repo_name_for_msg)}</code>\n"
+                )
                 summary = f"סיכום: ✅ {counts['OK']}  ❌ {counts['FAIL']}  ⏱️ {counts['TIMEOUT']}  ⛔ {counts['MISSING']}"
                 body = "\n".join(rows)
 
@@ -1610,27 +1768,41 @@ class GitHubMenuHandler:
                 rc_flake8, out_flake8 = results.get("flake8", (0, ""))
                 if rc_flake8 != 0 and out_flake8:
                     import re as _re
-                    m = _re.search(r"^(?P<file>[^:\n]+):(?P<line>\d+):\d+:\s*F401\s+'([^']+)'\s+imported but unused", out_flake8, _re.M)
+
+                    m = _re.search(
+                        r"^(?P<file>[^:\n]+):(?P<line>\d+):\d+:\s*F401\s+'([^']+)'\s+imported but unused",
+                        out_flake8,
+                        _re.M,
+                    )
                     if m:
                         file_p = safe_html_escape(m.group("file"))
                         line_p = safe_html_escape(m.group("line"))
                         # לא תמיד אפשר לשלוף את השם בבטחה בטלגרם – משאירים כללי
-                        suggestions.append(f"<b>flake8</b>: הסר ייבוא שלא בשימוש בשורה {line_p} בקובץ <code>{file_p}</code>")
+                        suggestions.append(
+                            f"<b>flake8</b>: הסר ייבוא שלא בשימוש בשורה {line_p} בקובץ <code>{file_p}</code>"
+                        )
 
                 # mypy – הצעה ל-Optional כאשר ברירת מחדל None לסוג לא-Optional
                 rc_mypy, out_mypy = results.get("mypy", (0, ""))
                 if rc_mypy != 0 and out_mypy:
                     import re as _re
-                    m = _re.search(r"Incompatible default for argument \"(?P<arg>[^\"]+)\" \(default has type \"None\", argument has type \"(?P<typ>[^\"]+)\"", out_mypy)
+
+                    m = _re.search(
+                        r"Incompatible default for argument \"(?P<arg>[^\"]+)\" \(default has type \"None\", argument has type \"(?P<typ>[^\"]+)\"",
+                        out_mypy,
+                    )
                     if m:
                         arg_p = safe_html_escape(m.group("arg"))
                         typ_p = safe_html_escape(m.group("typ"))
-                        suggestions.append(f"<b>mypy</b>: הגדר Optional[{typ_p}] לפרמטר <code>{arg_p}</code> או שנה את ברירת המחדל מ-None")
+                        suggestions.append(
+                            f"<b>mypy</b>: הגדר Optional[{typ_p}] לפרמטר <code>{arg_p}</code> או שנה את ברירת המחדל מ-None"
+                        )
 
                 # black – הצעה להריץ black על קבצים ספציפיים
                 rc_black, out_black = results.get("black", (0, ""))
                 if rc_black != 0 and out_black:
                     import re as _re
+
                     files = _re.findall(r"would reformat\s+(.+)", out_black)
                     if files:
                         raw_path = files[0]
@@ -1641,13 +1813,17 @@ class GitHubMenuHandler:
                         except Exception:
                             short_path = raw_path
                         file1 = safe_html_escape(short_path)
-                        suggestions.append(f"<b>black</b>: הרץ black על <code>{file1}</code> או על הפרויקט כולו ליישור פורמט")
+                        suggestions.append(
+                            f"<b>black</b>: הרץ black על <code>{file1}</code> או על הפרויקט כולו ליישור פורמט"
+                        )
 
                 # bandit – הצעות כלליות בהתאם לדפוסים נפוצים
                 rc_bandit, out_bandit = results.get("bandit", (0, ""))
                 if rc_bandit != 0 and out_bandit:
                     if "eval(" in out_bandit or "B307" in out_bandit:
-                        suggestions.append("<b>bandit</b>: החלף שימוש ב-eval בפתרון בטוח יותר (למשל ast.literal_eval)")
+                        suggestions.append(
+                            "<b>bandit</b>: החלף שימוש ב-eval בפתרון בטוח יותר (למשל ast.literal_eval)"
+                        )
                     elif "exec(" in out_bandit or "B102" in out_bandit:
                         suggestions.append("<b>bandit</b>: הימנע מ-exec והשתמש באלטרנטיבות בטוחות")
 
@@ -1660,7 +1836,9 @@ class GitHubMenuHandler:
                 await query.edit_message_text(message, parse_mode="HTML")
             except Exception as e:
                 logger.exception("Repo validation failed")
-                await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
+                await query.edit_message_text(
+                    f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML"
+                )
 
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
@@ -1864,29 +2042,40 @@ class GitHubMenuHandler:
         """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים"""
         user_id = update.effective_user.id
         from database import db
+
         query = update.callback_query
         try:
             all_files = db.get_user_files(user_id, limit=1000)
             # שלוף שמות קבצים גדולים כדי להחריג
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
-            large_names = {lf.get('file_name') for lf in large_files if lf.get('file_name')}
+            large_names = {lf.get("file_name") for lf in large_files if lf.get("file_name")}
             # סינון: ללא תגיות repo: וללא קבצים גדולים
             other_files = []
             for f in all_files:
-                name = f.get('file_name')
-                tags = f.get('tags') or []
-                if name and name not in large_names and not any(isinstance(t, str) and t.startswith('repo:') for t in tags):
+                name = f.get("file_name")
+                tags = f.get("tags") or []
+                if (
+                    name
+                    and name not in large_names
+                    and not any(isinstance(t, str) and t.startswith("repo:") for t in tags)
+                ):
                     other_files.append(f)
             if not other_files:
-                await query.edit_message_text("ℹ️ אין 'שאר קבצים' להצגה (לא מתויגים כריפו ואינם גדולים)")
+                await query.edit_message_text(
+                    "ℹ️ אין 'שאר קבצים' להצגה (לא מתויגים כריפו ואינם גדולים)"
+                )
                 return
             keyboard = []
             for f in other_files[:50]:
-                fid = str(f.get('_id'))
-                name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+                fid = str(f.get("_id"))
+                name = f.get("file_name", "ללא שם")
+                keyboard.append(
+                    [InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")]
+                )
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
-            await query.edit_message_text("בחר/י קובץ להעלאה (שאר הקבצים):", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
+                "בחר/י קובץ להעלאה (שאר הקבצים):", reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת 'שאר הקבצים': {e}")
 
@@ -1894,28 +2083,38 @@ class GitHubMenuHandler:
         """מציג תפריט ריפואים לבחירת קבצים שמורים עם תגית repo: להעלאה"""
         user_id = update.effective_user.id
         from database import db
+
         query = update.callback_query
         try:
             files = db.get_user_files(user_id, limit=1000)
             repo_to_count = {}
             for f in files:
-                for t in f.get('tags', []) or []:
-                    if isinstance(t, str) and t.startswith('repo:'):
+                for t in f.get("tags", []) or []:
+                    if isinstance(t, str) and t.startswith("repo:"):
                         repo_to_count[t] = repo_to_count.get(t, 0) + 1
             if not repo_to_count:
                 await query.edit_message_text("ℹ️ אין קבצים עם תגית ריפו (repo:owner/name)")
                 return
             keyboard = []
             for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:50]:
-                keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"gh_upload_repo:{tag}")])
+                keyboard.append(
+                    [InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"gh_upload_repo:{tag}")]
+                )
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
-            await query.edit_message_text("בחר/י ריפו (מתוך תגיות הקבצים השמורים):", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
+                "בחר/י ריפו (מתוך תגיות הקבצים השמורים):",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת רשימת ריפואים: {e}")
-    async def show_upload_repo_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE,_repo_tag: str):
+
+    async def show_upload_repo_files(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, _repo_tag: str
+    ):
         """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם"""
         user_id = update.effective_user.id
         from database import db
+
         query = update.callback_query
         try:
             repo_tag = _repo_tag
@@ -1926,11 +2125,15 @@ class GitHubMenuHandler:
                 return
             keyboard = []
             for f in files[:50]:
-                fid = str(f.get('_id'))
-                name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+                fid = str(f.get("_id"))
+                name = f.get("file_name", "ללא שם")
+                keyboard.append(
+                    [InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")]
+                )
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="gh_upload_cat:repos")])
-            await query.edit_message_text(f"בחר/י קובץ להעלאה מהתגית {repo_tag}:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
+                f"בחר/י קובץ להעלאה מהתגית {repo_tag}:", reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת קבצים: {e}")
 
@@ -1938,6 +2141,7 @@ class GitHubMenuHandler:
         """מציג רשימת קבצים גדולים להעלאה לריפו הנבחר"""
         user_id = update.effective_user.id
         from database import db
+
         query = update.callback_query
         try:
             large_files, total = db.get_user_large_files(user_id, page=1, per_page=50)
@@ -1946,16 +2150,26 @@ class GitHubMenuHandler:
                 return
             keyboard = []
             for lf in large_files:
-                fid = str(lf.get('_id'))
-                name = lf.get('file_name', 'ללא שם')
-                size_kb = (lf.get('file_size', 0) or 0) / 1024
-                keyboard.append([InlineKeyboardButton(f"📄 {name} ({size_kb:.0f}KB)", callback_data=f"gh_upload_large:{fid}")])
+                fid = str(lf.get("_id"))
+                name = lf.get("file_name", "ללא שם")
+                size_kb = (lf.get("file_size", 0) or 0) / 1024
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"📄 {name} ({size_kb:.0f}KB)", callback_data=f"gh_upload_large:{fid}"
+                        )
+                    ]
+                )
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
-            await query.edit_message_text("בחר/י קובץ גדול להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
+                "בחר/י קובץ גדול להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת קבצים גדולים: {e}")
 
-    async def handle_large_file_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str):
+    async def handle_large_file_upload(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, file_id: str
+    ):
         """מעלה קובץ גדול שנבחר לגיטהאב (עם אותן בדיקות כמו קובץ שמור רגיל)"""
         user_id = update.effective_user.id
         session = self.get_user_session(user_id)
@@ -1965,8 +2179,10 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ קודם בחר ריפו/טוקן בגיטהאב")
             return
         # שלוף את תוכן הקובץ הגדול
-        from database import db
         from bson import ObjectId
+
+        from database import db
+
         doc = db.large_files_collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
         if not doc:
             await query.edit_message_text("❌ קובץ גדול לא נמצא")
@@ -2301,14 +2517,16 @@ class GitHubMenuHandler:
             safe = re.sub(r"[^A-Za-z0-9._-]", "-", safe)
             safe = safe.strip(".-_")
             if not safe:
-                await update.message.reply_text("❌ שם ריפו לא תקין. נסה שוב עם אותיות/מספרים/.-_ בלבד.")
+                await update.message.reply_text(
+                    "❌ שם ריפו לא תקין. נסה שוב עם אותיות/מספרים/.-_ בלבד."
+                )
                 context.user_data["waiting_for_new_repo_name"] = True
                 return True
             # שמור את השם לבחירת יצירה
             context.user_data["new_repo_name"] = safe
             await update.message.reply_text(
                 f"✅ שם הריפו נקבע: <code>{safe}</code>\nשלח עכשיו קובץ ZIP לפריסה.",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return True
 
@@ -2320,24 +2538,28 @@ class GitHubMenuHandler:
                 context.user_data["waiting_for_paste_content"] = True
                 await update.message.reply_text(
                     "⚠️ קיבלתי תוכן ריק. הדבק/י את הקוד שוב.",
-                    reply_markup=InlineKeyboardMarkup([
+                    reply_markup=InlineKeyboardMarkup(
                         [
-                            InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
-                            InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                            [
+                                InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                                InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                            ]
                         ]
-                    ])
+                    ),
                 )
                 return True
             context.user_data["paste_content"] = code_text
             context.user_data["waiting_for_paste_filename"] = True
             await update.message.reply_text(
                 "📄 איך לקרוא לקובץ?\nהקלד/י שם כולל סיומת (לדוגמה: app.py או index.ts).",
-                reply_markup=InlineKeyboardMarkup([
+                reply_markup=InlineKeyboardMarkup(
                     [
-                        InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
-                        InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                        [
+                            InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                            InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                        ]
                     ]
-                ])
+                ),
             )
             return True
 
@@ -2353,12 +2575,14 @@ class GitHubMenuHandler:
                 context.user_data["waiting_for_paste_filename"] = True
                 await update.message.reply_text(
                     "⚠️ שם קובץ לא תקין. ודא שם + סיומת, לדוגמה: main.py",
-                    reply_markup=InlineKeyboardMarkup([
+                    reply_markup=InlineKeyboardMarkup(
                         [
-                            InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
-                            InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                            [
+                                InlineKeyboardButton("🔙 חזור", callback_data="upload_file"),
+                                InlineKeyboardButton("❌ ביטול", callback_data="cancel_paste_flow"),
+                            ]
                         ]
-                    ])
+                    ),
                 )
                 return True
 
@@ -2368,8 +2592,10 @@ class GitHubMenuHandler:
 
             content = context.user_data.get("paste_content") or ""
             try:
-                from database import db
                 from datetime import datetime
+
+                from database import db
+
                 doc = {
                     "user_id": user_id,
                     "file_name": safe_name,
@@ -2383,7 +2609,9 @@ class GitHubMenuHandler:
                 context.user_data.pop("paste_content", None)
                 await self.show_pre_upload_check(update, context)
             except Exception as e:
-                await update.message.reply_text(f"❌ שגיאה בשמירת הקובץ הזמני: {safe_html_escape(str(e))}", parse_mode="HTML")
+                await update.message.reply_text(
+                    f"❌ שגיאה בשמירת הקובץ הזמני: {safe_html_escape(str(e))}", parse_mode="HTML"
+                )
             return True
 
         # בחירת תיקייה (מתוך "בחר תיקיית יעד" הכללי)
@@ -2424,7 +2652,11 @@ class GitHubMenuHandler:
             try:
                 g = Github(token)
                 repo = g.get_repo(repo_full)
-                target_branch = context.user_data.get("upload_target_branch") or getattr(repo, "default_branch", None) or "main"
+                target_branch = (
+                    context.user_data.get("upload_target_branch")
+                    or getattr(repo, "default_branch", None)
+                    or "main"
+                )
                 file_path = f"{folder_clean}/.gitkeep"
                 content = "placeholder to keep directory"
                 # נסה ליצור, ואם קיים נעדכן
@@ -2602,6 +2834,7 @@ class GitHubMenuHandler:
             await status_message.edit_text(
                 error_message, reply_markup=InlineKeyboardMarkup(keyboard)
             )
+
     def _create_analysis_summary(self, analysis: Dict[str, Any]) -> str:
         """יוצר סיכום של הניתוח"""
         # Escape HTML special characters
@@ -3158,7 +3391,10 @@ class GitHubMenuHandler:
         context.user_data["multi_mode"] = False
         context.user_data["multi_selection"] = []
         await self.show_repo_browser(update, context)
-    async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False):
+
+    async def show_repo_browser(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False
+    ):
         """מציג דפדפן ריפו לפי נתיב ושימוש (download/delete)"""
         query = update.callback_query
         user_id = query.from_user.id
@@ -3207,9 +3443,7 @@ class GitHubMenuHandler:
                     InlineKeyboardButton(
                         f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}"
                     ),
-                    InlineKeyboardButton(
-                        "📌 בחר כיעד", callback_data=select_cb
-                    ),
+                    InlineKeyboardButton("📌 בחר כיעד", callback_data=select_cb),
                 ]
             )
         multi_mode = context.user_data.get("multi_mode", False)
@@ -3221,7 +3455,8 @@ class GitHubMenuHandler:
                     entry_rows.append(
                         [
                             InlineKeyboardButton(
-                                f"{checked} {f.name}", callback_data=f"browse_toggle_select:{f.path}"
+                                f"{checked} {f.name}",
+                                callback_data=f"browse_toggle_select:{f.path}",
                             )
                         ]
                     )
@@ -3279,7 +3514,9 @@ class GitHubMenuHandler:
             bottom.append(InlineKeyboardButton("✅ סיום בחירה", callback_data="folder_select_done"))
             bottom.append(InlineKeyboardButton("🔙 ביטול", callback_data="github_menu"))
             # הוסף כפתור יצירת תיקייה חדשה במצב בחירת תיקייה
-            keyboard.append([InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")])
+            keyboard.append(
+                [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="create_folder")]
+            )
         # סדר כפתורים לשורות כדי למנוע צפיפות
         row = []
         if (not folder_selecting) and context.user_data.get("browse_action") == "download":
@@ -3743,7 +3980,11 @@ class GitHubMenuHandler:
                         status = (
                             "נפתח"
                             if pr.state == "open" and pr.created_at == pr.updated_at
-                            else ("מוזג" if pr.merged else ("נסגר" if pr.state == "closed" else "עודכן"))
+                            else (
+                                "מוזג"
+                                if pr.merged
+                                else ("נסגר" if pr.state == "closed" else "עודכן")
+                            )
                         )
                         messages.append(
                             f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
@@ -3841,6 +4082,7 @@ class GitHubMenuHandler:
             f"🆕 צור PR — בחר סניף head (base יהיה ברירת המחדל של הריפו)",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
+
     async def show_confirm_create_pr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -3983,7 +4225,7 @@ class GitHubMenuHandler:
             checks.append("Draft: לא")
         try:
             reviews = list(pr.get_reviews())
-            need_changes = any(r.state == 'CHANGES_REQUESTED' for r in reviews)
+            need_changes = any(r.state == "CHANGES_REQUESTED" for r in reviews)
             if need_changes:
                 checks.append("בקשות שינוי פתוחות: כן")
                 can_merge = False
@@ -4024,7 +4266,7 @@ class GitHubMenuHandler:
             result = pr.merge(merge_method="merge")
             if result.merged:
                 await query.edit_message_text(
-                    f"✅ PR מוזג בהצלחה: <a href=\"{pr.html_url}\">#{pr.number}</a>",
+                    f'✅ PR מוזג בהצלחה: <a href="{pr.html_url}">#{pr.number}</a>',
                     parse_mode="HTML",
                 )
             else:
@@ -4050,6 +4292,7 @@ class GitHubMenuHandler:
             pass
         try:
             import datetime
+
             g = Github(login_or_token=token)
             repo = g.get_repo(repo_full)
             branch_obj = repo.get_branch(repo.default_branch)
@@ -4065,7 +4308,7 @@ class GitHubMenuHandler:
             try:
                 repo.create_git_ref(ref=f"refs/tags/{tag_name}", sha=sha)
             except GithubException as ge:
-                status = getattr(ge, 'status', None)
+                status = getattr(ge, "status", None)
                 # נסה פעם נוספת עם סיומת SHA במקרה של התנגשויות בשם
                 if status == 422:
                     try:
@@ -4077,7 +4320,7 @@ class GitHubMenuHandler:
                         try:
                             repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                         except GithubException as gbe:
-                            if getattr(gbe, 'status', None) == 422:
+                            if getattr(gbe, "status", None) == 422:
                                 branch_name = f"{base_name}-{sha[:7]}"
                                 repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                             else:
@@ -4091,10 +4334,21 @@ class GitHubMenuHandler:
                             f"רוצה שאיצור עבורך קובץ הוראות לשחזור?"
                         )
                         kb = [
-                            [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:branch:{branch_name}")],
-                            [InlineKeyboardButton("לא תודה", callback_data="git_checkpoint_doc_skip")],
+                            [
+                                InlineKeyboardButton(
+                                    "📝 צור קובץ הוראות",
+                                    callback_data=f"git_checkpoint_doc:branch:{branch_name}",
+                                )
+                            ],
+                            [
+                                InlineKeyboardButton(
+                                    "לא תודה", callback_data="git_checkpoint_doc_skip"
+                                )
+                            ],
                         ]
-                        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                        await query.edit_message_text(
+                            text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+                        )
                         return
                 else:
                     # לא 422: עבור ישירות לגיבוי לענף
@@ -4102,7 +4356,7 @@ class GitHubMenuHandler:
                     try:
                         repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                     except GithubException as gbe:
-                        if getattr(gbe, 'status', None) == 422:
+                        if getattr(gbe, "status", None) == 422:
                             branch_name = f"{base_name}-{sha[:7]}"
                             repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                         else:
@@ -4115,10 +4369,17 @@ class GitHubMenuHandler:
                         f"רוצה שאיצור עבורך קובץ הוראות לשחזור?"
                     )
                     kb = [
-                        [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:branch:{branch_name}")],
+                        [
+                            InlineKeyboardButton(
+                                "📝 צור קובץ הוראות",
+                                callback_data=f"git_checkpoint_doc:branch:{branch_name}",
+                            )
+                        ],
                         [InlineKeyboardButton("לא תודה", callback_data="git_checkpoint_doc_skip")],
                     ]
-                    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                    await query.edit_message_text(
+                        text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+                    )
                     return
             # הצלחת יצירת tag
             text = (
@@ -4128,15 +4389,21 @@ class GitHubMenuHandler:
                 f"רוצה שאיצור עבורך קובץ הוראות לשחזור?"
             )
             kb = [
-                [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}")],
+                [
+                    InlineKeyboardButton(
+                        "📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}"
+                    )
+                ],
                 [InlineKeyboardButton("לא תודה", callback_data="git_checkpoint_doc_skip")],
             ]
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            await query.edit_message_text(
+                text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+            )
         except GithubException as e:
-            status = getattr(e, 'status', None)
-            gh_message = ''
+            status = getattr(e, "status", None)
+            gh_message = ""
             try:
-                gh_message = (e.data or {}).get('message')  # type: ignore[attr-defined]
+                gh_message = (e.data or {}).get("message")  # type: ignore[attr-defined]
             except Exception:
                 gh_message = str(e)
             help_lines = [
@@ -4150,18 +4417,20 @@ class GitHubMenuHandler:
             if status in (403, 404):
                 extra = "\nייתכן שאין הרשאת כתיבה או שהטוקן מוגבל."
             await query.edit_message_text(
-                f"❌ יצירת נקודת שמירה בגיט נכשלה (HTTP {status or 'N/A'}): <b>{safe_html_escape(gh_message)}</b>{extra}\n\n" +
-                "\n".join(help_lines),
+                f"❌ יצירת נקודת שמירה בגיט נכשלה (HTTP {status or 'N/A'}): <b>{safe_html_escape(gh_message)}</b>{extra}\n\n"
+                + "\n".join(help_lines),
                 parse_mode="HTML",
             )
         except Exception as e:
             logger.error(f"Failed to create git checkpoint: {e}")
-            await query.edit_message_text(f"❌ יצירת נקודת שמירה בגיט נכשלה: {safe_html_escape(e)}", parse_mode="HTML")
+            await query.edit_message_text(
+                f"❌ יצירת נקודת שמירה בגיט נכשלה: {safe_html_escape(e)}", parse_mode="HTML"
+            )
 
     async def show_pre_upload_check(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג בדיקות לפני העלאת קובץ שמור (הרשאות/קיום קובץ/ענף/תיקייה)."""
         query = update.callback_query if hasattr(update, "callback_query") else None
-        user_id = (query.from_user.id if query else update.effective_user.id)
+        user_id = query.from_user.id if query else update.effective_user.id
         session = self.get_user_session(user_id)
         token = self.get_user_token(user_id)
         repo_name = session.get("selected_repo")
@@ -4173,8 +4442,10 @@ class GitHubMenuHandler:
                 await update.message.reply_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
             return
         from database import db
+
         try:
             from bson import ObjectId
+
             file_data = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
             if not file_data:
                 if query:
@@ -4185,7 +4456,9 @@ class GitHubMenuHandler:
             filename = file_data.get("file_name") or "file"
             # Resolve target folder/branch (overrides take precedence)
             override_folder = (context.user_data.get("upload_target_folder") or "").strip()
-            target_folder = override_folder if override_folder != "" else (session.get("selected_folder") or "")
+            target_folder = (
+                override_folder if override_folder != "" else (session.get("selected_folder") or "")
+            )
             g = Github(token)
             repo = g.get_repo(repo_name)
             override_branch = context.user_data.get("upload_target_branch")
@@ -4219,22 +4492,35 @@ class GitHubMenuHandler:
             txt = (
                 "בדיקות לפני העלאה:\n"
                 f"ריפו: <code>{repo_name}</code>\n"
-                f"קובץ: <code>{file_path}</code>\n\n"
-                + "\n".join(f"• {c}" for c in checks)
+                f"קובץ: <code>{file_path}</code>\n\n" + "\n".join(f"• {c}" for c in checks)
             )
             # Build keyboard
             kb = []
-            kb.append([InlineKeyboardButton("🌿 בחר ענף יעד", callback_data="choose_upload_branch")])
-            kb.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="choose_upload_folder")])
-            kb.append([InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")])
-            kb.append([InlineKeyboardButton("🔄 רענן בדיקות", callback_data="refresh_saved_checks")])
+            kb.append(
+                [InlineKeyboardButton("🌿 בחר ענף יעד", callback_data="choose_upload_branch")]
+            )
+            kb.append(
+                [InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="choose_upload_folder")]
+            )
+            kb.append(
+                [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")]
+            )
+            kb.append(
+                [InlineKeyboardButton("🔄 רענן בדיקות", callback_data="refresh_saved_checks")]
+            )
             if push_allowed and not archived:
-                kb.append([InlineKeyboardButton("✅ אשר והעלה", callback_data="confirm_saved_upload")])
+                kb.append(
+                    [InlineKeyboardButton("✅ אשר והעלה", callback_data="confirm_saved_upload")]
+                )
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")])
             if query:
-                await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                await query.edit_message_text(
+                    txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+                )
             else:
-                await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                await update.message.reply_text(
+                    txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+                )
         except Exception as e:
             msg = f"❌ שגיאה בבדיקות לפני העלאה: {safe_html_escape(str(e))}"
             if query:
@@ -4273,27 +4559,47 @@ class GitHubMenuHandler:
         end = start + page_size
         keyboard = []
         for br in branches[start:end]:
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"upload_select_branch:{br.name}")])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"🌿 {br.name}", callback_data=f"upload_select_branch:{br.name}"
+                    )
+                ]
+            )
         nav = []
         if page > 0:
-            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"upload_branches_page_{page-1}"))
+            nav.append(
+                InlineKeyboardButton("⬅️ הקודם", callback_data=f"upload_branches_page_{page-1}")
+            )
         nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
         if page < total_pages - 1:
-            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"upload_branches_page_{page+1}"))
+            nav.append(
+                InlineKeyboardButton("הבא ➡️", callback_data=f"upload_branches_page_{page+1}")
+            )
         if nav:
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")])
-        await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(
+            "בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
         # הצג את התיקייה הפעילה הנוכחית: עדיפות ל-override זמני מזרימת ההעלאה, אחרת התיקייה שנבחרה במפגש, אחרת root
-        current = (context.user_data.get("upload_target_folder") or session.get("selected_folder") or "root")
+        current = (
+            context.user_data.get("upload_target_folder")
+            or session.get("selected_folder")
+            or "root"
+        )
         kb = [
             [InlineKeyboardButton("📁 root (ראשי)", callback_data="upload_folder_root")],
-            [InlineKeyboardButton(f"📂 השתמש בתיקייה שנבחרה: {current}", callback_data="upload_folder_current")],
+            [
+                InlineKeyboardButton(
+                    f"📂 השתמש בתיקייה שנבחרה: {current}", callback_data="upload_folder_current"
+                )
+            ],
             [InlineKeyboardButton("✏️ הזן נתיב ידנית", callback_data="upload_folder_custom")],
             [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")],
             [InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")],
@@ -4304,24 +4610,25 @@ class GitHubMenuHandler:
         query = update.callback_query
         context.user_data["waiting_for_upload_folder"] = True
         await query.edit_message_text(
-            "✏️ הקלד נתיב תיקייה יעד (למשל: src/utils או ריק ל-root).\nשלח טקסט חופשי עכשיו.")
+            "✏️ הקלד נתיב תיקייה יעד (למשל: src/utils או ריק ל-root).\nשלח טקסט חופשי עכשיו."
+        )
 
-    async def create_checkpoint_doc(self, update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str, name: str):
+    async def create_checkpoint_doc(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str, name: str
+    ):
         """יוצר קובץ הוראות שחזור לנקודת שמירה ושולח ל-flow של העלאה"""
         query = update.callback_query
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
         repo_full = session.get("selected_repo") or ""
         from datetime import datetime
+
         # בנה תוכן Markdown
-        is_tag = (kind == "tag")
+        is_tag = kind == "tag"
         title = "# 🏷️ נקודת שמירה בגיט\n\n"
-        what = (f"נוצר tag בשם `{name}`" if is_tag else f"נוצר branch בשם `{name}`")
+        what = f"נוצר tag בשם `{name}`" if is_tag else f"נוצר branch בשם `{name}`"
         repo_line = f"בריפו: `{repo_full}`\n\n" if repo_full else "\n"
-        intro = (
-            f"{what}.\n{repo_line}"
-            "כך ניתן לשחזר לאותה נקודה במחשב המקומי:\n\n"
-        )
+        intro = f"{what}.\n{repo_line}" "כך ניתן לשחזר לאותה נקודה במחשב המקומי:\n\n"
         if is_tag:
             commands = (
                 "1. עדכן תגיות מהריפו:\n\n"
@@ -4357,6 +4664,7 @@ class GitHubMenuHandler:
         file_name = f"RESTORE_{name}.md"
         # שמירה במסד והמשך ל-flow של העלאה
         from database import db
+
         doc = {
             "user_id": user_id,
             "file_name": file_name,
@@ -4377,7 +4685,9 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ נכשל ביצירת קובץ הוראות: {safe_html_escape(str(e))}")
 
-    async def show_restore_checkpoint_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def show_restore_checkpoint_menu(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
         """מציג רשימת תגיות נקודות שמירה לבחירה לשחזור"""
         query = update.callback_query
         user_id = query.from_user.id
@@ -4427,13 +4737,23 @@ class GitHubMenuHandler:
             # בנה מקלדת
             keyboard = []
             for t in page_tags:
-                keyboard.append([InlineKeyboardButton(f"🏷 {t.name}", callback_data=f"restore_select_tag:{t.name}")])
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🏷 {t.name}", callback_data=f"restore_select_tag:{t.name}"
+                        )
+                    ]
+                )
             nav = []
             if page > 0:
-                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"restore_tags_page_{page-1}"))
+                nav.append(
+                    InlineKeyboardButton("⬅️ הקודם", callback_data=f"restore_tags_page_{page-1}")
+                )
             nav.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop"))
             if page < total_pages - 1:
-                nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"restore_tags_page_{page+1}"))
+                nav.append(
+                    InlineKeyboardButton("➡️ הבא", callback_data=f"restore_tags_page_{page+1}")
+                )
             if nav:
                 keyboard.append(nav)
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
@@ -4459,11 +4779,15 @@ class GitHubMenuHandler:
                 if "message is not modified" not in str(br).lower():
                     raise
                 try:
-                    await query.answer(f"❌ שגיאה בטעינת תגיות: {safe_html_escape(str(e))}", show_alert=True)
+                    await query.answer(
+                        f"❌ שגיאה בטעינת תגיות: {safe_html_escape(str(e))}", show_alert=True
+                    )
                 except Exception:
                     pass
 
-    async def show_restore_tag_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
+    async def show_restore_tag_actions(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str
+    ):
         """מציג פעולות אפשריות לשחזור מתגית נתונה"""
         query = update.callback_query
         user_id = query.from_user.id
@@ -4473,18 +4797,33 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
         # הצג אפשרויות: צור קובץ הוראות / צור ענף מהתגית
-        text = (
-            f"🏷 תגית נבחרה: <code>{tag_name}</code>\n\n"
-            f"בחר פעולה לשחזור:" 
-        )
+        text = f"🏷 תגית נבחרה: <code>{tag_name}</code>\n\n" f"בחר פעולה לשחזור:"
         kb = [
-            [InlineKeyboardButton("📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}")],
-            [InlineKeyboardButton("🌿 צור ענף מהתגית", callback_data=f"restore_branch_from_tag:{tag_name}")],
-            [InlineKeyboardButton("🔁 צור PR לשחזור (Revert)", callback_data=f"restore_revert_pr_from_tag:{tag_name}")],
+            [
+                InlineKeyboardButton(
+                    "📝 צור קובץ הוראות", callback_data=f"git_checkpoint_doc:tag:{tag_name}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🌿 צור ענף מהתגית", callback_data=f"restore_branch_from_tag:{tag_name}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔁 צור PR לשחזור (Revert)",
+                    callback_data=f"restore_revert_pr_from_tag:{tag_name}",
+                )
+            ],
             [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
         ]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-    async def create_branch_from_tag(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
+        await query.edit_message_text(
+            text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+        )
+
+    async def create_branch_from_tag(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str
+    ):
         """יוצר ענף חדש שמצביע ל-commit של התגית לשחזור נוח"""
         query = update.callback_query
         user_id = query.from_user.id
@@ -4518,13 +4857,17 @@ class GitHubMenuHandler:
             try:
                 repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
             except GithubException as gbe:
-                if getattr(gbe, 'status', None) == 422:
+                if getattr(gbe, "status", None) == 422:
                     branch_name = f"{base_branch}-{sha[:7]}"
                     repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sha)
                 else:
                     raise
             kb = [
-                [InlineKeyboardButton("🔀 פתח PR מהענף", callback_data=f"open_pr_from_branch:{branch_name}")],
+                [
+                    InlineKeyboardButton(
+                        "🔀 פתח PR מהענף", callback_data=f"open_pr_from_branch:{branch_name}"
+                    )
+                ],
                 [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
             ]
             await query.edit_message_text(
@@ -4538,7 +4881,12 @@ class GitHubMenuHandler:
             # הצג אפשרות להמשיך ליצירת PR לשחזור למרות הכישלון ביצירת ענף
             try:
                 kb = [
-                    [InlineKeyboardButton("🔁 צור PR לשחזור (Revert)", callback_data=f"restore_revert_pr_from_tag:{tag_name}")],
+                    [
+                        InlineKeyboardButton(
+                            "🔁 צור PR לשחזור (Revert)",
+                            callback_data=f"restore_revert_pr_from_tag:{tag_name}",
+                        )
+                    ],
                     [InlineKeyboardButton("🔙 חזור", callback_data="restore_checkpoint_menu")],
                 ]
                 await query.edit_message_text(
@@ -4548,9 +4896,13 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
             except Exception:
-                await query.edit_message_text(f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}")
+                await query.edit_message_text(
+                    f"❌ שגיאה ביצירת ענף שחזור: {safe_html_escape(str(e))}"
+                )
 
-    async def open_pr_from_branch(self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch_name: str):
+    async def open_pr_from_branch(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch_name: str
+    ):
         """פותח Pull Request מהענף שנוצר אל הענף הראשי של הריפו"""
         query = update.callback_query
         user_id = query.from_user.id
@@ -4564,19 +4916,23 @@ class GitHubMenuHandler:
             g = Github(token)
             repo = g.get_repo(repo_full)
             base_branch = repo.default_branch or "main"
-            owner_login = repo.owner.login if getattr(repo, "owner", None) else repo_full.split("/")[0]
+            owner_login = (
+                repo.owner.login if getattr(repo, "owner", None) else repo_full.split("/")[0]
+            )
 
             # 1) אם כבר קיים PR פתוח מהענף הזה לבסיס – הצג אותו במקום ליצור חדש
             try:
                 existing_prs = list(
-                    repo.get_pulls(state="open", base=base_branch, head=f"{owner_login}:{branch_name}")
+                    repo.get_pulls(
+                        state="open", base=base_branch, head=f"{owner_login}:{branch_name}"
+                    )
                 )
                 if existing_prs:
                     pr = existing_prs[0]
                     kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
                     await query.edit_message_text(
                         f"ℹ️ כבר קיים PR פתוח מהענף <code>{branch_name}</code> ל-<code>{base_branch}</code>: "
-                        f"<a href=\"{pr.html_url}\">#{pr.number}</a>",
+                        f'<a href="{pr.html_url}">#{pr.number}</a>',
                         parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup(kb),
                     )
@@ -4590,7 +4946,11 @@ class GitHubMenuHandler:
                 cmp = repo.compare(base_branch, branch_name)
                 if getattr(cmp, "ahead_by", 0) == 0 and getattr(cmp, "behind_by", 0) == 0:
                     kb = [
-                        [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")],
+                        [
+                            InlineKeyboardButton(
+                                "↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu"
+                            )
+                        ],
                         [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
                     ]
                     await query.edit_message_text(
@@ -4616,7 +4976,7 @@ class GitHubMenuHandler:
             pr = repo.create_pull(title=title, body=body, head=branch_name, base=base_branch)
             kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
             await query.edit_message_text(
-                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{branch_name}</code>",
+                f'✅ נפתח PR: <a href="{pr.html_url}">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{branch_name}</code>',
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(kb),
             )
@@ -4650,7 +5010,14 @@ class GitHubMenuHandler:
             lower_msg = (message_text or "").lower()
             kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
             if "no commits between" in lower_msg or "no commits" in lower_msg:
-                kb.insert(0, [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")])
+                kb.insert(
+                    0,
+                    [
+                        InlineKeyboardButton(
+                            "↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu"
+                        )
+                    ],
+                )
                 await query.edit_message_text(
                     (
                         "❌ שגיאה בפתיחת PR: אין שינויים בין הענפים.\n\n"
@@ -4664,22 +5031,30 @@ class GitHubMenuHandler:
             if "already exists" in lower_msg or "a pull request already exists" in lower_msg:
                 # נסה למצוא את ה-PR הקיים ולהציג קישור
                 try:
-                    prs = list(repo.get_pulls(state="open", base=base_branch, head=f"{owner_login}:{branch_name}"))
+                    prs = list(
+                        repo.get_pulls(
+                            state="open", base=base_branch, head=f"{owner_login}:{branch_name}"
+                        )
+                    )
                     if prs:
                         pr = prs[0]
                         await query.edit_message_text(
-                            f"ℹ️ כבר קיים PR פתוח: <a href=\"{pr.html_url}\">#{pr.number}</a>",
+                            f'ℹ️ כבר קיים PR פתוח: <a href="{pr.html_url}">#{pr.number}</a>',
                             parse_mode="HTML",
                             reply_markup=InlineKeyboardMarkup(kb),
                         )
                         return
                 except Exception:
                     pass
-            await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(message_text)}", parse_mode="HTML")
+            await query.edit_message_text(
+                f"❌ שגיאה בפתיחת PR: {safe_html_escape(message_text)}", parse_mode="HTML"
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
 
-    async def create_revert_pr_from_tag(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
+    async def create_revert_pr_from_tag(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str
+    ):
         """יוצר PR שמשחזר את מצב הריפו לתגית ע"י יצירת commit חדש עם עץ התגית על גבי base.
         כך תמיד יהיה diff וה-PR ייפתח בהצלחה.
         """
@@ -4696,7 +5071,13 @@ class GitHubMenuHandler:
             repo = g.get_repo(repo_full)
             base_branch = repo.default_branch or "main"
 
-            logger.info("[create_revert_pr_from_tag] repo=%s base=%s tag=%s user=%s", repo_full, base_branch, tag_name, user_id)
+            logger.info(
+                "[create_revert_pr_from_tag] repo=%s base=%s tag=%s user=%s",
+                repo_full,
+                base_branch,
+                tag_name,
+                user_id,
+            )
 
             # מצא את ה-SHA של עץ התגית (מתמודד גם עם תגיות מוכללות)
             tag_tree_sha = None
@@ -4714,11 +5095,18 @@ class GitHubMenuHandler:
                     tag_obj = repo.get_git_tag(ref_sha)
                     logger.info("[create_revert_pr_from_tag] annotated tag sha=%s", ref_sha)
                     while getattr(getattr(tag_obj, "object", None), "type", None) == "tag":
-                        logger.info("[create_revert_pr_from_tag] peeling nested tag sha=%s", tag_obj.object.sha)
+                        logger.info(
+                            "[create_revert_pr_from_tag] peeling nested tag sha=%s",
+                            tag_obj.object.sha,
+                        )
                         tag_obj = repo.get_git_tag(tag_obj.object.sha)
                     target_type = getattr(tag_obj.object, "type", None)
                     target_sha = getattr(tag_obj.object, "sha", None)
-                    logger.info("[create_revert_pr_from_tag] tag target_type=%s target_sha=%s", target_type, target_sha)
+                    logger.info(
+                        "[create_revert_pr_from_tag] tag target_type=%s target_sha=%s",
+                        target_type,
+                        target_sha,
+                    )
                     if target_type == "commit" and target_sha:
                         commit = repo.get_commit(target_sha)
                         tag_tree_sha = commit.commit.tree.sha
@@ -4727,20 +5115,32 @@ class GitHubMenuHandler:
                 elif ref_type == "tree" and ref_sha:
                     tag_tree_sha = ref_sha
             except GithubException as ge:
-                logger.warning("[create_revert_pr_from_tag] get_git_ref failed: %s", getattr(ge, 'data', None) or str(ge))
+                logger.warning(
+                    "[create_revert_pr_from_tag] get_git_ref failed: %s",
+                    getattr(ge, "data", None) or str(ge),
+                )
                 pass
 
             # נפילה ל-backup: מעבר על get_tags (עובד לרוב על תגיות קלילות)
             if not tag_tree_sha:
-                logger.info("[create_revert_pr_from_tag] fallback to repo.get_tags() for %s", tag_name)
+                logger.info(
+                    "[create_revert_pr_from_tag] fallback to repo.get_tags() for %s", tag_name
+                )
                 for t in repo.get_tags():
                     if t.name == tag_name:
                         try:
                             commit = repo.get_commit(t.commit.sha)
                             tag_tree_sha = commit.commit.tree.sha
-                            logger.info("[create_revert_pr_from_tag] fallback resolved tree=%s via commit=%s", tag_tree_sha, t.commit.sha)
+                            logger.info(
+                                "[create_revert_pr_from_tag] fallback resolved tree=%s via commit=%s",
+                                tag_tree_sha,
+                                t.commit.sha,
+                            )
                         except Exception as inner_e:
-                            logger.exception("[create_revert_pr_from_tag] fallback resolving tag failed: %s", inner_e)
+                            logger.exception(
+                                "[create_revert_pr_from_tag] fallback resolving tag failed: %s",
+                                inner_e,
+                            )
                         break
             if not tag_tree_sha:
                 await query.edit_message_text("❌ לא נמצאה התגית המבוקשת")
@@ -4751,13 +5151,19 @@ class GitHubMenuHandler:
             work_branch = safe_branch
             try:
                 base_sha = repo.get_branch(base_branch).commit.sha
-                logger.info("[create_revert_pr_from_tag] creating work branch=%s from base_sha=%s", work_branch, base_sha)
+                logger.info(
+                    "[create_revert_pr_from_tag] creating work branch=%s from base_sha=%s",
+                    work_branch,
+                    base_sha,
+                )
                 repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
             except GithubException as gbe:
-                if getattr(gbe, 'status', None) == 422:
+                if getattr(gbe, "status", None) == 422:
                     work_branch = f"{safe_branch}-{int(time.time())}"
                     base_sha = repo.get_branch(base_branch).commit.sha
-                    logger.info("[create_revert_pr_from_tag] branch exists, retry with %s", work_branch)
+                    logger.info(
+                        "[create_revert_pr_from_tag] branch exists, retry with %s", work_branch
+                    )
                     repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
                 else:
                     raise
@@ -4767,11 +5173,20 @@ class GitHubMenuHandler:
             parent = repo.get_git_commit(base_head)
             new_tree = repo.get_git_tree(tag_tree_sha)
             new_commit_message = f"Restore repository state from tag {tag_name}"
-            logger.info("[create_revert_pr_from_tag] creating git commit on %s with tree=%s parent=%s", work_branch, tag_tree_sha, base_head)
+            logger.info(
+                "[create_revert_pr_from_tag] creating git commit on %s with tree=%s parent=%s",
+                work_branch,
+                tag_tree_sha,
+                base_head,
+            )
             new_commit = repo.create_git_commit(new_commit_message, new_tree, [parent])
             # עדכן את ה-ref של הענף החדש ל-commit החדש
             repo.get_git_ref(f"heads/{work_branch}").edit(new_commit.sha, force=True)
-            logger.info("[create_revert_pr_from_tag] updated ref heads/%s -> %s", work_branch, new_commit.sha)
+            logger.info(
+                "[create_revert_pr_from_tag] updated ref heads/%s -> %s",
+                work_branch,
+                new_commit.sha,
+            )
 
             # פתח PR
             title = f"Restore to checkpoint: {tag_name}"
@@ -4782,7 +5197,7 @@ class GitHubMenuHandler:
             pr = repo.create_pull(title=title, body=body, head=work_branch, base=base_branch)
             kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
             await query.edit_message_text(
-                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{work_branch}</code>",
+                f'✅ נפתח PR: <a href="{pr.html_url}">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{work_branch}</code>',
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(kb),
             )
@@ -4791,8 +5206,8 @@ class GitHubMenuHandler:
             details = None
             try:
                 data = ge.data or {}
-                if isinstance(data, dict) and data.get('message'):
-                    msg = data['message']
+                if isinstance(data, dict) and data.get("message"):
+                    msg = data["message"]
                 details = json.dumps(data, ensure_ascii=False)
             except Exception:
                 pass
@@ -4831,12 +5246,24 @@ class GitHubMenuHandler:
         context.user_data["github_backup_context_repo"] = repo_full
         kb = [
             [InlineKeyboardButton("📦 הורד גיבוי ZIP של הריפו", callback_data="download_zip:")],
-            [InlineKeyboardButton("♻️ שחזר ZIP לריפו (פריסה והחלפה)", callback_data="github_restore_zip_to_repo")],
-            [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
+            [
+                InlineKeyboardButton(
+                    "♻️ שחזר ZIP לריפו (פריסה והחלפה)", callback_data="github_restore_zip_to_repo"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list"
+                )
+            ],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="backup_list")],
-            [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
+            [
+                InlineKeyboardButton(
+                    "♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start"
+                )
+            ],
             [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
         ]
@@ -4871,8 +5298,8 @@ class GitHubMenuHandler:
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
             context.user_data["github_restore_zip_purge"] = purge_flag
             await query.edit_message_text(
-                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ") +
-                "שלח עכשיו קובץ ZIP לשחזור לריפו."
+                ("🧹 יבוצע ניקוי לפני העלאה. " if purge_flag else "🔁 ללא מחיקה. ")
+                + "שלח עכשיו קובץ ZIP לשחזור לריפו."
             )
             return
         elif query.data == "github_restore_zip_list":
@@ -4884,14 +5311,17 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ קודם בחר ריפו!")
                 return
             from file_manager import backup_manager
+
             backups = backup_manager.list_backups(user_id)
             # סנן רק גיבויים עם metadata של אותו ריפו
-            backups = [b for b in backups if getattr(b, 'repo', None) == repo_full]
+            backups = [b for b in backups if getattr(b, "repo", None) == repo_full]
             if not backups:
                 await query.edit_message_text(
                     f"ℹ️ אין גיבויי ZIP שמורים עבור הריפו:\n<code>{repo_full}</code>",
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]])
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")]]
+                    ),
                 )
                 return
             # הצג עד 10 אחרונים
@@ -4899,16 +5329,28 @@ class GitHubMenuHandler:
             lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
             kb = []
             for b in items:
-                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
-                kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
+                lines.append(
+                    f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB"
+                )
+                kb.append(
+                    [
+                        InlineKeyboardButton(
+                            "♻️ שחזר גיבוי זה לריפו",
+                            callback_data=f"github_restore_zip_from_backup:{b.backup_id}",
+                        )
+                    ]
+                )
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
-            await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            await query.edit_message_text(
+                "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+            )
             return
         elif query.data.startswith("github_restore_zip_from_backup:"):
             # קבל backup_id ואז פתח את תהליך השחזור-לריפו עם קובץ ה-ZIP הזה
             backup_id = query.data.split(":", 1)[1]
             user_id = query.from_user.id
             from file_manager import backup_manager
+
             info_list = backup_manager.list_backups(user_id)
             match = next((b for b in info_list if b.backup_id == backup_id), None)
             if not match or not match.file_path or not os.path.exists(match.file_path):
@@ -4918,11 +5360,23 @@ class GitHubMenuHandler:
             context.user_data["pending_repo_restore_zip_path"] = match.file_path
             await query.edit_message_text(
                 "האם למחוק קודם את התוכן בריפו לפני העלאה?",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🧹 מחיקה מלאה לפני העלאה", callback_data="github_repo_restore_backup_setpurge:1")],
-                    [InlineKeyboardButton("🚫 אל תמחק, רק עדכן", callback_data="github_repo_restore_backup_setpurge:0")],
-                    [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
-                ])
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "🧹 מחיקה מלאה לפני העלאה",
+                                callback_data="github_repo_restore_backup_setpurge:1",
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "🚫 אל תמחק, רק עדכן",
+                                callback_data="github_repo_restore_backup_setpurge:0",
+                            )
+                        ],
+                        [InlineKeyboardButton("❌ ביטול", callback_data="github_backup_menu")],
+                    ]
+                ),
             )
             return
         elif query.data.startswith("github_repo_restore_backup_setpurge:"):
@@ -4944,7 +5398,9 @@ class GitHubMenuHandler:
                 context.user_data.pop("pending_repo_restore_zip_path", None)
             return
 
-    async def restore_zip_file_to_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, zip_path: str, purge_first: bool) -> None:
+    async def restore_zip_file_to_repo(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, zip_path: str, purge_first: bool
+    ) -> None:
         """שחזור קבצים מ-ZIP מקומי לריפו הנוכחי באמצעות Trees API (commit אחד)"""
         user_id = update.effective_user.id
         session = self.get_user_session(user_id)
@@ -4955,7 +5411,9 @@ class GitHubMenuHandler:
         # חגורת בטיחות: אשר שהיעד תואם את היעד שננעל בתחילת ה-flow
         expected = context.user_data.get("zip_restore_expected_repo_full")
         if expected and expected != repo_full:
-            logger.critical(f"[restore_zip_from_backup] Target mismatch: expected={expected}, got={repo_full}. Aborting.")
+            logger.critical(
+                f"[restore_zip_from_backup] Target mismatch: expected={expected}, got={repo_full}. Aborting."
+            )
             raise ValueError(f"Target mismatch: expected {expected}, got {repo_full}")
         if not expected:
             try:
@@ -4963,23 +5421,32 @@ class GitHubMenuHandler:
             except Exception:
                 pass
         import zipfile
+
         if not os.path.exists(zip_path) or not zipfile.is_zipfile(zip_path):
             raise RuntimeError("ZIP לא תקין")
-        with zipfile.ZipFile(zip_path, 'r') as zf:
+        with zipfile.ZipFile(zip_path, "r") as zf:
             # סינון קבצי מערכת לא רלוונטיים
-            all_names = [n for n in zf.namelist() if not n.endswith('/')]
-            members = [n for n in all_names if not (n.startswith('__MACOSX/') or n.split('/')[-1].startswith('._'))]
+            all_names = [n for n in zf.namelist() if not n.endswith("/")]
+            members = [
+                n
+                for n in all_names
+                if not (n.startswith("__MACOSX/") or n.split("/")[-1].startswith("._"))
+            ]
             # זיהוי תיקיית-שורש משותפת
             top_levels = set()
             for n in zf.namelist():
-                if '/' in n and not n.startswith('__MACOSX/'):
-                    top_levels.add(n.split('/', 1)[0])
+                if "/" in n and not n.startswith("__MACOSX/"):
+                    top_levels.add(n.split("/", 1)[0])
             common_root = list(top_levels)[0] if len(top_levels) == 1 else None
-            logger.info(f"[restore_zip_from_backup] Detected common_root={common_root!r}, files_in_zip={len(members)}")
+            logger.info(
+                f"[restore_zip_from_backup] Detected common_root={common_root!r}, files_in_zip={len(members)}"
+            )
+
             def strip_root(path: str) -> str:
-                if common_root and path.startswith(common_root + '/'):
-                    return path[len(common_root) + 1:]
+                if common_root and path.startswith(common_root + "/"):
+                    return path[len(common_root) + 1 :]
                 return path
+
             files = []
             for name in members:
                 raw = zf.read(name)
@@ -4989,7 +5456,7 @@ class GitHubMenuHandler:
                 files.append((clean, raw))
         g = Github(token)
         repo = g.get_repo(repo_full)
-        target_branch = repo.default_branch or 'main'
+        target_branch = repo.default_branch or "main"
         base_ref = repo.get_git_ref(f"heads/{target_branch}")
         base_commit = repo.get_git_commit(base_ref.object.sha)
         base_tree = base_commit.tree
@@ -4997,29 +5464,53 @@ class GitHubMenuHandler:
         for path, raw in files:
             # כתוב blob מתאים: טקסט כ-utf-8, בינארי כ-base64
             import base64
-            is_text = any(path.lower().endswith(ext) for ext in (
-                '.md', '.txt', '.json', '.yml', '.yaml', '.xml', '.gitignore', '.py', '.js', '.ts', '.tsx', '.css', '.scss', '.html', '.sh'
-            ))
+
+            is_text = any(
+                path.lower().endswith(ext)
+                for ext in (
+                    ".md",
+                    ".txt",
+                    ".json",
+                    ".yml",
+                    ".yaml",
+                    ".xml",
+                    ".gitignore",
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".tsx",
+                    ".css",
+                    ".scss",
+                    ".html",
+                    ".sh",
+                )
+            )
             try:
                 if is_text:
-                    content = raw.decode('utf-8')
-                    blob = repo.create_git_blob(content, 'utf-8')
+                    content = raw.decode("utf-8")
+                    blob = repo.create_git_blob(content, "utf-8")
                 else:
-                    b64 = base64.b64encode(raw).decode('ascii')
-                    blob = repo.create_git_blob(b64, 'base64')
+                    b64 = base64.b64encode(raw).decode("ascii")
+                    blob = repo.create_git_blob(b64, "base64")
             except Exception:
-                b64 = base64.b64encode(raw).decode('ascii')
-                blob = repo.create_git_blob(b64, 'base64')
-            elements.append(InputGitTreeElement(path=path, mode='100644', type='blob', sha=blob.sha))
+                b64 = base64.b64encode(raw).decode("ascii")
+                blob = repo.create_git_blob(b64, "base64")
+            elements.append(
+                InputGitTreeElement(path=path, mode="100644", type="blob", sha=blob.sha)
+            )
         if purge_first:
             # Soft purge: יצירת עץ חדש ללא בסיס (מוחק קבצים שאינם ב-ZIP)
             new_tree = repo.create_git_tree(elements)
         else:
             new_tree = repo.create_git_tree(elements, base_tree)
-        commit_message = f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
+        commit_message = (
+            f"Restore from ZIP via bot: replace {'with purge' if purge_first else 'update only'}"
+        )
         new_commit = repo.create_git_commit(commit_message, new_tree, [base_commit])
         base_ref.edit(new_commit.sha)
-        logger.info(f"[restore_zip_from_backup] Restore commit created: {new_commit.sha}, files_added={len(elements)}, purge={purge_first}")
+        logger.info(
+            f"[restore_zip_from_backup] Restore commit created: {new_commit.sha}, files_added={len(elements)}, purge={purge_first}"
+        )
         # ניקוי סטייט הגנה אחרי הצלחה
         try:
             context.user_data.pop("zip_restore_expected_repo_full", None)
