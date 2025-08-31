@@ -278,24 +278,22 @@ class CodeKeeperBot:
             self.application.add_handler(self._maintenance_callback_handler, group=-100)
             logger.warning("MAINTENANCE_MODE is ON — all updates will receive maintenance message")
             # אל תחסום לגמרי: לאחר warmup אוטומטי, הסר תחזוקה (ללא Redeploy)
-            async def _auto_clear_maintenance(app: Application):
-                try:
-                    await asyncio.sleep(max(1, int(config.MAINTENANCE_AUTO_WARMUP_SECS)))
-                    # הסרה רכה: מחיקה של ה-handlers של תחזוקה בלבד
+            # Schedule removing maintenance handlers via JobQueue instead of create_task
+            try:
+                warmup_secs = max(1, int(config.MAINTENANCE_AUTO_WARMUP_SECS))
+                def _clear_handlers_cb(context: ContextTypes.DEFAULT_TYPE):
                     try:
+                        app = self.application
                         if getattr(self, "_maintenance_message_handler", None) is not None:
                             app.remove_handler(self._maintenance_message_handler, group=-100)
-                    except Exception:
-                        pass
-                    try:
                         if getattr(self, "_maintenance_callback_handler", None) is not None:
                             app.remove_handler(self._maintenance_callback_handler, group=-100)
+                        logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
                     except Exception:
                         pass
-                    logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
-                except Exception:
-                    pass
-            self.application.create_task(_auto_clear_maintenance(self.application))
+                self.application.job_queue.run_once(lambda ctx: _clear_handlers_cb(ctx), when=warmup_secs)
+            except Exception:
+                pass
             # ממשיכים לרשום את שאר ה-handlers כדי שיקלטו אוטומטית אחרי ה-warmup
 
         # ספור את ה-handlers
