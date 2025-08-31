@@ -2203,7 +2203,7 @@ class GitHubMenuHandler:
 
                     token = self.get_user_token(user_id) or os.environ.get("GITHUB_TOKEN")
 
-                    g = Github(token)
+                    g = Github(token) if token else Github(None)
 
                     # בדוק rate limit לפני הבקשה
                     logger.info(f"[GitHub API] Checking rate limit before file upload")
