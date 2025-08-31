@@ -248,6 +248,46 @@ def _date_path() -> str:
     return f"{now.year:04d}/{now.month:02d}-{now.day:02d}"
 
 
+def _date_str_ddmmyyyy() -> str:
+    now = _now_utc()
+    return f"{now.day:02d}-{now.month:02d}-{now.year:04d}"
+
+
+def _next_version(user_id: int, key: str) -> int:
+    prefs = db.get_drive_prefs(user_id) or {}
+    counters = dict(prefs.get("drive_version_counters") or {})
+    current = int(counters.get(key, 0) or 0) + 1
+    counters[key] = current
+    db.save_drive_prefs(user_id, {"drive_version_counters": counters})
+    return current
+
+
+def _category_label(category: str) -> str:
+    mapping = {
+        "zip": "קבצי_ZIP",
+        "all": "הכל",
+        "by_repo": "לפי_ריפו",
+        "large": "קבצים_גדולים",
+        "other": "שאר_קבצים",
+    }
+    return mapping.get(category, category)
+
+
+def compute_subpath(category: str, repo_name: Optional[str] = None) -> str:
+    base = _category_label(category)
+    if category == "by_repo" and repo_name:
+        return f"{base}/{repo_name}/{_date_path()}"
+    return f"{base}/{_date_path()}"
+
+
+def compute_friendly_name(user_id: int, category: str, entity_name: str) -> str:
+    label = _category_label(category)
+    date_str = _date_str_ddmmyyyy()
+    key = f"{category}:{entity_name}"
+    v = _next_version(user_id, key)
+    return f"BKP_{label}_{entity_name}_v{v}_{date_str}.zip"
+
+
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
     if not service:
@@ -282,20 +322,10 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 continue
             with open(path, "rb") as f:
                 data = f.read()
-            # Build nicer filename and categorize subfolders
-            created_at = getattr(b, 'created_at', None)
-            try:
-                ts = created_at.strftime('%Y-%m-%d_%H-%M') if created_at else None
-            except Exception:
-                ts = None
-            repo_name = getattr(b, 'repo', None)
-            if repo_name:
-                sub_path = f"לפי ריפו/{repo_name}/{_date_path()}"
-                base = f"{repo_name}_{ts}" if ts else f"{repo_name}"
-            else:
-                sub_path = f"קבצי ZIP/{_date_path()}"
-                base = f"zip_{ts}" if ts else (getattr(b, 'backup_id', 'backup') or 'backup')
-            fname = f"{base}.zip"
+            # Friendly filename + subpath (קבצי_ZIP/...)
+            entity = "CodeBot"
+            fname = compute_friendly_name(user_id, "zip", entity)
+            sub_path = compute_subpath("zip")
             fid = upload_bytes(user_id, filename=fname, data=data, sub_path=sub_path)
             if fid:
                 uploaded += 1
@@ -303,6 +333,36 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
         except Exception:
             continue
     return uploaded, ids
+
+
+def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
+    """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes)."""
+    from database import db as _db
+    import zipfile
+    files = _db.get_user_files(user_id, limit=10000) or []
+    repo_to_files: Dict[str, List[Dict[str, Any]]] = {}
+    for doc in files:
+        tags = doc.get('tags') or []
+        repo_tag = None
+        for t in tags:
+            if isinstance(t, str) and t.startswith('repo:'):
+                repo_tag = t.split(':', 1)[1]
+                break
+        if not repo_tag:
+            continue
+        repo_to_files.setdefault(repo_tag, []).append(doc)
+    results: List[Tuple[str, str, bytes]] = []
+    for repo, docs in repo_to_files.items():
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for d in docs:
+                name = d.get('file_name') or f"file_{d.get('_id')}"
+                code = d.get('code') or ''
+                zf.writestr(name, code)
+        buf.seek(0)
+        fname = compute_friendly_name(user_id, "by_repo", repo)
+        results.append((repo, fname, buf.getvalue()))
+    return results
 
 
 def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[str, bytes]:
