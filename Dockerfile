@@ -3,7 +3,7 @@
 # ===================================
 
 # שלב 1: Build stage (wheel build if needed)
-FROM python:3.11-alpine3.20 AS builder
+FROM python:3.12-alpine3.20 AS builder
 
 # מידע על התמונה
 LABEL maintainer="Code Keeper Bot Team"
@@ -43,7 +43,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt -c constraints.txt --r
 
 ######################################
 # שלב 2: Production stage (Alpine)
-FROM python:3.11-alpine3.20 AS production
+FROM python:3.12-alpine3.20 AS production
 
 # משתני סביבה לייצור
 ENV PYTHONUNBUFFERED=1
