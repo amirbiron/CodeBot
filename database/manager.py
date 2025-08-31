@@ -35,7 +35,6 @@ class DatabaseManager:
                 retryReads=True,
                 tz_aware=True,
                 tzinfo=timezone.utc,
-                connect=False,
             )
             self.db = self.client[config.DATABASE_NAME]
             self.collection = self.db.code_snippets
