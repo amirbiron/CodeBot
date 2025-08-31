@@ -518,7 +518,6 @@ class GitHubMenuHandler:
                 target_path = f"{target_folder}/{inner_path}" if target_folder else inner_path
                 import re as _re
                 target_path = _re.sub(r"/+", "/", target_path.strip("/"))
-                from github import Github
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 branch = context.user_data.get("upload_target_branch") or repo.default_branch or "main"
@@ -591,7 +590,6 @@ class GitHubMenuHandler:
                 import re as _re
                 target_path = _re.sub(r"/+", "/", target_path.strip("/"))
                 # בצע יצירה/עדכון
-                from github import Github
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 branch = context.user_data.get("upload_target_branch") or repo.default_branch or "main"
