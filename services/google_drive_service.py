@@ -303,48 +303,6 @@ def compute_friendly_name(user_id: int, category: str, entity_name: str, rating:
     if emoji:
         return f"BKP {label} {entity_name} v{v} {emoji} - {date_str}.zip"
     return f"BKP {label} {entity_name} v{v} - {date_str}.zip"
-
-
-def _date_str_ddmmyyyy() -> str:
-    now = _now_utc()
-    return f"{now.day:02d}-{now.month:02d}-{now.year:04d}"
-
-
-def _next_version(user_id: int, key: str) -> int:
-    prefs = db.get_drive_prefs(user_id) or {}
-    counters = dict(prefs.get("drive_version_counters") or {})
-    current = int(counters.get(key, 0) or 0) + 1
-    counters[key] = current
-    db.save_drive_prefs(user_id, {"drive_version_counters": counters})
-    return current
-
-
-def _category_label(category: str) -> str:
-    mapping = {
-        "zip": "קבצי_ZIP",
-        "all": "הכל",
-        "by_repo": "לפי_ריפו",
-        "large": "קבצים_גדולים",
-        "other": "שאר_קבצים",
-    }
-    return mapping.get(category, category)
-
-
-def compute_subpath(category: str, repo_name: Optional[str] = None) -> str:
-    base = _category_label(category)
-    if category == "by_repo" and repo_name:
-        return f"{base}/{repo_name}/{_date_path()}"
-    return f"{base}/{_date_path()}"
-
-
-def compute_friendly_name(user_id: int, category: str, entity_name: str) -> str:
-    label = _category_label(category)
-    date_str = _date_str_ddmmyyyy()
-    key = f"{category}:{entity_name}"
-    v = _next_version(user_id, key)
-    return f"BKP_{label}_{entity_name}_v{v}_{date_str}.zip"
-
-
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
     if not service:
