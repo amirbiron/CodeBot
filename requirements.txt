@@ -125,5 +125,5 @@ wheel
 # Documentation
 sphinx==7.4.7  # Last version supporting Python 3.9
 sphinx-rtd-theme==2.0.0
-sphinx-autodoc-typehints==2.5.0
+sphinx-autodoc-typehints==1.25.3  # Last version compatible with Sphinx 7.x
 sphinxcontrib-napoleon==0.7
