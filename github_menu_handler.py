@@ -149,7 +149,7 @@ class GitHubMenuHandler:
 
         self.last_api_call[user_id] = time.time()
 
-    def get_user_token(self, user_id: int) -> str:
+    def get_user_token(self, user_id: int) -> Optional[str]:
         """מקבל טוקן של משתמש - מהסשן או מהמסד נתונים"""
         session = self.get_user_session(user_id)
 
@@ -1524,7 +1524,8 @@ class GitHubMenuHandler:
             try:
                 await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
                 import tempfile, requests, zipfile
-                g = Github(self.get_user_token(user_id))
+                token_opt = self.get_user_token(user_id)
+                g = Github(token_opt) if token_opt else Github(None)
                 repo_full = session.get("selected_repo")
                 if not repo_full:
                     await query.edit_message_text("❌ קודם בחר ריפו!")
@@ -2057,7 +2058,12 @@ class GitHubMenuHandler:
 
             # התחבר ל-GitHub
 
-            g = Github(self.get_user_token(user_id))
+            token_opt = self.get_user_token(user_id)
+            g = Github(token_opt) if token_opt else Github(None)
+            token_opt = self.get_user_token(user_id)
+            g = Github(token_opt) if token_opt else Github(None)
+            token_opt = self.get_user_token(user_id)
+            g = Github(token_opt) if token_opt else Github(None)
 
             # בדוק rate limit לפני הבקשה
             logger.info(f"[GitHub API] Checking rate limit before uploading file")
