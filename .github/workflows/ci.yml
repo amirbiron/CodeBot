@@ -42,7 +42,7 @@ jobs:
       - name: 🔡 Import Sort Check (isort)
         run: isort --check-only --diff . || true
       - name: 🏷️ Type Check (MyPy)
-        run: mypy . --ignore-missing-imports || true
+        run: mypy . --disable-error-code=all --enable-error-code=attr-defined,return-value --ignore-missing-imports
       - name: 🔒 Security Scan (Bandit)
         run: bandit -q -r . || true
       - name: 🛡️ Dependency Check (Safety)
