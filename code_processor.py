@@ -743,10 +743,10 @@ class CodeProcessor:
             logger.error(f"שגיאה בניתוח קוד: {e}")
             return {'error': str(e)}
     
-    def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, str]]:
+    def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, Any]]:
         """חילוץ רשימת פונקציות מהקוד"""
         
-        functions: List[Dict[str, str]] = []
+        functions: List[Dict[str, Any]] = []
         
         patterns = {
             'python': r'def\s+(\w+)\s*\([^)]*\)\s*:',

@@ -1874,9 +1874,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 if not match or not match.file_path or not os.path.exists(match.file_path):
                     await query.answer("❌ הגיבוי לא נמצא בדיסק", show_alert=True)
                 else:
-                    with open(match.file_path, 'rb') as f:
+                    with open(match.file_path, 'rb') as fh:
                         await query.message.reply_document(
-                            document=f,
+                            document=fh,
                             filename=os.path.basename(match.file_path),
                             caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
                         )
