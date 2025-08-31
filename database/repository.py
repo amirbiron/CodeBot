@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from bson import ObjectId
 
 from cache_manager import cache, cached
+
 from .manager import DatabaseManager
 from .models import CodeSnippet, LargeFile
 
@@ -22,12 +23,13 @@ class Repository:
         try:
             existing = self.get_latest_version(snippet.user_id, snippet.file_name)
             if existing:
-                snippet.version = existing['version'] + 1
+                snippet.version = existing["version"] + 1
             snippet.updated_at = datetime.now(timezone.utc)
             result = self.manager.collection.insert_one(asdict(snippet))
             if result.inserted_id:
                 cache.invalidate_user_cache(snippet.user_id)
                 from autocomplete_manager import autocomplete
+
                 autocomplete.invalidate_cache(snippet.user_id)
                 return True
             return False
@@ -67,10 +69,12 @@ class Repository:
 
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict]:
         try:
-            return list(self.manager.collection.find(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
-                sort=[("version", -1)],
-            ))
+            return list(
+                self.manager.collection.find(
+                    {"user_id": user_id, "file_name": file_name, "is_active": True},
+                    sort=[("version", -1)],
+                )
+            )
         except Exception as e:
             logger.error(f"שגיאה בקבלת כל הגרסאות: {e}")
             return []
@@ -101,7 +105,14 @@ class Repository:
             return []
 
     @cached(expire_seconds=300, key_prefix="search_code")
-    def search_code(self, user_id: int, query: str, programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
+    def search_code(
+        self,
+        user_id: int,
+        query: str,
+        programming_language: str = None,
+        tags: List[str] = None,
+        limit: int = 20,
+    ) -> List[Dict]:
         try:
             search_filter: Dict[str, Any] = {"user_id": user_id, "is_active": True}
             if query:
@@ -156,24 +167,28 @@ class Repository:
         try:
             pipeline = [
                 {"$match": {"user_id": user_id, "is_active": True}},
-                {"$group": {
-                    "_id": "$file_name",
-                    "versions": {"$sum": 1},
-                    "programming_language": {"$first": "$programming_language"},
-                    "latest_update": {"$max": "$updated_at"},
-                }},
-                {"$group": {
-                    "_id": None,
-                    "total_files": {"$sum": 1},
-                    "total_versions": {"$sum": "$versions"},
-                    "languages": {"$addToSet": "$programming_language"},
-                    "latest_activity": {"$max": "$latest_update"},
-                }},
+                {
+                    "$group": {
+                        "_id": "$file_name",
+                        "versions": {"$sum": 1},
+                        "programming_language": {"$first": "$programming_language"},
+                        "latest_update": {"$max": "$updated_at"},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total_files": {"$sum": 1},
+                        "total_versions": {"$sum": "$versions"},
+                        "languages": {"$addToSet": "$programming_language"},
+                        "latest_activity": {"$max": "$latest_update"},
+                    }
+                },
             ]
             result = list(self.manager.collection.aggregate(pipeline))
             if result:
                 stats = result[0]
-                stats.pop('_id', None)
+                stats.pop("_id", None)
                 return stats
             return {"total_files": 0, "total_versions": 0, "languages": [], "latest_activity": None}
         except Exception as e:
@@ -223,15 +238,21 @@ class Repository:
             logger.error(f"שגיאה בקבלת קובץ גדול לפי ID: {e}")
             return None
 
-    def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict], int]:
+    def get_user_large_files(
+        self, user_id: int, page: int = 1, per_page: int = 8
+    ) -> Tuple[List[Dict], int]:
         try:
             skip = (page - 1) * per_page
-            total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "is_active": True})
+            total_count = self.manager.large_files_collection.count_documents(
+                {"user_id": user_id, "is_active": True}
+            )
             files = list(
                 self.manager.large_files_collection.find(
                     {"user_id": user_id, "is_active": True},
                     sort=[("created_at", -1)],
-                ).skip(skip).limit(per_page)
+                )
+                .skip(skip)
+                .limit(per_page)
             )
             return files, int(total_count)
         except Exception as e:
@@ -270,13 +291,16 @@ class Repository:
     def save_github_token(self, user_id: int, token: str) -> bool:
         try:
             from secret_manager import encrypt_secret
+
             enc = encrypt_secret(token)
             stored = enc if enc else token
             users_collection = self.manager.db.users
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {"$set": {"github_token": stored, "updated_at": datetime.now(timezone.utc)},
-                 "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+                {
+                    "$set": {"github_token": stored, "updated_at": datetime.now(timezone.utc)},
+                    "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+                },
                 upsert=True,
             )
             return bool(result.acknowledged)
@@ -292,6 +316,7 @@ class Repository:
                 stored = user["github_token"]
                 try:
                     from secret_manager import decrypt_secret
+
                     dec = decrypt_secret(stored)
                     return dec if dec else stored
                 except Exception:
@@ -306,21 +331,25 @@ class Repository:
             users_collection = self.manager.db.users
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {"$unset": {"github_token": ""}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+                {
+                    "$unset": {"github_token": ""},
+                    "$set": {"updated_at": datetime.now(timezone.utc)},
+                },
             )
             return bool(result.acknowledged)
         except Exception as e:
             logger.error(f"שגיאה במחיקת טוקן GitHub: {e}")
             return False
 
-        
     def save_selected_repo(self, user_id: int, repo_name: str) -> bool:
         try:
             users_collection = self.manager.db.users
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {"$set": {"selected_repo": repo_name, "updated_at": datetime.now(timezone.utc)},
-                 "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+                {
+                    "$set": {"selected_repo": repo_name, "updated_at": datetime.now(timezone.utc)},
+                    "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+                },
                 upsert=True,
             )
             return bool(result.acknowledged)
@@ -344,8 +373,14 @@ class Repository:
             users_collection = self.manager.db.users
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {"$setOnInsert": {"user_id": user_id, "username": username, "created_at": datetime.now(timezone.utc)},
-                 "$set": {"last_activity": datetime.now(timezone.utc)}},
+                {
+                    "$setOnInsert": {
+                        "user_id": user_id,
+                        "username": username,
+                        "created_at": datetime.now(timezone.utc),
+                    },
+                    "$set": {"last_activity": datetime.now(timezone.utc)},
+                },
                 upsert=True,
             )
             return bool(result.acknowledged)
@@ -369,8 +404,10 @@ class Repository:
             }
             coll.update_one(
                 {"user_id": user_id, "backup_id": backup_id},
-                {"$set": {"rating": rating, "updated_at": datetime.now(timezone.utc)},
-                 "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+                {
+                    "$set": {"rating": rating, "updated_at": datetime.now(timezone.utc)},
+                    "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+                },
                 upsert=True,
             )
             return True
@@ -401,4 +438,3 @@ class Repository:
         except Exception as e:
             logger.error(f"Failed to delete backup ratings: {e}")
             return 0
-

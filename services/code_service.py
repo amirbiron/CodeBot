@@ -89,4 +89,3 @@ def highlight_code(code: str, language: str) -> str:
     if code_processor is None:
         return code
     return code_processor.highlight_code(code, language)
-

@@ -1,9 +1,9 @@
 import logging
 import re
-from io import BytesIO
 from datetime import datetime, timezone
-from typing import List, Optional
 from html import escape as html_escape
+from io import BytesIO
+from typing import List, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -19,6 +19,7 @@ def _get_main_keyboard() -> list:
     """Return main keyboard layout from conversation handlers or an empty fallback."""
     try:
         from conversation_handlers import MAIN_KEYBOARD
+
         return MAIN_KEYBOARD
     except Exception:
         return [[]]
@@ -29,14 +30,14 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[1]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[1]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ החכם")
             return ConversationHandler.END
-        file_name = file_data.get('file_name', 'קובץ מיסתורי')
-        language = file_data.get('programming_language', 'לא ידועה')
+        file_name = file_data.get("file_name", "קובץ מיסתורי")
+        language = file_data.get("programming_language", "לא ידועה")
         keyboard = [
             [
                 InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
@@ -55,17 +56,17 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}"),
             ],
         ]
-        last_page = context.user_data.get('files_last_page')
-        origin = context.user_data.get('files_origin') or {}
-        if origin.get('type') == 'by_repo' and origin.get('tag'):
+        last_page = context.user_data.get("files_last_page")
+        origin = context.user_data.get("files_origin") or {}
+        if origin.get("type") == "by_repo" and origin.get("tag"):
             back_cb = f"by_repo:{origin.get('tag')}"
-        elif origin.get('type') == 'regular':
+        elif origin.get("type") == "regular":
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
             back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        note = file_data.get('description') or ''
+        note = file_data.get("description") or ""
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         await query.edit_message_text(
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -73,7 +74,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"🧠 **שפה:** {language}{note_line}"
             f"🎮 בחר פעולה מתקדמת:",
             reply_markup=reply_markup,
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
     except Exception as e:
         logger.error(f"Error in handle_file_menu: {e}")
@@ -86,23 +87,27 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[1]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[1]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
             return ConversationHandler.END
-        file_name = file_data.get('file_name', 'קובץ')
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        version = file_data.get('version', 1)
+        file_name = file_data.get("file_name", "קובץ")
+        code = file_data.get("code", "")
+        language = file_data.get("programming_language", "text")
+        version = file_data.get("version", 1)
         max_length = 3500
-        code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
-        last_page = context.user_data.get('files_last_page')
-        origin = context.user_data.get('files_origin') or {}
-        if origin.get('type') == 'by_repo' and origin.get('tag'):
+        code_preview = (
+            code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]"
+            if len(code) > max_length
+            else code
+        )
+        last_page = context.user_data.get("files_last_page")
+        origin = context.user_data.get("files_origin") or {}
+        if origin.get("type") == "by_repo" and origin.get("tag"):
             back_cb = f"by_repo:{origin.get('tag')}"
-        elif origin.get('type') == 'regular':
+        elif origin.get("type") == "regular":
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
             back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
@@ -122,13 +127,13 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        note = file_data.get('description') or ''
+        note = file_data.get("description") or ""
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
         await query.edit_message_text(
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
     except Exception as e:
         logger.error(f"Error in handle_view_file: {e}")
@@ -140,36 +145,41 @@ async def handle_edit_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[2]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[2]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        context.user_data['editing_file_index'] = file_index
-        context.user_data['editing_file_data'] = file_data
-        file_name = file_data.get('file_name', 'קובץ')
+        context.user_data["editing_file_index"] = file_index
+        context.user_data["editing_file_data"] = file_data
+        file_name = file_data.get("file_name", "קובץ")
         await query.edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
-            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]
+            ),
+            parse_mode="Markdown",
         )
         return EDIT_CODE
     except Exception as e:
         logger.error(f"Error in handle_edit_code: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכה\n\n🔄 אנא נסה שוב או חזור לתפריט הראשי\n📞 אם הבעיה נמשכת, פנה לתמיכה")
+        await query.edit_message_text(
+            "❌ שגיאה בהתחלת עריכה\n\n🔄 אנא נסה שוב או חזור לתפריט הראשי\n📞 אם הבעיה נמשכת, פנה לתמיכה"
+        )
     return ConversationHandler.END
 
 
 async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if context.user_data.get('editing_note_file'):
-        note_text = (update.message.text or '').strip()
-        file_name = context.user_data.pop('editing_note_file')
+    if context.user_data.get("editing_note_file"):
+        note_text = (update.message.text or "").strip()
+        file_name = context.user_data.pop("editing_note_file")
         user_id = update.effective_user.id
         try:
-            from database import db, CodeSnippet
+            from database import CodeSnippet, db
+
             doc = db.get_latest_version(user_id, file_name)
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
@@ -177,15 +187,23 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             snippet = CodeSnippet(
                 user_id=user_id,
                 file_name=file_name,
-                code=doc.get('code', ''),
-                programming_language=doc.get('programming_language', 'text'),
-                description=("" if note_text.lower() == 'מחק' else note_text)[:280],
+                code=doc.get("code", ""),
+                programming_language=doc.get("programming_language", "text"),
+                description=("" if note_text.lower() == "מחק" else note_text)[:280],
             )
             ok = db.save_code_snippet(snippet)
             if ok:
                 await update.message.reply_text(
                     "✅ הערה עודכנה בהצלחה!",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🔙 חזרה", callback_data=f"view_direct_{file_name}"
+                                )
+                            ]
+                        ]
+                    ),
                 )
             else:
                 await update.message.reply_text("❌ שגיאה בעדכון ההערה")
@@ -195,29 +213,38 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     new_code = update.message.text
-    editing_large_file = context.user_data.get('editing_large_file')
+    editing_large_file = context.user_data.get("editing_large_file")
     if editing_large_file:
         try:
             user_id = update.effective_user.id
-            file_name = editing_large_file['file_name']
+            file_name = editing_large_file["file_name"]
             from utils import detect_language_from_filename
+
             language = detect_language_from_filename(file_name)
             from database import LargeFile, db
+
             updated_file = LargeFile(
                 user_id=user_id,
                 file_name=file_name,
                 content=new_code,
                 programming_language=language,
-                file_size=len(new_code.encode('utf-8')),
-                lines_count=len(new_code.split('\n')),
+                file_size=len(new_code.encode("utf-8")),
+                lines_count=len(new_code.split("\n")),
             )
             success = db.save_large_file(updated_file)
             if success:
                 from utils import get_language_emoji
+
                 emoji = get_language_emoji(language)
-                keyboard = [[InlineKeyboardButton("📚 חזרה לקבצים גדולים", callback_data="show_large_files")]]
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "📚 חזרה לקבצים גדולים", callback_data="show_large_files"
+                        )
+                    ]
+                ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                lines_count = len(new_code.split('\n'))
+                lines_count = len(new_code.split("\n"))
                 await update.message.reply_text(
                     f"✅ **הקובץ הגדול עודכן בהצלחה!**\n\n"
                     f"📄 **קובץ:** `{file_name}`\n"
@@ -225,9 +252,9 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     f"💾 **גודל חדש:** {len(new_code):,} תווים\n"
                     f"📏 **שורות:** {lines_count:,}",
                     reply_markup=reply_markup,
-                    parse_mode='Markdown',
+                    parse_mode="Markdown",
                 )
-                context.user_data.pop('editing_large_file', None)
+                context.user_data.pop("editing_large_file", None)
             else:
                 await update.message.reply_text("❌ שגיאה בעדכון הקובץ הגדול")
             return ConversationHandler.END
@@ -236,30 +263,34 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text("❌ שגיאה בעדכון הקובץ")
             return ConversationHandler.END
 
-    file_data = context.user_data.get('editing_file_data')
+    file_data = context.user_data.get("editing_file_data")
     if not file_data:
         await update.message.reply_text("❌ שגיאה בנתוני הקובץ")
         return ConversationHandler.END
     try:
         user_id = update.effective_user.id
-        file_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
-        editing_file_index = context.user_data.get('editing_file_index')
-        files_cache = context.user_data.get('files_cache')
-        is_valid, cleaned_code, error_message = code_service.validate_code_input(new_code, file_name, user_id)
+        file_name = context.user_data.get("editing_file_name") or file_data.get("file_name")
+        editing_file_index = context.user_data.get("editing_file_index")
+        files_cache = context.user_data.get("files_cache")
+        is_valid, cleaned_code, error_message = code_service.validate_code_input(
+            new_code, file_name, user_id
+        )
         if not is_valid:
             await update.message.reply_text(
-                f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n"
-                f"💡 אנא וודא שהקוד תקין ונסה שוב.",
+                f"❌ שגיאה בקלט הקוד:\n{error_message}\n\n" f"💡 אנא וודא שהקוד תקין ונסה שוב.",
                 reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
             )
             return EDIT_CODE
         detected_language = code_service.detect_language(cleaned_code, file_name)
         from database import db
+
         success = db.save_file(user_id, file_name, cleaned_code, detected_language)
         if success:
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=f"view_direct_{file_name}"),
+                    InlineKeyboardButton(
+                        "👁️ הצג קוד מעודכן", callback_data=f"view_direct_{file_name}"
+                    ),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}"),
                 ],
                 [
@@ -269,15 +300,20 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             from database import db as _db
+
             updated_file = _db.get_latest_version(user_id, file_name)
-            version_num = updated_file.get('version', 1) if updated_file else 1
+            version_num = updated_file.get("version", 1) if updated_file else 1
             try:
-                if files_cache is not None and editing_file_index is not None and str(editing_file_index) in files_cache:
+                if (
+                    files_cache is not None
+                    and editing_file_index is not None
+                    and str(editing_file_index) in files_cache
+                ):
                     entry = files_cache[str(editing_file_index)]
-                    entry['code'] = cleaned_code
-                    entry['programming_language'] = detected_language
-                    entry['version'] = version_num
-                    entry['updated_at'] = datetime.now(timezone.utc)
+                    entry["code"] = cleaned_code
+                    entry["programming_language"] = detected_language
+                    entry["version"] = version_num
+                    entry["updated_at"] = datetime.now(timezone.utc)
             except Exception as e:
                 logger.warning(f"Failed to refresh files_cache after edit: {e}")
             await update.message.reply_text(
@@ -287,7 +323,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 f"📝 **גרסה:** {version_num} (עודכן מהגרסה הקודמת)\n"
                 f"💾 **הקובץ הקיים עודכן עם השינויים החדשים!**",
                 reply_markup=reply_markup,
-                parse_mode='Markdown',
+                parse_mode="Markdown",
             )
         else:
             await update.message.reply_text(
@@ -299,12 +335,12 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text(
             "❌ שגיאה בעדכון הקוד\n\n📝 **פרטים:** פרטי השגיאה לא זמינים\n🔄 אנא נסה שוב או פנה לתמיכה\n🏠 חזרה לתפריט הראשי",
             reply_markup=ReplyKeyboardMarkup(_get_main_keyboard(), resize_keyboard=True),
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
-    preserved_cache = context.user_data.get('files_cache')
+    preserved_cache = context.user_data.get("files_cache")
     context.user_data.clear()
     if preserved_cache is not None:
-        context.user_data['files_cache'] = preserved_cache
+        context.user_data["files_cache"] = preserved_cache
     return ConversationHandler.END
 
 
@@ -312,21 +348,23 @@ async def handle_edit_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[2]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[2]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        context.user_data['editing_file_index'] = file_index
-        context.user_data['editing_file_data'] = file_data
-        current_name = file_data.get('file_name', 'קובץ')
+        context.user_data["editing_file_index"] = file_index
+        context.user_data["editing_file_data"] = file_data
+        current_name = file_data.get("file_name", "קובץ")
         await query.edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{current_name}`\n\n"
             f"✏️ שלח שם חדש לקובץ:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
-            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]
+            ),
+            parse_mode="Markdown",
         )
         return EDIT_NAME
     except Exception as e:
@@ -339,22 +377,24 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[2]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[2]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        file_name = file_data.get('file_name', 'קובץ')
-        current_note = file_data.get('description', '') or '—'
-        context.user_data['editing_note_file'] = file_name
+        file_name = file_data.get("file_name", "קובץ")
+        current_note = file_data.get("description", "") or "—"
+        context.user_data["editing_note_file"] = file_name
         await query.edit_message_text(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
             f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
             f"✏️ שלח/י הערה חדשה (או 'מחק' כדי להסיר)",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
-            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]
+            ),
+            parse_mode="Markdown",
         )
         return EDIT_CODE
     except Exception as e:
@@ -365,11 +405,11 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     new_name = update.message.text.strip()
-    file_data = context.user_data.get('editing_file_data')
+    file_data = context.user_data.get("editing_file_data")
     if not file_data:
         await update.message.reply_text("❌ שגיאה בנתוני הקובץ")
         return ConversationHandler.END
-    if not re.match(r'^[\w\.\-\_]+\.[a-zA-Z0-9]+$', new_name):
+    if not re.match(r"^[\w\.\-\_]+\.[a-zA-Z0-9]+$", new_name):
         await update.message.reply_text(
             "🤔 השם נראה קצת מוזר...\n"
             "💡 נסה שם כמו: `script.py` או `index.html`\n"
@@ -378,8 +418,9 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_NAME
     try:
         user_id = update.effective_user.id
-        old_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
+        old_name = context.user_data.get("editing_file_name") or file_data.get("file_name")
         from database import db
+
         success = db.rename_file(user_id, old_name, new_name)
         if success:
             keyboard = [
@@ -399,7 +440,7 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 f"📄 **שם חדש:** `{new_name}`\n"
                 f"🎉 **הכל מעודכן במערכת!**",
                 reply_markup=reply_markup,
-                parse_mode='Markdown',
+                parse_mode="Markdown",
             )
         else:
             await update.message.reply_text(
@@ -422,53 +463,67 @@ async def handle_versions_history(update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         data = query.data
         file_index: Optional[str] = None
-        files_cache = context.user_data.get('files_cache', {})
+        files_cache = context.user_data.get("files_cache", {})
         if data.startswith("versions_file_"):
             file_name = data.replace("versions_file_", "", 1)
         else:
-            file_index = data.split('_')[1]
+            file_index = data.split("_")[1]
             file_data = files_cache.get(file_index)
             if not file_data:
                 await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
                 return ConversationHandler.END
-            file_name = file_data.get('file_name')
+            file_name = file_data.get("file_name")
         user_id = update.effective_user.id
         from database import db
+
         versions = db.get_all_versions(user_id, file_name)
         if not versions:
             await query.edit_message_text("📚 אין היסטוריית גרסאות לקובץ זה")
             return ConversationHandler.END
-        latest_version_num = versions[0].get('version') if versions and isinstance(versions[0], dict) else None
+        latest_version_num = (
+            versions[0].get("version") if versions and isinstance(versions[0], dict) else None
+        )
         history_text = f"📚 *היסטוריית גרסאות - {file_name}*\n\n"
         keyboard: List[List[InlineKeyboardButton]] = []
         for i, version in enumerate(versions[:5]):
-            created_at = version.get('created_at', 'לא ידוע')
-            version_num = version.get('version', i + 1)
-            code_length = len(version.get('code', ''))
+            created_at = version.get("created_at", "לא ידוע")
+            version_num = version.get("version", i + 1)
+            code_length = len(version.get("code", ""))
             history_text += f"🔹 **גרסה {version_num}**\n"
             history_text += f"   📅 {created_at}\n"
             history_text += f"   📏 {code_length:,} תווים\n\n"
             if latest_version_num is not None and version_num == latest_version_num:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"👁 הצג גרסה {version_num}", callback_data=f"view_version_{version_num}_{file_name}"
-                    )
-                ])
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"👁 הצג גרסה {version_num}",
+                            callback_data=f"view_version_{version_num}_{file_name}",
+                        )
+                    ]
+                )
             else:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"👁 הצג גרסה {version_num}", callback_data=f"view_version_{version_num}_{file_name}"
-                    ),
-                    InlineKeyboardButton(
-                        f"↩️ שחזר לגרסה {version_num}", callback_data=f"revert_version_{version_num}_{file_name}"
-                    ),
-                ])
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"👁 הצג גרסה {version_num}",
+                            callback_data=f"view_version_{version_num}_{file_name}",
+                        ),
+                        InlineKeyboardButton(
+                            f"↩️ שחזר לגרסה {version_num}",
+                            callback_data=f"revert_version_{version_num}_{file_name}",
+                        ),
+                    ]
+                )
         if file_index is not None:
             keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")])
         else:
-            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")])
+            keyboard.append(
+                [InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]
+            )
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(history_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await query.edit_message_text(
+            history_text, reply_markup=reply_markup, parse_mode="Markdown"
+        )
     except Exception as e:
         logger.error(f"Error in handle_versions_history: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת היסטוריה")
@@ -480,31 +535,32 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
     await query.answer()
     try:
         data = query.data
-        files_cache = context.user_data.get('files_cache', {})
+        files_cache = context.user_data.get("files_cache", {})
         file_name: Optional[str] = None
-        code: str = ''
-        if data.startswith('dl_'):
-            file_index = data.split('_')[1]
+        code: str = ""
+        if data.startswith("dl_"):
+            file_index = data.split("_")[1]
             file_data = files_cache.get(file_index)
             if not file_data:
                 await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
                 return ConversationHandler.END
-            file_name = file_data.get('file_name', 'file.txt')
-            code = file_data.get('code', '')
-        elif data.startswith('download_direct_'):
-            file_name = data.replace('download_direct_', '', 1)
+            file_name = file_data.get("file_name", "file.txt")
+            code = file_data.get("code", "")
+        elif data.startswith("download_direct_"):
+            file_name = data.replace("download_direct_", "", 1)
             from database import db
+
             user_id = update.effective_user.id
             latest = db.get_latest_version(user_id, file_name)
             if not latest:
                 await query.edit_message_text("❌ לא נמצאה גרסה אחרונה לקובץ")
                 return ConversationHandler.END
-            code = latest.get('code', '')
+            code = latest.get("code", "")
         else:
             await query.edit_message_text("❌ בקשת הורדה לא חוקית")
             return ConversationHandler.END
         file_bytes = BytesIO()
-        file_bytes.write(code.encode('utf-8'))
+        file_bytes.write(code.encode("utf-8"))
         file_bytes.seek(0)
         await query.message.reply_document(
             document=file_bytes,
@@ -512,17 +568,18 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
             caption=f"📥 *הורדת קובץ*\n\n📄 **שם:** `{file_name}`\n📏 **גודל:** {len(code):,} תווים",
         )
         keyboard = []
-        if data.startswith('dl_'):
-            file_index = data.split('_')[1]
+        if data.startswith("dl_"):
+            file_index = data.split("_")[1]
             keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")])
         else:
-            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")])
+            keyboard.append(
+                [InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]
+            )
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            f"✅ *הקובץ הורד בהצלחה!*\n\n"
-            f"📄 **שם:** `{file_name}`",
+            f"✅ *הקובץ הורד בהצלחה!*\n\n" f"📄 **שם:** `{file_name}`",
             reply_markup=reply_markup,
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
     except Exception as e:
         logger.error(f"Error in handle_download_file: {e}")
@@ -534,17 +591,19 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[1]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[1]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        file_name = file_data.get('file_name', 'קובץ')
-        keyboard = [[
-            InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_del_{file_index}"),
-            InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}"),
-        ]]
+        file_name = file_data.get("file_name", "קובץ")
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_del_{file_index}"),
+                InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}"),
+            ]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"⚠️ *אישור מחיקה*\n\n"
@@ -552,7 +611,7 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
             f"🗑️ האם אתה בטוח שברצונך למחוק את הקובץ?\n"
             f"⚠️ **פעולה זו לא ניתנת לביטול!**",
             reply_markup=reply_markup,
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
     except Exception as e:
         logger.error(f"Error in handle_delete_confirmation: {e}")
@@ -564,15 +623,16 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[2]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[2]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         user_id = update.effective_user.id
-        file_name = file_data.get('file_name')
+        file_name = file_data.get("file_name")
         from database import db
+
         success = db.delete_file(user_id, file_name)
         if success:
             keyboard = [[InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]]
@@ -582,7 +642,7 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 f"📄 **קובץ שנמחק:** `{file_name}`\n"
                 f"🗑️ **הקובץ הוסר לחלוטין מהמערכת**",
                 reply_markup=reply_markup,
-                parse_mode='Markdown',
+                parse_mode="Markdown",
             )
         else:
             await query.edit_message_text(f"❌ שגיאה במחיקת הקובץ `{file_name}`")
@@ -596,18 +656,18 @@ async def handle_file_info(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     try:
-        file_index = query.data.split('_')[1]
-        files_cache = context.user_data.get('files_cache', {})
+        file_index = query.data.split("_")[1]
+        files_cache = context.user_data.get("files_cache", {})
         file_data = files_cache.get(file_index)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        file_name = file_data.get('file_name', 'קובץ')
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'לא ידועה')
-        created_at = file_data.get('created_at', 'לא ידוע')
-        version = file_data.get('version', 1)
-        lines = len(code.split('\n'))
+        file_name = file_data.get("file_name", "קובץ")
+        code = file_data.get("code", "")
+        language = file_data.get("programming_language", "לא ידועה")
+        created_at = file_data.get("created_at", "לא ידוע")
+        version = file_data.get("version", 1)
+        lines = len(code.split("\n"))
         chars = len(code)
         words = len(code.split())
         info_text = (
@@ -623,7 +683,7 @@ async def handle_file_info(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(info_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await query.edit_message_text(info_text, reply_markup=reply_markup, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error in handle_file_info: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת מידע")
@@ -637,15 +697,20 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         file_name = query.data.replace("view_direct_", "")
         user_id = update.effective_user.id
         from database import db
+
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
             await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
             return ConversationHandler.END
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        version = file_data.get('version', 1)
+        code = file_data.get("code", "")
+        language = file_data.get("programming_language", "text")
+        version = file_data.get("version", 1)
         max_length = 3500
-        code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
+        code_preview = (
+            code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]"
+            if len(code) > max_length
+            else code
+        )
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
@@ -662,13 +727,13 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             [InlineKeyboardButton("🔙 לרשימה", callback_data="files")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        note = file_data.get('description') or ''
+        note = file_data.get("description") or ""
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         await query.edit_message_text(
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
@@ -683,18 +748,21 @@ async def handle_edit_code_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         file_name = query.data.replace("edit_code_direct_", "")
         user_id = update.effective_user.id
         from database import db
+
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        context.user_data['editing_file_data'] = file_data
-        context.user_data['editing_file_name'] = file_name
+        context.user_data["editing_file_data"] = file_data
+        context.user_data["editing_file_name"] = file_name
         await query.edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]
+            ),
+            parse_mode="Markdown",
         )
         return EDIT_CODE
     except Exception as e:
@@ -710,18 +778,19 @@ async def handle_edit_name_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         file_name = query.data.replace("edit_name_direct_", "")
         user_id = update.effective_user.id
         from database import db
+
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
-        context.user_data['editing_file_data'] = file_data
-        context.user_data['editing_file_name'] = file_name
+        context.user_data["editing_file_data"] = file_data
+        context.user_data["editing_file_name"] = file_name
         await query.edit_message_text(
-            f"📝 *עריכת שם קובץ*\n\n"
-            f"📄 **שם נוכחי:** `{file_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown',
+            f"📝 *עריכת שם קובץ*\n\n" f"📄 **שם נוכחי:** `{file_name}`\n\n" f"✏️ שלח שם חדש לקובץ:",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]
+            ),
+            parse_mode="Markdown",
         )
         return EDIT_NAME
     except Exception as e:
@@ -737,23 +806,25 @@ async def handle_edit_note_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         file_name = query.data.replace("edit_note_direct_", "")
         user_id = update.effective_user.id
         from database import db
+
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
             await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
             return ConversationHandler.END
-        current_note = file_data.get('description', '') or '—'
-        context.user_data['editing_note_file'] = file_name
+        current_note = file_data.get("description", "") or "—"
+        context.user_data["editing_note_file"] = file_name
         await query.edit_message_text(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
             f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
             f"✏️ שלח/י הערה חדשה (או שלח/י 'מחק' כדי להסיר).",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]
+            ),
+            parse_mode="Markdown",
         )
         return EDIT_CODE
     except Exception as e:
         logger.exception("Error in handle_edit_note_direct: %s", e)
         await query.edit_message_text("❌ שגיאה בעריכת הערה")
     return ConversationHandler.END
-

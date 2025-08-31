@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CodeSnippet:
     """ייצוג קטע קוד הנשמר במסד הנתונים."""
+
     user_id: int
     file_name: str
     code: str
@@ -32,6 +33,7 @@ class CodeSnippet:
 @dataclass
 class LargeFile:
     """ייצוג מסמך עבור קובץ גדול הנשמר במסד הנתונים."""
+
     user_id: int
     file_name: str
     content: str
@@ -52,6 +54,5 @@ class LargeFile:
         if self.updated_at is None:
             self.updated_at = datetime.now(timezone.utc)
         if self.content:
-            self.file_size = len(self.content.encode('utf-8'))
-            self.lines_count = len(self.content.split('\n'))
-
+            self.file_size = len(self.content.encode("utf-8"))
+            self.lines_count = len(self.content.split("\n"))

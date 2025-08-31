@@ -27,4 +27,3 @@ def build_pagination_row(
     if page < total_pages:
         row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"{callback_prefix}{page+1}"))
     return row or None
-

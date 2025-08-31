@@ -1,5 +1,5 @@
-import os
 import base64
+import os
 from typing import Optional
 
 try:
@@ -48,7 +48,7 @@ def decrypt_secret(stored: str) -> Optional[str]:
     f = _get_fernet()
     if not f:
         return None
-    token = stored[len(ENC_PREFIX):].encode("utf-8")
+    token = stored[len(ENC_PREFIX) :].encode("utf-8")
     try:
         return f.decrypt(token).decode("utf-8")
     except InvalidToken:
