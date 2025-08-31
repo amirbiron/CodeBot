@@ -68,6 +68,8 @@ async def run_in_sandbox(command: str, timeout_sec: int = 10, max_output_chars: 
             truncated = True
         if truncated:
             output += "\n\n[פלט קוצר]"
+        # Guard: mypy thinks returncode can be Optional[int]; after communicate it's int
+        assert isinstance(proc.returncode, int)
         return proc.returncode, output
     except asyncio.TimeoutError:
         try:

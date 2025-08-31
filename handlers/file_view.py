@@ -269,8 +269,8 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             from database import db as _db
-            updated_file = _db.get_latest_version(user_id, file_name)
-            version_num = updated_file.get('version', 1) if updated_file else 1
+            last_version = _db.get_latest_version(user_id, file_name)
+            version_num = last_version.get('version', 1) if last_version else 1
             try:
                 if files_cache is not None and editing_file_index is not None and str(editing_file_index) in files_cache:
                     entry = files_cache[str(editing_file_index)]
