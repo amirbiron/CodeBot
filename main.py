@@ -281,7 +281,7 @@ class CodeKeeperBot:
             # Schedule removing maintenance handlers via JobQueue instead of create_task
             try:
                 warmup_secs = max(1, int(config.MAINTENANCE_AUTO_WARMUP_SECS))
-                def _clear_handlers_cb(context: ContextTypes.DEFAULT_TYPE):
+                async def _clear_handlers_cb(context: ContextTypes.DEFAULT_TYPE):
                     try:
                         app = self.application
                         if getattr(self, "_maintenance_message_handler", None) is not None:
@@ -291,7 +291,7 @@ class CodeKeeperBot:
                         logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
                     except Exception:
                         pass
-                self.application.job_queue.run_once(lambda ctx: _clear_handlers_cb(ctx), when=warmup_secs)
+                self.application.job_queue.run_once(_clear_handlers_cb, when=warmup_secs, name="maintenance_clear_handlers")
             except Exception:
                 pass
             # ממשיכים לרשום את שאר ה-handlers כדי שיקלטו אוטומטית אחרי ה-warmup
