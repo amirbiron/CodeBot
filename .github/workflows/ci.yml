@@ -42,7 +42,12 @@ jobs:
       - name: 🔡 Import Sort Check (isort)
         run: isort --check-only --diff . || true
       - name: 🏷️ Type Check (MyPy)
-        run: mypy . --disable-error-code=all --enable-error-code=attr-defined,return-value --ignore-missing-imports
+        run: |
+          mypy . --ignore-missing-imports --show-error-codes | tee mypy-output.txt || true
+          if grep -E '\[(attr-defined|return-value)\]' mypy-output.txt; then
+            echo "Found mypy attr-defined/return-value errors above"
+            exit 1
+          fi
       - name: 🔒 Security Scan (Bandit)
         run: bandit -q -r . || true
       - name: 🛡️ Dependency Check (Safety)
