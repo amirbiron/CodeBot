@@ -1,7 +1,8 @@
 import logging
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
-from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+
+from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel, MongoClient
 
 from config import config
 
@@ -33,7 +34,7 @@ class DatabaseManager:
                 connectTimeoutMS=10000,
                 retryWrites=True,
                 retryReads=True,
-                compressors='zlib',
+                compressors="zlib",
                 zlibCompressionLevel=6,
                 tz_aware=True,
                 tzinfo=timezone.utc,
@@ -42,7 +43,7 @@ class DatabaseManager:
             self.collection = self.db.code_snippets
             self.large_files_collection = self.db.large_files
             self.backup_ratings_collection = self.db.backup_ratings
-            self.client.admin.command('ping')
+            self.client.admin.command("ping")
             self._create_indexes()
             logger.info("התחברות למסד הנתונים הצליחה עם Connection Pooling מתקדם")
         except Exception as e:
@@ -53,6 +54,7 @@ class DatabaseManager:
     def _get_repo(self):
         if self._repo is None:
             from .repository import Repository  # local import to avoid circular dependency
+
             self._repo = Repository(self)
         return self._repo
 
@@ -64,32 +66,50 @@ class DatabaseManager:
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("programming_language", ASCENDING),
-                ("created_at", DESCENDING),
-            ], name="user_lang_date_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("tags", ASCENDING),
-                ("updated_at", DESCENDING),
-            ], name="user_tags_updated_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("programming_language", ASCENDING),
-            ], name="user_active_lang_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("updated_at", DESCENDING),
-            ], name="user_active_recent_idx"),
-            IndexModel([
-                ("programming_language", ASCENDING),
-                ("tags", ASCENDING),
-                ("created_at", DESCENDING),
-            ], name="lang_tags_date_idx"),
-            IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], name="full_text_search_idx"),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("programming_language", ASCENDING),
+                    ("created_at", DESCENDING),
+                ],
+                name="user_lang_date_idx",
+            ),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("tags", ASCENDING),
+                    ("updated_at", DESCENDING),
+                ],
+                name="user_tags_updated_idx",
+            ),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("is_active", ASCENDING),
+                    ("programming_language", ASCENDING),
+                ],
+                name="user_active_lang_idx",
+            ),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("is_active", ASCENDING),
+                    ("updated_at", DESCENDING),
+                ],
+                name="user_active_recent_idx",
+            ),
+            IndexModel(
+                [
+                    ("programming_language", ASCENDING),
+                    ("tags", ASCENDING),
+                    ("created_at", DESCENDING),
+                ],
+                name="lang_tags_date_idx",
+            ),
+            IndexModel(
+                [("code", TEXT), ("description", TEXT), ("file_name", TEXT)],
+                name="full_text_search_idx",
+            ),
         ]
 
         large_files_indexes = [
@@ -100,31 +120,47 @@ class DatabaseManager:
             IndexModel([("file_size", ASCENDING)]),
             IndexModel([("lines_count", ASCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("programming_language", ASCENDING),
-                ("file_size", ASCENDING),
-            ], name="user_lang_size_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("is_active", ASCENDING),
-                ("created_at", DESCENDING),
-            ], name="user_active_date_large_idx"),
-            IndexModel([
-                ("programming_language", ASCENDING),
-                ("file_size", ASCENDING),
-                ("lines_count", ASCENDING),
-            ], name="lang_size_lines_idx"),
-            IndexModel([
-                ("user_id", ASCENDING),
-                ("tags", ASCENDING),
-                ("file_size", DESCENDING),
-            ], name="user_tags_size_idx"),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("programming_language", ASCENDING),
+                    ("file_size", ASCENDING),
+                ],
+                name="user_lang_size_idx",
+            ),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("is_active", ASCENDING),
+                    ("created_at", DESCENDING),
+                ],
+                name="user_active_date_large_idx",
+            ),
+            IndexModel(
+                [
+                    ("programming_language", ASCENDING),
+                    ("file_size", ASCENDING),
+                    ("lines_count", ASCENDING),
+                ],
+                name="lang_size_lines_idx",
+            ),
+            IndexModel(
+                [
+                    ("user_id", ASCENDING),
+                    ("tags", ASCENDING),
+                    ("file_size", DESCENDING),
+                ],
+                name="user_tags_size_idx",
+            ),
         ]
 
         # backup_ratings indexes
         backup_ratings_indexes = [
-            IndexModel([("user_id", ASCENDING), ("backup_id", ASCENDING)], name="user_backup_unique", unique=True),
+            IndexModel(
+                [("user_id", ASCENDING), ("backup_id", ASCENDING)],
+                name="user_backup_unique",
+                unique=True,
+            ),
             IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
         ]
 
@@ -135,30 +171,34 @@ class DatabaseManager:
                 self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
         except Exception as e:
             msg = str(e)
-            if 'IndexOptionsConflict' in msg or 'already exists with a different name' in msg:
+            if "IndexOptionsConflict" in msg or "already exists with a different name" in msg:
                 try:
                     existing = list(self.collection.list_indexes())
                     for idx in existing:
-                        name = idx.get('name', '')
-                        is_text_index = ('textIndexVersion' in idx) or name.endswith('_text')
+                        name = idx.get("name", "")
+                        is_text_index = ("textIndexVersion" in idx) or name.endswith("_text")
                         if (
-                            is_text_index or
-                            name in {
-                                'user_lang_date_idx',
-                                'user_tags_updated_idx',
-                                'user_active_lang_idx',
-                                'user_active_recent_idx',
-                                'lang_tags_date_idx',
-                                'full_text_search_idx'
-                            } or
-                            name.startswith('user_id_') or name.startswith('file_name_')
+                            is_text_index
+                            or name
+                            in {
+                                "user_lang_date_idx",
+                                "user_tags_updated_idx",
+                                "user_active_lang_idx",
+                                "user_active_recent_idx",
+                                "lang_tags_date_idx",
+                                "full_text_search_idx",
+                            }
+                            or name.startswith("user_id_")
+                            or name.startswith("file_name_")
                         ):
                             try:
                                 self.collection.drop_index(name)
                             except Exception:
                                 pass
                     try:
-                        self.collection.drop_index([('code', 'text'), ('description', 'text'), ('file_name', 'text')])
+                        self.collection.drop_index(
+                            [("code", "text"), ("description", "text"), ("file_name", "text")]
+                        )
                     except Exception:
                         pass
                     self.collection.create_indexes(indexes)
@@ -199,7 +239,14 @@ class DatabaseManager:
     def get_user_files(self, user_id: int, limit: int = 50) -> List[Dict]:
         return self._get_repo().get_user_files(user_id, limit)
 
-    def search_code(self, user_id: int, query: str, programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
+    def search_code(
+        self,
+        user_id: int,
+        query: str,
+        programming_language: str = None,
+        tags: List[str] = None,
+        limit: int = 20,
+    ) -> List[Dict]:
         return self._get_repo().search_code(user_id, query, programming_language, tags, limit)
 
     def delete_file(self, user_id: int, file_name: str) -> bool:
@@ -227,7 +274,9 @@ class DatabaseManager:
     def get_large_file_by_id(self, file_id: str) -> Optional[Dict]:
         return self._get_repo().get_large_file_by_id(file_id)
 
-    def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict], int]:
+    def get_user_large_files(
+        self, user_id: int, page: int = 1, per_page: int = 8
+    ) -> Tuple[List[Dict], int]:
         return self._get_repo().get_user_large_files(user_id, page, per_page)
 
     def delete_large_file(self, user_id: int, file_name: str) -> bool:
@@ -267,4 +316,3 @@ class DatabaseManager:
 
     def save_user(self, user_id: int, username: str = None) -> bool:
         return self._get_repo().save_user(user_id, username)
-

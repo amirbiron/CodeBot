@@ -1,6 +1,6 @@
+import io
 import os
 import re
-import io
 import sys
 import types
 
@@ -16,22 +16,24 @@ def _stub_telegram_if_missing():
         import telegram.constants  # type: ignore
         import telegram.ext  # type: ignore
     except Exception:
-        telegram = types.ModuleType('telegram')
-        telegram.Message = type('Message', (), {})
-        telegram.Update = type('Update', (), {})
-        telegram.User = type('User', (), {})
-        sys.modules['telegram'] = telegram
+        telegram = types.ModuleType("telegram")
+        telegram.Message = type("Message", (), {})
+        telegram.Update = type("Update", (), {})
+        telegram.User = type("User", (), {})
+        sys.modules["telegram"] = telegram
 
-        consts = types.ModuleType('telegram.constants')
+        consts = types.ModuleType("telegram.constants")
         consts.ChatAction = None
         consts.ParseMode = None
-        sys.modules['telegram.constants'] = consts
+        sys.modules["telegram.constants"] = consts
 
-        ext = types.ModuleType('telegram.ext')
+        ext = types.ModuleType("telegram.ext")
+
         class _ContextTypes:
             DEFAULT_TYPE = object
+
         ext.ContextTypes = _ContextTypes
-        sys.modules['telegram.ext'] = ext
+        sys.modules["telegram.ext"] = ext
 
 
 # Install stubs upfront if needed
@@ -39,15 +41,15 @@ _stub_telegram_if_missing()
 
 
 def read_file_text(path: str) -> str:
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def test_upload_limit_threshold_in_source():
     """Ensure the 20MB guard exists in main.py and user message mentions 20MB."""
-    src = read_file_text(os.path.join(os.path.dirname(__file__), '..', 'main.py'))
-    assert 'if document.file_size > 20 * 1024 * 1024' in src
-    assert '20MB' in src
+    src = read_file_text(os.path.join(os.path.dirname(__file__), "..", "main.py"))
+    assert "if document.file_size > 20 * 1024 * 1024" in src
+    assert "20MB" in src
 
 
 def test_textutils_format_file_size():

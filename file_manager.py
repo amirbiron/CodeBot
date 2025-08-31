@@ -1,12 +1,12 @@
-from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Set
+import json
+import logging
 import os
 import tempfile
 import zipfile
-import json
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
-import logging
-from contextlib import suppress
+from typing import Any, BinaryIO, Dict, List, Optional, Set, Tuple
 
 try:
     import gridfs  # from pymongo
@@ -15,9 +15,24 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+
 class BackupInfo:
     """מידע על גיבוי"""
-    def __init__(self, backup_id: str, user_id: int, created_at: datetime, file_count: int, total_size: int, backup_type: str, status: str, file_path: str, repo: Optional[str], path: Optional[str], metadata: Optional[Dict[str, Any]]):
+
+    def __init__(
+        self,
+        backup_id: str,
+        user_id: int,
+        created_at: datetime,
+        file_count: int,
+        total_size: int,
+        backup_type: str,
+        status: str,
+        file_path: str,
+        repo: Optional[str],
+        path: Optional[str],
+        metadata: Optional[Dict[str, Any]],
+    ):
         self.backup_id = backup_id
         self.user_id = user_id
         self.created_at = created_at
@@ -30,9 +45,10 @@ class BackupInfo:
         self.path = path
         self.metadata = metadata
 
+
 class BackupManager:
     """מנהל גיבויים"""
-    
+
     def __init__(self):
         # מצב אחסון: mongo (GridFS) או fs (קבצים)
         self.storage_mode = os.getenv("BACKUPS_STORAGE", "mongo").strip().lower()
@@ -101,6 +117,7 @@ class BackupManager:
         try:
             # שימוש במסד הנתונים הגלובלי הקיים
             from database import db as global_db
+
             mongo_db = getattr(global_db, "db", None)
             if not mongo_db:
                 return None
@@ -116,7 +133,9 @@ class BackupManager:
         אם storage==fs: שומר לקובץ תחת backup_dir.
         """
         try:
-            backup_id = metadata.get("backup_id") or f"backup_{int(datetime.now(timezone.utc).timestamp())}"
+            backup_id = (
+                metadata.get("backup_id") or f"backup_{int(datetime.now(timezone.utc).timestamp())}"
+            )
             # הבטח זיהוי בקובץ
             filename = f"{backup_id}.zip"
 
@@ -151,16 +170,16 @@ class BackupManager:
             # נסה לקרוא metadata.json מתוך ה-ZIP
             metadata: Dict[str, Any] = {}
             try:
-                with zipfile.ZipFile(file_path, 'r') as zf:
+                with zipfile.ZipFile(file_path, "r") as zf:
                     with suppress(Exception):
-                        md_raw = zf.read('metadata.json')
+                        md_raw = zf.read("metadata.json")
                         metadata = json.loads(md_raw) if md_raw else {}
             except Exception:
                 metadata = {}
             if "backup_id" not in metadata:
                 # הפק מזהה מגיבוי
                 metadata["backup_id"] = os.path.splitext(os.path.basename(file_path))[0]
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 data = f.read()
             return self.save_backup_bytes(data, metadata)
         except Exception as e:
@@ -221,7 +240,7 @@ class BackupManager:
                         repo: Optional[str] = None
                         path: Optional[str] = None
 
-                        with zipfile.ZipFile(backup_file, 'r') as zf:
+                        with zipfile.ZipFile(backup_file, "r") as zf:
                             # נסה לקרוא metadata.json, אם קיים
                             try:
                                 metadata_content = zf.read("metadata.json")
@@ -258,22 +277,30 @@ class BackupManager:
                             # אם אין created_at – נפל ל‑mtime של הקובץ
                             if not created_at:
                                 try:
-                                    created_at = datetime.fromtimestamp(os.path.getmtime(resolved_path), tz=timezone.utc)
+                                    created_at = datetime.fromtimestamp(
+                                        os.path.getmtime(resolved_path), tz=timezone.utc
+                                    )
                                 except Exception:
                                     created_at = datetime.now(timezone.utc)
 
                             # אם אין file_count – מנה את הקבצים שאינם תיקיות
                             if file_count == 0:
                                 try:
-                                    with zipfile.ZipFile(resolved_path, 'r') as _zf_count:
-                                        non_dirs = [n for n in _zf_count.namelist() if not n.endswith('/')]
+                                    with zipfile.ZipFile(resolved_path, "r") as _zf_count:
+                                        non_dirs = [
+                                            n for n in _zf_count.namelist() if not n.endswith("/")
+                                        ]
                                         file_count = len(non_dirs)
                                 except Exception:
                                     file_count = 0
 
                         backup_info = BackupInfo(
                             backup_id=backup_id,
-                            user_id=(metadata.get("user_id") if metadata and metadata.get("user_id") is not None else user_id),
+                            user_id=(
+                                metadata.get("user_id")
+                                if metadata and metadata.get("user_id") is not None
+                                else user_id
+                            ),
                             created_at=created_at,
                             file_count=file_count,
                             total_size=os.path.getsize(resolved_path),
@@ -298,8 +325,12 @@ class BackupManager:
                     # חפש את כל הקבצים; נסנן ואח"כ נציג לפי created_at
                     for fdoc in fs.find():
                         try:
-                            md = getattr(fdoc, 'metadata', None) or {}
-                            backup_id = md.get("backup_id") or os.path.splitext(fdoc.filename or "")[0] or str(getattr(fdoc, "_id", ""))
+                            md = getattr(fdoc, "metadata", None) or {}
+                            backup_id = (
+                                md.get("backup_id")
+                                or os.path.splitext(fdoc.filename or "")[0]
+                                or str(getattr(fdoc, "_id", ""))
+                            )
                             if not backup_id:
                                 continue
                             if any(b.backup_id == backup_id for b in backups):
@@ -314,19 +345,21 @@ class BackupManager:
                                         created_at = created_at.replace(tzinfo=timezone.utc)
                             if not created_at:
                                 with suppress(Exception):
-                                    created_at = getattr(fdoc, 'uploadDate', None)
+                                    created_at = getattr(fdoc, "uploadDate", None)
                             file_count = int(md.get("file_count") or 0)
                             backup_type = md.get("backup_type", "unknown")
                             repo = md.get("repo")
                             path = md.get("path")
-                            total_size = int(getattr(fdoc, 'length', 0) or 0)
+                            total_size = int(getattr(fdoc, "length", 0) or 0)
 
                             # ודא עותק מקומי זמני כדי שתלויה בקוד קיים שעובד עם נתיב קובץ
                             local_path = self.backup_dir / f"{backup_id}.zip"
-                            if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
+                            if not local_path.exists() or (
+                                total_size and local_path.stat().st_size != total_size
+                            ):
                                 try:
                                     grid_out = fs.get(fdoc._id)
-                                    with open(local_path, 'wb') as lf:
+                                    with open(local_path, "wb") as lf:
                                         lf.write(grid_out.read())
                                 except Exception:
                                     # אם נכשל יצירת עותק – דלג והמשך (לא נציג פריט לא שמיש)
@@ -334,10 +367,13 @@ class BackupManager:
 
                             backup_info = BackupInfo(
                                 backup_id=backup_id,
-                                user_id=(md.get("user_id") if md.get("user_id") is not None else user_id),
+                                user_id=(
+                                    md.get("user_id") if md.get("user_id") is not None else user_id
+                                ),
                                 created_at=created_at or datetime.now(timezone.utc),
                                 file_count=file_count,
-                                total_size=total_size or (local_path.stat().st_size if local_path.exists() else 0),
+                                total_size=total_size
+                                or (local_path.stat().st_size if local_path.exists() else 0),
                                 backup_type=backup_type,
                                 status="completed",
                                 file_path=str(local_path),
@@ -359,7 +395,14 @@ class BackupManager:
 
         return backups
 
-    def restore_from_backup(self, user_id: int, backup_path: str, overwrite: bool = True, purge: bool = False, extra_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+    def restore_from_backup(
+        self,
+        user_id: int,
+        backup_path: str,
+        overwrite: bool = True,
+        purge: bool = False,
+        extra_tags: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """משחזר קבצים מ-ZIP למסד הנתונים.
 
         - purge=True: מסמן את כל הקבצים הקיימים של המשתמש כלא פעילים לפני השחזור
@@ -369,8 +412,10 @@ class BackupManager:
         results: Dict[str, Any] = {"restored_files": 0, "errors": []}
         try:
             import zipfile
+
             from database import db
             from utils import detect_language_from_filename
+
             # פרה-תנאי
             if not os.path.exists(backup_path):
                 results["errors"].append(f"backup file not found: {backup_path}")
@@ -381,30 +426,34 @@ class BackupManager:
                     existing = db.get_user_files(user_id, limit=10000) or []
                     for doc in existing:
                         try:
-                            fname = doc.get('file_name')
+                            fname = doc.get("file_name")
                             if fname:
                                 db.delete_file(user_id, fname)
                         except Exception as e:
-                            results["errors"].append(f"purge failed for {doc.get('file_name')}: {e}")
+                            results["errors"].append(
+                                f"purge failed for {doc.get('file_name')}: {e}"
+                            )
                 except Exception as e:
                     results["errors"].append(f"purge listing failed: {e}")
 
-            with zipfile.ZipFile(backup_path, 'r') as zf:
-                names = [n for n in zf.namelist() if not n.endswith('/') and n != 'metadata.json']
+            with zipfile.ZipFile(backup_path, "r") as zf:
+                names = [n for n in zf.namelist() if not n.endswith("/") and n != "metadata.json"]
                 for name in names:
                     try:
                         raw = zf.read(name)
                         text: str
                         try:
-                            text = raw.decode('utf-8')
+                            text = raw.decode("utf-8")
                         except Exception:
                             try:
-                                text = raw.decode('latin-1')
+                                text = raw.decode("latin-1")
                             except Exception as e:
                                 results["errors"].append(f"decode failed for {name}: {e}")
                                 continue
                         lang = detect_language_from_filename(name)
-                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang)
+                        ok = db.save_file(
+                            user_id=user_id, file_name=name, code=text, programming_language=lang
+                        )
                         if ok:
                             results["restored_files"] += 1
                         else:
@@ -449,12 +498,16 @@ class BackupManager:
                         if p.exists():
                             # בדוק שיוך משתמש אם יש metadata.json
                             try:
-                                with zipfile.ZipFile(p, 'r') as zf:
+                                with zipfile.ZipFile(p, "r") as zf:
                                     md = None
                                     with suppress(Exception):
-                                        raw = zf.read('metadata.json')
+                                        raw = zf.read("metadata.json")
                                         md = json.loads(raw) if raw else None
-                                    if md and md.get('user_id') is not None and md.get('user_id') != user_id:
+                                    if (
+                                        md
+                                        and md.get("user_id") is not None
+                                        and md.get("user_id") != user_id
+                                    ):
                                         # שייך למשתמש אחר — דלג
                                         continue
                             except Exception:
@@ -496,7 +549,7 @@ class BackupManager:
 
     def delete_backup(self, backup_id: str, user_id: int) -> bool:
         """מחיקת גיבוי"""
-        
+
         try:
             # חפש את הגיבוי בשתי התיקיות (ברירת מחדל + legacy)
             candidate_files: List[Path] = []
@@ -505,16 +558,16 @@ class BackupManager:
             except Exception:
                 pass
             try:
-                if getattr(self, 'legacy_backup_dir', None) and self.legacy_backup_dir.exists():
+                if getattr(self, "legacy_backup_dir", None) and self.legacy_backup_dir.exists():
                     candidate_files.extend(list(self.legacy_backup_dir.glob(f"{backup_id}.zip")))
-                
+
             except Exception:
                 pass
-            
+
             for backup_file in candidate_files:
                 # וידוא שהגיבוי שייך למשתמש אם קיימת מטאדטה
                 try:
-                    with zipfile.ZipFile(backup_file, 'r') as zip_file:
+                    with zipfile.ZipFile(backup_file, "r") as zip_file:
                         try:
                             metadata_content = zip_file.read("metadata.json")
                             metadata = json.loads(metadata_content)
@@ -527,12 +580,13 @@ class BackupManager:
                             continue
                 except Exception:
                     continue
-            
+
             logger.warning(f"גיבוי לא נמצא או לא שייך למשתמש: {backup_id}")
             return False
-        
+
         except Exception as e:
             logger.error(f"שגיאה במחיקת גיבוי: {e}")
             return False
+
 
 backup_manager = BackupManager()

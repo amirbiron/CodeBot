@@ -1,6 +1,7 @@
 """
 Terminal commands: sandboxed command execution via Docker containers.
 """
+
 import asyncio
 import logging
 import shlex
@@ -8,10 +9,16 @@ import shutil
 from html import escape as html_escape
 from typing import Tuple
 
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import (Application, CommandHandler, MessageHandler, ConversationHandler,
-                          ContextTypes, filters)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +30,7 @@ TERMINAL_KEYBOARD = ReplyKeyboardMarkup([["🚪 יציאה מטרמינל"]], re
 
 DOCKER_IMAGE = "alpine:3.20"
 
+
 async def _check_docker_available() -> bool:
     """Return True if docker CLI is available and usable."""
     if not shutil.which("docker"):
@@ -32,7 +40,7 @@ async def _check_docker_available() -> bool:
         proc = await asyncio.create_subprocess_shell(
             "docker version --format '{{.Server.Version}}'",
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
         try:
             await asyncio.wait_for(proc.communicate(), timeout=3)
@@ -43,7 +51,10 @@ async def _check_docker_available() -> bool:
     except Exception:
         return False
 
-async def run_in_sandbox(command: str, timeout_sec: int = 10, max_output_chars: int = 3500) -> Tuple[int, str]:
+
+async def run_in_sandbox(
+    command: str, timeout_sec: int = 10, max_output_chars: int = 3500
+) -> Tuple[int, str]:
     """Run a shell command inside a locked-down Docker container and return (rc, output)."""
     # Use a restricted container with no network, non-root, read-only FS, tmpfs for /tmp and /sandbox
     docker_cmd = (
@@ -61,7 +72,7 @@ async def run_in_sandbox(command: str, timeout_sec: int = 10, max_output_chars: 
 
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
-        output = (stdout.decode() + stderr.decode())
+        output = stdout.decode() + stderr.decode()
         truncated = False
         if len(output) > max_output_chars:
             output = output[:max_output_chars]
@@ -76,12 +87,12 @@ async def run_in_sandbox(command: str, timeout_sec: int = 10, max_output_chars: 
             pass
         return 124, "⏱️ פקודה חרגה ממגבלת הזמן"
 
+
 async def terminal_enter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Enter terminal mode if Docker is available."""
     if not await _check_docker_available():
         await update.message.reply_text(
-            "❌ מצב טרמינל לא זמין: Docker לא זמין בשרת",
-            parse_mode=ParseMode.HTML
+            "❌ מצב טרמינל לא זמין: Docker לא זמין בשרת", parse_mode=ParseMode.HTML
         )
         return ConversationHandler.END
 
@@ -95,17 +106,22 @@ async def terminal_enter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "• פלט מקסימלי: 3500 תווים (נחתך אוטומטית)\n\n"
         "הקלד פקודה להרצה, או לחץ '🚪 יציאה מטרמינל' כדי לצאת.",
         reply_markup=TERMINAL_KEYBOARD,
-        parse_mode=ParseMode.HTML
+        parse_mode=ParseMode.HTML,
     )
     return TERMINAL_ACTIVE
+
 
 async def terminal_exit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Exit terminal mode."""
     await update.message.reply_text(
         "🔒 יצאת ממצב טרמינל.",
-        reply_markup=ReplyKeyboardMarkup(context.application.bot_data.get('MAIN_KEYBOARD', [["🏠 תפריט ראשי"]]), resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(
+            context.application.bot_data.get("MAIN_KEYBOARD", [["🏠 תפריט ראשי"]]),
+            resize_keyboard=True,
+        ),
     )
     return ConversationHandler.END
+
 
 async def terminal_run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Run a command string inside the sandbox and send the output."""
@@ -128,13 +144,14 @@ async def terminal_run_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             f"{header}\n\n<pre>{safe_output}</pre>",
             parse_mode=ParseMode.HTML,
-            reply_markup=TERMINAL_KEYBOARD
+            reply_markup=TERMINAL_KEYBOARD,
         )
     except Exception as e:
         logger.error(f"Terminal command failed: {e}")
         await update.message.reply_text("❌ שגיאה בהרצת הפקודה", reply_markup=TERMINAL_KEYBOARD)
 
     return TERMINAL_ACTIVE
+
 
 async def terminal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/terminal command to enter terminal mode."""
