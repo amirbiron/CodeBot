@@ -271,9 +271,11 @@ class CodeKeeperBot:
                 except Exception:
                     pass
                 return ConversationHandler.END
-            # Catch-all high-priority handlers during maintenance
-            self.application.add_handler(MessageHandler(filters.ALL, maintenance_reply), group=-100)
-            self.application.add_handler(CallbackQueryHandler(maintenance_reply), group=-100)
+            # Catch-all high-priority handlers during maintenance (keep references for clean removal)
+            self._maintenance_message_handler = MessageHandler(filters.ALL, maintenance_reply)
+            self._maintenance_callback_handler = CallbackQueryHandler(maintenance_reply)
+            self.application.add_handler(self._maintenance_message_handler, group=-100)
+            self.application.add_handler(self._maintenance_callback_handler, group=-100)
             logger.warning("MAINTENANCE_MODE is ON — all updates will receive maintenance message")
             # אל תחסום לגמרי: לאחר warmup אוטומטי, הסר תחזוקה (ללא Redeploy)
             async def _auto_clear_maintenance(app: Application):
@@ -281,11 +283,13 @@ class CodeKeeperBot:
                     await asyncio.sleep(max(1, int(config.MAINTENANCE_AUTO_WARMUP_SECS)))
                     # הסרה רכה: מחיקה של ה-handlers של תחזוקה בלבד
                     try:
-                        app.remove_handler(maintenance_reply, group=-100)  # type: ignore[arg-type]
+                        if getattr(self, "_maintenance_message_handler", None) is not None:
+                            app.remove_handler(self._maintenance_message_handler, group=-100)
                     except Exception:
                         pass
                     try:
-                        app.remove_handler(CallbackQueryHandler(maintenance_reply), group=-100)  # type: ignore[arg-type]
+                        if getattr(self, "_maintenance_callback_handler", None) is not None:
+                            app.remove_handler(self._maintenance_callback_handler, group=-100)
                     except Exception:
                         pass
                     logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
