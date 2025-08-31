@@ -212,11 +212,8 @@ class GitHubMenuHandler:
         if token and session.get("selected_repo"):
             # העבר את "בחר תיקיית יעד" למעלה, ישירות אחרי "בחר ריפו"
             keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
-            # כפתורי העלאה
+            # כפתור העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
-            keyboard.append(
-                [InlineKeyboardButton("📚 העלה מהקבצים השמורים", callback_data="upload_saved")]
-            )
             # פעולות נוספות בטוחות
             keyboard.append(
                 [InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="download_file_menu")]
@@ -465,8 +462,7 @@ class GitHubMenuHandler:
             file_id = query.data.split(":", 1)[1]
             await self.handle_large_file_upload(update, context, file_id)
 
-        elif query.data == "upload_saved":
-            await self.upload_saved_files(update, context)
+        # הוסר: "upload_saved" — הזרימה כלולה ב"העלה קובץ חדש"
 
         elif query.data.startswith("repos_page_"):
             page = int(query.data.split("_")[2])
@@ -1864,10 +1860,7 @@ class GitHubMenuHandler:
             else:
                 await update.callback_query.answer(error_msg, show_alert=True)
 
-    async def upload_saved_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """מציג רשימת קבצים שמורים להעלאה"""
-        user_id = update.effective_user.id
-        session = self.get_user_session(user_id)
+    # הוסר: upload_saved_files — זרימה זו מאוחדת למסך "העלה קובץ חדש"
 
         if not session.get("selected_repo"):
             await update.callback_query.answer("❌ נא לבחור ריפו קודם")
