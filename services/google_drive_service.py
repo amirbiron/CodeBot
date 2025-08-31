@@ -73,7 +73,6 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     """
     payload = {
         "client_id": config.GOOGLE_CLIENT_ID,
-        "client_secret": config.GOOGLE_CLIENT_SECRET or "",
         "device_code": device_code,
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }
