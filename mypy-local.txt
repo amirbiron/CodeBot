@@ -1,4 +1,8 @@
-services/code_service.py: error: Source file found twice under different module names: "code_service" and "services.code_service"
-services/code_service.py: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules for more info
-services/code_service.py: note: Common resolutions include: a) adding `__init__.py` somewhere, b) using `--explicit-package-bases` or adjusting MYPYPATH
-Found 1 error in 1 file (errors prevented further checking)
+cache_manager.py:11: error: Library stubs not installed for "redis"  [import-untyped]
+cache_manager.py:11: note: Hint: "python3 -m pip install types-redis"
+cache_manager.py:11: note: (or run "mypy --install-types" to install all missing stub packages)
+cache_manager.py:11: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+i18n/strings_he.py: error: Source file found twice under different module names: "strings_he" and "i18n.strings_he"
+i18n/strings_he.py: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#mapping-file-paths-to-modules for more info
+i18n/strings_he.py: note: Common resolutions include: a) adding `__init__.py` somewhere, b) using `--explicit-package-bases` or adjusting MYPYPATH
+Found 2 errors in 2 files (errors prevented further checking)
