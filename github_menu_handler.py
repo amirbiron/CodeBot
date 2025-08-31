@@ -1842,9 +1842,15 @@ class GitHubMenuHandler:
                     f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):", reply_markup=reply_markup
                 )
             else:
-                await update.callback_query.edit_message_text(
-                    f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):", reply_markup=reply_markup
-                )
+                try:
+                    await update.callback_query.edit_message_text(
+                        f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):", reply_markup=reply_markup
+                    )
+                except Exception:
+                    await update.message.reply_text(
+                        f"בחר ריפוזיטורי (עמוד {page+1} מתוך {total_pages}):",
+                        reply_markup=reply_markup,
+                    )
 
         except Exception as e:
             error_msg = str(e)
@@ -1858,45 +1864,11 @@ class GitHubMenuHandler:
             if query:
                 await query.answer(error_msg, show_alert=True)
             else:
-                await update.callback_query.answer(error_msg, show_alert=True)
-
-    # הוסר: upload_saved_files — זרימה זו מאוחדת למסך "העלה קובץ חדש"
-
-        if not session.get("selected_repo"):
-            await update.callback_query.answer("❌ נא לבחור ריפו קודם")
-            return
-
-        try:
-            # כאן תצטרך להתחבר למסד הנתונים שלך
-            # לדוגמה:
-            from database import db
-
-            files = db.get_user_files(user_id)
-
-            if not files:
-                await update.callback_query.answer("❌ אין לך קבצים שמורים", show_alert=True)
-                return
-
-            keyboard = []
-            for file in files[:10]:  # מציג עד 10 קבצים
-                keyboard.append(
-                    [
-                        InlineKeyboardButton(
-                            f"📄 {file['file_name']}", callback_data=f"upload_saved_{file['_id']}"
-                        )
-                    ]
-                )
-
-            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_menu")])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.callback_query.edit_message_text(
-                "בחר קובץ להעלאה:", reply_markup=reply_markup
-            )
-
-        except Exception as e:
-            await update.callback_query.answer(f"❌ שגיאה: {str(e)}", show_alert=True)
+                try:
+                    await update.callback_query.answer(error_msg, show_alert=True)
+                except Exception:
+                    await update.message.reply_text(error_msg)
+ 
 
     async def show_upload_other_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים"""
