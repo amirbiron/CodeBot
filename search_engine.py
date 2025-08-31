@@ -600,7 +600,10 @@ class SearchQueryParser:
         # "func:connect size:>100"
         # "date:2024 NOT test"
 
-        parsed = {"terms": [], "filters": SearchFilter(), "operators": []}
+        parsed: Dict[str, Any] = {"terms": [], "filters": SearchFilter(), "operators": []}
+        terms: List[str] = []
+        operators: List[str] = []
+        filters = parsed["filters"]
 
         # פרסור בסיסי (לצורך ההדגמה)
         tokens = query.split()
@@ -609,12 +612,14 @@ class SearchQueryParser:
             if ":" in token:
                 # זה מסנן
                 key, value = token.split(":", 1)
-                self._apply_filter(parsed["filters"], key, value)
+                self._apply_filter(filters, key, value)
             elif token.upper() in ["AND", "OR", "NOT"]:
-                parsed["operators"].append(token.upper())
+                operators.append(token.upper())
             else:
-                parsed["terms"].append(token)
+                terms.append(token)
 
+        parsed["terms"] = terms
+        parsed["operators"] = operators
         return parsed
 
     def _apply_filter(self, filters: SearchFilter, key: str, value: str):

@@ -816,7 +816,16 @@ class CodeProcessor:
     def validate_syntax(self, code: str, programming_language: str) -> Dict[str, Any]:
         """בדיקת תחביר של הקוד"""
 
-        result = {"is_valid": True, "errors": [], "warnings": [], "suggestions": []}
+        # Typed result structure to satisfy mypy (lists of dicts)
+        errors_list: List[Dict[str, Any]] = []
+        warnings_list: List[Dict[str, Any]] = []
+        suggestions_list: List[Dict[str, Any]] = []
+        result: Dict[str, Any] = {
+            "is_valid": True,
+            "errors": errors_list,
+            "warnings": warnings_list,
+            "suggestions": suggestions_list,
+        }
 
         # בדיקות בסיסיות לפי שפה
         if programming_language == "python":
