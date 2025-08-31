@@ -242,7 +242,29 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_folder_set":
             context.user_data["waiting_for_drive_folder_path"] = True
-            await query.edit_message_text("שלח נתיב תיקייה (למשל: Project/Backups/Code) — ניצור אם לא קיים")
+            kb = [
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_folder_back")],
+                [InlineKeyboardButton("❌ ביטול", callback_data="drive_folder_cancel")],
+            ]
+            await query.edit_message_text(
+                "שלח נתיב תיקייה (למשל: Project/Backups/Code) — ניצור אם לא קיים",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+            return
+        if data == "drive_folder_back":
+            # חזרה למסך בחירת תיקיית יעד
+            context.user_data.pop("waiting_for_drive_folder_path", None)
+            kb = [
+                [InlineKeyboardButton("📁 ברירת מחדל (CodeKeeper Backups)", callback_data="drive_folder_default")],
+                [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")],
+            ]
+            await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+            return
+        if data == "drive_folder_cancel":
+            # ביטול מצב הזנת נתיב וחזרה לתפריט דרייב
+            context.user_data.pop("waiting_for_drive_folder_path", None)
+            await self.menu(update, context)
             return
         if data == "drive_schedule":
             current = (db.get_drive_prefs(user_id) or {}).get("schedule")
