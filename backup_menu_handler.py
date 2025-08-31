@@ -416,7 +416,6 @@ class BackupMenuHandler:
 				# כפתור הורדה תמיד זמין עם טקסט תמציתי
 				row.append(InlineKeyboardButton(_build_download_button_text(info, vnum=vnum, rating=rating), callback_data=f"backup_download_id:{info.backup_id}"))
 			keyboard.append(row)
-			# הסר תווית מתחת לכפתור – הדירוג בתוך הכפתור עצמו
 		# עימוד: הקודם/הבא
 		nav = []
 		row = build_pagination_row(page, total, PAGE_SIZE, "backup_page_")
