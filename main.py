@@ -1723,38 +1723,6 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
     
-    # Schedule aggregated feature usage report every N days
-    try:
-        from config import config as _cfg
-        if getattr(_cfg, 'ADMIN_CHAT_ID', None):
-            days = max(1, int(getattr(_cfg, 'FEATURE_USAGE_REPORT_DAYS', 3) or 3))
-            interval_seconds = days * 24 * 60 * 60
-            async def _send_feature_usage_report(context: ContextTypes.DEFAULT_TYPE):
-                try:
-                    from database import db as _db
-                    rows = _db.aggregate_feature_usage(days=days)
-                    if not rows:
-                        text = "📊 דו""ח שימוש: אין נתונים בתקופה זו"
-                    else:
-                        lines = ["📊 דו""ח שימוש אחרון"]
-                        for r in rows[:30]:
-                            lines.append(f"• {r.get('feature')}: {int(r.get('count', 0))}")
-                        text = "\n".join(lines)
-                    await context.bot.send_message(chat_id=_cfg.ADMIN_CHAT_ID, text=text)
-                except Exception as e:
-                    logger.error(f"Failed to send feature usage report: {e}")
-            # Use job_queue run_repeating with the computed interval, start soon
-            try:
-                application.job_queue.run_repeating(_send_feature_usage_report, interval=interval_seconds, first=60)
-                logger.info(f"✅ Scheduled feature usage report every {days} days")
-            except Exception:
-                # Fallback to daily if interval param type mismatch
-                application.job_queue.run_repeating(_send_feature_usage_report, interval=24*60*60, first=60)
-                logger.info("✅ Scheduled feature usage report daily (fallback)")
-        else:
-            logger.info("ℹ️ ADMIN_CHAT_ID not set; skipping feature usage report scheduling")
-    except Exception as e:
-        logger.warning(f"Could not schedule feature usage report: {e}")
 
 if __name__ == "__main__":
     main()
