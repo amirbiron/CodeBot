@@ -2347,16 +2347,58 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
 
         lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
         keyboard = []
+        # חישוב גרסאות vN לפי ריפו
+        repo_to_sorted = {}
+        id_to_version = {}
+        try:
+            from datetime import datetime as _dt
+            def _key(v):
+                dt = getattr(v, 'created_at', None)
+                return dt.timestamp() if hasattr(dt, 'timestamp') else 0.0
+            for b in backups:
+                r = getattr(b, 'repo', None)
+                if not r:
+                    continue
+                repo_to_sorted.setdefault(r, []).append(b)
+            for r, arr in repo_to_sorted.items():
+                arr.sort(key=_key)
+                for idx, b in enumerate(arr, start=1):
+                    id_to_version[getattr(b, 'backup_id', '')] = idx
+        except Exception:
+            id_to_version = {}
+
         for info in items:
-            btype = getattr(info, 'backup_type', 'unknown')
             when = info.created_at.strftime('%d/%m/%Y %H:%M') if getattr(info, 'created_at', None) else ''
+            # קבע primary: שם ריפו ללא owner עבור github_repo_zip אחרת backup_id
+            if getattr(info, 'backup_type', '') == 'github_repo_zip' and getattr(info, 'repo', None):
+                try:
+                    primary = info.repo.split('/', 1)[1] if '/' in info.repo else info.repo
+                except Exception:
+                    primary = str(getattr(info, 'repo', ''))
+            else:
+                primary = getattr(info, 'backup_id', 'full')
+            vnum = id_to_version.get(getattr(info, 'backup_id', ''), None)
+            vtxt = f" v{vnum}" if vnum else ""
+            # שלוף דירוג אם קיים
+            try:
+                from database import db
+                rating = db.get_backup_rating(user_id, info.backup_id) or ""
+            except Exception:
+                rating = ""
+            emoji = ""
+            if "🏆" in rating:
+                emoji = " 🏆"
+            elif "👍" in rating:
+                emoji = " 👍"
+            elif "🤷" in rating:
+                emoji = " 🤷"
+            btn_text = f"BKP zip {primary}{vtxt}{emoji} - {when}"
+            # שורת מידע
             size_text = _format_bytes(getattr(info, 'total_size', 0))
-            line = f"• {info.backup_id} — {when} — {size_text} — {getattr(info, 'file_count', 0)} קבצים — סוג: {btype}"
-            if getattr(info, 'repo', None):
-                line += f" — ריפו: {info.repo}"
-            lines.append(line)
+            count_text = getattr(info, 'file_count', 0)
+            lines.append(f"• {btn_text} — {size_text} — {count_text} קבצים")
             keyboard.append([
-                InlineKeyboardButton("✅ בחר לעיבוד", callback_data=f"batch_zip_use_for_batch:{info.backup_id}")
+                InlineKeyboardButton(btn_text if len(btn_text) <= 64 else btn_text[:60] + '…', callback_data=f"batch_zip_use_for_batch:{info.backup_id}")
             ])
 
         nav = []
