@@ -395,13 +395,19 @@ class BackupMenuHandler:
 		repo_to_sorted: Dict[str, list] = {}
 		id_to_version: Dict[str, int] = {}
 		try:
+			from datetime import datetime
+			def _key(v: Any) -> float:
+				dt = getattr(v, 'created_at', None)
+				if isinstance(dt, datetime):
+					return dt.timestamp()
+				return 0.0
 			for b in backups:
 				repo_name = getattr(b, 'repo', None)
 				if not repo_name:
 					continue
 				repo_to_sorted.setdefault(repo_name, []).append(b)
 			for repo_name, arr in repo_to_sorted.items():
-				arr.sort(key=lambda x: getattr(x, 'created_at', None))
+				arr.sort(key=_key)
 				for idx, b in enumerate(arr, start=1):
 					id_to_version[getattr(b, 'backup_id', '')] = idx
 		except Exception:
