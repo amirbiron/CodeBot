@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from html import escape as html_escape
@@ -270,7 +271,7 @@ class CodeKeeperBot:
 
     def __init__(self):
         # יצירת תיקייה זמנית עם הרשאות כתיבה
-        DATA_DIR = "/tmp"
+        DATA_DIR = tempfile.gettempdir()
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR, exist_ok=True)
 

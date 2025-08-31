@@ -611,16 +611,16 @@ class CodeProcessor:
                 y_position += font_size + 2
 
             # המרה לבייטים
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format="PNG")
-            img_byte_arr = img_byte_arr.getvalue()
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            data_bytes = buffer.getvalue()
 
             logger.info(f"נוצרה תמונת קוד בגודל {width}px")
-            return img_byte_arr
+            return data_bytes
 
         except Exception as e:
             logger.error(f"שגיאה ביצירת תמונת קוד: {e}")
-            return None
+            return b""
 
     def get_code_stats(self, code: str) -> Dict[str, Any]:
         """חישוב סטטיסטיקות קוד"""
@@ -781,7 +781,7 @@ class CodeProcessor:
             logger.error(f"שגיאה בניתוח קוד: {e}")
             return {"error": str(e)}
 
-    def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, str]]:
+    def extract_functions(self, code: str, programming_language: str) -> List[Dict[str, Any]]:
         """חילוץ רשימת פונקציות מהקוד"""
 
         functions = []

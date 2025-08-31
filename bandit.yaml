@@ -1,4 +1,4 @@
-skips: ["B110", "B112", "B404", "B603", "B101", "B108", "B102"]
+skips: ["B110", "B112", "B404", "B603", "B101"]
 targets: ["."]
 exclude_dirs: [".git", "venv", ".venv", "build", "dist", "tests", "__pycache__"]
 quiet: true

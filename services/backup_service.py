@@ -1,13 +1,13 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from file_manager import backup_manager
 
 
-def save_backup_bytes(data: bytes, metadata: Dict[str, Any]) -> bool:
+def save_backup_bytes(data: bytes, metadata: Dict[str, Any]) -> Optional[str]:
     return backup_manager.save_backup_bytes(data, metadata)
 
 
-def list_backups(user_id: int):
+def list_backups(user_id: int) -> List[Any]:
     return backup_manager.list_backups(user_id)
 
 

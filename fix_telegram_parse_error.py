@@ -102,34 +102,3 @@ with open("github_menu_handler.py", "w", encoding="utf-8") as f:
     f.write("\n".join(fixed_lines))
 
 print("✅ תיקון הושלם!")
-
-# תיקון נוסף - wrap כל הודעה ב-try/except
-additional_fix = '''
-# עטוף כל שליחת הודעה ב-try/except
-import re
-
-with open('github_menu_handler.py', 'r', encoding='utf-8') as f:
-    content = f.read()
-
-# מצא כל מקום של edit_message_text
-pattern = r'(await query\.edit_message_text\([^)]+\))'
-def wrap_with_try(match):
-    return f"""try:
-        {match.group(1)}
-    except telegram.error.BadRequest as e:
-        if "Can't parse entities" in str(e):
-            # נסה לשלוח בלי פורמט
-            simple_text = clean_for_telegram(message) if 'message' in locals() else "הצעה לשיפור"
-            await query.edit_message_text(simple_text)
-        else:
-            raise"""
-
-content = re.sub(pattern, wrap_with_try, content)
-
-with open('github_menu_handler.py', 'w', encoding='utf-8') as f:
-    f.write(content)
-'''
-
-exec(additional_fix)
-
-print("✅ הוספת error handling!")
