@@ -19,18 +19,13 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
-    InputFile,
     InputTextMessageContent,
     Update,
 )
 from telegram.error import BadRequest
 from telegram.ext import (
-    CallbackQueryHandler,
-    CommandHandler,
     ContextTypes,
     ConversationHandler,
-    MessageHandler,
-    filters,
 )
 
 from repo_analyzer import RepoAnalyzer
