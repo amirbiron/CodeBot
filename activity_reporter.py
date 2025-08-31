@@ -4,6 +4,7 @@
 from pymongo import MongoClient
 from datetime import datetime, timezone
 
+
 class SimpleActivityReporter:
     def __init__(self, mongodb_uri, service_id, service_name=None):
         """
@@ -17,7 +18,7 @@ class SimpleActivityReporter:
             self.service_id = service_id
             self.service_name = service_name or service_id
             self.connected = True
-        except:
+        except Exception:
             self.connected = False
             print("⚠️ לא ניתן להתחבר למונגו - פעילות לא תירשם")
     
@@ -59,7 +60,7 @@ class SimpleActivityReporter:
                 upsert=True
             )
             
-        except Exception as e:
+        except Exception:
             # שקט - אל תיכשל את הבוט אם יש בעיה
             pass
 

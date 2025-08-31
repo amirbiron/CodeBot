@@ -6,6 +6,7 @@ from .repository import Repository
 db = DatabaseManager()
 
 # לשמירה על תאימות: פונקציה שמחזירה את המנהל (כמו קודם)
+
 def init_database() -> DatabaseManager:
     return db
 
