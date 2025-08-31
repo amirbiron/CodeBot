@@ -327,12 +327,17 @@ class CodeKeeperBot:
         async def handle_github_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # העבר כל קלט רלוונטי למנהל GitHub לפי דגלים ב-user_data
             text = (update.message.text or '').strip()
-            main_menu_texts = {"➕ הוסף קוד חדש", "📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים", "🔧 GitHub", "🏠 תפריט ראשי"}
+            main_menu_texts = {"➕ הוסף קוד חדש", "📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים", "🔧 GitHub", "🏠 תפריט ראשי", "⚡ עיבוד Batch"}
             if text in main_menu_texts:
                 # נקה דגלים כדי למנוע טריגר שגוי
                 context.user_data.pop('waiting_for_repo_url', None)
                 context.user_data.pop('waiting_for_delete_file_path', None)
                 context.user_data.pop('waiting_for_download_file_path', None)
+                context.user_data.pop('waiting_for_new_repo_name', None)
+                context.user_data.pop('waiting_for_selected_folder', None)
+                context.user_data.pop('waiting_for_new_folder_path', None)
+                context.user_data.pop('waiting_for_upload_folder', None)
+                context.user_data.pop('return_to_pre_upload', None)
                 # נקה גם דגלי "הדבק קוד" כדי לצאת יפה מהזרימה
                 context.user_data.pop('waiting_for_paste_content', None)
                 context.user_data.pop('waiting_for_paste_filename', None)
