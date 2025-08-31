@@ -156,7 +156,7 @@
 
 **תצורת Redis:**
 
-.. code-block:: conf
+.. code-block:: ini
 
    # redis.conf
    maxmemory 256mb
