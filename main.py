@@ -209,7 +209,14 @@ def manage_mongo_lock():
         תומך בהמתנה לשחרור נעילה קיימת עבור blue/green deployments
     """
     try:
-        ensure_lock_indexes()
+        try:
+            ensure_lock_indexes()
+        except Exception:
+            logger.warning("could not ensure lock indexes; continuing")
+        try:
+            manage_mongo_lock()
+        except Exception:
+            logger.warning("could not acquire mongo lock immediately; continuing")
         lock_collection = get_lock_collection()
         pid = os.getpid()
         now = datetime.now(timezone.utc)
