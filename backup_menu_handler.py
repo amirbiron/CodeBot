@@ -73,7 +73,6 @@ def _rating_to_emoji(rating: str) -> str:
 		return ""
 	except Exception:
 		return ""
-
 def _build_download_button_text(info, force_hide_size: bool = False, vnum: int = None, rating: str = "") -> str:
 	"""יוצר טקסט תמציתי לכפתור ההורדה הכולל שם עיקרי + תאריך/גודל.
 	מוגבל לאורך בטוח עבור טלגרם (~64 תווים) תוך הבטחת הצגת התאריך."""
