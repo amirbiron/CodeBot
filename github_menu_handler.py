@@ -1724,7 +1724,8 @@ class GitHubMenuHandler:
 
                 # אם אין cache או שהוא ישן, בצע בקשה ל-API
 
-                g = Github(self.get_user_token(user_id))
+                _tok = self.get_user_token(user_id)
+                g = Github(_tok) if _tok else Github(None)
 
                 # בדוק rate limit לפני הבקשה
                 rate = g.get_rate_limit()
