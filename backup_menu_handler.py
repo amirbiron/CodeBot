@@ -182,7 +182,36 @@ class BackupMenuHandler:
 			await self._restore_by_id(update, context, backup_id)
 		elif data.startswith("backup_download_id:"):
 			backup_id = data.split(":", 1)[1]
-			await self._download_by_id(update, context, backup_id)
+			# במקום הורדה ישירה, הצג תצוגת פרטים עם פעולות
+			await self._show_backup_details(update, context, backup_id)
+		elif data.startswith("backup_details:"):
+			backup_id = data.split(":", 1)[1]
+			await self._show_backup_details(update, context, backup_id)
+		elif data.startswith("backup_delete_one_confirm:"):
+			backup_id = data.split(":", 1)[1]
+			kb = [
+				[InlineKeyboardButton("✅ אישור מחיקה", callback_data=f"backup_delete_one_execute:{backup_id}")],
+				[InlineKeyboardButton("🔙 ביטול", callback_data=f"backup_details:{backup_id}")],
+			]
+			txt = f"האם למחוק לצמיתות את הגיבוי:\n{backup_id}?"
+			await update.callback_query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))
+		elif data.startswith("backup_delete_one_execute:"):
+			backup_id = data.split(":", 1)[1]
+			try:
+				res = backup_manager.delete_backups(user_id, [backup_id])
+				try:
+					from database import db as _db
+					_db.delete_backup_ratings(user_id, [backup_id])
+				except Exception:
+					pass
+				deleted = res.get("deleted", 0)
+				if deleted:
+					await update.callback_query.edit_message_text("✅ הגיבוי נמחק")
+					await self._show_backups_list(update, context)
+				else:
+					await update.callback_query.edit_message_text("❌ המחיקה נכשלה")
+			except Exception as e:
+				await update.callback_query.edit_message_text(f"❌ שגיאה במחיקה: {e}")
 		elif data == "backup_delete_mode_on":
 			context.user_data["backup_delete_mode"] = True
 			context.user_data["backup_delete_selected"] = set()
@@ -257,34 +286,11 @@ class BackupMenuHandler:
 			rating_value = rating_map.get(rating_key, rating_key)
 			try:
 				db.save_backup_rating(user_id, b_id, rating_value)
-				# נסה לערוך את הודעת הסיכום אם שמרנו אותה בסשן
+				# רענון UX: אם נכנסו דרך תצוגת פרטים, הצג אותה שוב; אחרת רענן רשימה
 				try:
-					summary_cache = context.user_data.get("backup_summaries", {})
-					meta = summary_cache.get(b_id)
-					if meta:
-						chat_id = meta.get("chat_id")
-						message_id = meta.get("message_id")
-						base_text = meta.get("text") or ""
-						await context.bot.edit_message_text(
-							chat_id=chat_id,
-							message_id=message_id,
-							text=f"{base_text}\n{rating_value} / 👍 טוב / 🤷 סביר"
-						)
+					await self._show_backup_details(update, context, b_id)
 				except Exception:
-					pass
-				# סמן להדגשה בפריט שרק דורג ורענן את הרשימה כדי להציג כפתור מעודכן
-				context.user_data["backup_highlight_id"] = b_id
-				try:
 					await self._show_backups_list(update, context)
-				except Exception as e:
-					msg = str(e).lower()
-					if "message is not modified" in msg:
-						pass
-					else:
-						try:
-							await query.edit_message_text(f"נשמר הדירוג: {rating_value}")
-						except Exception:
-							await query.answer("נשמר הדירוג", show_alert=False)
 			except Exception as e:
 				await query.answer(f"שמירת דירוג נכשלה: {e}", show_alert=True)
 			return
@@ -451,14 +457,8 @@ class BackupMenuHandler:
 					btn_text = f"✔️ {btn_text}"
 				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
 			else:
-				# הצג כפתור שחזור רק עבור גיבויים מסוג DB (לא ל-GitHub ZIP)
-				if btype not in {"github_repo_zip"}:
-					row.append(InlineKeyboardButton("♻️ שחזר", callback_data=f"backup_restore_id:{info.backup_id}"))
-				# כפתור הורדה תמיד זמין עם טקסט תמציתי
-				btn_text = _build_download_button_text(info, vnum=vnum, rating=rating)
-				if highlight:
-					btn_text = f"✔️ {btn_text}"
-				row.append(InlineKeyboardButton(btn_text, callback_data=f"backup_download_id:{info.backup_id}"))
+				# מעבר לתצוגת פרטים: הורדה/מחיקה/תיוג יתבצעו במסך ייעודי
+				row.append(InlineKeyboardButton("📄 פרטים", callback_data=f"backup_details:{info.backup_id}"))
 			keyboard.append(row)
 		# עימוד: הקודם/הבא
 		nav = []
@@ -501,6 +501,43 @@ class BackupMenuHandler:
 			)
 		except Exception:
 			pass
+
+	async def _show_backup_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		"""מציג תצוגת פרטים עבור גיבוי בודד עם פעולות: הורדה, מחיקה, עריכת תיוג"""
+		query = update.callback_query
+		await query.answer()
+		user_id = query.from_user.id
+		info_list = backup_manager.list_backups(user_id)
+		match = next((b for b in info_list if b.backup_id == backup_id), None)
+		if not match:
+			await query.edit_message_text("❌ הגיבוי לא נמצא")
+			return
+		# שלוף דירוג נוכחי אם קיים
+		try:
+			rating = db.get_backup_rating(user_id, backup_id) or ""
+		except Exception:
+			rating = ""
+		when = _format_date(getattr(match, 'created_at', ''))
+		size_txt = _format_bytes(getattr(match, 'total_size', 0))
+		files_cnt = getattr(match, 'file_count', 0) or 0
+		repo_name = getattr(match, 'repo', '') or '-'
+		lines = [
+			f"📦 גיבוי: {backup_id}",
+			f"📅 נוצר: {when}",
+			f"📁 קבצים: {files_cnt}",
+			f"📏 גודל: {size_txt}",
+			f"🔖 ריפו: {repo_name}",
+		]
+		if rating:
+			lines.append(f"🏷 תיוג: {rating}")
+		kb = [
+			[InlineKeyboardButton("⬇️ הורדה", callback_data=f"backup_download_id:{backup_id}")],
+			[InlineKeyboardButton("🗑 מחק", callback_data=f"backup_delete_one_confirm:{backup_id}")],
+			[InlineKeyboardButton("🏷 ערוך תיוג", callback_data=f"backup_rate_menu:{backup_id}")],
+			[InlineKeyboardButton("🔙 חזור לרשימה", callback_data="backup_list")],
+		]
+		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb))
+
 	
 	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
 		query = update.callback_query
