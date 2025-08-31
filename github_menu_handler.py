@@ -508,7 +508,10 @@ class GitHubMenuHandler:
         elif query.data == "upload_folder_custom":
             await self.ask_upload_folder(update, context)
         elif query.data == "upload_folder_create":
-            await self.create_upload_folder(update, context)
+            if hasattr(self, "create_upload_folder"):
+                await self.create_upload_folder(update, context)
+            else:
+                await query.answer("אין פעולה זמינה ליצירת תיקייה", show_alert=True)
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:

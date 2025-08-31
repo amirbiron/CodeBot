@@ -8,7 +8,7 @@ import io
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import cairosvg
 import textstat
@@ -778,7 +778,17 @@ class CodeProcessor:
     def validate_syntax(self, code: str, programming_language: str) -> Dict[str, Any]:
         """בדיקת תחביר של הקוד"""
         
-        result = {
+        from typing import Any, Dict, List, TypedDict
+        class _ErrorDict(TypedDict, total=False):
+            line: int
+            message: str
+            type: str
+        class _ResultDict(TypedDict):
+            is_valid: bool
+            errors: List[_ErrorDict]
+            warnings: List[_ErrorDict]
+            suggestions: List[Dict[str, Any]]
+        result: _ResultDict = {
             'is_valid': True,
             'errors': [],
             'warnings': [],
@@ -791,7 +801,7 @@ class CodeProcessor:
                 compile(code, '<string>', 'exec')
             except SyntaxError as e:
                 result['is_valid'] = False
-                result['errors'].append({
+                result['errors'].append({  # type: ignore[arg-type]
                     'line': e.lineno,
                     'message': str(e),
                     'type': 'SyntaxError'
@@ -803,7 +813,7 @@ class CodeProcessor:
                 json.loads(code)
             except json.JSONDecodeError as e:
                 result['is_valid'] = False
-                result['errors'].append({
+                result['errors'].append({  # type: ignore[arg-type]
                     'line': e.lineno,
                     'message': str(e),
                     'type': 'JSONDecodeError'
@@ -824,7 +834,7 @@ class CodeProcessor:
                     if opening_bracket and brackets_balance[opening_bracket] > 0:
                         brackets_balance[opening_bracket] -= 1
                     else:
-                        result['warnings'].append({
+                        result['warnings'].append({  # type: ignore[arg-type]
                             'line': i,
                             'message': f'סוגריים לא מאוזנים: {char}',
                             'type': 'UnbalancedBrackets'
@@ -833,7 +843,7 @@ class CodeProcessor:
         # בדיקה אם נותרו סוגריים פתוחים
         for bracket, count in brackets_balance.items():
             if count > 0:
-                result['warnings'].append({
+                result['warnings'].append({  # type: ignore[arg-type]
                     'line': len(lines),
                     'message': f'סוגריים לא סגורים: {bracket}',
                     'type': 'UnclosedBrackets'
@@ -851,7 +861,8 @@ class CodeProcessor:
                     })
         
         logger.info(f"נבדק תחביר עבור {programming_language}: {'תקין' if result['is_valid'] else 'לא תקין'}")
-        return result
+        from typing import cast, Dict, Any
+        return cast(Dict[str, Any], result)
     
     def minify_code(self, code: str, programming_language: str) -> str:
         """דחיסת קוד (הסרת רווחים מיותרים והערות)"""
