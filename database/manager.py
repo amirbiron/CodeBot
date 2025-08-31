@@ -275,3 +275,19 @@ class DatabaseManager:
     def save_user(self, user_id: int, username: str = None) -> bool:
         return self._get_repo().save_user(user_id, username)
 
+    # Google Drive tokens & preferences
+    def save_drive_tokens(self, user_id: int, token_data: Dict[str, Any]) -> bool:
+        return self._get_repo().save_drive_tokens(user_id, token_data)
+
+    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_drive_tokens(user_id)
+
+    def delete_drive_tokens(self, user_id: int) -> bool:
+        return self._get_repo().delete_drive_tokens(user_id)
+
+    def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+        return self._get_repo().save_drive_prefs(user_id, prefs)
+
+    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_drive_prefs(user_id)
+
