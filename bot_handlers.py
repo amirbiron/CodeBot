@@ -98,7 +98,7 @@ class AdvancedBotHandlers:
 
         # קבל את הקוד המקורי (הפונקציה highlight_code תחזיר אותו כפי שהוא)
         original_code = code_processor.highlight_code(
-            file_data["code"], file_data["programming_language"], "html"
+            file_data["code"], file_data["programming_language"]
         )
 
         # בצע הימלטות לתוכן הקוד כדי למנוע שגיאות
@@ -594,7 +594,7 @@ class AdvancedBotHandlers:
 
         # יצירת קוד מודגש
         highlighted = code_processor.highlight_code(
-            file_data["code"], file_data["programming_language"], "html"
+            file_data["code"], file_data["programming_language"]
         )
 
         # שליחה כקובץ HTML אם הקוד ארוך

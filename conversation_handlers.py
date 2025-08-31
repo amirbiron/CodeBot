@@ -1844,23 +1844,28 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             from large_files_handler import large_files_handler
 
             await large_files_handler.show_large_files_menu(update, context)
+            return ConversationHandler.END
         elif data.startswith("lf_page_"):
             from large_files_handler import large_files_handler
 
             page = int(data.replace("lf_page_", ""))
             await large_files_handler.show_large_files_menu(update, context, page)
+            return ConversationHandler.END
         elif data.startswith("large_file_"):
             from large_files_handler import large_files_handler
 
             await large_files_handler.handle_file_selection(update, context)
+            return ConversationHandler.END
         elif data.startswith("lf_view_"):
             from large_files_handler import large_files_handler
 
             await large_files_handler.view_large_file(update, context)
+            return ConversationHandler.END
         elif data.startswith("lf_download_"):
             from large_files_handler import large_files_handler
 
             await large_files_handler.download_large_file(update, context)
+            return ConversationHandler.END
         elif data.startswith("lf_edit_"):
             from large_files_handler import large_files_handler
 
@@ -1869,14 +1874,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             from large_files_handler import large_files_handler
 
             await large_files_handler.delete_large_file_confirm(update, context)
+            return ConversationHandler.END
         elif data.startswith("lf_confirm_delete_"):
             from large_files_handler import large_files_handler
 
             await large_files_handler.delete_large_file(update, context)
+            return ConversationHandler.END
         elif data.startswith("lf_info_"):
             from large_files_handler import large_files_handler
 
             await large_files_handler.show_file_info(update, context)
+            return ConversationHandler.END
         elif data in (
             "batch_analyze_all",
             "batch_analyze_python",

@@ -402,7 +402,7 @@ class LargeFilesHandler:
 
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
-    async def edit_large_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def edit_large_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """התחלת תהליך עריכת קובץ גדול"""
         query = update.callback_query
         await query.answer()
