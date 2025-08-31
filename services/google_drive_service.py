@@ -38,13 +38,25 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
 
     Returns a dict with: verification_url, user_code, device_code, interval, expires_in.
     """
+    if not config.GOOGLE_CLIENT_ID:
+        raise RuntimeError("GOOGLE_CLIENT_ID is not set")
     payload = {
         "client_id": config.GOOGLE_CLIENT_ID,
         "scope": config.GOOGLE_OAUTH_SCOPES,
     }
-    response = requests.post(DEVICE_CODE_URL, data=payload, timeout=15)
-    response.raise_for_status()
-    data = response.json()
+    try:
+        response = requests.post(DEVICE_CODE_URL, data=payload, timeout=15)
+        # If unauthorized/invalid_client, surface clearer message
+        if response.status_code >= 400:
+            try:
+                err = response.json()
+            except Exception:
+                err = {"error": f"HTTP {response.status_code}"}
+            msg = err.get("error_description") or err.get("error") or f"HTTP {response.status_code}"
+            raise RuntimeError(f"Device auth start failed: {msg}")
+        data = response.json()
+    except requests.RequestException as e:
+        raise RuntimeError(f"Device auth request error: {e}")
     # Persist device flow state in memory is handled by caller; tokens saved on success.
     return {
         "verification_url": data.get("verification_url") or data.get("verification_uri"),
@@ -61,7 +73,6 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     """
     payload = {
         "client_id": config.GOOGLE_CLIENT_ID,
-        "client_secret": config.GOOGLE_CLIENT_SECRET or "",
         "device_code": device_code,
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }

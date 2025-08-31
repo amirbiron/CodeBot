@@ -55,15 +55,92 @@ class GoogleDriveMenuHandler:
             flow = gdrive.start_device_authorization(user_id)
             sess = self._session(user_id)
             sess["device_code"] = flow.get("device_code")
-            sess["interval"] = flow.get("interval", 5)
+            sess["interval"] = max(3, int(flow.get("interval", 5)))
+            sess["auth_expires_at"] = int(__import__('time').time()) + int(flow.get("expires_in", 1800))
+            # schedule polling job
+            jobs = context.bot_data.setdefault("drive_auth_jobs", {})
+            # cancel old if exists
+            old = jobs.get(user_id)
+            if old:
+                try:
+                    old.schedule_removal()
+                except Exception:
+                    pass
+            async def _poll_once(ctx: ContextTypes.DEFAULT_TYPE):
+                try:
+                    uid = user_id
+                    s = self._session(uid)
+                    dc = s.get("device_code")
+                    if not dc:
+                        return
+                    tokens = gdrive.poll_device_token(dc)
+                    if tokens:
+                        gdrive.save_tokens(uid, tokens)
+                        # cancel job and notify
+                        try:
+                            j = ctx.job
+                            j.schedule_removal()
+                        except Exception:
+                            pass
+                        jobs.pop(uid, None)
+                        s.pop("device_code", None)
+                        try:
+                            await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            try:
+                job = context.application.job_queue.run_repeating(_poll_once, interval=sess["interval"], first=5, name=f"drive_auth_{user_id}")
+                jobs[user_id] = job
+            except Exception:
+                pass
+            # show instruction with buttons
             text = (
                 "🔐 התחברות ל‑Google Drive\n\n"
                 f"גש לכתובת: {flow.get('verification_url')}\n"
                 f"קוד: <code>{flow.get('user_code')}</code>\n\n"
-                "לאחר האישור, שלח כאן את הקוד החד‑פעמי כפי שקיבלת מגוגל."
+                "לאחר האישור, לחץ על ׳🔄 בדוק חיבור׳ או המתן לאימות אוטומטי."
             )
-            context.user_data["waiting_for_drive_code"] = True
-            await query.edit_message_text(text, parse_mode="HTML")
+            kb = [
+                [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
+                [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
+            ]
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+            return
+        if data == "drive_poll_once":
+            sess = self._session(user_id)
+            dc = sess.get("device_code")
+            if not dc:
+                await query.answer("אין בקשת התחברות פעילה", show_alert=True)
+                return
+            tokens = gdrive.poll_device_token(dc)
+            if not tokens:
+                await query.answer("עדיין ממתינים לאישור…", show_alert=False)
+                return
+            gdrive.save_tokens(user_id, tokens)
+            # cancel background job if exists
+            jobs = context.bot_data.setdefault("drive_auth_jobs", {})
+            job = jobs.pop(user_id, None)
+            if job:
+                try:
+                    job.schedule_removal()
+                except Exception:
+                    pass
+            await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
+            await self.menu(update, context)
+            return
+        if data == "drive_cancel_auth":
+            sess = self._session(user_id)
+            sess.pop("device_code", None)
+            jobs = context.bot_data.setdefault("drive_auth_jobs", {})
+            job = jobs.pop(user_id, None)
+            if job:
+                try:
+                    job.schedule_removal()
+                except Exception:
+                    pass
+            await query.edit_message_text("ביטלת את ההתחברות ל‑Drive.")
             return
         if data == "drive_backup_now":
             # Show selection: ZIP, הכל, מתקדם
