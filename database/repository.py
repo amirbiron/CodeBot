@@ -402,3 +402,35 @@ class Repository:
             logger.error(f"Failed to delete backup ratings: {e}")
             return 0
 
+    # --- Backup notes ---
+    def save_backup_note(self, user_id: int, backup_id: str, note: str) -> bool:
+        """שומר או מעדכן הערה עבור גיבוי (מאוחד עם מסמך הדירוג)."""
+        try:
+            coll = self.manager.backup_ratings_collection
+            if coll is None:
+                logger.warning("backup_ratings_collection is not initialized")
+                return False
+            now = datetime.now(timezone.utc)
+            coll.update_one(
+                {"user_id": user_id, "backup_id": backup_id},
+                {"$set": {"note": (note or "")[:1000], "updated_at": now}, "$setOnInsert": {"created_at": now}},
+                upsert=True,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save backup note: {e}")
+            return False
+
+    def get_backup_note(self, user_id: int, backup_id: str) -> Optional[str]:
+        try:
+            coll = self.manager.backup_ratings_collection
+            if coll is None:
+                return None
+            doc = coll.find_one({"user_id": user_id, "backup_id": backup_id})
+            if doc:
+                return doc.get("note")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get backup note: {e}")
+            return None
+

@@ -172,6 +172,9 @@ class BackupMenuHandler:
 			await self._show_backups_list(update, context)
 		elif data == "backup_list":
 			await self._show_backups_list(update, context, page=1)
+		elif data.startswith("backup_add_note:"):
+			backup_id = data.split(":", 1)[1]
+			await self._ask_backup_note(update, context, backup_id)
 		elif data.startswith("backup_page_"):
 			try:
 				page = int(data.split("_")[-1])
@@ -548,9 +551,30 @@ class BackupMenuHandler:
 			[InlineKeyboardButton("⬇️ הורדה", callback_data=f"backup_download_id:{backup_id}")],
 			[InlineKeyboardButton("🗑 מחק", callback_data=f"backup_delete_one_confirm:{backup_id}")],
 			[InlineKeyboardButton("🏷 ערוך תיוג", callback_data=f"backup_rate_menu:{backup_id}")],
+			[InlineKeyboardButton("📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
 			[InlineKeyboardButton("🔙 חזור לרשימה", callback_data="backup_list")],
 		]
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb))
+
+	async def _ask_backup_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
+		"""מבקש מהמשתמש להזין הערה לגיבוי ובסיום שומר אותה במסד"""
+		query = update.callback_query
+		await query.answer()
+		user_id = query.from_user.id
+		# שלוף הערה קיימת אם יש
+		try:
+			from database import db
+			existing = db.get_backup_note(user_id, backup_id) or ""
+		except Exception:
+			existing = ""
+		try:
+			context.user_data['waiting_for_backup_note_for'] = backup_id
+			prompt = "✏️ הקלד/י הערה לגיבוי (עד 1000 תווים).\nשלח/י טקסט עכשיו.\n\n"
+			if existing:
+				prompt += f"הערה נוכחית: {existing}\n"
+			await query.edit_message_text(prompt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"backup_details:{backup_id}")]]))
+		except Exception as e:
+			await query.edit_message_text(f"❌ שגיאה בפתיחת עריכת הערה: {e}")
 
 	
 	async def _restore_by_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
