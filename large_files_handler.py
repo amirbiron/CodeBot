@@ -412,7 +412,7 @@ class LargeFilesHandler:
             parse_mode='Markdown'
         )
     
-    async def edit_large_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def edit_large_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """התחלת תהליך עריכת קובץ גדול"""
         query = update.callback_query
         await query.answer()
@@ -448,7 +448,7 @@ class LargeFilesHandler:
         
         # החזרת מצב שיחה לעריכה
         from conversation_handlers import EDIT_CODE
-        return EDIT_CODE
+        return int(EDIT_CODE)
 
 # יצירת instance גלובלי
 large_files_handler = LargeFilesHandler()
