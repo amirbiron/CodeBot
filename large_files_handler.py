@@ -423,7 +423,8 @@ class LargeFilesHandler:
         
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
-            return
+            from conversation_handlers import EDIT_CODE
+            return int(EDIT_CODE)
         
         file_name = file_data.get('file_name', 'קובץ ללא שם')
         
