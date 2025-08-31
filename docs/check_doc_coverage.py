@@ -25,7 +25,7 @@ class Colors:
 def has_docstring(node) -> bool:
     """בודק אם לצומת AST יש docstring."""
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return (
+        return bool(
             node.body and
             isinstance(node.body[0], ast.Expr) and
             isinstance(node.body[0].value, ast.Constant) and

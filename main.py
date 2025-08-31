@@ -1084,9 +1084,9 @@ class CodeKeeperBot:
                         if '/' in n and not n.startswith('__MACOSX/'):
                             top_levels.add(n.split('/', 1)[0])
                     common_root = list(top_levels)[0] if len(top_levels) == 1 else None
-                    def strip_root(p: str) -> str:
-                        if common_root and p.startswith(common_root + '/'): return p[len(common_root)+1:]
-                        return p
+                    def strip_root(path: str) -> str:
+                        if common_root and path.startswith(common_root + '/'): return path[len(common_root)+1:]
+                        return path
                     files = []
                     for name in members:
                         data = zf.read(name)
