@@ -284,7 +284,7 @@ class Repository:
             logger.error(f"שגיאה בשמירת טוקן GitHub: {e}")
             return False
 
-    def get_github_token(self, user_id: int) -> str:
+    def get_github_token(self, user_id: int) -> Optional[str]:
         try:
             users_collection = self.manager.db.users
             user = users_collection.find_one({"user_id": user_id})
@@ -328,7 +328,7 @@ class Repository:
             logger.error(f"שגיאה בשמירת ריפו נבחר: {e}")
             return False
 
-    def get_selected_repo(self, user_id: int) -> str:
+    def get_selected_repo(self, user_id: int) -> Optional[str]:
         try:
             users_collection = self.manager.db.users
             user = users_collection.find_one({"user_id": user_id})

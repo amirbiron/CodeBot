@@ -253,7 +253,7 @@ class DatabaseManager:
     def save_github_token(self, user_id: int, token: str) -> bool:
         return self._get_repo().save_github_token(user_id, token)
 
-    def get_github_token(self, user_id: int) -> str:
+    def get_github_token(self, user_id: int) -> Optional[str]:
         return self._get_repo().get_github_token(user_id)
 
     def delete_github_token(self, user_id: int) -> bool:
@@ -262,7 +262,7 @@ class DatabaseManager:
     def save_selected_repo(self, user_id: int, repo_name: str) -> bool:
         return self._get_repo().save_selected_repo(user_id, repo_name)
 
-    def get_selected_repo(self, user_id: int) -> str:
+    def get_selected_repo(self, user_id: int) -> Optional[str]:
         return self._get_repo().get_selected_repo(user_id)
 
     def save_user(self, user_id: int, username: str = None) -> bool:
