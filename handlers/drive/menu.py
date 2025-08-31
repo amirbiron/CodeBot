@@ -37,7 +37,7 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("📤 גבה עכשיו", callback_data="drive_backup_now")],
             [InlineKeyboardButton("🗂 בחר תיקיית יעד", callback_data="drive_choose_folder")],
             [InlineKeyboardButton("🗓 זמני גיבוי", callback_data="drive_schedule")],
-            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_advanced")],
+            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         await send("Google Drive — מחובר\nבחר פעולה:", reply_markup=InlineKeyboardMarkup(kb))
@@ -51,6 +51,9 @@ class GoogleDriveMenuHandler:
         if data == "drive_menu":
             await self.menu(update, context)
             return
+        # Backward compatibility: map old callback to new one
+        if data == "drive_advanced":
+            data = "drive_sel_adv"
         if data == "drive_auth":
             flow = gdrive.start_device_authorization(user_id)
             sess = self._session(user_id)
