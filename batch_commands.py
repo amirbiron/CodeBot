@@ -5,6 +5,7 @@ Batch Commands for Multiple File Processing
 
 import logging
 import asyncio
+from typing import Dict
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -492,7 +493,7 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 analysis_summary = []
                 total_lines = 0
                 total_chars = 0
-                languages = {}
+                languages: Dict[str, int] = {}
                 
                 for file_name, result in job.results.items():
                     if result.get('success', False):

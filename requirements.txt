@@ -121,3 +121,9 @@ typer==0.9.0
 # Poetry Support
 poetry-core>=1.0.0
 wheel
+
+# Documentation
+sphinx==7.4.7  # Last version supporting Python 3.9
+sphinx-rtd-theme==2.0.0
+sphinx-autodoc-typehints==1.25.3  # Last version compatible with Sphinx 7.x
+sphinxcontrib-napoleon==0.7

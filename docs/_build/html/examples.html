@@ -1,0 +1,638 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="he" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>דוגמאות שימוש &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=2d7a82d5" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=0062297a"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="_static/translations.js?v=a336edf7"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="אינדקס" href="genindex.html" />
+    <link rel="search" title="חיפוש" href="search.html" />
+    <link rel="prev" title="Database" href="database/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            Code Keeper Bot
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">תוכן עניינים:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">התקנה והגדרה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id2">דרישות מערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id3">התקנה מהירה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id4">1. שכפל את הריפוזיטורי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id5">2. התקן תלויות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id6">3. הגדר משתני סביבה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#id7">4. הפעל את הבוט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#docker">התקנה עם Docker</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#image">1. בנה את ה-Image</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#docker-compose">2. הפעל עם Docker Compose</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#telegram-bot">הגדרת Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id8">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id9">בדיקת התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id10">פתרון בעיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#id11">תמיכה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="configuration.html">הגדרות תצורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">קובץ התצורה הראשי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">משתני סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#redis-cache">הגדרת Redis Cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">הגדרות אבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">תצורה לסביבות שונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#env">דוגמת קובץ .env מלא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">טיפים וטריקים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#main-application">Main Application</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#bot-handlers">Bot Handlers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/index.html#conversation-handlers">Conversation Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="modules/index.html">מודולים ראשיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#module-file_manager">File Management</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="modules/index.html#file_manager.BackupInfo"><code class="docutils literal notranslate"><span class="pre">BackupInfo</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupInfo.__init__"><code class="docutils literal notranslate"><span class="pre">BackupInfo.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="modules/index.html#file_manager.BackupManager"><code class="docutils literal notranslate"><span class="pre">BackupManager</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.__init__"><code class="docutils literal notranslate"><span class="pre">BackupManager.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.save_backup_bytes"><code class="docutils literal notranslate"><span class="pre">BackupManager.save_backup_bytes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.save_backup_file"><code class="docutils literal notranslate"><span class="pre">BackupManager.save_backup_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.list_backups"><code class="docutils literal notranslate"><span class="pre">BackupManager.list_backups()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.restore_from_backup"><code class="docutils literal notranslate"><span class="pre">BackupManager.restore_from_backup()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.delete_backups"><code class="docutils literal notranslate"><span class="pre">BackupManager.delete_backups()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="modules/index.html#file_manager.BackupManager.delete_backup"><code class="docutils literal notranslate"><span class="pre">BackupManager.delete_backup()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#github-integration">GitHub Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#backup-system">Backup System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#code-processing">Code Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#search-engine">Search Engine</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#repository-analysis">Repository Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#batch-processing">Batch Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#large-files-handling">Large Files Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#cache-management">Cache Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#user-statistics">User Statistics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#activity-reporting">Activity Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#utilities">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#lazy-loading">Lazy Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#integrations">Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#terminal-commands">Terminal Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="modules/index.html#autocomplete-manager">Autocomplete Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#file-view-handler">File View Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#pagination-handler">Pagination Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#module-handlers.states">States Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#module-handlers.github">GitHub Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="services/index.html">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#module-services.code_service">Code Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#code-service-module">Code Service Module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.detect_language"><code class="docutils literal notranslate"><span class="pre">detect_language()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.validate_code_input"><code class="docutils literal notranslate"><span class="pre">validate_code_input()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.analyze_code"><code class="docutils literal notranslate"><span class="pre">analyze_code()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.extract_functions"><code class="docutils literal notranslate"><span class="pre">extract_functions()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.get_code_stats"><code class="docutils literal notranslate"><span class="pre">get_code_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.code_service.highlight_code"><code class="docutils literal notranslate"><span class="pre">highlight_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#github-service">GitHub Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="services/index.html#module-services.backup_service">Backup Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.save_backup_bytes"><code class="docutils literal notranslate"><span class="pre">save_backup_bytes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.list_backups"><code class="docutils literal notranslate"><span class="pre">list_backups()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.restore_from_backup"><code class="docutils literal notranslate"><span class="pre">restore_from_backup()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="services/index.html#services.backup_service.delete_backups"><code class="docutils literal notranslate"><span class="pre">delete_backups()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="database/index.html">Database</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#database-manager">Database Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#models">Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#codesnippet-model">CodeSnippet Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#databasemanager-class">DatabaseManager Class</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#database-operations">Database Operations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#save-operations">Save Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#search-operations">Search Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#delete-operations">Delete Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database/index.html#statistics-operations">Statistics Operations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">דוגמאות שימוש</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#id2">שימוש בסיסי</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id3">יצירת אפליקציית בוט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id4">שמירת קוד חדש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id5">חיפוש קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#handlers">שימוש ב-Handlers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#command-handler">יצירת Command Handler</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#conversation-handler">יצירת Conversation Handler</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#services">שימוש ב-Services</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id6">זיהוי שפת תכנות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id7">ניתוח קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#github">אינטגרציה עם GitHub</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#gist">העלאת קוד ל-Gist</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#gists">שליפת Gists של משתמש</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id8">עבודה עם מסד הנתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id9">ביצוע שאילתות מורכבות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id10">עדכון קבצים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id11">סטטיסטיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id12">טיפול בשגיאות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id13">טיפול בשגיאות בסיסי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#retry-logic">Retry Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id14">בדיקות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id15">בדיקת יחידה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id16">בדיקת אינטגרציה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id17">דוגמאות מתקדמות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id18">עיבוד באצווה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id19">קאשינג</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">Code Keeper Bot</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">דוגמאות שימוש</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/examples.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="database/index.html" class="btn btn-neutral float-left" title="Database" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="id1">
+<h1>דוגמאות שימוש<a class="headerlink" href="#id1" title="Link to this heading"></a></h1>
+<p>דף זה מכיל דוגמאות קוד לשימוש ב-API של Code Keeper Bot.</p>
+<section id="id2">
+<h2>שימוש בסיסי<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<section id="id3">
+<h3>יצירת אפליקציית בוט<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">main</span> <span class="kn">import</span> <span class="n">CodeKeeperBot</span>
+<span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">config</span>
+
+<span class="c1"># יצירת מופע של הבוט</span>
+<span class="n">bot</span> <span class="o">=</span> <span class="n">CodeKeeperBot</span><span class="p">()</span>
+
+<span class="c1"># הפעלת הבוט</span>
+<span class="n">bot</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="id4">
+<h3>שמירת קוד חדש<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">CodeSnippet</span>
+
+<span class="c1"># יצירת snippet חדש</span>
+<span class="n">snippet</span> <span class="o">=</span> <span class="n">CodeSnippet</span><span class="p">(</span>
+    <span class="n">user_id</span><span class="o">=</span><span class="mi">123456789</span><span class="p">,</span>
+    <span class="n">file_name</span><span class="o">=</span><span class="s2">&quot;example.py&quot;</span><span class="p">,</span>
+    <span class="n">code</span><span class="o">=</span><span class="s2">&quot;print(&#39;Hello, World!&#39;)&quot;</span><span class="p">,</span>
+    <span class="n">programming_language</span><span class="o">=</span><span class="s2">&quot;python&quot;</span><span class="p">,</span>
+    <span class="n">note</span><span class="o">=</span><span class="s2">&quot;דוגמה ראשונה&quot;</span>
+<span class="p">)</span>
+
+<span class="c1"># שמירה במסד הנתונים</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">save_snippet</span><span class="p">(</span><span class="n">snippet</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;נשמר עם ID: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">inserted_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="id5">
+<h3>חיפוש קוד<a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
+
+<span class="c1"># חיפוש לפי טקסט</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">search_snippets</span><span class="p">(</span>
+    <span class="n">user_id</span><span class="o">=</span><span class="mi">123456789</span><span class="p">,</span>
+    <span class="n">search_term</span><span class="o">=</span><span class="s2">&quot;Hello&quot;</span>
+<span class="p">)</span>
+
+<span class="k">for</span> <span class="n">snippet</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;נמצא: </span><span class="si">{</span><span class="n">snippet</span><span class="p">[</span><span class="s1">&#39;file_name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="handlers">
+<h2>שימוש ב-Handlers<a class="headerlink" href="#handlers" title="Link to this heading"></a></h2>
+<section id="command-handler">
+<h3>יצירת Command Handler<a class="headerlink" href="#command-handler" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">telegram.ext</span> <span class="kn">import</span> <span class="n">CommandHandler</span>
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">my_command</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;פקודה מותאמת אישית&quot;&quot;&quot;</span>
+    <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span>
+        <span class="s2">&quot;שלום! זו פקודה מותאמת אישית&quot;</span>
+    <span class="p">)</span>
+
+<span class="c1"># הוספת הפקודה לבוט</span>
+<span class="n">handler</span> <span class="o">=</span> <span class="n">CommandHandler</span><span class="p">(</span><span class="s2">&quot;mycommand&quot;</span><span class="p">,</span> <span class="n">my_command</span><span class="p">)</span>
+<span class="n">application</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="n">handler</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="conversation-handler">
+<h3>יצירת Conversation Handler<a class="headerlink" href="#conversation-handler" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">telegram.ext</span> <span class="kn">import</span> <span class="n">ConversationHandler</span><span class="p">,</span> <span class="n">MessageHandler</span><span class="p">,</span> <span class="n">filters</span>
+
+<span class="c1"># מצבי שיחה</span>
+<span class="n">WAITING_FOR_CODE</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">WAITING_FOR_NAME</span> <span class="o">=</span> <span class="mi">2</span>
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">start_save</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+    <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="s2">&quot;שלח לי את הקוד:&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">WAITING_FOR_CODE</span>
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">receive_code</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+    <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span>
+    <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="s2">&quot;מה שם הקובץ?&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">WAITING_FOR_NAME</span>
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">receive_name</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+    <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;filename&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span>
+    <span class="c1"># שמור את הקוד...</span>
+    <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="s2">&quot;נשמר בהצלחה!&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span>
+
+<span class="c1"># יצירת ה-handler</span>
+<span class="n">conv_handler</span> <span class="o">=</span> <span class="n">ConversationHandler</span><span class="p">(</span>
+    <span class="n">entry_points</span><span class="o">=</span><span class="p">[</span><span class="n">CommandHandler</span><span class="p">(</span><span class="s1">&#39;save&#39;</span><span class="p">,</span> <span class="n">start_save</span><span class="p">)],</span>
+    <span class="n">states</span><span class="o">=</span><span class="p">{</span>
+        <span class="n">WAITING_FOR_CODE</span><span class="p">:</span> <span class="p">[</span><span class="n">MessageHandler</span><span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">TEXT</span><span class="p">,</span> <span class="n">receive_code</span><span class="p">)],</span>
+        <span class="n">WAITING_FOR_NAME</span><span class="p">:</span> <span class="p">[</span><span class="n">MessageHandler</span><span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">TEXT</span><span class="p">,</span> <span class="n">receive_name</span><span class="p">)],</span>
+    <span class="p">},</span>
+    <span class="n">fallbacks</span><span class="o">=</span><span class="p">[]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="services">
+<h2>שימוש ב-Services<a class="headerlink" href="#services" title="Link to this heading"></a></h2>
+<section id="id6">
+<h3>זיהוי שפת תכנות<a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">services</span> <span class="kn">import</span> <span class="n">code_service</span>
+
+<span class="n">code</span> <span class="o">=</span> <span class="s1">&#39;&#39;&#39;</span>
+<span class="s1">def hello():</span>
+<span class="s1">    print(&quot;Hello, World!&quot;)</span>
+<span class="s1">&#39;&#39;&#39;</span>
+
+<span class="n">language</span> <span class="o">=</span> <span class="n">code_service</span><span class="o">.</span><span class="n">detect_language</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="s2">&quot;test.py&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;השפה שזוהתה: </span><span class="si">{</span><span class="n">language</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>  <span class="c1"># python</span>
+</pre></div>
+</div>
+</section>
+<section id="id7">
+<h3>ניתוח קוד<a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">services</span> <span class="kn">import</span> <span class="n">code_service</span>
+
+<span class="n">analysis</span> <span class="o">=</span> <span class="n">code_service</span><span class="o">.</span><span class="n">analyze_code</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="s2">&quot;python&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;מספר שורות: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;lines&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;מורכבות: </span><span class="si">{</span><span class="n">analysis</span><span class="p">[</span><span class="s1">&#39;complexity&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="github">
+<h2>אינטגרציה עם GitHub<a class="headerlink" href="#github" title="Link to this heading"></a></h2>
+<section id="gist">
+<h3>העלאת קוד ל-Gist<a class="headerlink" href="#gist" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">github_menu_handler</span> <span class="kn">import</span> <span class="n">GitHubMenuHandler</span>
+
+<span class="n">github</span> <span class="o">=</span> <span class="n">GitHubMenuHandler</span><span class="p">()</span>
+
+<span class="c1"># יצירת Gist</span>
+<span class="n">gist_url</span> <span class="o">=</span> <span class="k">await</span> <span class="n">github</span><span class="o">.</span><span class="n">create_gist</span><span class="p">(</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">&quot;example.py&quot;</span><span class="p">,</span>
+    <span class="n">content</span><span class="o">=</span><span class="s2">&quot;print(&#39;Hello from Gist!&#39;)&quot;</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;דוגמה לקוד Python&quot;</span><span class="p">,</span>
+    <span class="n">public</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Gist נוצר: </span><span class="si">{</span><span class="n">gist_url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="gists">
+<h3>שליפת Gists של משתמש<a class="headerlink" href="#gists" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">gists</span> <span class="o">=</span> <span class="k">await</span> <span class="n">github</span><span class="o">.</span><span class="n">get_user_gists</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s2">&quot;octocat&quot;</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">gist</span> <span class="ow">in</span> <span class="n">gists</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;- </span><span class="si">{</span><span class="n">gist</span><span class="p">[</span><span class="s1">&#39;description&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">gist</span><span class="p">[</span><span class="s1">&#39;html_url&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="id8">
+<h2>עבודה עם מסד הנתונים<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
+<section id="id9">
+<h3>ביצוע שאילתות מורכבות<a class="headerlink" href="#id9" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+
+<span class="c1"># חיפוש קבצים מהשבוע האחרון</span>
+<span class="n">week_ago</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+
+<span class="n">recent_files</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">code_snippets</span><span class="o">.</span><span class="n">find</span><span class="p">({</span>
+    <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="mi">123456789</span><span class="p">,</span>
+    <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$gte&quot;</span><span class="p">:</span> <span class="n">week_ago</span><span class="p">}</span>
+<span class="p">})</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="s2">&quot;created_at&quot;</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">recent_files</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">file</span><span class="p">[</span><span class="s1">&#39;file_name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> - </span><span class="si">{</span><span class="n">file</span><span class="p">[</span><span class="s1">&#39;created_at&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="id10">
+<h3>עדכון קבצים<a class="headerlink" href="#id10" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># עדכון הערה לקובץ</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">db</span><span class="o">.</span><span class="n">code_snippets</span><span class="o">.</span><span class="n">update_one</span><span class="p">(</span>
+    <span class="p">{</span><span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="n">file_id</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">&quot;$set&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;note&quot;</span><span class="p">:</span> <span class="s2">&quot;הערה מעודכנת&quot;</span><span class="p">}}</span>
+<span class="p">)</span>
+
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">modified_count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;עודכן בהצלחה&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="id11">
+<h3>סטטיסטיקות<a class="headerlink" href="#id11" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
+
+<span class="c1"># קבלת סטטיסטיקות משתמש</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="k">await</span> <span class="n">db</span><span class="o">.</span><span class="n">get_user_statistics</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="mi">123456789</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;סה״כ קבצים: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_files&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שפה פופולרית: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;most_used_language&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;גודל כולל: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total_size&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> bytes&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="id12">
+<h2>טיפול בשגיאות<a class="headerlink" href="#id12" title="Link to this heading"></a></h2>
+<section id="id13">
+<h3>טיפול בשגיאות בסיסי<a class="headerlink" href="#id13" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">telegram.error</span> <span class="kn">import</span> <span class="n">TelegramError</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">safe_handler</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># קוד שעלול להיכשל</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">risky_operation</span><span class="p">()</span>
+        <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;הצלחה: </span><span class="si">{</span><span class="n">result</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="n">TelegramError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Telegram error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="s2">&quot;אירעה שגיאה, נסה שוב&quot;</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;Unexpected error&quot;</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="s2">&quot;משהו השתבש 😕&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="retry-logic">
+<h3>Retry Logic<a class="headerlink" href="#retry-logic" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">asyncio</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span>
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">with_retry</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">max_attempts</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">delay</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;ביצוע פונקציה עם ניסיונות חוזרים&quot;&quot;&quot;</span>
+
+    <span class="k">for</span> <span class="n">attempt</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_attempts</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">func</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">attempt</span> <span class="o">==</span> <span class="n">max_attempts</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">raise</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span> <span class="o">*</span> <span class="p">(</span><span class="n">attempt</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+
+<span class="c1"># שימוש</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">with_retry</span><span class="p">(</span>
+    <span class="k">lambda</span><span class="p">:</span> <span class="n">db</span><span class="o">.</span><span class="n">save_snippet</span><span class="p">(</span><span class="n">snippet</span><span class="p">),</span>
+    <span class="n">max_attempts</span><span class="o">=</span><span class="mi">3</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="id14">
+<h2>בדיקות<a class="headerlink" href="#id14" title="Link to this heading"></a></h2>
+<section id="id15">
+<h3>בדיקת יחידה<a class="headerlink" href="#id15" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">pytest</span>
+<span class="kn">from</span> <span class="nn">services</span> <span class="kn">import</span> <span class="n">code_service</span>
+
+<span class="k">def</span> <span class="nf">test_language_detection</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;בדיקת זיהוי שפה&quot;&quot;&quot;</span>
+
+    <span class="n">test_cases</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s2">&quot;print(&#39;hello&#39;)&quot;</span><span class="p">,</span> <span class="s2">&quot;test.py&quot;</span><span class="p">,</span> <span class="s2">&quot;python&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;console.log(&#39;hi&#39;)&quot;</span><span class="p">,</span> <span class="s2">&quot;test.js&quot;</span><span class="p">,</span> <span class="s2">&quot;javascript&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s2">&quot;SELECT * FROM users&quot;</span><span class="p">,</span> <span class="s2">&quot;query.sql&quot;</span><span class="p">,</span> <span class="s2">&quot;sql&quot;</span><span class="p">),</span>
+    <span class="p">]</span>
+
+    <span class="k">for</span> <span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">expected</span> <span class="ow">in</span> <span class="n">test_cases</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">code_service</span><span class="o">.</span><span class="n">detect_language</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">result</span> <span class="o">==</span> <span class="n">expected</span>
+</pre></div>
+</div>
+</section>
+<section id="id16">
+<h3>בדיקת אינטגרציה<a class="headerlink" href="#id16" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">pytest</span>
+<span class="kn">from</span> <span class="nn">unittest.mock</span> <span class="kn">import</span> <span class="n">AsyncMock</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">asyncio</span>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">test_save_command</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;בדיקת פקודת השמירה&quot;&quot;&quot;</span>
+
+    <span class="c1"># יצירת mock objects</span>
+    <span class="n">update</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">()</span>
+    <span class="n">context</span> <span class="o">=</span> <span class="n">AsyncMock</span><span class="p">()</span>
+
+    <span class="c1"># הגדרת התנהגות</span>
+    <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="s2">&quot;/save&quot;</span>
+    <span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">123456789</span>
+
+    <span class="c1"># הפעלת הפקודה</span>
+    <span class="kn">from</span> <span class="nn">bot_handlers</span> <span class="kn">import</span> <span class="n">save_command</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">save_command</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+
+    <span class="c1"># בדיקת תוצאה</span>
+    <span class="k">assert</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="o">.</span><span class="n">called</span>
+    <span class="k">assert</span> <span class="s2">&quot;שלח לי&quot;</span> <span class="ow">in</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="o">.</span><span class="n">call_args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="id17">
+<h2>דוגמאות מתקדמות<a class="headerlink" href="#id17" title="Link to this heading"></a></h2>
+<section id="id18">
+<h3>עיבוד באצווה<a class="headerlink" href="#id18" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">batch_processor</span> <span class="kn">import</span> <span class="n">BatchProcessor</span>
+
+<span class="n">processor</span> <span class="o">=</span> <span class="n">BatchProcessor</span><span class="p">()</span>
+
+<span class="c1"># הוספת משימות</span>
+<span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;file1.py&quot;</span><span class="p">,</span> <span class="s2">&quot;file2.js&quot;</span><span class="p">,</span> <span class="s2">&quot;file3.go&quot;</span><span class="p">]</span>
+
+<span class="k">for</span> <span class="n">filename</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+    <span class="n">processor</span><span class="o">.</span><span class="n">add_task</span><span class="p">(</span>
+        <span class="n">process_file</span><span class="p">,</span>
+        <span class="n">filename</span><span class="o">=</span><span class="n">filename</span>
+    <span class="p">)</span>
+
+<span class="c1"># ביצוע באצווה</span>
+<span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">processor</span><span class="o">.</span><span class="n">execute_all</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;✓ </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;✗ </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">filename</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="id19">
+<h3>קאשינג<a class="headerlink" href="#id19" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">cache_manager</span> <span class="kn">import</span> <span class="n">CacheManager</span>
+
+<span class="n">cache</span> <span class="o">=</span> <span class="n">CacheManager</span><span class="p">()</span>
+
+<span class="c1"># שמירה בקאש</span>
+<span class="k">await</span> <span class="n">cache</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
+    <span class="n">key</span><span class="o">=</span><span class="s2">&quot;user_stats_123&quot;</span><span class="p">,</span>
+    <span class="n">value</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;files&quot;</span><span class="p">:</span> <span class="mi">42</span><span class="p">,</span> <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="mi">1024</span><span class="p">},</span>
+    <span class="n">ttl</span><span class="o">=</span><span class="mi">3600</span>  <span class="c1"># שעה</span>
+<span class="p">)</span>
+
+<span class="c1"># קריאה מקאש</span>
+<span class="n">stats</span> <span class="o">=</span> <span class="k">await</span> <span class="n">cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;user_stats_123&quot;</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">stats</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;מהקאש: </span><span class="si">{</span><span class="n">stats</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="c1"># חשב מחדש</span>
+    <span class="n">stats</span> <span class="o">=</span> <span class="k">await</span> <span class="n">calculate_stats</span><span class="p">()</span>
+    <span class="k">await</span> <span class="n">cache</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s2">&quot;user_stats_123&quot;</span><span class="p">,</span> <span class="n">stats</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="database/index.html" class="btn btn-neutral float-left" title="Database" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Development Team.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
