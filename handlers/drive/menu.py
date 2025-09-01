@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+import os
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -231,7 +232,7 @@ class GoogleDriveMenuHandler:
             if sess.get("adv_multi"):
                 selected = sess.setdefault("adv_selected", set())
                 selected.add(category)
-                await query.edit_message_text("✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.")
+                await self._render_advanced_menu(update, context, header_prefix="✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.\n\n")
             else:
                 # Immediate upload per category with better empty-state handling
                 if category == "by_repo":
