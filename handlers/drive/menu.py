@@ -218,6 +218,10 @@ class GoogleDriveMenuHandler:
             await self._render_advanced_menu(update, context)
             return
         if data in {"drive_adv_by_repo", "drive_adv_large", "drive_adv_other"}:
+            # Ensure Drive service ready
+            if gdrive.get_drive_service(user_id) is None:
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.")
+                return
             category = {
                 "drive_adv_by_repo": "by_repo",
                 "drive_adv_large": "large",
@@ -229,10 +233,12 @@ class GoogleDriveMenuHandler:
                 selected.add(category)
                 await query.edit_message_text("✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.")
             else:
-                # Immediate upload per category
+                # Immediate upload per category with better empty-state handling
                 if category == "by_repo":
-                    # Group by repo and upload each
                     grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
+                    if not grouped:
+                        await query.edit_message_text("ℹ️ לא נמצאו קבצים מקוטלגים לפי ריפו להעלאה.")
+                        return
                     ok_any = False
                     for repo_name, suggested, data_bytes in grouped:
                         friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
@@ -241,6 +247,27 @@ class GoogleDriveMenuHandler:
                         ok_any = ok_any or bool(fid)
                     await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות" if ok_any else "❌ כשל בהעלאה")
                 else:
+                    # Pre-check category has files
+                    try:
+                        from database import db as _db
+                        has_any = False
+                        if category == "large":
+                            large_files, _ = _db.get_user_large_files(user_id, page=1, per_page=1)
+                            has_any = bool(large_files)
+                        elif category == "other":
+                            files = _db.get_user_files(user_id, limit=1) or []
+                            # other = not repo tagged
+                            for d in files:
+                                tags = d.get('tags') or []
+                                if not any((t or '').startswith('repo:') for t in tags):
+                                    has_any = True
+                                    break
+                    except Exception:
+                        has_any = True
+                    if not has_any:
+                        label_map = {"large": "קבצים גדולים", "other": "שאר קבצים"}
+                        await query.edit_message_text(f"ℹ️ אין פריטים זמינים בקטגוריה: {label_map.get(category, category)}.")
+                        return
                     fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
                     friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
                     sub_path = gdrive.compute_subpath(category)
