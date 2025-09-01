@@ -1,9 +1,11 @@
 from typing import Any, Dict, Optional
+import os
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from services import google_drive_service as gdrive
+from file_manager import backup_manager
 from database import db
 
 
@@ -170,8 +172,30 @@ class GoogleDriveMenuHandler:
             await self._render_simple_selection(update, context)
             return
         if data == "drive_sel_zip":
+            # Pre-check Drive availability
+            if gdrive.get_drive_service(user_id) is None:
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            # Check if there are any saved ZIP backups
+            try:
+                existing = backup_manager.list_backups(user_id) or []
+                saved_zips = [b for b in existing if str(getattr(b, 'file_path', '')).endswith('.zip')]
+            except Exception:
+                saved_zips = []
+            if not saved_zips:
+                kb = [
+                    [InlineKeyboardButton("📦 צור ZIP שמור בבוט", callback_data="drive_make_zip_now")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
+                await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
+                return
             # Upload existing ZIP backups, then mark as selected in session and re-render with checkmark
             count, ids = gdrive.upload_all_saved_zip_backups(user_id)
+            if count <= 0:
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
+                return
             sess = self._session(user_id)
             sess["zip_done"] = True
             sess["last_upload"] = "zip"
@@ -195,6 +219,10 @@ class GoogleDriveMenuHandler:
             await self._render_advanced_menu(update, context)
             return
         if data in {"drive_adv_by_repo", "drive_adv_large", "drive_adv_other"}:
+            # Ensure Drive service ready
+            if gdrive.get_drive_service(user_id) is None:
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.")
+                return
             category = {
                 "drive_adv_by_repo": "by_repo",
                 "drive_adv_large": "large",
@@ -204,12 +232,14 @@ class GoogleDriveMenuHandler:
             if sess.get("adv_multi"):
                 selected = sess.setdefault("adv_selected", set())
                 selected.add(category)
-                await query.edit_message_text("✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.")
+                await self._render_advanced_menu(update, context, header_prefix="✅ נוסף לבחירה. ניתן לבחור עוד אפשרויות או להעלות.\n\n")
             else:
-                # Immediate upload per category
+                # Immediate upload per category with better empty-state handling
                 if category == "by_repo":
-                    # Group by repo and upload each
                     grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
+                    if not grouped:
+                        await query.edit_message_text("ℹ️ לא נמצאו קבצים מקוטלגים לפי ריפו להעלאה.")
+                        return
                     ok_any = False
                     for repo_name, suggested, data_bytes in grouped:
                         friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
@@ -218,6 +248,27 @@ class GoogleDriveMenuHandler:
                         ok_any = ok_any or bool(fid)
                     await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות" if ok_any else "❌ כשל בהעלאה")
                 else:
+                    # Pre-check category has files
+                    try:
+                        from database import db as _db
+                        has_any = False
+                        if category == "large":
+                            large_files, _ = _db.get_user_large_files(user_id, page=1, per_page=1)
+                            has_any = bool(large_files)
+                        elif category == "other":
+                            files = _db.get_user_files(user_id, limit=1) or []
+                            # other = not repo tagged
+                            for d in files:
+                                tags = d.get('tags') or []
+                                if not any((t or '').startswith('repo:') for t in tags):
+                                    has_any = True
+                                    break
+                    except Exception:
+                        has_any = True
+                    if not has_any:
+                        label_map = {"large": "קבצים גדולים", "other": "שאר קבצים"}
+                        await query.edit_message_text(f"ℹ️ אין פריטים זמינים בקטגוריה: {label_map.get(category, category)}.")
+                        return
                     fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
                     friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
                     sub_path = gdrive.compute_subpath(category)
@@ -288,8 +339,8 @@ class GoogleDriveMenuHandler:
             sess = self._session(user_id)
             sess["target_folder_label"] = "גיבויי_קודלי"
             sess["target_folder_auto"] = False
-            # Return to proper menu depending on origin
-            await self._render_after_folder_selection(update, context, success=bool(fid))
+            # Return to proper menu depending on origin (אל תציג כשל גם אם לא הצלחנו ליצור בפועל כרגע)
+            await self._render_after_folder_selection(update, context, success=True)
             return
         if data == "drive_folder_auto":
             # Auto-arrangement: keep default folder but mark label as automatic
@@ -417,6 +468,21 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_adv_confirm":
             await self._render_adv_summary(update, context)
+            return
+        if data == "drive_make_zip_now":
+            # צור גיבוי מלא ושמור אותו בבוט (לא בדרייב), כדי שיהיו ZIPים זמינים להעלאה
+            from services import backup_service as _backup_service
+            await query.edit_message_text("⏳ יוצר ZIP שמור בבוט…")
+            try:
+                # נשתמש בשירות הגיבוי המקומי ליצירת ZIP ושמירה
+                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
+                ok = _backup_service.save_backup_bytes(data_bytes, {"backup_id": os.path.splitext(fn)[0], "user_id": user_id, "backup_type": "manual"})
+                if ok:
+                    await query.edit_message_text("✅ נוצר ZIP שמור בבוט. עכשיו ניתן לבחור שוב '📦 קבצי ZIP' להעלאה ל‑Drive.")
+                else:
+                    await query.edit_message_text("❌ יצירת ה‑ZIP נכשלה. נסה שוב מאוחר יותר.")
+            except Exception:
+                await query.edit_message_text("❌ יצירת ה‑ZIP נכשלה. נסה שוב מאוחר יותר.")
             return
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -550,12 +616,17 @@ class GoogleDriveMenuHandler:
 
     async def _render_choose_folder_simple(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
+        explain = (
+            "סידור תיקיות אוטומטי: הבוט יסדר בתוך 'גיבויי_קודלי' לפי קטגוריות ותאריכים,\n"
+            "וב'לפי ריפו' גם תת‑תיקיות לפי שם הריפו."
+        )
         kb = [
+            [InlineKeyboardButton("🤖 סידור תיקיות אוטומטי (כמו בבוט)", callback_data="drive_folder_auto")],
             [InlineKeyboardButton("📂 גיבויי_קודלי (ברירת מחדל)", callback_data="drive_folder_default")],
             [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
             [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
         ]
-        await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"בחר תיקיית יעד:\n\n{explain}", reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_choose_folder_adv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
