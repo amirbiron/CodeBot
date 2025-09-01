@@ -183,8 +183,11 @@ class GoogleDriveMenuHandler:
             except Exception:
                 saved_zips = []
             if not saved_zips:
-                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
-                await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. ניתן ליצור גיבוי מלא ב׳🧰 הכל׳.", reply_markup=InlineKeyboardMarkup(kb))
+                kb = [
+                    [InlineKeyboardButton("📦 צור ZIP שמור בבוט", callback_data="drive_make_zip_now")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
+                await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
                 return
             # Upload existing ZIP backups, then mark as selected in session and re-render with checkmark
             count, ids = gdrive.upload_all_saved_zip_backups(user_id)
@@ -308,8 +311,8 @@ class GoogleDriveMenuHandler:
             sess = self._session(user_id)
             sess["target_folder_label"] = "גיבויי_קודלי"
             sess["target_folder_auto"] = False
-            # Return to proper menu depending on origin
-            await self._render_after_folder_selection(update, context, success=bool(fid))
+            # Return to proper menu depending on origin (אל תציג כשל גם אם לא הצלחנו ליצור בפועל כרגע)
+            await self._render_after_folder_selection(update, context, success=True)
             return
         if data == "drive_folder_auto":
             # Auto-arrangement: keep default folder but mark label as automatic
@@ -437,6 +440,21 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_adv_confirm":
             await self._render_adv_summary(update, context)
+            return
+        if data == "drive_make_zip_now":
+            # צור גיבוי מלא ושמור אותו בבוט (לא בדרייב), כדי שיהיו ZIPים זמינים להעלאה
+            from services import backup_service as _backup_service
+            await query.edit_message_text("⏳ יוצר ZIP שמור בבוט…")
+            try:
+                # נשתמש בשירות הגיבוי המקומי ליצירת ZIP ושמירה
+                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
+                ok = _backup_service.save_backup_bytes(data_bytes, {"backup_id": os.path.splitext(fn)[0], "user_id": user_id, "backup_type": "manual"})
+                if ok:
+                    await query.edit_message_text("✅ נוצר ZIP שמור בבוט. עכשיו ניתן לבחור שוב '📦 קבצי ZIP' להעלאה ל‑Drive.")
+                else:
+                    await query.edit_message_text("❌ יצירת ה‑ZIP נכשלה. נסה שוב מאוחר יותר.")
+            except Exception:
+                await query.edit_message_text("❌ יצירת ה‑ZIP נכשלה. נסה שוב מאוחר יותר.")
             return
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -570,12 +588,17 @@ class GoogleDriveMenuHandler:
 
     async def _render_choose_folder_simple(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
+        explain = (
+            "סידור תיקיות אוטומטי: הבוט יסדר בתוך 'גיבויי_קודלי' לפי קטגוריות ותאריכים,\n"
+            "וב'לפי ריפו' גם תת‑תיקיות לפי שם הריפו."
+        )
         kb = [
+            [InlineKeyboardButton("🤖 סידור תיקיות אוטומטי (כמו בבוט)", callback_data="drive_folder_auto")],
             [InlineKeyboardButton("📂 גיבויי_קודלי (ברירת מחדל)", callback_data="drive_folder_default")],
             [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
             [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
         ]
-        await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"בחר תיקיית יעד:\n\n{explain}", reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_choose_folder_adv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
