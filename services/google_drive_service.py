@@ -264,7 +264,8 @@ def _next_version(user_id: int, key: str) -> int:
 
 def _category_label(category: str) -> str:
     mapping = {
-        "zip": "קבצי_ZIP",
+        # For ZIP we use english label 'zip' for filename consistency
+        "zip": "zip",
         "all": "הכל",
         "by_repo": "לפי_ריפו",
         "large": "קבצים_גדולים",
@@ -294,15 +295,21 @@ def _rating_to_emoji(rating: Optional[str]) -> str:
 
 
 def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None) -> str:
+    """Return a friendly filename per spec using underscores.
+
+    Pattern examples:
+    - BKP_zip_CodeBot_v7_26-08-2025.zip
+    - BKP_zip_CodeBot_v7_🏆_26-08-2025.zip
+    """
     label = _category_label(category)
     date_str = _date_str_ddmmyyyy()
     key = f"{category}:{entity_name}"
     v = _next_version(user_id, key)
     emoji = _rating_to_emoji(rating)
-    # BKP {label} {entity} v{N} {emoji?} - {dd-MM-YYYY}.zip
+    base = f"BKP_{label}_{entity_name}_v{v}"
     if emoji:
-        return f"BKP {label} {entity_name} v{v} {emoji} - {date_str}.zip"
-    return f"BKP {label} {entity_name} v{v} - {date_str}.zip"
+        return f"{base}_{emoji}_{date_str}.zip"
+    return f"{base}_{date_str}.zip"
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
     if not service:

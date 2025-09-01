@@ -32,15 +32,8 @@ class GoogleDriveMenuHandler:
             await send("Google Drive\n\nלא מחובר. התחבר כדי לגבות לקבצי Drive.", reply_markup=InlineKeyboardMarkup(kb))
             return
 
-        # Connected menu
-        kb = [
-            [InlineKeyboardButton("📤 גבה עכשיו", callback_data="drive_backup_now")],
-            [InlineKeyboardButton("🗂 בחר תיקיית יעד", callback_data="drive_choose_folder")],
-            [InlineKeyboardButton("🗓 זמני גיבוי", callback_data="drive_schedule")],
-            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
-            [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
-        ]
-        await send("Google Drive — מחובר\nבחר פעולה:", reply_markup=InlineKeyboardMarkup(kb))
+        # Connected -> show main backup selection directly per requested flow
+        await self._render_simple_selection(update, context, header_prefix="Google Drive — מחובר\n")
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -174,19 +167,15 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("ביטלת את ההתחברות ל‑Drive.")
             return
         if data == "drive_backup_now":
-            # Show selection: ZIP, הכל, מתקדם — הצג תמיד, בלי תלות בזרימות קודמות
-            kb = [
-                [InlineKeyboardButton("📦 קבצי ZIP", callback_data="drive_sel_zip")],
-                [InlineKeyboardButton("🧰 הכל", callback_data="drive_sel_all")],
-                [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
-                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")],
-            ]
-            await query.edit_message_text("בחר מה לגבות:", reply_markup=InlineKeyboardMarkup(kb))
+            await self._render_simple_selection(update, context)
             return
         if data == "drive_sel_zip":
-            # Upload existing ZIP backups
+            # Upload existing ZIP backups, then mark as selected in session and re-render with checkmark
             count, ids = gdrive.upload_all_saved_zip_backups(user_id)
-            await query.edit_message_text(f"✅ הועלו {count} גיבויים ל‑Drive")
+            sess = self._session(user_id)
+            sess["zip_done"] = True
+            sess["last_upload"] = "zip"
+            await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
             return
         if data == "drive_sel_all":
             fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
@@ -194,19 +183,16 @@ class GoogleDriveMenuHandler:
             friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
             sub_path = gdrive.compute_subpath("all")
             fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
-            await query.edit_message_text("✅ גיבוי מלא הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
+            sess = self._session(user_id)
+            if fid:
+                sess["all_done"] = True
+                sess["last_upload"] = "all"
+                await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
+            else:
+                await query.edit_message_text("❌ כשל בהעלאה")
             return
         if data == "drive_sel_adv":
-            multi_on = bool(self._session(user_id).get("adv_multi", False))
-            kb = [
-                [InlineKeyboardButton("לפי ריפו", callback_data="drive_adv_by_repo")],
-                [InlineKeyboardButton("קבצים גדולים", callback_data="drive_adv_large")],
-                [InlineKeyboardButton("שאר קבצים", callback_data="drive_adv_other")],
-                [InlineKeyboardButton(("✅ אפשרות מרובה" if multi_on else "⬜ אפשרות מרובה"), callback_data="drive_adv_multi_toggle")],
-                [InlineKeyboardButton("⬆️ העלה נבחרים", callback_data="drive_adv_upload_selected")],
-                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-            ]
-            await query.edit_message_text("בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
+            await self._render_advanced_menu(update, context)
             return
         if data in {"drive_adv_by_repo", "drive_adv_large", "drive_adv_other"}:
             category = {
@@ -277,16 +263,41 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("✅ הועלו הגיבויים שנבחרו" if uploaded_any else "❌ כשל בהעלאה")
             return
         if data == "drive_choose_folder":
+            # Remember current simple menu context
+            self._session(user_id)["last_menu"] = "simple"
+            await self._render_choose_folder_simple(update, context)
+            return
+        if data == "drive_choose_folder_adv":
+            # Advanced folder selection includes automatic arrangement explanation
+            self._session(user_id)["last_menu"] = "adv"
+            explain = (
+                "סידור תיקיות אוטומטי: הבוט יסדר בתוך 'גיבויי_קודלי' לפי קטגוריות ותאריכים,\n"
+                "וב'לפי ריפו' גם תת‑תיקיות לפי שם הריפו."
+            )
             kb = [
-                [InlineKeyboardButton("📁 ברירת מחדל (CodeKeeper Backups)", callback_data="drive_folder_default")],
+                [InlineKeyboardButton("🤖 סידור תיקיות אוטומטי (כמו בבוט)", callback_data="drive_folder_auto")],
+                [InlineKeyboardButton("📂 גיבויי_קודלי (ברירת מחדל)", callback_data="drive_folder_default")],
                 [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
-                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")],
             ]
-            await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+            await query.edit_message_text(f"בחר תיקיית יעד:\n\n{explain}", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_folder_default":
             fid = gdrive.get_or_create_default_folder(user_id)
-            await query.edit_message_text("📁 נקבעה תיקיית יעד ברירת מחדל: גיבויי_קודלי" if fid else "❌ כשל בקביעת תיקייה")
+            # Update session label
+            sess = self._session(user_id)
+            sess["target_folder_label"] = "גיבויי_קודלי"
+            sess["target_folder_auto"] = False
+            # Return to proper menu depending on origin
+            await self._render_after_folder_selection(update, context, success=bool(fid))
+            return
+        if data == "drive_folder_auto":
+            # Auto-arrangement: keep default folder but mark label as automatic
+            fid = gdrive.get_or_create_default_folder(user_id)
+            sess = self._session(user_id)
+            sess["target_folder_label"] = "אוטומטי"
+            sess["target_folder_auto"] = True
+            await self._render_after_folder_selection(update, context, success=bool(fid))
             return
         if data == "drive_folder_set":
             context.user_data["waiting_for_drive_folder_path"] = True
@@ -300,24 +311,28 @@ class GoogleDriveMenuHandler:
             )
             return
         if data == "drive_folder_back":
-            # חזרה למסך בחירת תיקיית יעד
+            # חזרה למסך בחירת תיקיית יעד לפי הקשר אחרון
             context.user_data.pop("waiting_for_drive_folder_path", None)
-            kb = [
-                [InlineKeyboardButton("📁 ברירת מחדל (CodeKeeper Backups)", callback_data="drive_folder_default")],
-                [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
-                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")],
-            ]
-            await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+            last = self._session(user_id).get("last_menu")
+            if last == "adv":
+                await self._render_choose_folder_adv(update, context)
+            else:
+                await self._render_choose_folder_simple(update, context)
             return
         if data == "drive_folder_cancel":
-            # ביטול מצב הזנת נתיב וחזרה לתפריט דרייב
+            # ביטול מצב הזנת נתיב וחזרה לתפריט לפי הקשר
             context.user_data.pop("waiting_for_drive_folder_path", None)
-            await self.menu(update, context)
+            last = self._session(user_id).get("last_menu")
+            if last == "adv":
+                await self._render_advanced_menu(update, context)
+            else:
+                await self._render_simple_selection(update, context)
             return
         if data == "drive_schedule":
             current = (db.get_drive_prefs(user_id) or {}).get("schedule")
             def label(key: str, text: str) -> str:
                 return ("✅ " + text) if current == key else text
+            back_cb = "drive_sel_adv" if self._session(user_id).get("last_menu") == "adv" else "drive_backup_now"
             kb = [
                 [InlineKeyboardButton(label("daily", "כל יום"), callback_data="drive_set_schedule:daily")],
                 [InlineKeyboardButton(label("every3", "כל 3 ימים"), callback_data="drive_set_schedule:every3")],
@@ -325,7 +340,7 @@ class GoogleDriveMenuHandler:
                 [InlineKeyboardButton(label("biweekly", "פעם בשבועיים"), callback_data="drive_set_schedule:biweekly")],
                 [InlineKeyboardButton(label("monthly", "פעם בחודש"), callback_data="drive_set_schedule:monthly")],
                 [InlineKeyboardButton("⛔ בטל תזמון", callback_data="drive_set_schedule:off")],
-                [InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
             ]
             await query.edit_message_text("בחר תדירות גיבוי אוטומטי:", reply_markup=InlineKeyboardMarkup(kb))
             return
@@ -379,11 +394,29 @@ class GoogleDriveMenuHandler:
                 jobs[user_id] = job
             except Exception:
                 pass
-            await query.edit_message_text("✅ תזמון נשמר")
+            # Re-render menu to reflect updated schedule label
+            if self._session(user_id).get("last_menu") == "adv":
+                await self._render_advanced_menu(update, context, header_prefix="✅ תזמון נשמר\n\n")
+            else:
+                await self._render_simple_selection(update, context, header_prefix="✅ תזמון נשמר\n\n")
             return
         if data == "drive_logout":
+            # Ask for confirmation before logging out
+            kb = [
+                [InlineKeyboardButton("✅ התנתק", callback_data="drive_logout_do")],
+                [InlineKeyboardButton("❌ בטל", callback_data="drive_backup_now")],
+            ]
+            await query.edit_message_text("האם להתנתק מ‑Google Drive?", reply_markup=InlineKeyboardMarkup(kb))
+            return
+        if data == "drive_logout_do":
             ok = db.delete_drive_tokens(user_id)
             await query.edit_message_text("🚪נותקת מ‑Google Drive" if ok else "❌ לא בוצעה התנתקות")
+            return
+        if data == "drive_simple_confirm":
+            await self._render_simple_summary(update, context)
+            return
+        if data == "drive_adv_confirm":
+            await self._render_adv_summary(update, context)
             return
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -412,9 +445,146 @@ class GoogleDriveMenuHandler:
             path = text
             fid = gdrive.ensure_path(update.effective_user.id, path)
             if fid:
+                # Save label for buttons
+                sess = self._session(update.effective_user.id)
+                sess["target_folder_label"] = path
+                sess["target_folder_auto"] = False
                 await update.message.reply_text("✅ תיקיית יעד עודכנה בהצלחה")
             else:
                 await update.message.reply_text("❌ לא ניתן להגדיר את התיקייה. ודא בהרשאות Drive.")
             return True
         return False
 
+
+    # ===== Helpers =====
+    def _schedule_button_label(self, user_id: int) -> str:
+        prefs = db.get_drive_prefs(user_id) or {}
+        key = prefs.get("schedule")
+        mapping = {
+            "daily": "🕑 כל יום",
+            "every3": "🕑 כל 3 ימים",
+            "weekly": "🕑 פעם בשבוע",
+            "biweekly": "🕑 פעם בשבועיים",
+            "monthly": "🕑 פעם בחודש",
+        }
+        return mapping.get(key) or "🗓 זמני גיבוי"
+
+    def _folder_button_label(self, user_id: int) -> str:
+        sess = self._session(user_id)
+        label = sess.get("target_folder_label")
+        if label:
+            return f"📂 תיקיית יעד: {label}"
+        return "📂 בחר תיקיית יעד"
+
+    async def _render_simple_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, header_prefix: str = ""):
+        query = update.callback_query if update.callback_query else None
+        if query:
+            send = query.edit_message_text
+        else:
+            send = update.message.reply_text
+        user_id = update.effective_user.id
+        sess = self._session(user_id)
+        zip_label = "📦 קבצי ZIP" + (" ✅️" if sess.get("zip_done") else "")
+        all_label = "🧰 הכל" + (" ✅️" if sess.get("all_done") else "")
+        folder_label = self._folder_button_label(user_id)
+        schedule_label = self._schedule_button_label(user_id)
+        sess["last_menu"] = "simple"
+        kb = [
+            [InlineKeyboardButton(zip_label, callback_data="drive_sel_zip")],
+            [InlineKeyboardButton(all_label, callback_data="drive_sel_all")],
+            [InlineKeyboardButton(folder_label, callback_data="drive_choose_folder")],
+            [InlineKeyboardButton(schedule_label, callback_data="drive_schedule")],
+            [InlineKeyboardButton("✅ אישור", callback_data="drive_simple_confirm")],
+            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
+            [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
+        ]
+        await send(header_prefix + "בחר מה לגבות:", reply_markup=InlineKeyboardMarkup(kb))
+
+    async def _render_after_folder_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool):
+        query = update.callback_query
+        user_id = query.from_user.id
+        # Determine where to go back based on last context (advanced vs simple)
+        last = self._session(user_id).get("last_menu")
+        prefix = "✅ תיקיית יעד עודכנה\n\n" if success else "❌ כשל בקביעת תיקייה\n\n"
+        if last == "adv":
+            await self._render_advanced_menu(update, context, header_prefix=prefix)
+        else:
+            await self._render_simple_selection(update, context, header_prefix=prefix)
+
+    async def _render_advanced_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE, header_prefix: str = ""):
+        query = update.callback_query
+        user_id = query.from_user.id
+        sess = self._session(user_id)
+        sess["last_menu"] = "adv"
+        multi_on = bool(sess.get("adv_multi", False))
+        folder_label = self._folder_button_label(user_id)
+        schedule_label = self._schedule_button_label(user_id)
+        kb = [
+            [InlineKeyboardButton("לפי ריפו", callback_data="drive_adv_by_repo")],
+            [InlineKeyboardButton("קבצים גדולים", callback_data="drive_adv_large")],
+            [InlineKeyboardButton("שאר קבצים", callback_data="drive_adv_other")],
+            [InlineKeyboardButton(("✅ בחירה מרובה" if multi_on else "⬜ בחירה מרובה"), callback_data="drive_adv_multi_toggle")],
+            [InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="drive_choose_folder_adv")],
+            [InlineKeyboardButton(schedule_label, callback_data="drive_schedule")],
+            [InlineKeyboardButton("✅ אישור", callback_data="drive_adv_confirm")],
+            [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+            [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
+        ]
+        await query.edit_message_text(header_prefix + "בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
+
+    async def _render_simple_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        sess = self._session(user_id)
+        last_upload = sess.get("last_upload") or "—"
+        folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
+        schedule = self._schedule_button_label(user_id).replace("🕑 ", "")
+        txt = (
+            "סיכום הגדרות:\n"
+            f"• סוג גיבוי אחרון: {('קבצי ZIP' if last_upload=='zip' else ('הכל' if last_upload=='all' else '—'))}\n"
+            f"• תיקיית יעד: {folder}\n"
+            f"• תזמון: {schedule if schedule != '🗓 זמני גיבוי' else 'לא נקבע'}\n"
+        )
+        kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))
+
+    async def _render_choose_folder_simple(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        kb = [
+            [InlineKeyboardButton("📂 גיבויי_קודלי (ברירת מחדל)", callback_data="drive_folder_default")],
+            [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
+            [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+        ]
+        await query.edit_message_text("בחר דרך לקביעת תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+
+    async def _render_choose_folder_adv(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        explain = (
+            "סידור תיקיות אוטומטי: הבוט יסדר בתוך 'גיבויי_קודלי' לפי קטגוריות ותאריכים,\n"
+            "וב'לפי ריפו' גם תת‑תיקיות לפי שם הריפו."
+        )
+        kb = [
+            [InlineKeyboardButton("🤖 סידור תיקיות אוטומטי (כמו בבוט)", callback_data="drive_folder_auto")],
+            [InlineKeyboardButton("📂 גיבויי_קודלי (ברירת מחדל)", callback_data="drive_folder_default")],
+            [InlineKeyboardButton("✏️ הגדר נתיב מותאם (שלח טקסט)", callback_data="drive_folder_set")],
+            [InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")],
+        ]
+        await query.edit_message_text(f"בחר תיקיית יעד:\n\n{explain}", reply_markup=InlineKeyboardMarkup(kb))
+
+    async def _render_adv_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        sess = self._session(user_id)
+        cats = list(sess.get("adv_selected", set()) or [])
+        cats_map = {"by_repo": "לפי ריפו", "large": "קבצים גדולים", "other": "שאר קבצים"}
+        cats_txt = ", ".join(cats_map.get(c, c) for c in cats) if cats else "—"
+        folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
+        schedule = self._schedule_button_label(user_id).replace("🕑 ", "")
+        txt = (
+            "סיכום מתקדם:\n"
+            f"• קטגוריות: {cats_txt}\n"
+            f"• תיקיית יעד: {folder}\n"
+            f"• תזמון: {schedule if schedule != '🗓 זמני גיבוי' else 'לא נקבע'}\n"
+        )
+        kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")]]
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))

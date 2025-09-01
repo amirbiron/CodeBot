@@ -22,11 +22,30 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import aiofiles
-import aiohttp
-from telegram import Message, Update, User
-from telegram.constants import ChatAction, ParseMode
-from telegram.ext import ContextTypes
+try:
+    import aiofiles  # type: ignore
+except Exception:  # optional for tests
+    aiofiles = None  # type: ignore[assignment]
+try:
+    import aiohttp  # type: ignore
+except Exception:  # optional for tests
+    aiohttp = None  # type: ignore[assignment]
+try:
+    from telegram import Message, Update, User  # type: ignore
+    from telegram.constants import ChatAction, ParseMode  # type: ignore
+    from telegram.ext import ContextTypes  # type: ignore
+except Exception:  # lightweight stubs for test env
+    class Message:  # type: ignore[no-redef]
+        pass
+    class Update:  # type: ignore[no-redef]
+        pass
+    class User:  # type: ignore[no-redef]
+        pass
+    ChatAction = None  # type: ignore[assignment]
+    ParseMode = None  # type: ignore[assignment]
+    class _ContextTypes:
+        DEFAULT_TYPE = object
+    ContextTypes = _ContextTypes  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
