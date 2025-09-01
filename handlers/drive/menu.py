@@ -4,6 +4,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from services import google_drive_service as gdrive
+from file_manager import backup_manager
 from database import db
 
 
@@ -170,8 +171,27 @@ class GoogleDriveMenuHandler:
             await self._render_simple_selection(update, context)
             return
         if data == "drive_sel_zip":
+            # Pre-check Drive availability
+            if gdrive.get_drive_service(user_id) is None:
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            # Check if there are any saved ZIP backups
+            try:
+                existing = backup_manager.list_backups(user_id) or []
+                saved_zips = [b for b in existing if str(getattr(b, 'file_path', '')).endswith('.zip')]
+            except Exception:
+                saved_zips = []
+            if not saved_zips:
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. ניתן ליצור גיבוי מלא ב׳🧰 הכל׳.", reply_markup=InlineKeyboardMarkup(kb))
+                return
             # Upload existing ZIP backups, then mark as selected in session and re-render with checkmark
             count, ids = gdrive.upload_all_saved_zip_backups(user_id)
+            if count <= 0:
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
+                return
             sess = self._session(user_id)
             sess["zip_done"] = True
             sess["last_upload"] = "zip"
