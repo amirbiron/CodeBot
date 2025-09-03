@@ -23,6 +23,7 @@ except Exception:  # pragma: no cover - optional dependency
 from config import config
 from database import db
 from file_manager import backup_manager
+import logging
 
 
 DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
@@ -91,11 +92,13 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
             err, desc = None, None
         # Pending/slowdown are not errors for the UI
         if err in {"authorization_pending", "slow_down"}:
+            logging.getLogger(__name__).debug("Drive auth pending/slow_down")
             return None
         # Access denied / expired / invalid_grant are user-facing errors
         if err in {"access_denied", "expired_token", "invalid_grant", "invalid_request", "invalid_client"}:
             return {"error": err or "bad_request", "error_description": desc}
         # Unknown 400 – return a generic error record
+        logging.getLogger(__name__).warning(f"Drive auth error: {err} {desc}")
         return {"error": err or f"http_{resp.status_code}", "error_description": desc or "token endpoint error"}
     # Success
     tokens = resp.json()
@@ -137,6 +140,7 @@ def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
 def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
     tokens = _load_tokens(user_id)
     if not tokens:
+        logging.getLogger(__name__).warning("Drive creds missing for user; need login")
         return None
     try:
         creds = _credentials_from_tokens(tokens)
@@ -158,6 +162,7 @@ def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
             }
             save_tokens(user_id, updated)
         except Exception:
+            logging.getLogger(__name__).exception("Drive token refresh failed")
             return None
     return creds
 

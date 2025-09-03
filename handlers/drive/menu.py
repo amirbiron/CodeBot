@@ -5,6 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from services import google_drive_service as gdrive
+from config import config
 from file_manager import backup_manager
 from database import db
 
@@ -19,6 +20,15 @@ class GoogleDriveMenuHandler:
         return self.sessions[user_id]
 
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Feature flag: allow fallback to old behavior if disabled
+        if not config.DRIVE_MENU_V2:
+            query = update.callback_query if update.callback_query else None
+            if query:
+                await query.answer()
+                await query.edit_message_text("התכונה כבויה כרגע (DRIVE_MENU_V2=false)")
+            else:
+                await update.message.reply_text("התכונה כבויה כרגע (DRIVE_MENU_V2=false)")
+            return
         query = update.callback_query if update.callback_query else None
         if query:
             await query.answer()
@@ -50,6 +60,7 @@ class GoogleDriveMenuHandler:
         if data == "drive_advanced":
             data = "drive_sel_adv"
         if data == "drive_auth":
+            __import__('logging').getLogger(__name__).warning(f"Drive: start auth by user {user_id}")
             flow = gdrive.start_device_authorization(user_id)
             sess = self._session(user_id)
             sess["device_code"] = flow.get("device_code")
@@ -119,6 +130,7 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_poll_once":
+            __import__('logging').getLogger(__name__).debug(f"Drive: manual poll token by user {user_id}")
             sess = self._session(user_id)
             dc = sess.get("device_code")
             if not dc:
@@ -142,6 +154,7 @@ class GoogleDriveMenuHandler:
                     job.schedule_removal()
                 except Exception:
                     pass
+            __import__('logging').getLogger(__name__).warning(f"Drive: auth completed for user {user_id}")
             await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
             await self.menu(update, context)
             return
@@ -489,6 +502,7 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("האם להתנתק מ‑Google Drive?", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_logout_do":
+            __import__('logging').getLogger(__name__).warning(f"Drive: logout by user {user_id}")
             ok = db.delete_drive_tokens(user_id)
             await query.edit_message_text("🚪נותקת מ‑Google Drive" if ok else "❌ לא בוצעה התנתקות")
             return
