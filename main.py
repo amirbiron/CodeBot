@@ -395,7 +395,7 @@ class CodeKeeperBot:
         self.application.add_handler(
             CallbackQueryHandler(
                 drive_handler.handle_callback,
-                pattern=r'^(drive_menu|drive_auth|drive_poll_once|drive_cancel_auth|drive_backup_now|drive_sel_zip|drive_sel_all|drive_sel_adv|drive_advanced|drive_adv_by_repo|drive_adv_large|drive_adv_other|drive_choose_folder|drive_folder_default|drive_folder_set|drive_schedule|drive_set_schedule:.*|drive_adv_multi_toggle|drive_adv_upload_selected|drive_logout)$'
+                pattern=r'^(drive_menu|drive_auth|drive_poll_once|drive_cancel_auth|drive_backup_now|drive_sel_zip|drive_sel_all|drive_sel_adv|drive_advanced|drive_adv_by_repo|drive_adv_large|drive_adv_other|drive_choose_folder|drive_choose_folder_adv|drive_folder_default|drive_folder_auto|drive_folder_set|drive_folder_back|drive_folder_cancel|drive_schedule|drive_set_schedule:.*|drive_adv_multi_toggle|drive_adv_upload_selected|drive_logout)$'
             )
         )
 
