@@ -120,6 +120,8 @@ class GoogleDriveMenuHandler:
             except Exception:
                 pass
             # show instruction with buttons
+            # enable manual code paste fallback
+            context.user_data["waiting_for_drive_code"] = True
             text = (
                 "🔐 התחברות ל‑Google Drive\n\n"
                 f"גש לכתובת: {flow.get('verification_url')}\n"
@@ -139,7 +141,10 @@ class GoogleDriveMenuHandler:
             if not dc:
                 await query.answer("אין בקשת התחברות פעילה", show_alert=True)
                 return
-            tokens = gdrive.poll_device_token(dc)
+            try:
+                tokens = gdrive.poll_device_token(dc)
+            except Exception:
+                tokens = None
             if not tokens:
                 await query.answer("עדיין ממתינים לאישור…", show_alert=False)
                 return
