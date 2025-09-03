@@ -129,17 +129,6 @@ class GoogleDriveMenuHandler:
                 await query.answer("עדיין ממתינים לאישור…", show_alert=False)
                 return
             if isinstance(tokens, dict) and tokens.get("error"):
-                # Show descriptive error to the user and keep polling active
-                err = tokens.get("error")
-                desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
-                await query.answer(f"שגיאה: {err}\n{desc}"[:190], show_alert=True)
-                return
-            gdrive.save_tokens(user_id, tokens)
-            tokens = gdrive.poll_device_token(dc)
-            if not tokens:
-                await query.answer("עדיין ממתינים לאישור…", show_alert=False)
-                return
-            if isinstance(tokens, dict) and tokens.get("error"):
                 err = tokens.get("error")
                 desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
                 await query.answer(f"שגיאה: {err}\n{desc}"[:190], show_alert=True)

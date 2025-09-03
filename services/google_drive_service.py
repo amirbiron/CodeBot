@@ -104,8 +104,17 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
 
 
 def save_tokens(user_id: int, tokens: Dict[str, Any]) -> bool:
-    # Ensure we persist refresh_token if available
-    return db.save_drive_tokens(user_id, tokens)
+    """Save OAuth tokens, preserving existing refresh_token if missing.
+
+    Some OAuth exchanges (and refreshes) do not return refresh_token again.
+    We merge with existing tokens to avoid wiping the refresh_token.
+    """
+    existing = _load_tokens(user_id) or {}
+    merged: Dict[str, Any] = dict(existing)
+    merged.update(tokens or {})
+    if not merged.get("refresh_token") and existing.get("refresh_token"):
+        merged["refresh_token"] = existing["refresh_token"]
+    return db.save_drive_tokens(user_id, merged)
 
 
 def _load_tokens(user_id: int) -> Optional[Dict[str, Any]]:
