@@ -590,6 +590,11 @@ class CodeKeeperBot:
         # פקודה /drive
         self.application.add_handler(CommandHandler("drive", show_drive_menu))
         # כפתור חדש לתפריט גיבוי/שחזור
+
+        # פקודה /docs – שליחת קישור לתיעוד
+        async def show_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            await update.message.reply_text(f"📚 תיעוד: {config.DOCUMENTATION_URL}")
+        self.application.add_handler(CommandHandler("docs", show_docs))
         # הוסר: כפתורי גיבוי/שחזור מהמקלדת הראשית. כעת תחת /github -> 🧰 גיבוי ושחזור
         # self.application.add_handler(MessageHandler(
         #     filters.Regex("^(📦 גיבוי מלא|♻️ שחזור מגיבוי|🧰 גיבוי/שחזור)$"),
