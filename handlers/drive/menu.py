@@ -39,7 +39,9 @@ class GoogleDriveMenuHandler:
         user_id = update.effective_user.id
         tokens = db.get_drive_tokens(user_id)
 
-        if not tokens:
+        # בדיקה אמיתית לשירות פעיל (לא רק טוקנים קיימים)
+        service_ready = bool(tokens) and bool(gdrive.get_drive_service(user_id))
+        if not service_ready:
             kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
             await send("Google Drive\n\nלא מחובר. התחבר כדי לגבות לקבצי Drive.", reply_markup=InlineKeyboardMarkup(kb))
             return
@@ -85,24 +87,25 @@ class GoogleDriveMenuHandler:
                     if not dc:
                         return
                     tokens = gdrive.poll_device_token(dc)
-                    if tokens:
-                        gdrive.save_tokens(uid, tokens)
-                        # cancel job and notify
-                        try:
-                            ctx.job.schedule_removal()
-                        except Exception:
-                            pass
-                        jobs.pop(uid, None)
-                        s.pop("device_code", None)
-                        try:
-                            # עריכת ההודעה המקורית בלי להשתמש ב-callback_query שפקע
-                            await ctx.bot.edit_message_text(
-                                chat_id=chat_id,
-                                message_id=message_id,
-                                text="✅ חיבור ל‑Drive הושלם!"
-                            )
-                        except Exception:
-                            pass
+                    # None => עדיין ממתינים; dict עם error => לא לשמור, להמתין
+                    if not tokens or (isinstance(tokens, dict) and tokens.get("error")):
+                        return
+                    # הצלחה: שמירה והודעה
+                    gdrive.save_tokens(uid, tokens)  # type: ignore[arg-type]
+                    try:
+                        ctx.job.schedule_removal()
+                    except Exception:
+                        pass
+                    jobs.pop(uid, None)
+                    s.pop("device_code", None)
+                    try:
+                        await ctx.bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text="✅ חיבור ל‑Drive הושלם!"
+                        )
+                    except Exception:
+                        pass
                 except Exception:
                     pass
             try:
@@ -592,7 +595,7 @@ class GoogleDriveMenuHandler:
         folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
         sched = self._schedule_button_label(user_id)
         sched_text = sched.replace("🕑 ", "") if sched != "🗓 זמני גיבוי" else "לא נקבע"
-        return f"פרטים: סוג: {typ} | תיקייה: {folder} | תזמון: {sched_text}\n"
+        return f"סוג: {typ}\nתיקייה: {folder}\nתזמון: {sched_text}\n"
 
     def _folder_button_label(self, user_id: int) -> str:
         sess = self._session(user_id)
