@@ -26,3 +26,11 @@ Backup Service
    :members:
    :undoc-members:
    :show-inheritance:
+
+Google Drive Service
+--------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   google_drive_service
