@@ -6,6 +6,7 @@
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/Docs-Website-blueviolet.svg)](https://amirbiron.github.io/CodeBot/)
 
 <!-- CI/CD Badges -->
 [![CI](https://github.com/amirbiron/CodeBot/actions/workflows/ci.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/ci.yml)

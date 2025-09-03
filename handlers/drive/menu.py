@@ -5,6 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from services import google_drive_service as gdrive
+from config import config
 from file_manager import backup_manager
 from database import db
 
@@ -19,6 +20,15 @@ class GoogleDriveMenuHandler:
         return self.sessions[user_id]
 
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Feature flag: allow fallback to old behavior if disabled
+        if not config.DRIVE_MENU_V2:
+            query = update.callback_query if update.callback_query else None
+            if query:
+                await query.answer()
+                await query.edit_message_text("התכונה כבויה כרגע (DRIVE_MENU_V2=false)")
+            else:
+                await update.message.reply_text("התכונה כבויה כרגע (DRIVE_MENU_V2=false)")
+            return
         query = update.callback_query if update.callback_query else None
         if query:
             await query.answer()
@@ -50,6 +60,7 @@ class GoogleDriveMenuHandler:
         if data == "drive_advanced":
             data = "drive_sel_adv"
         if data == "drive_auth":
+            __import__('logging').getLogger(__name__).warning(f"Drive: start auth by user {user_id}")
             flow = gdrive.start_device_authorization(user_id)
             sess = self._session(user_id)
             sess["device_code"] = flow.get("device_code")
@@ -119,22 +130,12 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_poll_once":
+            __import__('logging').getLogger(__name__).debug(f"Drive: manual poll token by user {user_id}")
             sess = self._session(user_id)
             dc = sess.get("device_code")
             if not dc:
                 await query.answer("אין בקשת התחברות פעילה", show_alert=True)
                 return
-            tokens = gdrive.poll_device_token(dc)
-            if not tokens:
-                await query.answer("עדיין ממתינים לאישור…", show_alert=False)
-                return
-            if isinstance(tokens, dict) and tokens.get("error"):
-                # Show descriptive error to the user and keep polling active
-                err = tokens.get("error")
-                desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
-                await query.answer(f"שגיאה: {err}\n{desc}"[:190], show_alert=True)
-                return
-            gdrive.save_tokens(user_id, tokens)
             tokens = gdrive.poll_device_token(dc)
             if not tokens:
                 await query.answer("עדיין ממתינים לאישור…", show_alert=False)
@@ -153,6 +154,7 @@ class GoogleDriveMenuHandler:
                     job.schedule_removal()
                 except Exception:
                     pass
+            __import__('logging').getLogger(__name__).warning(f"Drive: auth completed for user {user_id}")
             await query.edit_message_text("✅ חיבור ל‑Drive הושלם!")
             await self.menu(update, context)
             return
@@ -174,7 +176,10 @@ class GoogleDriveMenuHandler:
         if data == "drive_sel_zip":
             # Pre-check Drive availability
             if gdrive.get_drive_service(user_id) is None:
-                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
                 await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
                 return
             # Check if there are any saved ZIP backups
@@ -202,6 +207,14 @@ class GoogleDriveMenuHandler:
             await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
             return
         if data == "drive_sel_all":
+            # Pre-check Drive availability
+            if gdrive.get_drive_service(user_id) is None:
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
             fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
             # Friendly name + subpath
             friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
@@ -213,7 +226,11 @@ class GoogleDriveMenuHandler:
                 sess["last_upload"] = "all"
                 await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
             else:
-                await query.edit_message_text("❌ כשל בהעלאה")
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
+                await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_sel_adv":
             await self._render_advanced_menu(update, context)
@@ -221,7 +238,11 @@ class GoogleDriveMenuHandler:
         if data in {"drive_adv_by_repo", "drive_adv_large", "drive_adv_other"}:
             # Ensure Drive service ready
             if gdrive.get_drive_service(user_id) is None:
-                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.")
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")],
+                ]
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
                 return
             category = {
                 "drive_adv_by_repo": "by_repo",
@@ -246,7 +267,14 @@ class GoogleDriveMenuHandler:
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         ok_any = ok_any or bool(fid)
-                    await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות" if ok_any else "❌ כשל בהעלאה")
+                    if ok_any:
+                        await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות")
+                    else:
+                        kb = [
+                            [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                            [InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")],
+                        ]
+                        await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
                 else:
                     # Pre-check category has files
                     try:
@@ -273,7 +301,14 @@ class GoogleDriveMenuHandler:
                     friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
                     sub_path = gdrive.compute_subpath(category)
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
-                    await query.edit_message_text("✅ גיבוי הועלה ל‑Drive" if fid else "❌ כשל בהעלאה")
+                    if fid:
+                        await query.edit_message_text("✅ גיבוי הועלה ל‑Drive")
+                    else:
+                        kb = [
+                            [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                            [InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")],
+                        ]
+                        await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_adv_multi_toggle":
             sess = self._session(user_id)
@@ -311,7 +346,14 @@ class GoogleDriveMenuHandler:
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                     uploaded_any = uploaded_any or bool(fid)
             sess["adv_selected"] = set()
-            await query.edit_message_text("✅ הועלו הגיבויים שנבחרו" if uploaded_any else "❌ כשל בהעלאה")
+            if uploaded_any:
+                await query.edit_message_text("✅ הועלו הגיבויים שנבחרו")
+            else:
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_sel_adv")],
+                ]
+                await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_choose_folder":
             # Remember current simple menu context
@@ -460,6 +502,7 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("האם להתנתק מ‑Google Drive?", reply_markup=InlineKeyboardMarkup(kb))
             return
         if data == "drive_logout_do":
+            __import__('logging').getLogger(__name__).warning(f"Drive: logout by user {user_id}")
             ok = db.delete_drive_tokens(user_id)
             await query.edit_message_text("🚪נותקת מ‑Google Drive" if ok else "❌ לא בוצעה התנתקות")
             return
@@ -535,6 +578,22 @@ class GoogleDriveMenuHandler:
         }
         return mapping.get(key) or "🗓 זמני גיבוי"
 
+    def _compose_selection_header(self, user_id: int) -> str:
+        sess = self._session(user_id)
+        last_upload = sess.get("last_upload")
+        if last_upload == "zip":
+            typ = "קבצי ZIP"
+        elif last_upload == "all":
+            typ = "הכל"
+        elif isinstance(last_upload, str) and last_upload in {"by_repo", "large", "other"}:
+            typ = {"by_repo": "לפי ריפו", "large": "קבצים גדולים", "other": "שאר קבצים"}[last_upload]
+        else:
+            typ = "—"
+        folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
+        sched = self._schedule_button_label(user_id)
+        sched_text = sched.replace("🕑 ", "") if sched != "🗓 זמני גיבוי" else "לא נקבע"
+        return f"פרטים: סוג: {typ} | תיקייה: {folder} | תזמון: {sched_text}\n"
+
     def _folder_button_label(self, user_id: int) -> str:
         sess = self._session(user_id)
         label = sess.get("target_folder_label")
@@ -564,7 +623,8 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
-        await send(header_prefix + "בחר מה לגבות:", reply_markup=InlineKeyboardMarkup(kb))
+        header = header_prefix + self._compose_selection_header(user_id)
+        await send(header + "בחר מה לגבות:", reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_after_folder_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool):
         query = update.callback_query
@@ -596,7 +656,8 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
-        await query.edit_message_text(header_prefix + "בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
+        header = header_prefix + self._compose_selection_header(user_id)
+        await query.edit_message_text(header + "בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_simple_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query

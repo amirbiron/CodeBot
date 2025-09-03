@@ -45,6 +45,10 @@ class BotConfig:
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     GOOGLE_OAUTH_SCOPES: str = "https://www.googleapis.com/auth/drive.file"
     GOOGLE_TOKEN_REFRESH_MARGIN_SECS: int = 120
+
+    # Feature flags
+    DRIVE_MENU_V2: bool = True
+    DOCUMENTATION_URL: str = "https://amirbiron.github.io/CodeBot/"
     
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
@@ -81,6 +85,8 @@ def load_config() -> BotConfig:
         GOOGLE_CLIENT_SECRET=os.getenv('GOOGLE_CLIENT_SECRET'),
         GOOGLE_OAUTH_SCOPES=os.getenv('GOOGLE_OAUTH_SCOPES', 'https://www.googleapis.com/auth/drive.file'),
         GOOGLE_TOKEN_REFRESH_MARGIN_SECS=int(os.getenv('GOOGLE_TOKEN_REFRESH_MARGIN_SECS', '120')),
+        DRIVE_MENU_V2=os.getenv('DRIVE_MENU_V2', 'true').lower() == 'true',
+        DOCUMENTATION_URL=os.getenv('DOCUMENTATION_URL', 'https://amirbiron.github.io/CodeBot/'),
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
