@@ -49,6 +49,10 @@ class BotConfig:
     # Feature flags
     DRIVE_MENU_V2: bool = True
     DOCUMENTATION_URL: str = "https://amirbiron.github.io/CodeBot/"
+    # תווית/שם לבוט לצורך שמות קבצים ידידותיים
+    BOT_LABEL: str = "CodeBot"
+    # הוספת hash קצר לשמות קבצים (למניעת כפילויות) — כבוי כברירת מחדל
+    DRIVE_ADD_HASH: bool = False
     
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
@@ -87,6 +91,8 @@ def load_config() -> BotConfig:
         GOOGLE_TOKEN_REFRESH_MARGIN_SECS=int(os.getenv('GOOGLE_TOKEN_REFRESH_MARGIN_SECS', '120')),
         DRIVE_MENU_V2=os.getenv('DRIVE_MENU_V2', 'true').lower() == 'true',
         DOCUMENTATION_URL=os.getenv('DOCUMENTATION_URL', 'https://amirbiron.github.io/CodeBot/'),
+        BOT_LABEL=os.getenv('BOT_LABEL', 'CodeBot'),
+        DRIVE_ADD_HASH=os.getenv('DRIVE_ADD_HASH', 'false').lower() == 'true',
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),

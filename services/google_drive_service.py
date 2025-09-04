@@ -314,7 +314,17 @@ def _rating_to_emoji(rating: Optional[str]) -> str:
     return ""
 
 
-def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None) -> str:
+def _short_hash(data: Optional[bytes]) -> str:
+    if not data:
+        return ""
+    try:
+        import hashlib
+        return hashlib.sha256(data).hexdigest()[:8]
+    except Exception:
+        return ""
+
+
+def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None, content_sample: Optional[bytes] = None) -> str:
     """Return a friendly filename per spec using underscores.
 
     Pattern examples:
@@ -327,8 +337,20 @@ def compute_friendly_name(user_id: int, category: str, entity_name: str, rating:
     v = _next_version(user_id, key)
     emoji = _rating_to_emoji(rating)
     base = f"BKP_{label}_{entity_name}_v{v}"
+    # Add short content hash if available to reduce collisions when many zips are generated in a row
+    # Hash suffix only if enabled in config
+    try:
+        from config import config as _cfg
+        use_hash = bool(getattr(_cfg, 'DRIVE_ADD_HASH', False))
+    except Exception:
+        use_hash = False
+    h = _short_hash(content_sample) if use_hash else ""
+    if emoji and h:
+        return f"{base}_{emoji}_{h}_{date_str}.zip"
     if emoji:
         return f"{base}_{emoji}_{date_str}.zip"
+    if h:
+        return f"{base}_{h}_{date_str}.zip"
     return f"{base}_{date_str}.zip"
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
@@ -365,13 +387,15 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             with open(path, "rb") as f:
                 data = f.read()
             # Friendly filename + subpath (קבצי_ZIP/...) + rating if קיים
-            entity = "CodeBot"
+            from config import config as _cfg
+            entity = getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot'
             try:
                 b_id = getattr(b, 'backup_id', None)
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
             except Exception:
                 rating = None
-            fname = compute_friendly_name(user_id, "zip", entity, rating)
+            # include short hash for uniqueness per backup bytes
+            fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=data[:1024])
             sub_path = compute_subpath("zip")
             fid = upload_bytes(user_id, filename=fname, data=data, sub_path=sub_path)
             if fid:
@@ -407,8 +431,9 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
                 code = d.get('code') or ''
                 zf.writestr(name, code)
         buf.seek(0)
-        fname = compute_friendly_name(user_id, "by_repo", repo)
-        results.append((repo, fname, buf.getvalue()))
+        data_bytes = buf.getvalue()
+        friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024])
+        results.append((repo, friendly, data_bytes))
     return results
 
 

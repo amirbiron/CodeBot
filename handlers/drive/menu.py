@@ -19,6 +19,22 @@ class GoogleDriveMenuHandler:
             self.sessions[user_id] = {}
         return self.sessions[user_id]
 
+    def _is_uploading(self, user_id: int) -> bool:
+        return bool(self._session(user_id).get("uploading"))
+
+    def _begin_upload(self, user_id: int) -> bool:
+        sess = self._session(user_id)
+        if sess.get("uploading"):
+            return False
+        sess["uploading"] = True
+        return True
+
+    def _end_upload(self, user_id: int) -> None:
+        try:
+            self._session(user_id)["uploading"] = False
+        except Exception:
+            pass
+
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
         if not config.DRIVE_MENU_V2:
@@ -226,63 +242,23 @@ class GoogleDriveMenuHandler:
             await self._render_simple_selection(update, context)
             return
         if data == "drive_sel_zip":
-            # Pre-check Drive availability
-            if gdrive.get_drive_service(user_id) is None:
-                kb = [
-                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
-                return
-            # Check if there are any saved ZIP backups
+            # בחר קטגוריית ZIP בלבד (ללא העלאה מיידית); ההעלאה תתבצע רק בלחיצה על "אישור"
+            # הצג הודעה אם אין ZIPים שמורים כדי שהמשתמש ידע מה יקרה באישור
             try:
                 existing = backup_manager.list_backups(user_id) or []
                 saved_zips = [b for b in existing if str(getattr(b, 'file_path', '')).endswith('.zip')]
             except Exception:
                 saved_zips = []
-            if not saved_zips:
-                kb = [
-                    [InlineKeyboardButton("📦 צור ZIP שמור בבוט", callback_data="drive_make_zip_now")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
-                return
-            # Upload existing ZIP backups, then mark as selected in session and re-render with checkmark
-            count, ids = gdrive.upload_all_saved_zip_backups(user_id)
-            if count <= 0:
-                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
-                await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
-                return
             sess = self._session(user_id)
-            sess["zip_done"] = True
-            sess["last_upload"] = "zip"
-            await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
+            sess["selected_category"] = "zip"
+            prefix = "ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. באישור לא יועלה דבר.\n\n" if not saved_zips else "✅ נבחר: קבצי ZIP\n\n"
+            await self._render_simple_selection(update, context, header_prefix=prefix)
             return
         if data == "drive_sel_all":
-            # Pre-check Drive availability
-            if gdrive.get_drive_service(user_id) is None:
-                kb = [
-                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
-                return
-            fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
-            # Friendly name + subpath
-            friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
-            sub_path = gdrive.compute_subpath("all")
-            fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+            # בחר קטגוריית "הכל" (ללא העלאה מיידית); ההעלאה תתבצע רק בלחיצה על "אישור"
             sess = self._session(user_id)
-            if fid:
-                sess["all_done"] = True
-                sess["last_upload"] = "all"
-                await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
-            else:
-                kb = [
-                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+            sess["selected_category"] = "all"
+            await self._render_simple_selection(update, context, header_prefix="✅ נבחר: הכל\n\n")
             return
         if data == "drive_sel_adv":
             await self._render_advanced_menu(update, context)
@@ -315,7 +291,7 @@ class GoogleDriveMenuHandler:
                         return
                     ok_any = False
                     for repo_name, suggested, data_bytes in grouped:
-                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name, content_sample=data_bytes[:1024])
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         ok_any = ok_any or bool(fid)
@@ -350,7 +326,8 @@ class GoogleDriveMenuHandler:
                         await query.edit_message_text(f"ℹ️ אין פריטים זמינים בקטגוריה: {label_map.get(category, category)}.")
                         return
                     fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
-                    friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
+                    from config import config as _cfg
+                    friendly = gdrive.compute_friendly_name(user_id, category, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                     sub_path = gdrive.compute_subpath(category)
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                     if fid:
@@ -387,13 +364,14 @@ class GoogleDriveMenuHandler:
                 if c == "by_repo":
                     grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
                     for repo_name, suggested, data_bytes in grouped:
-                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name, content_sample=data_bytes[:1024])
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         uploaded_any = uploaded_any or bool(fid)
                 else:
                     fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=c)
-                    friendly = gdrive.compute_friendly_name(user_id, c, "CodeBot")
+                    from config import config as _cfg
+                    friendly = gdrive.compute_friendly_name(user_id, c, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                     sub_path = gdrive.compute_subpath(c)
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                     uploaded_any = uploaded_any or bool(fid)
@@ -559,8 +537,59 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("🚪נותקת מ‑Google Drive" if ok else "❌ לא בוצעה התנתקות")
             return
         if data == "drive_simple_confirm":
-            await self._render_simple_summary(update, context)
-            return
+            # בצע את הפעולה שנבחרה רק עכשיו
+            sess = self._session(user_id)
+            selected = sess.get("selected_category")
+            if not selected:
+                await query.answer("לא נבחר מה לגבות", show_alert=True)
+                return
+            # בדיקת שירות רק בשלב ביצוע
+            if gdrive.get_drive_service(user_id) is None:
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if selected == "zip":
+                try:
+                    existing = backup_manager.list_backups(user_id) or []
+                    saved_zips = [b for b in existing if str(getattr(b, 'file_path', '')).endswith('.zip')]
+                except Exception:
+                    saved_zips = []
+                if not saved_zips:
+                    kb = [
+                        [InlineKeyboardButton("📦 צור ZIP שמור בבוט", callback_data="drive_make_zip_now")],
+                        [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                    ]
+                    await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
+                    return
+                count, ids = gdrive.upload_all_saved_zip_backups(user_id)
+                if count <= 0:
+                    kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                    await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
+                    return
+                sess["zip_done"] = True
+                sess["last_upload"] = "zip"
+                await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
+                return
+            if selected == "all":
+                from config import config as _cfg
+                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
+                friendly = gdrive.compute_friendly_name(user_id, "all", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
+                sub_path = gdrive.compute_subpath("all")
+                fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                if fid:
+                    sess["all_done"] = True
+                    sess["last_upload"] = "all"
+                    await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
+                else:
+                    kb = [
+                        [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                        [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                    ]
+                    await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
         if data == "drive_adv_confirm":
             await self._render_adv_summary(update, context)
             return
