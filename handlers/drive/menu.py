@@ -291,7 +291,8 @@ class GoogleDriveMenuHandler:
                         return
                     ok_any = False
                     for repo_name, suggested, data_bytes in grouped:
-                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        from config import config as _cfg
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         ok_any = ok_any or bool(fid)
@@ -326,7 +327,8 @@ class GoogleDriveMenuHandler:
                         await query.edit_message_text(f"ℹ️ אין פריטים זמינים בקטגוריה: {label_map.get(category, category)}.")
                         return
                     fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=category)
-                    friendly = gdrive.compute_friendly_name(user_id, category, "CodeBot")
+                    from config import config as _cfg
+                    friendly = gdrive.compute_friendly_name(user_id, category, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                     sub_path = gdrive.compute_subpath(category)
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                     if fid:
@@ -363,13 +365,15 @@ class GoogleDriveMenuHandler:
                 if c == "by_repo":
                     grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
                     for repo_name, suggested, data_bytes in grouped:
-                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name)
+                        from config import config as _cfg
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         uploaded_any = uploaded_any or bool(fid)
                 else:
                     fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category=c)
-                    friendly = gdrive.compute_friendly_name(user_id, c, "CodeBot")
+                    from config import config as _cfg
+                    friendly = gdrive.compute_friendly_name(user_id, c, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                     sub_path = gdrive.compute_subpath(c)
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                     uploaded_any = uploaded_any or bool(fid)
@@ -572,8 +576,9 @@ class GoogleDriveMenuHandler:
                 await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
                 return
             if selected == "all":
+                from config import config as _cfg
                 fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
-                friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
+                friendly = gdrive.compute_friendly_name(user_id, "all", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                 sub_path = gdrive.compute_subpath("all")
                 fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                 if fid:

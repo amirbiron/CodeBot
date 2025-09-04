@@ -381,7 +381,8 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             with open(path, "rb") as f:
                 data = f.read()
             # Friendly filename + subpath (קבצי_ZIP/...) + rating if קיים
-            entity = "CodeBot"
+            from config import config as _cfg
+            entity = getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot'
             try:
                 b_id = getattr(b, 'backup_id', None)
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
