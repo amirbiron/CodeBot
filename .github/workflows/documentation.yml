@@ -60,18 +60,18 @@ jobs:
         pip install pydocstyle
         pydocstyle --count --convention=google --add-ignore=D100,D104 || true
     
-    - name: 🔨 Build HTML documentation (single version for PRs)
+    - name: 🔨 Build docs (PR single-version)
+      if: github.event_name == 'pull_request'
       run: |
         cd docs
-        # Build without -W flag to allow warnings (for now)
         sphinx-build -b html . _build/html --keep-going
       env:
         SPHINX_MOCK_IMPORTS: true
         BOT_TOKEN: dummy_token_for_docs
         MONGODB_URL: mongodb://localhost:27017/test
 
-    - name: 🔨 Build multi-version docs (main/release)
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    - name: 🔨 Build multi-version docs (main/release/PR)
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' || github.event_name == 'pull_request'
       run: |
         cd docs
         sphinx-multiversion . _build/html
