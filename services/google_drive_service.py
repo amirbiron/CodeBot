@@ -398,6 +398,11 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 repo_full = md.get('repo')
             except Exception:
                 repo_full = None
+            if not repo_full:
+                try:
+                    repo_full = getattr(b, 'repo', None)
+                except Exception:
+                    repo_full = None
             if isinstance(repo_full, str) and repo_full:
                 # קח רק שם ריפו (ללא ה‑owner) והוסף רמז תיקייה אם קיים
                 base_name = repo_full.split('/')[-1]
@@ -406,6 +411,11 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                     path_hint = (md.get('path') or '').strip('/')
                 except Exception:
                     path_hint = ''
+                if not path_hint:
+                    try:
+                        path_hint = (getattr(b, 'path', None) or '').strip('/')
+                    except Exception:
+                        path_hint = ''
                 if path_hint:
                     safe_hint = path_hint.replace('/', '_')
                     entity = f"{base_name}_{safe_hint}"
