@@ -2,6 +2,10 @@ from typing import Any, Dict, Optional
 import os
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+try:
+    from telegram.error import BadRequest
+except Exception:  # pragma: no cover
+    BadRequest = Exception  # type: ignore[assignment]
 from telegram.ext import ContextTypes
 
 from services import google_drive_service as gdrive
@@ -250,6 +254,9 @@ class GoogleDriveMenuHandler:
             except Exception:
                 saved_zips = []
             sess = self._session(user_id)
+            if sess.get("selected_category") == "zip":
+                await query.answer("כבר נבחר 'קבצי ZIP'", show_alert=False)
+                return
             sess["selected_category"] = "zip"
             prefix = "ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. באישור לא יועלה דבר.\n\n" if not saved_zips else "✅ נבחר: קבצי ZIP\n\n"
             await self._render_simple_selection(update, context, header_prefix=prefix)
@@ -257,6 +264,9 @@ class GoogleDriveMenuHandler:
         if data == "drive_sel_all":
             # בחר קטגוריית "הכל" (ללא העלאה מיידית); ההעלאה תתבצע רק בלחיצה על "אישור"
             sess = self._session(user_id)
+            if sess.get("selected_category") == "all":
+                await query.answer("כבר נבחר 'הכל'", show_alert=False)
+                return
             sess["selected_category"] = "all"
             await self._render_simple_selection(update, context, header_prefix="✅ נבחר: הכל\n\n")
             return
