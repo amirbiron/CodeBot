@@ -22,6 +22,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 from config import config
 from database import db
+import hashlib
 from file_manager import backup_manager
 import logging
 
@@ -398,6 +399,34 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
         uploaded_set = set(prefs.get('uploaded_backup_ids') or [])
     except Exception:
         uploaded_set = set()
+    # Also deduplicate by content hash against existing files in Drive (folder: zip)
+    existing_md5: set[str] = set()
+    try:
+        service = get_drive_service(user_id)
+        if service is not None:
+            sub_path = compute_subpath("zip")
+            folder_id = ensure_subpath(user_id, sub_path)
+            if folder_id:
+                page_token: Optional[str] = None
+                while True:
+                    try:
+                        resp = service.files().list(
+                            q=f"'{folder_id}' in parents and trashed = false",
+                            spaces='drive',
+                            fields="nextPageToken, files(id, name, md5Checksum)",
+                            pageToken=page_token
+                        ).execute()
+                    except Exception:
+                        break
+                    for f in (resp.get('files') or []):
+                        md5v = f.get('md5Checksum')
+                        if isinstance(md5v, str) and md5v:
+                            existing_md5.add(md5v)
+                    page_token = resp.get('nextPageToken')
+                    if not page_token:
+                        break
+    except Exception:
+        pass
     new_uploaded: List[str] = []
     for b in backups:
         try:
@@ -409,6 +438,15 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 continue
             with open(path, "rb") as f:
                 data = f.read()
+            # If a file with the same content already exists in Drive, mark as uploaded and skip
+            try:
+                md5_local = hashlib.md5(data).hexdigest()
+                if md5_local in existing_md5:
+                    if b_id:
+                        new_uploaded.append(b_id)
+                    continue
+            except Exception:
+                pass
             from config import config as _cfg
             # Build entity name
             try:

@@ -58,7 +58,10 @@ class GoogleDriveMenuHandler:
                 try:
                     now_dt = datetime.now(timezone.utc)
                     next_dt = now_dt + timedelta(seconds=seconds)
-                    db.save_drive_prefs(uid, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                    update_prefs = {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()}
+                    if ok:
+                        update_prefs["last_full_backup_at"] = now_dt.isoformat()
+                    db.save_drive_prefs(uid, update_prefs)
                 except Exception:
                     pass
             except Exception:
@@ -73,7 +76,7 @@ class GoogleDriveMenuHandler:
                     old.schedule_removal()
                 except Exception:
                     pass
-            # קבע first להרצה הבאה: העדף schedule_next_at קיים, אחרת last_backup_at, אחרת now
+            # קבע first להרצה הבאה: העדף schedule_next_at קיים, אחרת last_full_backup_at/last_backup_at כשהוא מגולגל קדימה עד לעתיד, אחרת now
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
             except Exception:
@@ -87,10 +90,17 @@ class GoogleDriveMenuHandler:
                     nxt_dt = datetime.fromisoformat(nxt_iso)
                 except Exception:
                     nxt_dt = None
-            # parse last backup
+            # parse last full backup (prefer), fallback to generic last_backup_at
+            last_full_iso = prefs.get("last_full_backup_at")
+            last_full_dt = None
+            if isinstance(last_full_iso, str) and last_full_iso:
+                try:
+                    last_full_dt = datetime.fromisoformat(last_full_iso)
+                except Exception:
+                    last_full_dt = None
             last_iso = prefs.get("last_backup_at")
             last_dt = None
-            if isinstance(last_iso, str) and last_iso:
+            if not last_full_dt and isinstance(last_iso, str) and last_iso:
                 try:
                     last_dt = datetime.fromisoformat(last_iso)
                 except Exception:
@@ -99,10 +109,21 @@ class GoogleDriveMenuHandler:
             planned_next = None
             if nxt_dt and nxt_dt > now_dt:
                 planned_next = nxt_dt
-            elif last_dt:
-                planned_next = last_dt + timedelta(seconds=seconds)
             else:
-                planned_next = now_dt + timedelta(seconds=seconds)
+                base_last = last_full_dt or last_dt
+                if base_last:
+                    candidate = base_last + timedelta(seconds=seconds)
+                    # Roll forward in fixed intervals until in the future
+                    try:
+                        for _ in range(0, 520):
+                            if candidate > now_dt:
+                                break
+                            candidate += timedelta(seconds=seconds)
+                    except Exception:
+                        pass
+                    planned_next = candidate
+                else:
+                    planned_next = now_dt + timedelta(seconds=seconds)
             delta_secs = int((planned_next - now_dt).total_seconds())
             first_seconds = max(10, delta_secs)
             job = context.application.job_queue.run_repeating(
@@ -614,18 +635,35 @@ class GoogleDriveMenuHandler:
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
                 sched_key = prefs.get("schedule")
+                last_full_iso = prefs.get("last_full_backup_at")
                 last_iso = prefs.get("last_backup_at")
                 nxt_iso = prefs.get("schedule_next_at")
                 tz = ZoneInfo("Asia/Jerusalem") if ZoneInfo else timezone.utc
                 next_dt = None
                 if sched_key:
                     secs = self._interval_seconds(str(sched_key))
-                    if isinstance(last_iso, str) and last_iso:
+                    base_last_dt = None
+                    if isinstance(last_full_iso, str) and last_full_iso:
                         try:
-                            last_dt = datetime.fromisoformat(last_iso)
-                            next_dt = last_dt + timedelta(seconds=secs)
+                            base_last_dt = datetime.fromisoformat(last_full_iso)
                         except Exception:
-                            next_dt = None
+                            base_last_dt = None
+                    if base_last_dt is None and isinstance(last_iso, str) and last_iso:
+                        try:
+                            base_last_dt = datetime.fromisoformat(last_iso)
+                        except Exception:
+                            base_last_dt = None
+                    if base_last_dt is not None:
+                        candidate = base_last_dt + timedelta(seconds=secs)
+                        try:
+                            now_dt = datetime.now(timezone.utc)
+                            for _ in range(0, 520):
+                                if candidate > now_dt:
+                                    break
+                                candidate += timedelta(seconds=secs)
+                        except Exception:
+                            pass
+                        next_dt = candidate
                 if next_dt is None and isinstance(nxt_iso, str) and nxt_iso:
                     try:
                         next_dt = datetime.fromisoformat(nxt_iso)
@@ -749,7 +787,7 @@ class GoogleDriveMenuHandler:
                     # עדכן את זמן הגיבוי האחרון לצורך חישוב מועד הבא
                     try:
                         now_iso = datetime.now(timezone.utc).isoformat()
-                        db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
+                        db.save_drive_prefs(user_id, {"last_backup_at": now_iso, "last_full_backup_at": now_iso})
                     except Exception:
                         pass
                     sess["all_done"] = True
@@ -937,8 +975,10 @@ class GoogleDriveMenuHandler:
         if selected and selected != sess.get("last_upload"):
             sess["zip_done"] = False
             sess["all_done"] = False
-        zip_label = "📦 קבצי ZIP" + (" ✅️" if sess.get("zip_done") else "")
-        all_label = "🧰 הכל" + (" ✅️" if sess.get("all_done") else "")
+        # הצג וי ירוק על הבחירה הפעילה (מוצג גם בכותרת למעלה)
+        active = selected or sess.get("last_upload")
+        zip_label = ("✅ " if active == "zip" else "") + "📦 קבצי ZIP"
+        all_label = ("✅ " if active == "all" else "") + "🧰 הכל"
         folder_label = self._folder_button_label(user_id)
         schedule_label = self._schedule_button_label(user_id)
         sess["last_menu"] = "simple"
