@@ -3,6 +3,14 @@ Handlers
 
 תיעוד של כל ה-handlers בפרויקט.
 
+Drive Menu
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   drive_menu
+
 File View Handler
 -----------------
 
