@@ -480,6 +480,35 @@ class GoogleDriveMenuHandler:
             ]
             await query.edit_message_text("בחר תדירות גיבוי אוטומטי:", reply_markup=InlineKeyboardMarkup(kb))
             return
+        if data == "drive_status":
+            # מסך מצב גיבוי: סוג נבחר/אחרון, תיקייה, תזמון, מועד ריצה הבא (אם קיים)
+            sess = self._session(user_id)
+            # פרטי תצוגה
+            header = self._compose_selection_header(user_id)
+            # חישוב מועד הבא
+            next_run_text = "—"
+            try:
+                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+                job = jobs.get(user_id)
+                if job:
+                    try:
+                        # python-telegram-bot stores .next_t in job (datetime)
+                        nxt = getattr(job, "next_t", None)
+                        if nxt:
+                            # הצגה בפורמט קריא
+                            next_run_text = nxt.strftime("%d/%m/%Y %H:%M UTC")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            text = (
+                "📊 מצב גיבוי\n\n" +
+                header +
+                f"מועד גיבוי הבא: {next_run_text}\n"
+            )
+            kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
+            return
         if data.startswith("drive_set_schedule:"):
             key = data.split(":", 1)[1]
             # Save preference
@@ -730,6 +759,11 @@ class GoogleDriveMenuHandler:
             send = update.message.reply_text
         user_id = update.effective_user.id
         sess = self._session(user_id)
+        # הצג וי רק אחרי "אישור" מוצלח. ננקה וי אם המשתמש החליף בחירה לפני אישור מחדש
+        selected = sess.get("selected_category")
+        if selected and selected != sess.get("last_upload"):
+            sess["zip_done"] = False
+            sess["all_done"] = False
         zip_label = "📦 קבצי ZIP" + (" ✅️" if sess.get("zip_done") else "")
         all_label = "🧰 הכל" + (" ✅️" if sess.get("all_done") else "")
         folder_label = self._folder_button_label(user_id)
@@ -740,6 +774,7 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton(all_label, callback_data="drive_sel_all")],
             [InlineKeyboardButton(folder_label, callback_data="drive_choose_folder")],
             [InlineKeyboardButton(schedule_label, callback_data="drive_schedule")],
+            [InlineKeyboardButton("📊 מצב גיבוי", callback_data="drive_status")],
             [InlineKeyboardButton("✅ אישור", callback_data="drive_simple_confirm")],
             [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
