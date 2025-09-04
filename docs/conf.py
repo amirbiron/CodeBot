@@ -97,6 +97,7 @@ html_sidebars = {
         'relations.html',
         'sourcelink.html',
         'searchbox.html',
+        'versions.html',
     ]
 }
 
