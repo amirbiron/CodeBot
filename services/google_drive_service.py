@@ -338,7 +338,13 @@ def compute_friendly_name(user_id: int, category: str, entity_name: str, rating:
     emoji = _rating_to_emoji(rating)
     base = f"BKP_{label}_{entity_name}_v{v}"
     # Add short content hash if available to reduce collisions when many zips are generated in a row
-    h = _short_hash(content_sample)
+    # Hash suffix only if enabled in config
+    try:
+        from config import config as _cfg
+        use_hash = bool(getattr(_cfg, 'DRIVE_ADD_HASH', False))
+    except Exception:
+        use_hash = False
+    h = _short_hash(content_sample) if use_hash else ""
     if emoji and h:
         return f"{base}_{emoji}_{h}_{date_str}.zip"
     if emoji:
