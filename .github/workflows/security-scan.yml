@@ -10,6 +10,10 @@ on:
     - cron: '0 2 1 * *'
   workflow_dispatch:
 
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-scan:
     name: "🛡️ Security Analysis"
@@ -65,9 +69,10 @@ jobs:
         uses: github/codeql-action/analyze@v3
         continue-on-error: true
 
-      - name: "📣 Post scan summary as Issue"
+      - name: "📣 Post scan summary as Issue (main, scheduled/manual only)"
         id: scan_summary
         uses: actions/github-script@v7
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
         with:
           result-encoding: string
@@ -165,26 +170,25 @@ jobs:
               ].join('');
             }
             const baseTitle = '🛡️ Security Scan Summary';
-            const timestamp = new Date().toISOString().slice(0,16).replace('T',' ') + 'Z';
-            const title = `${baseTitle} – ${timestamp}`;
-            // Close previous open issues with same base title, then create a fresh one for visibility
+            // Upsert: update existing open issue with the base title (or create if missing)
+            let targetIssue = null;
             try {
-              const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
-              for (const issue of existing.data || []) {
-                if ((issue.title || '').startsWith(baseTitle)) {
-                  await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-                }
-              }
+              const existing = await github.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100, labels: undefined });
+              targetIssue = (existing.data || []).find(iss => (iss.title || '') === baseTitle) || null;
             } catch (e) {
-              core.warning(`Failed to close previous scan issues: ${e.message}`);
+              core.warning(`Failed to list issues: ${e.message}`);
             }
-            await github.rest.issues.create({ owner, repo, title, body: mdBody });
+            if (targetIssue) {
+              await github.rest.issues.update({ owner, repo, issue_number: targetIssue.number, body: mdBody });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: baseTitle, body: mdBody, labels: ['documentation','security','automated'] });
+            }
             core.setOutput('html', htmlBody);
             core.setOutput('text', mdBody);
             return mdBody;
 
       - name: "📨 Notify Telegram"
-        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' && github.event_name == 'schedule' }}
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
         run: |
           printf '%s' "${{ steps.scan_summary.outputs.text }}" | head -c 3500 | \
           curl -sS -o /tmp/tg.json -w "%{http_code}" -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
