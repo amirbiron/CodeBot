@@ -729,6 +729,12 @@ class GoogleDriveMenuHandler:
                 # העלאה בת׳רד נפרד
                 fid = await asyncio.to_thread(gdrive.upload_bytes, user_id, friendly, data_bytes, None, sub_path)
                 if fid:
+                    # עדכן את זמן הגיבוי האחרון לצורך חישוב מועד הבא
+                    try:
+                        now_iso = datetime.now(timezone.utc).isoformat()
+                        db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
+                    except Exception:
+                        pass
                     sess["all_done"] = True
                     sess["last_upload"] = "all"
                     await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
