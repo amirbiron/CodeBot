@@ -39,8 +39,9 @@ class GoogleDriveMenuHandler:
         user_id = update.effective_user.id
         tokens = db.get_drive_tokens(user_id)
 
-        # בדיקה אמיתית לשירות פעיל (לא רק טוקנים קיימים)
-        service_ready = bool(tokens) and bool(gdrive.get_drive_service(user_id))
+        # נחשיב "מחובר" אם יש טוקנים שמורים; בדיקת שירות בפועל תעשה לפני העלאה
+        # זה מונע מצב מבלבל שבו מוצג "לא מחובר" מיד אחרי התחברות מוצלחת
+        service_ready = bool(tokens)
         if not service_ready:
             kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
             await send("Google Drive\n\nלא מחובר. התחבר כדי לגבות לקבצי Drive.", reply_markup=InlineKeyboardMarkup(kb))
