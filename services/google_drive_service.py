@@ -385,19 +385,32 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
 
 
 def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
+    """Upload only ZIP backups that were not uploaded before for this user.
+
+    Uses db.drive_prefs.uploaded_backup_ids (set) to deduplicate uploads.
+    """
     backups = backup_manager.list_backups(user_id)
     uploaded = 0
     ids: List[str] = []
+    # Load previously uploaded backup ids
+    try:
+        prefs = db.get_drive_prefs(user_id) or {}
+        uploaded_set = set(prefs.get('uploaded_backup_ids') or [])
+    except Exception:
+        uploaded_set = set()
+    new_uploaded: List[str] = []
     for b in backups:
         try:
+            b_id = getattr(b, 'backup_id', None)
+            if b_id and b_id in uploaded_set:
+                continue
             path = getattr(b, "file_path", None)
             if not path or not str(path).endswith(".zip"):
                 continue
             with open(path, "rb") as f:
                 data = f.read()
-            # Friendly filename + subpath (קבצי_ZIP/...) + rating if קיים
             from config import config as _cfg
-            # קבע שם ישות מתוך מטאדטה אם קיים ריפו; אחרת נפילה לשם הבוט
+            # Build entity name
             try:
                 md = getattr(b, 'metadata', None) or {}
             except Exception:
@@ -413,7 +426,6 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 except Exception:
                     repo_full = None
             if isinstance(repo_full, str) and repo_full:
-                # קח רק שם ריפו (ללא ה‑owner) והוסף רמז תיקייה אם קיים
                 base_name = repo_full.split('/')[-1]
                 path_hint = ''
                 try:
@@ -425,27 +437,32 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                         path_hint = (getattr(b, 'path', None) or '').strip('/')
                     except Exception:
                         path_hint = ''
-                if path_hint:
-                    safe_hint = path_hint.replace('/', '_')
-                    entity = f"{base_name}_{safe_hint}"
-                else:
-                    entity = base_name
+                entity = f"{base_name}_{path_hint.replace('/', '_')}" if path_hint else base_name
             else:
                 entity = getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot'
+            # Derive rating emoji
             try:
-                b_id = getattr(b, 'backup_id', None)
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
             except Exception:
                 rating = None
-            # include short hash for uniqueness per backup bytes
             fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=data[:1024])
             sub_path = compute_subpath("zip")
             fid = upload_bytes(user_id, filename=fname, data=data, sub_path=sub_path)
             if fid:
                 uploaded += 1
                 ids.append(fid)
+                if b_id:
+                    new_uploaded.append(b_id)
         except Exception:
             continue
+    # Persist uploaded ids and last backup time for next-run calc
+    if new_uploaded:
+        try:
+            all_ids = list(uploaded_set.union(new_uploaded))
+            now_iso = _now_utc().isoformat()
+            db.save_drive_prefs(user_id, {"uploaded_backup_ids": all_ids, "last_backup_at": now_iso})
+        except Exception:
+            pass
     return uploaded, ids
 
 
