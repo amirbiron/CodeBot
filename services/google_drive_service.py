@@ -431,8 +431,9 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
                 code = d.get('code') or ''
                 zf.writestr(name, code)
         buf.seek(0)
-        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name, content_sample=data_bytes[:1024])
-        results.append((repo, friendly, buf.getvalue()))
+        data_bytes = buf.getvalue()
+        friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024])
+        results.append((repo, friendly, data_bytes))
     return results
 
 

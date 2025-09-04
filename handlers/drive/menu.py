@@ -291,8 +291,7 @@ class GoogleDriveMenuHandler:
                         return
                     ok_any = False
                     for repo_name, suggested, data_bytes in grouped:
-                        from config import config as _cfg
-                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name, content_sample=data_bytes[:1024])
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         ok_any = ok_any or bool(fid)
@@ -365,8 +364,7 @@ class GoogleDriveMenuHandler:
                 if c == "by_repo":
                     grouped = gdrive.create_repo_grouped_zip_bytes(user_id)
                     for repo_name, suggested, data_bytes in grouped:
-                        from config import config as _cfg
-                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
+                        friendly = gdrive.compute_friendly_name(user_id, "by_repo", repo_name, content_sample=data_bytes[:1024])
                         sub_path = gdrive.compute_subpath("by_repo", repo_name)
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         uploaded_any = uploaded_any or bool(fid)
