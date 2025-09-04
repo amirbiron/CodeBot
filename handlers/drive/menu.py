@@ -579,7 +579,7 @@ class GoogleDriveMenuHandler:
                     return
                 # פידבק מיידי לפני פעולת העלאה שעלולה לקחת זמן
                 try:
-                    await query.edit_message_text("⏳ מעלה קבצי ZIP ל‑Drive…")
+                    await query.edit_message_text("⏳ מעלה קבצי ZIP ל‑Drive…\nזה עשוי לקחת כמה דקות.\n🔔 תתקבל הודעה בסיום.")
                 except Exception:
                     pass
                 # הרצת ההעלאה בת׳רד נפרד כדי לא לחסום את הלולאה האסינכרונית
@@ -595,7 +595,7 @@ class GoogleDriveMenuHandler:
             if selected == "all":
                 # פידבק מיידי לפני יצירת ZIP מלא והעלאה
                 try:
-                    await query.edit_message_text("⏳ מכין גיבוי מלא ומעלה ל‑Drive…")
+                    await query.edit_message_text("⏳ מכין גיבוי מלא ומעלה ל‑Drive…\nזה עשוי לקחת כמה דקות.\n🔔 תתקבל הודעה בסיום.")
                 except Exception:
                     pass
                 from config import config as _cfg
@@ -622,7 +622,7 @@ class GoogleDriveMenuHandler:
         if data == "drive_make_zip_now":
             # צור גיבוי מלא ושמור אותו בבוט (לא בדרייב), כדי שיהיו ZIPים זמינים להעלאה
             from services import backup_service as _backup_service
-            await query.edit_message_text("⏳ יוצר ZIP שמור בבוט…")
+            await query.edit_message_text("⏳ יוצר ZIP שמור בבוט…\nזה עשוי לקחת כמה דקות.\n🔔 תתקבל הודעה בסיום.")
             try:
                 # נשתמש בשירות הגיבוי המקומי ליצירת ZIP ושמירה
                 fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
