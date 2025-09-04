@@ -558,7 +558,6 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_status":
             # מסך מצב גיבוי: סוג נבחר/אחרון, תיקייה, תזמון, מועד ריצה הבא (אם קיים)
-<<<<<<< HEAD
             # ודא שקיימת עבודה מתוזמנת אם יש תזמון בהעדפות
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
@@ -569,15 +568,11 @@ class GoogleDriveMenuHandler:
                         await self._ensure_schedule_job(context, user_id, sched_key)
             except Exception:
                 prefs = {}
-=======
-            sess = self._session(user_id)
->>>>>>> origin/main
             # פרטי תצוגה
             header = self._compose_selection_header(user_id)
             # חישוב מועד הבא
             next_run_text = "—"
             try:
-<<<<<<< HEAD
                 # העדף זמן הבא מהעדפות אם הוגדר בזמן התזמון
                 prefs = db.get_drive_prefs(user_id) or {}
                 nxt_iso = prefs.get("schedule_next_at")
@@ -595,19 +590,6 @@ class GoogleDriveMenuHandler:
                         nxt = getattr(job, "next_t", None)
                         if nxt:
                             next_run_text = nxt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
-=======
-                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
-                job = jobs.get(user_id)
-                if job:
-                    try:
-                        # python-telegram-bot stores .next_t in job (datetime)
-                        nxt = getattr(job, "next_t", None)
-                        if nxt:
-                            # הצגה בפורמט קריא
-                            next_run_text = nxt.strftime("%d/%m/%Y %H:%M UTC")
-                    except Exception:
-                        pass
->>>>>>> origin/main
             except Exception:
                 pass
             text = (
