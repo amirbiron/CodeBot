@@ -189,9 +189,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     
     steps:
-    - name: 📥 Collect docs output
+    - name: 📥 Download documentation artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: documentation-html
+        path: public
+
+    - name: ✅ Verify public directory
       run: |
-        if [ -d docs/_build/html ]; then mkdir -p public && cp -r docs/_build/html/* public/; fi
+        if [ ! -d "public" ]; then
+          echo "Directory ./public does not exist (artifact missing)."
+          exit 1
+        fi
     
     - name: 📄 Setup GitHub Pages
       uses: actions/configure-pages@v4
