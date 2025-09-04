@@ -762,9 +762,9 @@ class GoogleDriveMenuHandler:
                     pass
                 # הרצת ההעלאה בת׳רד נפרד כדי לא לחסום את הלולאה האסינכרונית
                 count, ids = await asyncio.to_thread(gdrive.upload_all_saved_zip_backups, user_id)
-                if count <= 0:
+                if count == 0:
                     kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
-                    await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
+                    await query.edit_message_text("✅ אין מה להעלות — כל הגיבויים כבר בדרייב.", reply_markup=InlineKeyboardMarkup(kb))
                     return
                 sess["zip_done"] = True
                 sess["last_upload"] = "zip"
