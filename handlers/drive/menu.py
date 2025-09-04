@@ -226,63 +226,23 @@ class GoogleDriveMenuHandler:
             await self._render_simple_selection(update, context)
             return
         if data == "drive_sel_zip":
-            # Pre-check Drive availability
-            if gdrive.get_drive_service(user_id) is None:
-                kb = [
-                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
-                return
-            # Check if there are any saved ZIP backups
+            # בחר קטגוריית ZIP בלבד (ללא העלאה מיידית); ההעלאה תתבצע רק בלחיצה על "אישור"
+            # הצג הודעה אם אין ZIPים שמורים כדי שהמשתמש ידע מה יקרה באישור
             try:
                 existing = backup_manager.list_backups(user_id) or []
                 saved_zips = [b for b in existing if str(getattr(b, 'file_path', '')).endswith('.zip')]
             except Exception:
                 saved_zips = []
-            if not saved_zips:
-                kb = [
-                    [InlineKeyboardButton("📦 צור ZIP שמור בבוט", callback_data="drive_make_zip_now")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
-                return
-            # Upload existing ZIP backups, then mark as selected in session and re-render with checkmark
-            count, ids = gdrive.upload_all_saved_zip_backups(user_id)
-            if count <= 0:
-                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
-                await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
-                return
             sess = self._session(user_id)
-            sess["zip_done"] = True
-            sess["last_upload"] = "zip"
-            await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
+            sess["selected_category"] = "zip"
+            prefix = "ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. באישור לא יועלה דבר.\n\n" if not saved_zips else "✅ נבחר: קבצי ZIP\n\n"
+            await self._render_simple_selection(update, context, header_prefix=prefix)
             return
         if data == "drive_sel_all":
-            # Pre-check Drive availability
-            if gdrive.get_drive_service(user_id) is None:
-                kb = [
-                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
-                return
-            fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
-            # Friendly name + subpath
-            friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
-            sub_path = gdrive.compute_subpath("all")
-            fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+            # בחר קטגוריית "הכל" (ללא העלאה מיידית); ההעלאה תתבצע רק בלחיצה על "אישור"
             sess = self._session(user_id)
-            if fid:
-                sess["all_done"] = True
-                sess["last_upload"] = "all"
-                await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
-            else:
-                kb = [
-                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
-                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
-                ]
-                await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+            sess["selected_category"] = "all"
+            await self._render_simple_selection(update, context, header_prefix="✅ נבחר: הכל\n\n")
             return
         if data == "drive_sel_adv":
             await self._render_advanced_menu(update, context)
@@ -559,8 +519,58 @@ class GoogleDriveMenuHandler:
             await query.edit_message_text("🚪נותקת מ‑Google Drive" if ok else "❌ לא בוצעה התנתקות")
             return
         if data == "drive_simple_confirm":
-            await self._render_simple_summary(update, context)
-            return
+            # בצע את הפעולה שנבחרה רק עכשיו
+            sess = self._session(user_id)
+            selected = sess.get("selected_category")
+            if not selected:
+                await query.answer("לא נבחר מה לגבות", show_alert=True)
+                return
+            # בדיקת שירות רק בשלב ביצוע
+            if gdrive.get_drive_service(user_id) is None:
+                kb = [
+                    [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                    [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                ]
+                await query.edit_message_text("❌ לא ניתן לגשת ל‑Drive כרגע. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
+            if selected == "zip":
+                try:
+                    existing = backup_manager.list_backups(user_id) or []
+                    saved_zips = [b for b in existing if str(getattr(b, 'file_path', '')).endswith('.zip')]
+                except Exception:
+                    saved_zips = []
+                if not saved_zips:
+                    kb = [
+                        [InlineKeyboardButton("📦 צור ZIP שמור בבוט", callback_data="drive_make_zip_now")],
+                        [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                    ]
+                    await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
+                    return
+                count, ids = gdrive.upload_all_saved_zip_backups(user_id)
+                if count <= 0:
+                    kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+                    await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
+                    return
+                sess["zip_done"] = True
+                sess["last_upload"] = "zip"
+                await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
+                return
+            if selected == "all":
+                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
+                friendly = gdrive.compute_friendly_name(user_id, "all", "CodeBot")
+                sub_path = gdrive.compute_subpath("all")
+                fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                if fid:
+                    sess["all_done"] = True
+                    sess["last_upload"] = "all"
+                    await self._render_simple_selection(update, context, header_prefix="✅ גיבוי מלא הועלה ל‑Drive\n\n")
+                else:
+                    kb = [
+                        [InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")],
+                        [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
+                    ]
+                    await query.edit_message_text("❌ כשל בהעלאה. נסה להתחבר מחדש או לבדוק הרשאות.", reply_markup=InlineKeyboardMarkup(kb))
+                return
         if data == "drive_adv_confirm":
             await self._render_adv_summary(update, context)
             return
