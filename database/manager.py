@@ -1,4 +1,6 @@
 import logging
+import os
+from types import SimpleNamespace
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
 from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
@@ -21,6 +23,39 @@ class DatabaseManager:
         self.connect()
 
     def connect(self):
+        # Docs build / CI: אפשר לנטרל חיבור למסד כדי למנוע שגיאות בזמן בניית דוקס
+        disable_db = str(os.getenv("DISABLE_DB", "")).lower() in {"1", "true", "yes"} or \
+                     str(os.getenv("SPHINX_MOCK_IMPORTS", "")).lower() in {"1", "true", "yes"}
+
+        def _init_noop_collections():
+            class NoOpCollection:
+                def insert_one(self, *args, **kwargs):
+                    return SimpleNamespace(inserted_id=None)
+                def update_one(self, *args, **kwargs):
+                    return SimpleNamespace(acknowledged=True, modified_count=0)
+                def find_one(self, *args, **kwargs):
+                    return None
+                def aggregate(self, *args, **kwargs):
+                    return []
+                def create_indexes(self, *args, **kwargs):
+                    return None
+                def list_indexes(self, *args, **kwargs):
+                    return []
+                def drop_index(self, *args, **kwargs):
+                    return None
+                def find(self, *args, **kwargs):
+                    return []
+            self.client = None
+            self.db = SimpleNamespace(users=NoOpCollection())
+            self.collection = NoOpCollection()
+            self.large_files_collection = NoOpCollection()
+            self.backup_ratings_collection = NoOpCollection()
+            logger.info("DB disabled (docs/CI mode) — using no-op collections")
+
+        if disable_db:
+            _init_noop_collections()
+            return
+
         try:
             self.client = MongoClient(
                 config.MONGODB_URL,
@@ -44,6 +79,10 @@ class DatabaseManager:
             self._create_indexes()
             logger.info("התחברות למסד הנתונים הצליחה עם Connection Pooling מתקדם")
         except Exception as e:
+            if disable_db:
+                _init_noop_collections()
+                logger.warning("DB connection failed; falling back to no-op collections for docs/CI")
+                return
             logger.error(f"שגיאה בהתחברות למסד הנתונים: {e}")
             raise
 
