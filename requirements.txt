@@ -10,7 +10,7 @@ pymongo==4.6.1
 motor==3.3.2
 
 # Code Processing & Language Detection
-pygments==2.17.2
+pygments==2.19.2
 python-magic==0.4.27
 chardet==5.2.0
 langdetect==1.0.9
