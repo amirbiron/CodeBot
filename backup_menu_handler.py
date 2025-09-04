@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
@@ -169,7 +169,8 @@ class BackupMenuHandler:
 		elif data == "backup_restore_full_start":
 			await self._show_backups_list(update, context)
 		elif data == "backup_list":
-			await self._show_backups_list(update, context, page=1)
+			# הצג את הרשימה בעמוד האחרון שבו היינו (אם נשמר), אחרת עמוד 1
+			await self._show_backups_list(update, context)
 		elif data.startswith("backup_add_note:"):
 			backup_id = data.split(":", 1)[1]
 			await self._ask_backup_note(update, context, backup_id)
@@ -352,7 +353,7 @@ class BackupMenuHandler:
 	
 	# הוסרה תמיכה בהעלאת ZIP ישירה מהתפריט כדי למנוע מחיקה גורפת בטעות
 	
-	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1):
+	async def _show_backups_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: Optional[int] = None):
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.answer()
@@ -395,11 +396,22 @@ class BackupMenuHandler:
 		# עימוד תוצאות
 		PAGE_SIZE = 10
 		total = len(backups)
+		# ברירת מחדל: שמור עמוד אחרון שסיירנו בו אם לא סופק
+		try:
+			if page is None:
+				page = int(context.user_data.get("backup_list_page", 1) or 1)
+		except Exception:
+			page = 1
 		if page < 1:
 			page = 1
 		total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE if total > 0 else 1
 		if page > total_pages:
 			page = total_pages
+		# שמור את העמוד הנוכחי כדי לשמרו בין פעולות (מחיקה מרובה, סימון, הורדה וכו')
+		try:
+			context.user_data["backup_list_page"] = page
+		except Exception:
+			pass
 		start = (page - 1) * PAGE_SIZE
 		end = min(start + PAGE_SIZE, total)
 		items = backups[start:end]
