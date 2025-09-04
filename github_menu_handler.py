@@ -1344,7 +1344,7 @@ class GitHubMenuHandler:
                                 vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
                             except Exception:
                                 vcount = 1
-                            date_str = _dt.now(_tz.utc).strftime('%d/%m/%y')
+                            date_str = _dt.now(_tz.utc).strftime('%d-%m-%y %H.%M')
                             filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
                             out_buf.name = filename
                             caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
@@ -1466,7 +1466,7 @@ class GitHubMenuHandler:
                     vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
                 except Exception:
                     vcount = 1
-                date_str = datetime.now(timezone.utc).strftime('%d/%m/%y')
+                date_str = datetime.now(timezone.utc).strftime('%d-%m-%y %H.%M')
                 name_part = repo.name if not current_path else current_path.split('/')[-1]
                 filename = f"BKP zip {name_part} v{vcount} - {date_str}.zip"
                 zip_buffer.name = filename
