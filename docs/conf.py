@@ -27,6 +27,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx_autodoc_typehints',
     'sphinx_rtd_theme',
+    'sphinx_multiversion',
 ]
 
 # Napoleon settings for Google and NumPy style docstrings
@@ -78,6 +79,13 @@ html_theme_options = {
     'display_version': True,
     'prev_next_buttons_location': 'both',
 }
+# -- sphinx-multiversion -------------------------------------------------------
+# Build latest main and all tags like v*/
+smv_tag_whitelist = r'^v.*$'
+smv_branch_whitelist = r'^(main|master)$'
+smv_remote_whitelist = r'^origin$'
+smv_released_pattern = r'^tags/.+$'
+smv_latest_version = 'main'
 
 # Static files
 html_static_path = ['_static']
