@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 import os
+import asyncio
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 try:
@@ -176,6 +177,7 @@ class GoogleDriveMenuHandler:
                 "🔐 התחברות ל‑Google Drive\n\n"
                 f"גש לכתובת: {flow.get('verification_url')}\n"
                 f"קוד: <code>{flow.get('user_code')}</code>\n\n"
+                "ℹ️ טיפ: לחצו על הקוד כדי להעתיק אותו ללוח, ואז לחצו על הקישור והדביקו את הקוד בדפדפן.\n\n"
                 "לאחר האישור, לחץ על ׳🔄 בדוק חיבור׳ או המתן לאימות אוטומטי."
             )
             kb = [
@@ -200,6 +202,7 @@ class GoogleDriveMenuHandler:
                 text = (
                     "🔐 התחברות ל‑Google Drive\n\n"
                     "⌛ עדיין ממתינים לאישור בדפדפן…\n\n"
+                    "ℹ️ טיפ: לחצו על הקוד שהוצג בהודעה הקודמת כדי להעתיק, פתחו את הקישור והדביקו את הקוד בדפדפן.\n\n"
                     "לאחר האישור, לחץ על ׳🔄 בדוק חיבור׳ או המתן לאימות אוטומטי."
                 )
                 kb = [
@@ -574,7 +577,13 @@ class GoogleDriveMenuHandler:
                     ]
                     await query.edit_message_text("ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. אפשר ליצור עכשיו ZIP שמור בבוט או לבחור 🧰 הכל.", reply_markup=InlineKeyboardMarkup(kb))
                     return
-                count, ids = gdrive.upload_all_saved_zip_backups(user_id)
+                # פידבק מיידי לפני פעולת העלאה שעלולה לקחת זמן
+                try:
+                    await query.edit_message_text("⏳ מעלה קבצי ZIP ל‑Drive…")
+                except Exception:
+                    pass
+                # הרצת ההעלאה בת׳רד נפרד כדי לא לחסום את הלולאה האסינכרונית
+                count, ids = await asyncio.to_thread(gdrive.upload_all_saved_zip_backups, user_id)
                 if count <= 0:
                     kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
                     await query.edit_message_text("❌ ההעלאה נכשלה או לא הועלו קבצים. נסה שוב מאוחר יותר.", reply_markup=InlineKeyboardMarkup(kb))
@@ -584,11 +593,18 @@ class GoogleDriveMenuHandler:
                 await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
                 return
             if selected == "all":
+                # פידבק מיידי לפני יצירת ZIP מלא והעלאה
+                try:
+                    await query.edit_message_text("⏳ מכין גיבוי מלא ומעלה ל‑Drive…")
+                except Exception:
+                    pass
                 from config import config as _cfg
-                fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
+                # יצירת ZIP והרצה בת׳רד נפרד
+                fn, data_bytes = await asyncio.to_thread(gdrive.create_full_backup_zip_bytes, user_id, "all")
                 friendly = gdrive.compute_friendly_name(user_id, "all", getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data_bytes[:1024])
                 sub_path = gdrive.compute_subpath("all")
-                fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
+                # העלאה בת׳רד נפרד
+                fid = await asyncio.to_thread(gdrive.upload_bytes, user_id, friendly, data_bytes, None, sub_path)
                 if fid:
                     sess["all_done"] = True
                     sess["last_upload"] = "all"
