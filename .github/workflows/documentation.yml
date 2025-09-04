@@ -204,23 +204,33 @@ jobs:
         fi
     
     - name: 📄 Setup GitHub Pages
+      if: github.event_name != 'pull_request'
       uses: actions/configure-pages@v4
     
     - name: 📦 Upload to GitHub Pages
+      if: github.event_name != 'pull_request'
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./public
     
     - name: 🚀 Deploy to GitHub Pages
+      if: github.event_name != 'pull_request'
       id: deployment
       uses: actions/deploy-pages@v4
     
     - name: ✅ Deployment summary
+      if: github.event_name != 'pull_request'
       run: |
         echo "### 🚀 Documentation Deployed!" >> $GITHUB_STEP_SUMMARY
         echo "- **URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment**: github-pages" >> $GITHUB_STEP_SUMMARY
         echo "- **Deployed at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+    - name: ✅ Preview summary (PR)
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "### 📖 Documentation Preview (PR)" >> $GITHUB_STEP_SUMMARY
+        echo "Artifacts are available for download from this workflow run." >> $GITHUB_STEP_SUMMARY
+        echo "- Open the '🔨 Build Documentation' job and download 'documentation-html'" >> $GITHUB_STEP_SUMMARY
 
   notify-failure:
     name: 📢 Notify on Failure
