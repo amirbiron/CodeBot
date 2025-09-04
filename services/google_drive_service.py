@@ -45,6 +45,9 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
         "client_id": config.GOOGLE_CLIENT_ID,
         "scope": config.GOOGLE_OAUTH_SCOPES,
     }
+    # Some Google OAuth client types (e.g., Web) require client_secret
+    if getattr(config, "GOOGLE_CLIENT_SECRET", None):
+        payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
     try:
         response = requests.post(DEVICE_CODE_URL, data=payload, timeout=15)
         # If unauthorized/invalid_client, surface clearer message
@@ -81,6 +84,9 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
         "device_code": device_code,
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }
+    # Include client_secret if configured to satisfy clients that require it
+    if getattr(config, "GOOGLE_CLIENT_SECRET", None):
+        payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
     resp = requests.post(TOKEN_URL, data=payload, timeout=20)
     if resp.status_code >= 400:
         # Try to parse structured OAuth error
