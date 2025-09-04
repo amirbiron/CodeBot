@@ -879,11 +879,6 @@ class GoogleDriveMenuHandler:
             pass
         # אם הופעל דגל 'force_new_simple' נשלח הודעה חדשה במקום עריכת הקיימת כדי לשמור על פריסה מלאה
         force_new = self._should_send_new_message(user_id)
-        if query and not force_new:
-            send = query.edit_message_text
-        else:
-            # On callback updates update.message is None; use query.message.reply_text instead
-            send = (query.message.reply_text if query else update.message.reply_text)
         sess = self._session(user_id)
         # הצג וי רק אחרי "אישור" מוצלח. ננקה וי אם המשתמש החליף בחירה לפני אישור מחדש
         selected = sess.get("selected_category")
@@ -905,7 +900,16 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
-        await send(header, reply_markup=InlineKeyboardMarkup(kb))
+        # שלח טקסט בהתאם להקשר: עריכת הודעה קיימת או שליחת חדשה בבטחה
+        if query and not force_new:
+            await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            if query and getattr(query, "message", None) is not None:
+                await query.message.reply_text(header, reply_markup=InlineKeyboardMarkup(kb))
+            else:
+                chat = update.effective_chat
+                if chat:
+                    await context.bot.send_message(chat_id=chat.id, text=header, reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_after_folder_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool):
         query = update.callback_query
