@@ -63,7 +63,16 @@ class GoogleDriveMenuHandler:
             data = "drive_sel_adv"
         if data == "drive_auth":
             __import__('logging').getLogger(__name__).warning(f"Drive: start auth by user {user_id}")
-            flow = gdrive.start_device_authorization(user_id)
+            try:
+                flow = gdrive.start_device_authorization(user_id)
+            except Exception as e:
+                # הצג שגיאה ידידותית כאשר קונפיגורציית OAuth חסרה/שגויה או כשיש בעיית רשת
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")]]
+                await query.edit_message_text(
+                    f"❌ לא ניתן להתחבר ל‑Drive.\n{e}\n\nבדוק שהוגדר GOOGLE_CLIENT_ID (ו‑GOOGLE_CLIENT_SECRET אם נדרש) ושההרשאות תקינות.",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+                return
             sess = self._session(user_id)
             sess["device_code"] = flow.get("device_code")
             sess["interval"] = max(3, int(flow.get("interval", 5)))
