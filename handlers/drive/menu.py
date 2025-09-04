@@ -73,11 +73,21 @@ class GoogleDriveMenuHandler:
                     old.schedule_removal()
                 except Exception:
                     pass
-            # קבע first להרצה הבאה בהתחשב במועד הגיבוי האחרון אם קיים
+            # קבע first להרצה הבאה: העדף schedule_next_at קיים, אחרת last_backup_at, אחרת now
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
             except Exception:
                 prefs = {}
+            now_dt = datetime.now(timezone.utc)
+            # parse existing next
+            nxt_iso = prefs.get("schedule_next_at")
+            nxt_dt = None
+            if isinstance(nxt_iso, str) and nxt_iso:
+                try:
+                    nxt_dt = datetime.fromisoformat(nxt_iso)
+                except Exception:
+                    nxt_dt = None
+            # parse last backup
             last_iso = prefs.get("last_backup_at")
             last_dt = None
             if isinstance(last_iso, str) and last_iso:
@@ -85,17 +95,24 @@ class GoogleDriveMenuHandler:
                     last_dt = datetime.fromisoformat(last_iso)
                 except Exception:
                     last_dt = None
-            now_dt = datetime.now(timezone.utc)
-            planned_next = (last_dt + timedelta(seconds=seconds)) if last_dt else (now_dt + timedelta(seconds=seconds))
+            # choose planned_next
+            planned_next = None
+            if nxt_dt and nxt_dt > now_dt:
+                planned_next = nxt_dt
+            elif last_dt:
+                planned_next = last_dt + timedelta(seconds=seconds)
+            else:
+                planned_next = now_dt + timedelta(seconds=seconds)
             delta_secs = int((planned_next - now_dt).total_seconds())
             first_seconds = max(10, delta_secs)
             job = context.application.job_queue.run_repeating(
                 _scheduled_backup_cb, interval=seconds, first=first_seconds, name=f"drive_{user_id}", data={"user_id": user_id}
             )
             jobs[user_id] = job
+            # אל תדרוס schedule_next_at קיים ותקין; עדכן רק אם חסר/עבר
             try:
-                next_dt = now_dt + timedelta(seconds=first_seconds)
-                db.save_drive_prefs(user_id, {"schedule_next_at": next_dt.isoformat()})
+                if not nxt_dt or nxt_dt <= now_dt:
+                    db.save_drive_prefs(user_id, {"schedule_next_at": planned_next.isoformat()})
             except Exception:
                 pass
         except Exception:
