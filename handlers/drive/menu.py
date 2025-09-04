@@ -694,7 +694,7 @@ class GoogleDriveMenuHandler:
                 sess = self._session(update.effective_user.id)
                 sess["target_folder_label"] = path
                 sess["target_folder_auto"] = False
-                await update.message.reply_text("✅ תיקיית יעד עודכנה בהצלחה")
+                await update.message.reply_text("✅ תיקייה יעד עודכנה בהצלחה")
             else:
                 await update.message.reply_text("❌ לא ניתן להגדיר את התיקייה. ודא בהרשאות Drive.")
             return True
@@ -776,7 +776,6 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton(schedule_label, callback_data="drive_schedule")],
             [InlineKeyboardButton("📊 מצב גיבוי", callback_data="drive_status")],
             [InlineKeyboardButton("✅ אישור", callback_data="drive_simple_confirm")],
-            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
@@ -787,7 +786,7 @@ class GoogleDriveMenuHandler:
         user_id = query.from_user.id
         # Determine where to go back based on last context (advanced vs simple)
         last = self._session(user_id).get("last_menu")
-        prefix = "✅ תיקיית יעד עודכנה\n\n" if success else "❌ כשל בקביעת תיקייה\n\n"
+        prefix = "✅ תיקייה יעד עודכנה\n\n" if success else "❌ כשל בקביעת תיקייה\n\n"
         if last == "adv":
             await self._render_advanced_menu(update, context, header_prefix=prefix)
         else:
