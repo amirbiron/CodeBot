@@ -388,7 +388,31 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 data = f.read()
             # Friendly filename + subpath (קבצי_ZIP/...) + rating if קיים
             from config import config as _cfg
-            entity = getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot'
+            # קבע שם ישות מתוך מטאדטה אם קיים ריפו; אחרת נפילה לשם הבוט
+            try:
+                md = getattr(b, 'metadata', None) or {}
+            except Exception:
+                md = {}
+            repo_full = None
+            try:
+                repo_full = md.get('repo')
+            except Exception:
+                repo_full = None
+            if isinstance(repo_full, str) and repo_full:
+                # קח רק שם ריפו (ללא ה‑owner) והוסף רמז תיקייה אם קיים
+                base_name = repo_full.split('/')[-1]
+                path_hint = ''
+                try:
+                    path_hint = (md.get('path') or '').strip('/')
+                except Exception:
+                    path_hint = ''
+                if path_hint:
+                    safe_hint = path_hint.replace('/', '_')
+                    entity = f"{base_name}_{safe_hint}"
+                else:
+                    entity = base_name
+            else:
+                entity = getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot'
             try:
                 b_id = getattr(b, 'backup_id', None)
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
