@@ -95,7 +95,7 @@ fuzzywuzzy==0.18.0
 python-levenshtein==0.23.0
 
 # CLI Tools used at runtime
-rich==13.7.0
+rich==14.1.0
 typer==0.9.0
 
 # Code Quality tools (needed at runtime for repo validation)
