@@ -30,10 +30,7 @@ RUN apt-get install -y --no-install-recommends \
     pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
-# יצירת משתמש לא-root
-# Alpine: create non-root user
-RUN addgroup -g 1000 botuser && \
-    adduser -D -s /bin/sh -u 1000 -G botuser botuser
+# בשכבת ה-build אין צורך במשתמש נפרד (נשתמש ב-root); המשתמש ייווצר רק בשכבת ה-production
 
 # יצירת תיקיות עבודה
 WORKDIR /app
