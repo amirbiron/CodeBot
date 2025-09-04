@@ -635,6 +635,7 @@ class GoogleDriveMenuHandler:
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
                 sched_key = prefs.get("schedule")
+                last_full_iso = prefs.get("last_full_backup_at")
                 last_iso = prefs.get("last_backup_at")
                 nxt_iso = prefs.get("schedule_next_at")
                 tz = ZoneInfo("Asia/Jerusalem") if ZoneInfo else timezone.utc
