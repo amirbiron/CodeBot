@@ -127,6 +127,11 @@ class GoogleDriveMenuHandler:
                     await self._ensure_schedule_job(context, user_id, sched_key)
         except Exception:
             pass
+        # Hydrate session with persisted preferences so selections survive deploys
+        try:
+            self._hydrate_session_from_prefs(user_id)
+        except Exception:
+            pass
         # Connected -> show main backup selection directly per requested flow
         await self._render_simple_selection(update, context, header_prefix="Google Drive — מחובר\n")
 
@@ -568,6 +573,11 @@ class GoogleDriveMenuHandler:
                         await self._ensure_schedule_job(context, user_id, sched_key)
             except Exception:
                 prefs = {}
+            # Hydrate session to reflect persisted selections in the header
+            try:
+                self._hydrate_session_from_prefs(user_id)
+            except Exception:
+                pass
             # פרטי תצוגה
             header = self._compose_selection_header(user_id)
             # חישוב מועד הבא
@@ -770,6 +780,35 @@ class GoogleDriveMenuHandler:
 
 
     # ===== Helpers =====
+    def _hydrate_session_from_prefs(self, user_id: int) -> None:
+        """Load persisted Drive preferences into the in-memory session if missing.
+
+        Ensures selections survive restarts/deploys and are reflected in menus.
+        """
+        try:
+            prefs = db.get_drive_prefs(user_id) or {}
+        except Exception:
+            prefs = {}
+        sess = self._session(user_id)
+        # Selected category
+        if "selected_category" not in sess:
+            cat = (prefs.get("last_selected_category") or "").strip()
+            if cat in {"zip", "all", "by_repo", "large", "other"}:
+                sess["selected_category"] = cat
+        # Target folder label
+        if "target_folder_label" not in sess:
+            label = prefs.get("target_folder_label")
+            if isinstance(label, str) and label:
+                sess["target_folder_label"] = label
+                sess["target_folder_auto"] = bool(prefs.get("target_folder_auto", False))
+            else:
+                path = prefs.get("target_folder_path")
+                if isinstance(path, str) and path:
+                    sess["target_folder_label"] = path
+                else:
+                    # If we have a target_folder_id only, assume default label
+                    if prefs.get("target_folder_id"):
+                        sess["target_folder_label"] = "גיבויי_קודלי"
     def _schedule_button_label(self, user_id: int) -> str:
         prefs = db.get_drive_prefs(user_id) or {}
         key = prefs.get("schedule")
@@ -815,6 +854,17 @@ class GoogleDriveMenuHandler:
     def _folder_button_label(self, user_id: int) -> str:
         sess = self._session(user_id)
         label = sess.get("target_folder_label")
+        if not label:
+            # Fallback to persisted prefs if session missing (e.g., after deploy)
+            try:
+                prefs = db.get_drive_prefs(user_id) or {}
+                label = prefs.get("target_folder_label") or prefs.get("target_folder_path")
+                if not label and prefs.get("target_folder_id"):
+                    label = "גיבויי_קודלי"
+                if label:
+                    sess["target_folder_label"] = label
+            except Exception:
+                label = None
         if label:
             return f"📂 תיקיית יעד: {label}"
         return "📂 בחר תיקיית יעד"
@@ -822,12 +872,13 @@ class GoogleDriveMenuHandler:
     async def _render_simple_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, header_prefix: str = ""):
         query = update.callback_query if update.callback_query else None
         user_id = update.effective_user.id
+        # Ensure session reflects persisted prefs
+        try:
+            self._hydrate_session_from_prefs(user_id)
+        except Exception:
+            pass
         # אם הופעל דגל 'force_new_simple' נשלח הודעה חדשה במקום עריכת הקיימת כדי לשמור על פריסה מלאה
         force_new = self._should_send_new_message(user_id)
-        if query and not force_new:
-            send = query.edit_message_text
-        else:
-            send = update.message.reply_text
         sess = self._session(user_id)
         # הצג וי רק אחרי "אישור" מוצלח. ננקה וי אם המשתמש החליף בחירה לפני אישור מחדש
         selected = sess.get("selected_category")
@@ -849,7 +900,16 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
-        await send(header, reply_markup=InlineKeyboardMarkup(kb))
+        # שלח טקסט בהתאם להקשר: עריכת הודעה קיימת או שליחת חדשה בבטחה
+        if query and not force_new:
+            await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            if query and getattr(query, "message", None) is not None:
+                await query.message.reply_text(header, reply_markup=InlineKeyboardMarkup(kb))
+            else:
+                chat = update.effective_chat
+                if chat:
+                    await context.bot.send_message(chat_id=chat.id, text=header, reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_after_folder_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool):
         query = update.callback_query
@@ -865,6 +925,11 @@ class GoogleDriveMenuHandler:
     async def _render_advanced_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE, header_prefix: str = ""):
         query = update.callback_query
         user_id = query.from_user.id
+        # Ensure session reflects persisted prefs
+        try:
+            self._hydrate_session_from_prefs(user_id)
+        except Exception:
+            pass
         sess = self._session(user_id)
         sess["last_menu"] = "adv"
         multi_on = bool(sess.get("adv_multi", False))
