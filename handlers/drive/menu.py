@@ -691,18 +691,29 @@ class GoogleDriveMenuHandler:
         selected = sess.get("selected_category")
         last_upload = sess.get("last_upload")
         category = selected or last_upload
+        # סוג + אימוג'י לפי הכפתורים בתצוגה הפשוטה
+        type_emoji = ""
         if category == "zip":
+            type_emoji = "📦"
             typ = "קבצי ZIP"
         elif category == "all":
+            type_emoji = "🧰"
             typ = "הכל"
         elif isinstance(category, str) and category in {"by_repo", "large", "other"}:
+            # ללא אימוג'י ייעודי כי בכפתורי המתקדם אין אימוג'ים לקטגוריות אלו
             typ = {"by_repo": "לפי ריפו", "large": "קבצים גדולים", "other": "שאר קבצים"}[category]
         else:
             typ = "—"
         folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
         sched = self._schedule_button_label(user_id)
+        # הוצא את הטקסט ללא האימוג'י המובנה ונוסיף ידנית
         sched_text = sched.replace("🕑 ", "") if sched != "🗓 זמני גיבוי" else "לא נקבע"
-        return f"סוג: {typ}\nתיקייה: {folder}\nתזמון: {sched_text}\n"
+        sched_emoji = "🕑" if sched != "🗓 זמני גיבוי" else "🗓"
+        # פורמט סופי עם אימוג'ים
+        type_line = f"סוג: {type_emoji + ' ' if type_emoji else ''}{typ}"
+        folder_line = f"תיקייה: 📂 {folder}"
+        sched_line = f"תזמון: {sched_emoji} {sched_text}"
+        return f"{type_line}\n{folder_line}\n{sched_line}\n"
 
     def _folder_button_label(self, user_id: int) -> str:
         sess = self._session(user_id)
@@ -734,7 +745,7 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
-        await send(header + "בחר מה לגבות:", reply_markup=InlineKeyboardMarkup(kb))
+        await send(header, reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_after_folder_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool):
         query = update.callback_query
