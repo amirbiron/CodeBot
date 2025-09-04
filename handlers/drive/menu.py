@@ -19,6 +19,22 @@ class GoogleDriveMenuHandler:
             self.sessions[user_id] = {}
         return self.sessions[user_id]
 
+    def _is_uploading(self, user_id: int) -> bool:
+        return bool(self._session(user_id).get("uploading"))
+
+    def _begin_upload(self, user_id: int) -> bool:
+        sess = self._session(user_id)
+        if sess.get("uploading"):
+            return False
+        sess["uploading"] = True
+        return True
+
+    def _end_upload(self, user_id: int) -> None:
+        try:
+            self._session(user_id)["uploading"] = False
+        except Exception:
+            pass
+
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
         if not config.DRIVE_MENU_V2:
