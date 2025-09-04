@@ -1,0 +1,15 @@
+i18n package
+============
+
+.. automodule:: i18n
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 4
+
+   i18n.strings_he

@@ -17,6 +17,10 @@ NC='\033[0m' # No Color
 if ! command -v sphinx-build &> /dev/null; then
     echo -e "${YELLOW}⚠️  Sphinx not found. Installing...${NC}"
     pip install --break-system-packages sphinx sphinx-rtd-theme sphinx-autodoc-typehints sphinxcontrib-napoleon
+    # Add local user bin to PATH for current process if needed
+    if [ -d "$HOME/.local/bin" ]; then
+        export PATH="$HOME/.local/bin:$PATH"
+    fi
 fi
 
 # Navigate to docs directory
@@ -28,7 +32,11 @@ rm -rf _build
 
 # Build HTML documentation
 echo "📚 Building HTML documentation..."
-sphinx-build -b html . _build/html -q
+if ! command -v sphinx-build &> /dev/null; then
+    echo -e "${YELLOW}Trying sphinx-build from user bin...${NC}"
+fi
+
+"$(command -v sphinx-build)" -b html . _build/html -q
 
 # Check if build was successful
 if [ $? -eq 0 ]; then

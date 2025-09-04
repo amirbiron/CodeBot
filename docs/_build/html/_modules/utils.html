@@ -1,0 +1,1546 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="he" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>utils &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=2d7a82d5" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=0062297a"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../_static/translations.js?v=a336edf7"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="אינדקס" href="../genindex.html" />
+    <link rel="search" title="חיפוש" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Code Keeper Bot
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">תוכן עניינים:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">התקנה והגדרה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id2">דרישות מערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id3">התקנה מהירה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id4">1. שכפל את הריפוזיטורי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id5">2. התקן תלויות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id6">3. הגדר משתני סביבה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id7">4. הפעל את הבוט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#docker">התקנה עם Docker</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#image">1. בנה את ה-Image</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#docker-compose">2. הפעל עם Docker Compose</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#telegram-bot">הגדרת Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id8">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id9">בדיקת התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id10">פתרון בעיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id11">תמיכה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">הגדרות תצורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">קובץ התצורה הראשי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">משתני סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#redis-cache">הגדרת Redis Cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">הגדרות אבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">תצורה לסביבות שונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#env">דוגמת קובץ .env מלא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">טיפים וטריקים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#main-application">Main Application</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#configuration">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#bot-handlers">Bot Handlers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/index.html#conversation-handlers">Conversation Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/index.html">מודולים ראשיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#module-file_manager">File Management</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#file_manager.BackupInfo"><code class="docutils literal notranslate"><span class="pre">BackupInfo</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupInfo.__init__"><code class="docutils literal notranslate"><span class="pre">BackupInfo.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager"><code class="docutils literal notranslate"><span class="pre">BackupManager</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.__init__"><code class="docutils literal notranslate"><span class="pre">BackupManager.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.save_backup_bytes"><code class="docutils literal notranslate"><span class="pre">BackupManager.save_backup_bytes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.save_backup_file"><code class="docutils literal notranslate"><span class="pre">BackupManager.save_backup_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.list_backups"><code class="docutils literal notranslate"><span class="pre">BackupManager.list_backups()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.restore_from_backup"><code class="docutils literal notranslate"><span class="pre">BackupManager.restore_from_backup()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.delete_backups"><code class="docutils literal notranslate"><span class="pre">BackupManager.delete_backups()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#file_manager.BackupManager.delete_backup"><code class="docutils literal notranslate"><span class="pre">BackupManager.delete_backup()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#github-integration">GitHub Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#backup-system">Backup System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#code-processing">Code Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#search-engine">Search Engine</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#repository-analysis">Repository Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#batch-processing">Batch Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#large-files-handling">Large Files Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#cache-management">Cache Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#user-statistics">User Statistics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#activity-reporting">Activity Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#module-utils">Utilities</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.Message"><code class="docutils literal notranslate"><span class="pre">Message</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.Update"><code class="docutils literal notranslate"><span class="pre">Update</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.User"><code class="docutils literal notranslate"><span class="pre">User</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.ContextTypes"><code class="docutils literal notranslate"><span class="pre">ContextTypes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CodeErrorLogger.__init__"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CodeErrorLogger.log_code_processing_error"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_code_processing_error()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CodeErrorLogger.log_code_activity"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_code_activity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CodeErrorLogger.log_validation_failure"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_validation_failure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CodeErrorLogger.log_sanitization_success"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_sanitization_success()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TimeUtils.format_relative_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.format_relative_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TimeUtils.parse_date_string"><code class="docutils literal notranslate"><span class="pre">TimeUtils.parse_date_string()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TimeUtils.get_time_ranges"><code class="docutils literal notranslate"><span class="pre">TimeUtils.get_time_ranges()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.TextUtils"><code class="docutils literal notranslate"><span class="pre">TextUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.truncate_text"><code class="docutils literal notranslate"><span class="pre">TextUtils.truncate_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.escape_markdown"><code class="docutils literal notranslate"><span class="pre">TextUtils.escape_markdown()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.clean_filename"><code class="docutils literal notranslate"><span class="pre">TextUtils.clean_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.extract_hashtags"><code class="docutils literal notranslate"><span class="pre">TextUtils.extract_hashtags()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.highlight_text"><code class="docutils literal notranslate"><span class="pre">TextUtils.highlight_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.format_file_size"><code class="docutils literal notranslate"><span class="pre">TextUtils.format_file_size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TextUtils.pluralize_hebrew"><code class="docutils literal notranslate"><span class="pre">TextUtils.pluralize_hebrew()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.SecurityUtils"><code class="docutils literal notranslate"><span class="pre">SecurityUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.SecurityUtils.generate_secure_token"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.generate_secure_token()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.SecurityUtils.hash_content"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.hash_content()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.SecurityUtils.validate_user_input"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.validate_user_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.SecurityUtils.sanitize_code"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.sanitize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.TelegramUtils"><code class="docutils literal notranslate"><span class="pre">TelegramUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TelegramUtils.send_typing_action"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.send_typing_action()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TelegramUtils.send_document_action"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.send_document_action()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TelegramUtils.get_user_mention"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.get_user_mention()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.TelegramUtils.split_long_message"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.split_long_message()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.AsyncUtils"><code class="docutils literal notranslate"><span class="pre">AsyncUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.AsyncUtils.run_with_timeout"><code class="docutils literal notranslate"><span class="pre">AsyncUtils.run_with_timeout()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.AsyncUtils.batch_process"><code class="docutils literal notranslate"><span class="pre">AsyncUtils.batch_process()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.PerformanceUtils"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.PerformanceUtils.timing_decorator"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils.timing_decorator()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.PerformanceUtils.measure_time"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils.measure_time()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.ValidationUtils"><code class="docutils literal notranslate"><span class="pre">ValidationUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.ValidationUtils.is_valid_filename"><code class="docutils literal notranslate"><span class="pre">ValidationUtils.is_valid_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.ValidationUtils.is_safe_code"><code class="docutils literal notranslate"><span class="pre">ValidationUtils.is_safe_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.FileUtils"><code class="docutils literal notranslate"><span class="pre">FileUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.FileUtils.download_file"><code class="docutils literal notranslate"><span class="pre">FileUtils.download_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.FileUtils.get_file_extension"><code class="docutils literal notranslate"><span class="pre">FileUtils.get_file_extension()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.FileUtils.get_mime_type"><code class="docutils literal notranslate"><span class="pre">FileUtils.get_mime_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.FileUtils.create_temp_file"><code class="docutils literal notranslate"><span class="pre">FileUtils.create_temp_file()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.ConfigUtils"><code class="docutils literal notranslate"><span class="pre">ConfigUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.ConfigUtils.load_json_config"><code class="docutils literal notranslate"><span class="pre">ConfigUtils.load_json_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.ConfigUtils.save_json_config"><code class="docutils literal notranslate"><span class="pre">ConfigUtils.save_json_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.CacheUtils"><code class="docutils literal notranslate"><span class="pre">CacheUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CacheUtils.set"><code class="docutils literal notranslate"><span class="pre">CacheUtils.set()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CacheUtils.get"><code class="docutils literal notranslate"><span class="pre">CacheUtils.get()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CacheUtils.delete"><code class="docutils literal notranslate"><span class="pre">CacheUtils.delete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.CacheUtils.clear"><code class="docutils literal notranslate"><span class="pre">CacheUtils.clear()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.get_memory_usage"><code class="docutils literal notranslate"><span class="pre">get_memory_usage()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.setup_logging"><code class="docutils literal notranslate"><span class="pre">setup_logging()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.generate_summary_stats"><code class="docutils literal notranslate"><span class="pre">generate_summary_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.detect_language_from_filename"><code class="docutils literal notranslate"><span class="pre">detect_language_from_filename()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.get_language_emoji"><code class="docutils literal notranslate"><span class="pre">get_language_emoji()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.SensitiveDataFilter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../modules/index.html#utils.SensitiveDataFilter.filter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter.filter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../modules/index.html#utils.install_sensitive_filter"><code class="docutils literal notranslate"><span class="pre">install_sensitive_filter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#lazy-loading">Lazy Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#integrations">Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#terminal-commands">Terminal Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#autocomplete-manager">Autocomplete Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#drive-menu">Drive Menu</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../handlers/drive_menu.html">Drive Menu V2</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id1">סקירה</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id2">דגל פיצ’ר</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id3">זרימות עיקריות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#device-flow">התחברות (Device Flow)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id4">טיפול שגיאות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id5">ניטור</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#api-autodoc">API (autodoc)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#pagination-handler">Pagination Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#module-handlers.states">States Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#module-handlers.github">GitHub Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../services/index.html">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#module-services.code_service">Code Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#code-service-module">Code Service Module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.code_service.detect_language"><code class="docutils literal notranslate"><span class="pre">detect_language()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.code_service.validate_code_input"><code class="docutils literal notranslate"><span class="pre">validate_code_input()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.code_service.analyze_code"><code class="docutils literal notranslate"><span class="pre">analyze_code()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.code_service.extract_functions"><code class="docutils literal notranslate"><span class="pre">extract_functions()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.code_service.get_code_stats"><code class="docutils literal notranslate"><span class="pre">get_code_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.code_service.highlight_code"><code class="docutils literal notranslate"><span class="pre">highlight_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#github-service">GitHub Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#module-services.backup_service">Backup Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.backup_service.save_backup_bytes"><code class="docutils literal notranslate"><span class="pre">save_backup_bytes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.backup_service.list_backups"><code class="docutils literal notranslate"><span class="pre">list_backups()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.backup_service.restore_from_backup"><code class="docutils literal notranslate"><span class="pre">restore_from_backup()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#services.backup_service.delete_backups"><code class="docutils literal notranslate"><span class="pre">delete_backups()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#google-drive-service">Google Drive Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../services/google_drive_service.html">Google Drive Service</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#id1">סקירה</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#oauth">הערות OAuth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#id2">מבני קבצים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#api-autodoc">API (autodoc)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../database/index.html">Database</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#database-manager">Database Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#models">Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#codesnippet-model">CodeSnippet Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#databasemanager-class">DatabaseManager Class</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#database-operations">Database Operations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#save-operations">Save Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#search-operations">Search Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#delete-operations">Delete Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#statistics-operations">Statistics Operations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../examples.html">דוגמאות שימוש</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id2">שימוש בסיסי</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id3">יצירת אפליקציית בוט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id4">שמירת קוד חדש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id5">חיפוש קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#handlers">שימוש ב-Handlers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#command-handler">יצירת Command Handler</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#conversation-handler">יצירת Conversation Handler</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#services">שימוש ב-Services</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id6">זיהוי שפת תכנות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id7">ניתוח קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#github">אינטגרציה עם GitHub</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#gist">העלאת קוד ל-Gist</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#gists">שליפת Gists של משתמש</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id8">עבודה עם מסד הנתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id9">ביצוע שאילתות מורכבות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id10">עדכון קבצים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id11">סטטיסטיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id12">טיפול בשגיאות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id13">טיפול בשגיאות בסיסי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#retry-logic">Retry Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id14">בדיקות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id15">בדיקת יחידה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id16">בדיקת אינטגרציה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id17">דוגמאות מתקדמות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id18">עיבוד באצווה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id19">קאשינג</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Code Keeper Bot</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">utils</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>הראה קוד מקור ל utils</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">פונקציות עזר כלליות לבוט שומר קבצי קוד</span>
+<span class="sd">General Utility Functions for Code Keeper Bot</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">asyncio</span>
+<span class="kn">import</span> <span class="nn">hashlib</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">mimetypes</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">secrets</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">zipfile</span>
+<span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span><span class="p">,</span> <span class="n">timezone</span>
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">wraps</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">aiofiles</span>  <span class="c1"># type: ignore</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># optional for tests</span>
+    <span class="n">aiofiles</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore[assignment]</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">aiohttp</span>  <span class="c1"># type: ignore</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># optional for tests</span>
+    <span class="n">aiohttp</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore[assignment]</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">telegram</span> <span class="kn">import</span> <span class="n">Message</span><span class="p">,</span> <span class="n">Update</span><span class="p">,</span> <span class="n">User</span>  <span class="c1"># type: ignore</span>
+    <span class="kn">from</span> <span class="nn">telegram.constants</span> <span class="kn">import</span> <span class="n">ChatAction</span><span class="p">,</span> <span class="n">ParseMode</span>  <span class="c1"># type: ignore</span>
+    <span class="kn">from</span> <span class="nn">telegram.ext</span> <span class="kn">import</span> <span class="n">ContextTypes</span>  <span class="c1"># type: ignore</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># lightweight stubs for test env</span>
+<div class="viewcode-block" id="Message">
+<a class="viewcode-back" href="../modules/index.html#utils.Message">[תיעוד]</a>
+    <span class="k">class</span> <span class="nc">Message</span><span class="p">:</span>  <span class="c1"># type: ignore[no-redef]</span>
+        <span class="k">pass</span></div>
+
+<div class="viewcode-block" id="Update">
+<a class="viewcode-back" href="../modules/index.html#utils.Update">[תיעוד]</a>
+    <span class="k">class</span> <span class="nc">Update</span><span class="p">:</span>  <span class="c1"># type: ignore[no-redef]</span>
+        <span class="k">pass</span></div>
+
+<div class="viewcode-block" id="User">
+<a class="viewcode-back" href="../modules/index.html#utils.User">[תיעוד]</a>
+    <span class="k">class</span> <span class="nc">User</span><span class="p">:</span>  <span class="c1"># type: ignore[no-redef]</span>
+        <span class="k">pass</span></div>
+
+    <span class="n">ChatAction</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore[assignment]</span>
+    <span class="n">ParseMode</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore[assignment]</span>
+    <span class="k">class</span> <span class="nc">_ContextTypes</span><span class="p">:</span>
+        <span class="n">DEFAULT_TYPE</span> <span class="o">=</span> <span class="nb">object</span>
+    <span class="n">ContextTypes</span> <span class="o">=</span> <span class="n">_ContextTypes</span>  <span class="c1"># type: ignore[assignment]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CodeErrorLogger">
+<a class="viewcode-back" href="../modules/index.html#utils.CodeErrorLogger">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">CodeErrorLogger</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;מערכת לוגים ייעודית לשגיאות עיבוד קוד&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="CodeErrorLogger.__init__">
+<a class="viewcode-back" href="../modules/index.html#utils.CodeErrorLogger.__init__">[תיעוד]</a>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s1">&#39;code_error_system&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_setup_logger</span><span class="p">()</span></div>
+
+    
+    <span class="k">def</span> <span class="nf">_setup_logger</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;הגדרת הלוגר עם קבצי יומן נפרדים&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+            <span class="c1"># לוגר לשגיאות כלליות - שימוש ב-StreamHandler לסביבת פרודקשן</span>
+            <span class="n">error_handler</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">()</span>
+            <span class="n">error_handler</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
+            <span class="n">error_formatter</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">(</span>
+                <span class="s1">&#39;</span><span class="si">%(asctime)s</span><span class="s1"> - </span><span class="si">%(name)s</span><span class="s1"> - </span><span class="si">%(levelname)s</span><span class="s1"> - </span><span class="si">%(message)s</span><span class="s1">&#39;</span>
+            <span class="p">)</span>
+            <span class="n">error_handler</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">error_formatter</span><span class="p">)</span>
+            
+            <span class="c1"># לוגר לסטטיסטיקות ופעילות - שימוש ב-StreamHandler לסביבת פרודקשן</span>
+            <span class="n">activity_handler</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">()</span>
+            <span class="n">activity_handler</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+            <span class="n">activity_formatter</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">(</span>
+                <span class="s1">&#39;</span><span class="si">%(asctime)s</span><span class="s1"> - </span><span class="si">%(levelname)s</span><span class="s1"> - </span><span class="si">%(message)s</span><span class="s1">&#39;</span>
+            <span class="p">)</span>
+            <span class="n">activity_handler</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">activity_formatter</span><span class="p">)</span>
+            
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">error_handler</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">activity_handler</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+    
+<div class="viewcode-block" id="CodeErrorLogger.log_code_processing_error">
+<a class="viewcode-back" href="../modules/index.html#utils.CodeErrorLogger.log_code_processing_error">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">log_code_processing_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">error_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">error_message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> 
+                                <span class="n">context</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;רישום שגיאות עיבוד קוד&quot;&quot;&quot;</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="n">context</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="n">log_entry</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+            <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="n">user_id</span><span class="p">,</span>
+            <span class="s2">&quot;error_type&quot;</span><span class="p">:</span> <span class="n">error_type</span><span class="p">,</span>
+            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">error_message</span><span class="p">,</span>
+            <span class="s2">&quot;context&quot;</span><span class="p">:</span> <span class="n">context</span>
+        <span class="p">}</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CODE_ERROR: </span><span class="si">{</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">log_entry</span><span class="p">,</span><span class="w"> </span><span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="CodeErrorLogger.log_code_activity">
+<a class="viewcode-back" href="../modules/index.html#utils.CodeErrorLogger.log_code_activity">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">log_code_activity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">activity_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">details</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;רישום פעילות עיבוד קוד&quot;&quot;&quot;</span>
+        <span class="n">details</span> <span class="o">=</span> <span class="n">details</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="n">log_entry</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+            <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="n">user_id</span><span class="p">,</span>
+            <span class="s2">&quot;activity&quot;</span><span class="p">:</span> <span class="n">activity_type</span><span class="p">,</span>
+            <span class="s2">&quot;details&quot;</span><span class="p">:</span> <span class="n">details</span>
+        <span class="p">}</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CODE_ACTIVITY: </span><span class="si">{</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">log_entry</span><span class="p">,</span><span class="w"> </span><span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="CodeErrorLogger.log_validation_failure">
+<a class="viewcode-back" href="../modules/index.html#utils.CodeErrorLogger.log_validation_failure">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">log_validation_failure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">code_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">error_reason</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;רישום כשל באימות קוד&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_code_processing_error</span><span class="p">(</span>
+            <span class="n">user_id</span><span class="p">,</span> 
+            <span class="s2">&quot;validation_failure&quot;</span><span class="p">,</span> 
+            <span class="n">error_reason</span><span class="p">,</span>
+            <span class="p">{</span><span class="s2">&quot;code_length&quot;</span><span class="p">:</span> <span class="n">code_length</span><span class="p">}</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="CodeErrorLogger.log_sanitization_success">
+<a class="viewcode-back" href="../modules/index.html#utils.CodeErrorLogger.log_sanitization_success">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">log_sanitization_success</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">original_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">cleaned_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;רישום הצלחה בסניטציה&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_code_activity</span><span class="p">(</span>
+            <span class="n">user_id</span><span class="p">,</span>
+            <span class="s2">&quot;code_sanitized&quot;</span><span class="p">,</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;original_length&quot;</span><span class="p">:</span> <span class="n">original_length</span><span class="p">,</span>
+                <span class="s2">&quot;cleaned_length&quot;</span><span class="p">:</span> <span class="n">cleaned_length</span><span class="p">,</span>
+                <span class="s2">&quot;reduction&quot;</span><span class="p">:</span> <span class="n">original_length</span> <span class="o">-</span> <span class="n">cleaned_length</span>
+            <span class="p">}</span>
+        <span class="p">)</span></div>
+</div>
+
+
+<span class="c1"># יצירת אינסטנס גלובלי של הלוגר</span>
+<span class="n">code_error_logger</span> <span class="o">=</span> <span class="n">CodeErrorLogger</span><span class="p">()</span>
+
+<div class="viewcode-block" id="TimeUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.TimeUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">TimeUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לעבודה עם זמן ותאריכים&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="TimeUtils.format_relative_time">
+<a class="viewcode-back" href="../modules/index.html#utils.TimeUtils.format_relative_time">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">format_relative_time</span><span class="p">(</span><span class="n">dt</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;פורמט זמן יחסי (לפני 5 דקות, אתמול וכו&#39;)&quot;&quot;&quot;</span>
+        
+        <span class="n">now</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span> <span class="k">if</span> <span class="n">dt</span><span class="o">.</span><span class="n">tzinfo</span> <span class="k">else</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="n">dt</span>
+        
+        <span class="k">if</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">&gt;</span> <span class="mi">365</span><span class="p">:</span>
+            <span class="n">years</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">//</span> <span class="mi">365</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;לפני </span><span class="si">{</span><span class="n">years</span><span class="si">}</span><span class="s2"> שנ</span><span class="si">{</span><span class="s1">&#39;ה&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">years</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;ים&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">&gt;</span> <span class="mi">30</span><span class="p">:</span>
+            <span class="n">months</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">//</span> <span class="mi">30</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;לפני </span><span class="si">{</span><span class="n">months</span><span class="si">}</span><span class="s2"> חוד</span><span class="si">{</span><span class="s1">&#39;ש&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">months</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;שים&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">&gt;</span> <span class="mi">7</span><span class="p">:</span>
+            <span class="n">weeks</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">//</span> <span class="mi">7</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;לפני </span><span class="si">{</span><span class="n">weeks</span><span class="si">}</span><span class="s2"> שבוע</span><span class="si">{</span><span class="s1">&#39;ות&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">weeks</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">diff</span><span class="o">.</span><span class="n">days</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">return</span> <span class="s2">&quot;אתמול&quot;</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;לפני </span><span class="si">{</span><span class="n">diff</span><span class="o">.</span><span class="n">days</span><span class="si">}</span><span class="s2"> ימים&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">diff</span><span class="o">.</span><span class="n">seconds</span> <span class="o">&gt;</span> <span class="mi">3600</span><span class="p">:</span>
+            <span class="n">hours</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">seconds</span> <span class="o">//</span> <span class="mi">3600</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;לפני </span><span class="si">{</span><span class="n">hours</span><span class="si">}</span><span class="s2"> שע</span><span class="si">{</span><span class="s1">&#39;ה&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">hours</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;ות&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">diff</span><span class="o">.</span><span class="n">seconds</span> <span class="o">&gt;</span> <span class="mi">60</span><span class="p">:</span>
+            <span class="n">minutes</span> <span class="o">=</span> <span class="n">diff</span><span class="o">.</span><span class="n">seconds</span> <span class="o">//</span> <span class="mi">60</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;לפני </span><span class="si">{</span><span class="n">minutes</span><span class="si">}</span><span class="s2"> דק</span><span class="si">{</span><span class="s1">&#39;ה&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">minutes</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="s1">&#39;ות&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s2">&quot;עכשיו&quot;</span></div>
+
+    
+<div class="viewcode-block" id="TimeUtils.parse_date_string">
+<a class="viewcode-back" href="../modules/index.html#utils.TimeUtils.parse_date_string">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">parse_date_string</span><span class="p">(</span><span class="n">date_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">datetime</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;פרסור מחרוזת תאריך לאובייקט datetime&quot;&quot;&quot;</span>
+        
+        <span class="n">formats</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;</span><span class="si">%d</span><span class="s2">/%m/%Y&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;</span><span class="si">%d</span><span class="s2">.%m.%Y&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;</span><span class="si">%d</span><span class="s2">/%m/%Y %H:%M&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">T%H:%M:%S&quot;</span>
+        <span class="p">]</span>
+        
+        <span class="k">for</span> <span class="n">fmt</span> <span class="ow">in</span> <span class="n">formats</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">date_str</span><span class="p">,</span> <span class="n">fmt</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">continue</span>
+        
+        <span class="c1"># ניסיון לפרסור יחסי</span>
+        <span class="n">date_str_lower</span> <span class="o">=</span> <span class="n">date_str</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        
+        <span class="k">if</span> <span class="n">date_str_lower</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;today&#39;</span><span class="p">,</span> <span class="s1">&#39;היום&#39;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        
+        <span class="k">elif</span> <span class="n">date_str_lower</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;yesterday&#39;</span><span class="p">,</span> <span class="s1">&#39;אתמול&#39;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        
+        <span class="k">elif</span> <span class="n">date_str_lower</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;week&#39;</span><span class="p">,</span> <span class="s1">&#39;שבוע&#39;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">weeks</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        
+        <span class="k">elif</span> <span class="n">date_str_lower</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;month&#39;</span><span class="p">,</span> <span class="s1">&#39;חודש&#39;</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+    
+<div class="viewcode-block" id="TimeUtils.get_time_ranges">
+<a class="viewcode-back" href="../modules/index.html#utils.TimeUtils.get_time_ranges">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_time_ranges</span><span class="p">(</span><span class="n">period</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">datetime</span><span class="p">,</span> <span class="n">datetime</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קבלת טווח זמנים לפי תקופה&quot;&quot;&quot;</span>
+        
+        <span class="n">now</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">period</span> <span class="o">==</span> <span class="s1">&#39;today&#39;</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">now</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        
+        <span class="k">elif</span> <span class="n">period</span> <span class="o">==</span> <span class="s1">&#39;week&#39;</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="n">now</span><span class="o">.</span><span class="n">weekday</span><span class="p">())</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">start</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">weeks</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        
+        <span class="k">elif</span> <span class="n">period</span> <span class="o">==</span> <span class="s1">&#39;month&#39;</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">now</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">day</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">start</span><span class="o">.</span><span class="n">month</span> <span class="o">==</span> <span class="mi">12</span><span class="p">:</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">start</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">year</span><span class="o">=</span><span class="n">start</span><span class="o">.</span><span class="n">year</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="n">month</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="n">start</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">month</span><span class="o">=</span><span class="n">start</span><span class="o">.</span><span class="n">month</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        
+        <span class="k">elif</span> <span class="n">period</span> <span class="o">==</span> <span class="s1">&#39;year&#39;</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">now</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">month</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">day</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">hour</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">microsecond</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="n">start</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">year</span><span class="o">=</span><span class="n">start</span><span class="o">.</span><span class="n">year</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># ברירת מחדל - יום אחרון</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="n">now</span>
+        
+        <span class="k">return</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span></div>
+</div>
+
+
+<div class="viewcode-block" id="TextUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">TextUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לעבודה עם טקסט&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="TextUtils.truncate_text">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.truncate_text">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">truncate_text</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;...&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קיצור טקסט עם סיומת&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_length</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">text</span>
+        
+        <span class="k">return</span> <span class="n">text</span><span class="p">[:</span><span class="n">max_length</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">suffix</span><span class="p">)]</span> <span class="o">+</span> <span class="n">suffix</span></div>
+
+    
+<div class="viewcode-block" id="TextUtils.escape_markdown">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.escape_markdown">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">escape_markdown</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;הגנה על תווים מיוחדים ב-Markdown&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">version</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="c1"># Markdown V2</span>
+            <span class="n">escape_chars</span> <span class="o">=</span> <span class="sa">r</span><span class="s1">&#39;_*[]()~`&gt;#+-=|</span><span class="si">{}</span><span class="s1">.!&#39;</span>
+            <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;([</span><span class="si">{</span><span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">escape_chars</span><span class="p">)</span><span class="si">}</span><span class="s1">])&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;</span><span class="se">\\</span><span class="s1">\1&#39;</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Markdown V1</span>
+            <span class="n">escape_chars</span> <span class="o">=</span> <span class="sa">r</span><span class="s1">&#39;_*`[&#39;</span>
+            <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;([</span><span class="si">{</span><span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">escape_chars</span><span class="p">)</span><span class="si">}</span><span class="s1">])&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;</span><span class="se">\\</span><span class="s1">\1&#39;</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="TextUtils.clean_filename">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.clean_filename">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">clean_filename</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ניקוי שם קובץ מתווים לא חוקיים&quot;&quot;&quot;</span>
+        
+        <span class="c1"># הסרת תווים לא חוקיים</span>
+        <span class="n">cleaned</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;[&lt;&gt;:&quot;/</span><span class="se">\\</span><span class="s1">|?*]&#39;</span><span class="p">,</span> <span class="s1">&#39;_&#39;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        
+        <span class="c1"># הסרת רווחים מיותרים</span>
+        <span class="n">cleaned</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;\s+&#39;</span><span class="p">,</span> <span class="s1">&#39;_&#39;</span><span class="p">,</span> <span class="n">cleaned</span><span class="p">)</span>
+        
+        <span class="c1"># הסרת נקודות מיותרות</span>
+        <span class="n">cleaned</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;\.+&#39;</span><span class="p">,</span> <span class="s1">&#39;.&#39;</span><span class="p">,</span> <span class="n">cleaned</span><span class="p">)</span>
+        
+        <span class="c1"># הגבלת אורך</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cleaned</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">:</span>
+            <span class="n">name</span><span class="p">,</span> <span class="n">ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">cleaned</span><span class="p">)</span>
+            <span class="n">cleaned</span> <span class="o">=</span> <span class="n">name</span><span class="p">[:</span><span class="mi">100</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">ext</span><span class="p">)]</span> <span class="o">+</span> <span class="n">ext</span>
+        
+        <span class="k">return</span> <span class="n">cleaned</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">&#39;._&#39;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="TextUtils.extract_hashtags">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.extract_hashtags">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">extract_hashtags</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;חילוץ תגיות מטקסט&quot;&quot;&quot;</span>
+        
+        <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;#(\w+)&#39;</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="TextUtils.highlight_text">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.highlight_text">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">highlight_text</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;**&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;הדגשת מילות חיפוש בטקסט&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">query</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">text</span>
+        
+        <span class="c1"># הדגשה בלי תלות ברישיות</span>
+        <span class="n">pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">query</span><span class="p">),</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pattern</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="se">\\</span><span class="s2">g&lt;0&gt;</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="TextUtils.format_file_size">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.format_file_size">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">format_file_size</span><span class="p">(</span><span class="n">size_bytes</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;פורמט גודל קובץ (bytes -&gt; KB/MB/GB)&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">size_bytes</span> <span class="o">&lt;</span> <span class="mi">1024</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">size_bytes</span><span class="si">}</span><span class="s2"> B&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">size_bytes</span> <span class="o">&lt;</span> <span class="mi">1024</span> <span class="o">**</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">size_bytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">1024</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> KB&quot;</span>
+        
+        <span class="k">elif</span> <span class="n">size_bytes</span> <span class="o">&lt;</span> <span class="mi">1024</span> <span class="o">**</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">size_bytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="mi">1024</span><span class="w"> </span><span class="o">**</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> MB&quot;</span>
+        
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">size_bytes</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="mi">1024</span><span class="w"> </span><span class="o">**</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2"> GB&quot;</span></div>
+
+    
+<div class="viewcode-block" id="TextUtils.pluralize_hebrew">
+<a class="viewcode-back" href="../modules/index.html#utils.TextUtils.pluralize_hebrew">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">pluralize_hebrew</span><span class="p">(</span><span class="n">count</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">singular</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">plural</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;צורת רבים עבריות&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">count</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">singular</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">elif</span> <span class="n">count</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;2 </span><span class="si">{</span><span class="n">plural</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">plural</span><span class="si">}</span><span class="s2">&quot;</span></div>
+</div>
+
+
+<div class="viewcode-block" id="SecurityUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.SecurityUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">SecurityUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים אמינות ובטיחות&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="SecurityUtils.generate_secure_token">
+<a class="viewcode-back" href="../modules/index.html#utils.SecurityUtils.generate_secure_token">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">generate_secure_token</span><span class="p">(</span><span class="n">length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">32</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;יצירת טוקן מאובטח&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">secrets</span><span class="o">.</span><span class="n">token_urlsafe</span><span class="p">(</span><span class="n">length</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="SecurityUtils.hash_content">
+<a class="viewcode-back" href="../modules/index.html#utils.SecurityUtils.hash_content">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">hash_content</span><span class="p">(</span><span class="n">content</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">algorithm</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;sha256&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;יצירת hash לתוכן&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">algorithm</span> <span class="o">==</span> <span class="s1">&#39;md5&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">content</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">algorithm</span> <span class="o">==</span> <span class="s1">&#39;sha1&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha1</span><span class="p">(</span><span class="n">content</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">algorithm</span> <span class="o">==</span> <span class="s1">&#39;sha256&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">content</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;אלגוריתם לא נתמך: </span><span class="si">{</span><span class="n">algorithm</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="SecurityUtils.validate_user_input">
+<a class="viewcode-back" href="../modules/index.html#utils.SecurityUtils.validate_user_input">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">validate_user_input</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span> 
+                           <span class="n">forbidden_patterns</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;בדיקת קלט משתמש&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">max_length</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="k">if</span> <span class="n">forbidden_patterns</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">forbidden_patterns</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="k">return</span> <span class="kc">True</span></div>
+
+    
+<div class="viewcode-block" id="SecurityUtils.sanitize_code">
+<a class="viewcode-back" href="../modules/index.html#utils.SecurityUtils.sanitize_code">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">sanitize_code</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ניקוי קוד מתוכן מסוכן (בסיסי)&quot;&quot;&quot;</span>
+        
+        <span class="c1"># דפוסי קוד מסוכנים בסיסיים</span>
+        <span class="n">dangerous_patterns</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="sa">r</span><span class="s1">&#39;exec\s*\(&#39;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s1">&#39;eval\s*\(&#39;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s1">&#39;__import__\s*\(&#39;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s1">&#39;open\s*\(&#39;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s1">&#39;file\s*\(&#39;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s1">&#39;input\s*\(&#39;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s1">&#39;raw_input\s*\(&#39;</span><span class="p">,</span>
+        <span class="p">]</span>
+        
+        <span class="c1"># החלפת דפוסים מסוכנים</span>
+        <span class="n">cleaned</span> <span class="o">=</span> <span class="n">code</span>
+        <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">dangerous_patterns</span><span class="p">:</span>
+            <span class="n">cleaned</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="s1">&#39;[REMOVED]&#39;</span><span class="p">,</span> <span class="n">cleaned</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">cleaned</span></div>
+</div>
+
+
+<div class="viewcode-block" id="TelegramUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.TelegramUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">TelegramUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לעבודה עם Telegram&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="TelegramUtils.send_typing_action">
+<a class="viewcode-back" href="../modules/index.html#utils.TelegramUtils.send_typing_action">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">send_typing_action</span><span class="p">(</span><span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;שליחת אקשן &#39;כותב...&#39;&quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="n">context</span><span class="o">.</span><span class="n">bot</span><span class="o">.</span><span class="n">send_chat_action</span><span class="p">(</span>
+            <span class="n">chat_id</span><span class="o">=</span><span class="n">update</span><span class="o">.</span><span class="n">effective_chat</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+            <span class="n">action</span><span class="o">=</span><span class="n">ChatAction</span><span class="o">.</span><span class="n">TYPING</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="TelegramUtils.send_document_action">
+<a class="viewcode-back" href="../modules/index.html#utils.TelegramUtils.send_document_action">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">send_document_action</span><span class="p">(</span><span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;שליחת אקשן &#39;שולח מסמך...&#39;&quot;&quot;&quot;</span>
+        <span class="k">await</span> <span class="n">context</span><span class="o">.</span><span class="n">bot</span><span class="o">.</span><span class="n">send_chat_action</span><span class="p">(</span>
+            <span class="n">chat_id</span><span class="o">=</span><span class="n">update</span><span class="o">.</span><span class="n">effective_chat</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+            <span class="n">action</span><span class="o">=</span><span class="n">ChatAction</span><span class="o">.</span><span class="n">UPLOAD_DOCUMENT</span>
+        <span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="TelegramUtils.get_user_mention">
+<a class="viewcode-back" href="../modules/index.html#utils.TelegramUtils.get_user_mention">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_user_mention</span><span class="p">(</span><span class="n">user</span><span class="p">:</span> <span class="n">User</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קבלת מנשן למשתמש&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">user</span><span class="o">.</span><span class="n">username</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;@</span><span class="si">{</span><span class="n">user</span><span class="o">.</span><span class="n">username</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;[</span><span class="si">{</span><span class="n">user</span><span class="o">.</span><span class="n">first_name</span><span class="si">}</span><span class="s2">](tg://user?id=</span><span class="si">{</span><span class="n">user</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">)&quot;</span></div>
+
+    
+<div class="viewcode-block" id="TelegramUtils.split_long_message">
+<a class="viewcode-back" href="../modules/index.html#utils.TelegramUtils.split_long_message">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">split_long_message</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4096</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;חלוקת הודעה ארוכה לחלקים&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">max_length</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">text</span><span class="p">]</span>
+        
+        <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">current_part</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">current_part</span><span class="p">)</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">max_length</span><span class="p">:</span>
+                <span class="n">current_part</span> <span class="o">+=</span> <span class="n">line</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">current_part</span><span class="p">:</span>
+                    <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_part</span><span class="o">.</span><span class="n">rstrip</span><span class="p">())</span>
+                <span class="n">current_part</span> <span class="o">=</span> <span class="n">line</span> <span class="o">+</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span>
+        
+        <span class="k">if</span> <span class="n">current_part</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_part</span><span class="o">.</span><span class="n">rstrip</span><span class="p">())</span>
+        
+        <span class="k">return</span> <span class="n">parts</span></div>
+</div>
+
+
+<div class="viewcode-block" id="AsyncUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.AsyncUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">AsyncUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לעבודה אסינכרונית&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="AsyncUtils.run_with_timeout">
+<a class="viewcode-back" href="../modules/index.html#utils.AsyncUtils.run_with_timeout">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">run_with_timeout</span><span class="p">(</span><span class="n">coro</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">30.0</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;הרצת פונקציה אסינכרונית עם timeout&quot;&quot;&quot;</span>
+        
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">wait_for</span><span class="p">(</span><span class="n">coro</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;פעולה הופסקה עקב timeout (</span><span class="si">{</span><span class="n">timeout</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+    
+<div class="viewcode-block" id="AsyncUtils.batch_process">
+<a class="viewcode-back" href="../modules/index.html#utils.AsyncUtils.batch_process">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">batch_process</span><span class="p">(</span><span class="n">items</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span> <span class="n">process_func</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span> 
+                           <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span> <span class="n">delay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Any</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;עיבוד פריטים בקבוצות&quot;&quot;&quot;</span>
+        
+        <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+        
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">),</span> <span class="n">batch_size</span><span class="p">):</span>
+            <span class="n">batch</span> <span class="o">=</span> <span class="n">items</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="n">batch_size</span><span class="p">]</span>
+            
+            <span class="c1"># עיבוד הקבוצה</span>
+            <span class="n">batch_tasks</span> <span class="o">=</span> <span class="p">[</span><span class="n">process_func</span><span class="p">(</span><span class="n">item</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">]</span>
+            <span class="n">batch_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="o">*</span><span class="n">batch_tasks</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            
+            <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">batch_results</span><span class="p">)</span>
+            
+            <span class="c1"># המתנה בין קבוצות</span>
+            <span class="k">if</span> <span class="n">delay</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">+</span> <span class="n">batch_size</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">):</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">results</span></div>
+</div>
+
+
+<div class="viewcode-block" id="PerformanceUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.PerformanceUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">PerformanceUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים למדידת ביצועים&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="PerformanceUtils.timing_decorator">
+<a class="viewcode-back" href="../modules/index.html#utils.PerformanceUtils.timing_decorator">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">timing_decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;דקורטור למדידת זמן ביצוע&quot;&quot;&quot;</span>
+        
+        <span class="nd">@wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">async</span> <span class="k">def</span> <span class="nf">async_wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+                <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> הסתיים תוך </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">result</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> נכשל תוך </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">raise</span>
+        
+        <span class="nd">@wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">sync_wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+                <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> הסתיים תוך </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">result</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> נכשל תוך </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">raise</span>
+        
+        <span class="k">if</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">iscoroutinefunction</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">async_wrapper</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">sync_wrapper</span></div>
+
+    
+<div class="viewcode-block" id="PerformanceUtils.measure_time">
+<a class="viewcode-back" href="../modules/index.html#utils.PerformanceUtils.measure_time">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="nd">@contextmanager</span>
+    <span class="k">def</span> <span class="nf">measure_time</span><span class="p">(</span><span class="n">operation_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;מדידת זמן עם context manager&quot;&quot;&quot;</span>
+        
+        <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">execution_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">operation_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">execution_time</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span></div>
+</div>
+
+
+<div class="viewcode-block" id="ValidationUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.ValidationUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">ValidationUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לוולידציה&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="ValidationUtils.is_valid_filename">
+<a class="viewcode-back" href="../modules/index.html#utils.ValidationUtils.is_valid_filename">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">is_valid_filename</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;בדיקת תקינות שם קובץ&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">filename</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">255</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="c1"># תווים לא חוקיים</span>
+        <span class="n">invalid_chars</span> <span class="o">=</span> <span class="s1">&#39;&lt;&gt;:&quot;/</span><span class="se">\\</span><span class="s1">|?*&#39;</span>
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">char</span> <span class="ow">in</span> <span class="n">filename</span> <span class="k">for</span> <span class="n">char</span> <span class="ow">in</span> <span class="n">invalid_chars</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="c1"># שמות שמורים ב-Windows</span>
+        <span class="n">reserved_names</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s1">&#39;CON&#39;</span><span class="p">,</span> <span class="s1">&#39;PRN&#39;</span><span class="p">,</span> <span class="s1">&#39;AUX&#39;</span><span class="p">,</span> <span class="s1">&#39;NUL&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;COM1&#39;</span><span class="p">,</span> <span class="s1">&#39;COM2&#39;</span><span class="p">,</span> <span class="s1">&#39;COM3&#39;</span><span class="p">,</span> <span class="s1">&#39;COM4&#39;</span><span class="p">,</span> <span class="s1">&#39;COM5&#39;</span><span class="p">,</span> <span class="s1">&#39;COM6&#39;</span><span class="p">,</span> <span class="s1">&#39;COM7&#39;</span><span class="p">,</span> <span class="s1">&#39;COM8&#39;</span><span class="p">,</span> <span class="s1">&#39;COM9&#39;</span><span class="p">,</span>
+            <span class="s1">&#39;LPT1&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT2&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT3&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT4&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT5&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT6&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT7&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT8&#39;</span><span class="p">,</span> <span class="s1">&#39;LPT9&#39;</span>
+        <span class="p">]</span>
+        
+        <span class="n">name_without_ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">filename</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name_without_ext</span> <span class="ow">in</span> <span class="n">reserved_names</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="k">return</span> <span class="kc">True</span></div>
+
+    
+<div class="viewcode-block" id="ValidationUtils.is_safe_code">
+<a class="viewcode-back" href="../modules/index.html#utils.ValidationUtils.is_safe_code">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">is_safe_code</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">programming_language</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;בדיקה בסיסית של בטיחות קוד&quot;&quot;&quot;</span>
+        
+        <span class="n">warnings</span> <span class="o">=</span> <span class="p">[]</span>
+        
+        <span class="c1"># דפוסים מסוכנים</span>
+        <span class="n">dangerous_patterns</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;python&#39;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="sa">r</span><span class="s1">&#39;exec\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;eval\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;__import__\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;open\s*\([^)]*[&quot;</span><span class="se">\&#39;</span><span class="s1">]w&#39;</span><span class="p">,</span>  <span class="c1"># כתיבה לקובץ</span>
+                <span class="sa">r</span><span class="s1">&#39;subprocess\.&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;os\.system\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;os\.popen\s*\(&#39;</span><span class="p">,</span>
+            <span class="p">],</span>
+            <span class="s1">&#39;javascript&#39;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="sa">r</span><span class="s1">&#39;eval\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;Function\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;document\.write\s*\(&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;innerHTML\s*=&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;outerHTML\s*=&#39;</span><span class="p">,</span>
+            <span class="p">],</span>
+            <span class="s1">&#39;bash&#39;</span><span class="p">:</span> <span class="p">[</span>
+                <span class="sa">r</span><span class="s1">&#39;rm\s+-rf&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;rm\s+/&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;dd\s+if=&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;mkfs\.&#39;</span><span class="p">,</span>
+                <span class="sa">r</span><span class="s1">&#39;fdisk\s+&#39;</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">}</span>
+        
+        <span class="k">if</span> <span class="n">programming_language</span> <span class="ow">in</span> <span class="n">dangerous_patterns</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">dangerous_patterns</span><span class="p">[</span><span class="n">programming_language</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">):</span>
+                    <span class="n">warnings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;דפוס מסוכן אפשרי: </span><span class="si">{</span><span class="n">pattern</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        
+        <span class="c1"># בדיקות כלליות</span>
+        <span class="k">if</span> <span class="s1">&#39;password&#39;</span> <span class="ow">in</span> <span class="n">code</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="s1">&#39;secret&#39;</span> <span class="ow">in</span> <span class="n">code</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;הקוד מכיל מילות סיסמה או סוד&quot;</span><span class="p">)</span>
+        
+        <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;https?://\S+&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">):</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;הקוד מכיל URLים&quot;</span><span class="p">)</span>
+        
+        <span class="n">is_safe</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">warnings</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="k">return</span> <span class="n">is_safe</span><span class="p">,</span> <span class="n">warnings</span></div>
+</div>
+
+
+<div class="viewcode-block" id="FileUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.FileUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">FileUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לעבודה עם קבצים&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="FileUtils.download_file">
+<a class="viewcode-back" href="../modules/index.html#utils.FileUtils.download_file">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">download_file</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bytes</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;הורדת קובץ מ-URL&quot;&quot;&quot;</span>
+        
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">async</span> <span class="k">with</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">ClientSession</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+                <span class="k">async</span> <span class="k">with</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span> <span class="k">as</span> <span class="n">response</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">status</span> <span class="o">!=</span> <span class="mi">200</span><span class="p">:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בהורדת קובץ: </span><span class="si">{</span><span class="n">response</span><span class="o">.</span><span class="n">status</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                        <span class="k">return</span> <span class="kc">None</span>
+                    
+                    <span class="c1"># בדיקת גודל</span>
+                    <span class="n">content_length</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;content-length&#39;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">content_length</span> <span class="ow">and</span> <span class="nb">int</span><span class="p">(</span><span class="n">content_length</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">max_size</span><span class="p">:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;קובץ גדול מדי: </span><span class="si">{</span><span class="n">content_length</span><span class="si">}</span><span class="s2"> bytes&quot;</span><span class="p">)</span>
+                        <span class="k">return</span> <span class="kc">None</span>
+                    
+                    <span class="c1"># הורדת התוכן</span>
+                    <span class="n">content</span> <span class="o">=</span> <span class="sa">b</span><span class="s2">&quot;&quot;</span>
+                    <span class="k">async</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">iter_chunked</span><span class="p">(</span><span class="mi">8192</span><span class="p">):</span>
+                        <span class="n">content</span> <span class="o">+=</span> <span class="n">chunk</span>
+                        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">content</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">max_size</span><span class="p">:</span>
+                            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="s2">&quot;קובץ גדול מדי&quot;</span><span class="p">)</span>
+                            <span class="k">return</span> <span class="kc">None</span>
+                    
+                    <span class="k">return</span> <span class="n">content</span>
+        
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בהורדת קובץ: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span></div>
+
+    
+<div class="viewcode-block" id="FileUtils.get_file_extension">
+<a class="viewcode-back" href="../modules/index.html#utils.FileUtils.get_file_extension">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_file_extension</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קבלת סיומת קובץ&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">filename</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span></div>
+
+    
+<div class="viewcode-block" id="FileUtils.get_mime_type">
+<a class="viewcode-back" href="../modules/index.html#utils.FileUtils.get_mime_type">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_mime_type</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קבלת MIME type של קובץ&quot;&quot;&quot;</span>
+        <span class="n">mime_type</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">mimetypes</span><span class="o">.</span><span class="n">guess_type</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">mime_type</span> <span class="ow">or</span> <span class="s1">&#39;application/octet-stream&#39;</span></div>
+
+    
+<div class="viewcode-block" id="FileUtils.create_temp_file">
+<a class="viewcode-back" href="../modules/index.html#utils.FileUtils.create_temp_file">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">create_temp_file</span><span class="p">(</span><span class="n">content</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">],</span> 
+                              <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;יצירת קובץ זמני&quot;&quot;&quot;</span>
+        
+        <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">NamedTemporaryFile</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s1">&#39;wb&#39;</span><span class="p">,</span> <span class="n">suffix</span><span class="o">=</span><span class="n">suffix</span><span class="p">,</span> <span class="n">delete</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">temp_file</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">content</span> <span class="o">=</span> <span class="n">content</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+            
+            <span class="n">temp_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">content</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">temp_file</span><span class="o">.</span><span class="n">name</span></div>
+</div>
+
+
+<div class="viewcode-block" id="ConfigUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.ConfigUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">ConfigUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לקונפיגורציה&quot;&quot;&quot;</span>
+    
+<div class="viewcode-block" id="ConfigUtils.load_json_config">
+<a class="viewcode-back" href="../modules/index.html#utils.ConfigUtils.load_json_config">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">load_json_config</span><span class="p">(</span><span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Dict</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;טעינת קונפיגורציה מקובץ JSON&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">default</span> <span class="o">=</span> <span class="p">{}</span>
+        
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">file_path</span><span class="p">):</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;קובץ קונפיגורציה לא נמצא: </span><span class="si">{</span><span class="n">file_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">default</span>
+        
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בטעינת קונפיגורציה: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">default</span></div>
+
+    
+<div class="viewcode-block" id="ConfigUtils.save_json_config">
+<a class="viewcode-back" href="../modules/index.html#utils.ConfigUtils.save_json_config">[תיעוד]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">save_json_config</span><span class="p">(</span><span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">Dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;שמירת קונפיגורציה לקובץ JSON&quot;&quot;&quot;</span>
+        
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">file_path</span><span class="p">),</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+            
+            <span class="k">return</span> <span class="kc">True</span>
+        
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בשמירת קונפיגורציה: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">False</span></div>
+</div>
+
+
+<div class="viewcode-block" id="CacheUtils">
+<a class="viewcode-back" href="../modules/index.html#utils.CacheUtils">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">CacheUtils</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;כלים לקאש זמני&quot;&quot;&quot;</span>
+    
+    <span class="n">_cache</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">_cache_times</span> <span class="o">=</span> <span class="p">{}</span>
+    
+<div class="viewcode-block" id="CacheUtils.set">
+<a class="viewcode-back" href="../modules/index.html#utils.CacheUtils.set">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">set</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">ttl</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;שמירה בקאש עם TTL (שניות)&quot;&quot;&quot;</span>
+        <span class="bp">cls</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="bp">cls</span><span class="o">.</span><span class="n">_cache_times</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">+</span> <span class="n">ttl</span></div>
+
+    
+<div class="viewcode-block" id="CacheUtils.get">
+<a class="viewcode-back" href="../modules/index.html#utils.CacheUtils.get">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קבלה מהקאש&quot;&quot;&quot;</span>
+        
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_cache</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">default</span>
+        
+        <span class="c1"># בדיקת תפוגה</span>
+        <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&gt;</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_cache_times</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">default</span>
+        
+        <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">key</span><span class="p">]</span></div>
+
+    
+<div class="viewcode-block" id="CacheUtils.delete">
+<a class="viewcode-back" href="../modules/index.html#utils.CacheUtils.delete">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;מחיקה מהקאש&quot;&quot;&quot;</span>
+        <span class="bp">cls</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="bp">cls</span><span class="o">.</span><span class="n">_cache_times</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span></div>
+
+    
+<div class="viewcode-block" id="CacheUtils.clear">
+<a class="viewcode-back" href="../modules/index.html#utils.CacheUtils.clear">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">clear</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ניקוי כל הקאש&quot;&quot;&quot;</span>
+        <span class="bp">cls</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="bp">cls</span><span class="o">.</span><span class="n">_cache_times</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span></div>
+</div>
+
+
+<span class="c1"># פונקציות עזר גלובליות</span>
+<div class="viewcode-block" id="get_memory_usage">
+<a class="viewcode-back" href="../modules/index.html#utils.get_memory_usage">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">get_memory_usage</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;קבלת נתוני זיכרון&quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">import</span> <span class="nn">psutil</span>
+        <span class="n">process</span> <span class="o">=</span> <span class="n">psutil</span><span class="o">.</span><span class="n">Process</span><span class="p">()</span>
+        <span class="n">memory_info</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">memory_info</span><span class="p">()</span>
+        
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;rss_mb&quot;</span><span class="p">:</span> <span class="n">memory_info</span><span class="o">.</span><span class="n">rss</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span><span class="p">,</span>
+            <span class="s2">&quot;vms_mb&quot;</span><span class="p">:</span> <span class="n">memory_info</span><span class="o">.</span><span class="n">vms</span> <span class="o">/</span> <span class="mi">1024</span> <span class="o">/</span> <span class="mi">1024</span><span class="p">,</span>
+            <span class="s2">&quot;percent&quot;</span><span class="p">:</span> <span class="n">process</span><span class="o">.</span><span class="n">memory_percent</span><span class="p">()</span>
+        <span class="p">}</span>
+    <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;psutil לא מותקן&quot;</span><span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="setup_logging">
+<a class="viewcode-back" href="../modules/index.html#utils.setup_logging">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">setup_logging</span><span class="p">(</span><span class="n">level</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span><span class="p">,</span> <span class="n">log_file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">logging</span><span class="o">.</span><span class="n">Logger</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;הגדרת לוגים&quot;&quot;&quot;</span>
+    
+    <span class="c1"># הגדרת רמת לוג</span>
+    <span class="n">log_level</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">logging</span><span class="p">,</span> <span class="n">level</span><span class="o">.</span><span class="n">upper</span><span class="p">(),</span> <span class="n">logging</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+    
+    <span class="c1"># הגדרת פורמט</span>
+    <span class="n">formatter</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">(</span>
+        <span class="s1">&#39;</span><span class="si">%(asctime)s</span><span class="s1"> - </span><span class="si">%(name)s</span><span class="s1"> - </span><span class="si">%(levelname)s</span><span class="s1"> - </span><span class="si">%(message)s</span><span class="s1">&#39;</span><span class="p">,</span>
+        <span class="n">datefmt</span><span class="o">=</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1"> %H:%M:%S&#39;</span>
+    <span class="p">)</span>
+    
+    <span class="c1"># הגדרת handlers</span>
+    <span class="n">handlers</span> <span class="o">=</span> <span class="p">[</span><span class="n">logging</span><span class="o">.</span><span class="n">StreamHandler</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">)]</span>
+    
+    <span class="k">if</span> <span class="n">log_file</span><span class="p">:</span>
+        <span class="n">file_handler</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">FileHandler</span><span class="p">(</span><span class="n">log_file</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="n">file_handler</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">formatter</span><span class="p">)</span>
+        <span class="n">handlers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">file_handler</span><span class="p">)</span>
+    
+    <span class="c1"># קונפיגורציה</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">(</span>
+        <span class="n">level</span><span class="o">=</span><span class="n">log_level</span><span class="p">,</span>
+        <span class="nb">format</span><span class="o">=</span><span class="s1">&#39;</span><span class="si">%(asctime)s</span><span class="s1"> - </span><span class="si">%(name)s</span><span class="s1"> - </span><span class="si">%(levelname)s</span><span class="s1"> - </span><span class="si">%(message)s</span><span class="s1">&#39;</span><span class="p">,</span>
+        <span class="n">handlers</span><span class="o">=</span><span class="n">handlers</span>
+    <span class="p">)</span>
+    
+    <span class="k">return</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="generate_summary_stats">
+<a class="viewcode-back" href="../modules/index.html#utils.generate_summary_stats">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">generate_summary_stats</span><span class="p">(</span><span class="n">files_data</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;יצירת סיכום סטטיסטיקות&quot;&quot;&quot;</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">files_data</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    
+    <span class="n">total_files</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">files_data</span><span class="p">)</span>
+    <span class="n">total_size</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;code&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">))</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files_data</span><span class="p">)</span>
+    
+    <span class="n">languages</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;language&#39;</span><span class="p">,</span> <span class="s1">&#39;unknown&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files_data</span><span class="p">]</span>
+    <span class="n">language_counts</span> <span class="o">=</span> <span class="p">{</span><span class="n">lang</span><span class="p">:</span> <span class="n">languages</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="n">lang</span><span class="p">)</span> <span class="k">for</span> <span class="n">lang</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">languages</span><span class="p">)}</span>
+    
+    <span class="n">all_tags</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files_data</span><span class="p">:</span>
+        <span class="n">all_tags</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;tags&#39;</span><span class="p">,</span> <span class="p">[]))</span>
+    
+    <span class="n">tag_counts</span> <span class="o">=</span> <span class="p">{</span><span class="n">tag</span><span class="p">:</span> <span class="n">all_tags</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">all_tags</span><span class="p">)}</span>
+    
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;total_files&quot;</span><span class="p">:</span> <span class="n">total_files</span><span class="p">,</span>
+        <span class="s2">&quot;total_size&quot;</span><span class="p">:</span> <span class="n">total_size</span><span class="p">,</span>
+        <span class="s2">&quot;total_size_formatted&quot;</span><span class="p">:</span> <span class="n">TextUtils</span><span class="o">.</span><span class="n">format_file_size</span><span class="p">(</span><span class="n">total_size</span><span class="p">),</span>
+        <span class="s2">&quot;languages&quot;</span><span class="p">:</span> <span class="n">language_counts</span><span class="p">,</span>
+        <span class="s2">&quot;most_used_language&quot;</span><span class="p">:</span> <span class="nb">max</span><span class="p">(</span><span class="n">language_counts</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">language_counts</span><span class="o">.</span><span class="n">get</span><span class="p">)</span> <span class="k">if</span> <span class="n">language_counts</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="n">tag_counts</span><span class="p">,</span>
+        <span class="s2">&quot;most_used_tag&quot;</span><span class="p">:</span> <span class="nb">max</span><span class="p">(</span><span class="n">tag_counts</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">tag_counts</span><span class="o">.</span><span class="n">get</span><span class="p">)</span> <span class="k">if</span> <span class="n">tag_counts</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;average_file_size&quot;</span><span class="p">:</span> <span class="n">total_size</span> <span class="o">//</span> <span class="n">total_files</span> <span class="k">if</span> <span class="n">total_files</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="detect_language_from_filename">
+<a class="viewcode-back" href="../modules/index.html#utils.detect_language_from_filename">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">detect_language_from_filename</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;זיהוי שפת תכנות לפי סיומת הקובץ&quot;&quot;&quot;</span>
+    <span class="c1"># מיפוי סיומות לשפות</span>
+    <span class="n">extensions_map</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="c1"># Python</span>
+        <span class="s1">&#39;.py&#39;</span><span class="p">:</span> <span class="s1">&#39;python&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.pyw&#39;</span><span class="p">:</span> <span class="s1">&#39;python&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.pyx&#39;</span><span class="p">:</span> <span class="s1">&#39;python&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.pyi&#39;</span><span class="p">:</span> <span class="s1">&#39;python&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># JavaScript/TypeScript</span>
+        <span class="s1">&#39;.js&#39;</span><span class="p">:</span> <span class="s1">&#39;javascript&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.jsx&#39;</span><span class="p">:</span> <span class="s1">&#39;javascript&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.ts&#39;</span><span class="p">:</span> <span class="s1">&#39;typescript&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.tsx&#39;</span><span class="p">:</span> <span class="s1">&#39;typescript&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.mjs&#39;</span><span class="p">:</span> <span class="s1">&#39;javascript&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Web</span>
+        <span class="s1">&#39;.html&#39;</span><span class="p">:</span> <span class="s1">&#39;html&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.htm&#39;</span><span class="p">:</span> <span class="s1">&#39;html&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.css&#39;</span><span class="p">:</span> <span class="s1">&#39;css&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.scss&#39;</span><span class="p">:</span> <span class="s1">&#39;scss&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.sass&#39;</span><span class="p">:</span> <span class="s1">&#39;sass&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.less&#39;</span><span class="p">:</span> <span class="s1">&#39;less&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Java/Kotlin</span>
+        <span class="s1">&#39;.java&#39;</span><span class="p">:</span> <span class="s1">&#39;java&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.kt&#39;</span><span class="p">:</span> <span class="s1">&#39;kotlin&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.kts&#39;</span><span class="p">:</span> <span class="s1">&#39;kotlin&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># C/C++</span>
+        <span class="s1">&#39;.c&#39;</span><span class="p">:</span> <span class="s1">&#39;c&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.h&#39;</span><span class="p">:</span> <span class="s1">&#39;c&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.cpp&#39;</span><span class="p">:</span> <span class="s1">&#39;cpp&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.cc&#39;</span><span class="p">:</span> <span class="s1">&#39;cpp&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.cxx&#39;</span><span class="p">:</span> <span class="s1">&#39;cpp&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.hpp&#39;</span><span class="p">:</span> <span class="s1">&#39;cpp&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.hxx&#39;</span><span class="p">:</span> <span class="s1">&#39;cpp&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># C#</span>
+        <span class="s1">&#39;.cs&#39;</span><span class="p">:</span> <span class="s1">&#39;csharp&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Go</span>
+        <span class="s1">&#39;.go&#39;</span><span class="p">:</span> <span class="s1">&#39;go&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Rust</span>
+        <span class="s1">&#39;.rs&#39;</span><span class="p">:</span> <span class="s1">&#39;rust&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Ruby</span>
+        <span class="s1">&#39;.rb&#39;</span><span class="p">:</span> <span class="s1">&#39;ruby&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.rake&#39;</span><span class="p">:</span> <span class="s1">&#39;ruby&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># PHP</span>
+        <span class="s1">&#39;.php&#39;</span><span class="p">:</span> <span class="s1">&#39;php&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.phtml&#39;</span><span class="p">:</span> <span class="s1">&#39;php&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Swift</span>
+        <span class="s1">&#39;.swift&#39;</span><span class="p">:</span> <span class="s1">&#39;swift&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Shell</span>
+        <span class="s1">&#39;.sh&#39;</span><span class="p">:</span> <span class="s1">&#39;bash&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.bash&#39;</span><span class="p">:</span> <span class="s1">&#39;bash&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.zsh&#39;</span><span class="p">:</span> <span class="s1">&#39;bash&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.fish&#39;</span><span class="p">:</span> <span class="s1">&#39;bash&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># SQL</span>
+        <span class="s1">&#39;.sql&#39;</span><span class="p">:</span> <span class="s1">&#39;sql&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># JSON/YAML/XML</span>
+        <span class="s1">&#39;.json&#39;</span><span class="p">:</span> <span class="s1">&#39;json&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.yaml&#39;</span><span class="p">:</span> <span class="s1">&#39;yaml&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.yml&#39;</span><span class="p">:</span> <span class="s1">&#39;yaml&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.xml&#39;</span><span class="p">:</span> <span class="s1">&#39;xml&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Markdown</span>
+        <span class="s1">&#39;.md&#39;</span><span class="p">:</span> <span class="s1">&#39;markdown&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.markdown&#39;</span><span class="p">:</span> <span class="s1">&#39;markdown&#39;</span><span class="p">,</span>
+        
+        <span class="c1"># Other</span>
+        <span class="s1">&#39;.r&#39;</span><span class="p">:</span> <span class="s1">&#39;r&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.lua&#39;</span><span class="p">:</span> <span class="s1">&#39;lua&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.vim&#39;</span><span class="p">:</span> <span class="s1">&#39;vim&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.dockerfile&#39;</span><span class="p">:</span> <span class="s1">&#39;dockerfile&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;Dockerfile&#39;</span><span class="p">:</span> <span class="s1">&#39;dockerfile&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.makefile&#39;</span><span class="p">:</span> <span class="s1">&#39;makefile&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;Makefile&#39;</span><span class="p">:</span> <span class="s1">&#39;makefile&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.cmake&#39;</span><span class="p">:</span> <span class="s1">&#39;cmake&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.gradle&#39;</span><span class="p">:</span> <span class="s1">&#39;gradle&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.properties&#39;</span><span class="p">:</span> <span class="s1">&#39;properties&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.ini&#39;</span><span class="p">:</span> <span class="s1">&#39;ini&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.toml&#39;</span><span class="p">:</span> <span class="s1">&#39;toml&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.env&#39;</span><span class="p">:</span> <span class="s1">&#39;env&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.gitignore&#39;</span><span class="p">:</span> <span class="s1">&#39;gitignore&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;.dockerignore&#39;</span><span class="p">:</span> <span class="s1">&#39;dockerignore&#39;</span>
+    <span class="p">}</span>
+    
+    <span class="c1"># בדיקת סיומת</span>
+    <span class="n">filename_lower</span> <span class="o">=</span> <span class="n">filename</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">ext</span><span class="p">,</span> <span class="n">lang</span> <span class="ow">in</span> <span class="n">extensions_map</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">filename_lower</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">ext</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span> <span class="ow">or</span> <span class="n">filename_lower</span> <span class="o">==</span> <span class="n">ext</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">lang</span>
+    
+    <span class="c1"># אם לא נמצאה התאמה, נחזיר &#39;text&#39;</span>
+    <span class="k">return</span> <span class="s1">&#39;text&#39;</span></div>
+
+
+<div class="viewcode-block" id="get_language_emoji">
+<a class="viewcode-back" href="../modules/index.html#utils.get_language_emoji">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">get_language_emoji</span><span class="p">(</span><span class="n">language</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;מחזיר אימוג&#39;י מתאים לשפת התכנות&quot;&quot;&quot;</span>
+    <span class="n">emoji_map</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s1">&#39;python&#39;</span><span class="p">:</span> <span class="s1">&#39;🐍&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;javascript&#39;</span><span class="p">:</span> <span class="s1">&#39;🟨&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;typescript&#39;</span><span class="p">:</span> <span class="s1">&#39;🔷&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;java&#39;</span><span class="p">:</span> <span class="s1">&#39;☕&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;kotlin&#39;</span><span class="p">:</span> <span class="s1">&#39;🟣&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;c&#39;</span><span class="p">:</span> <span class="s1">&#39;🔵&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;cpp&#39;</span><span class="p">:</span> <span class="s1">&#39;🔷&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;csharp&#39;</span><span class="p">:</span> <span class="s1">&#39;🟦&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;go&#39;</span><span class="p">:</span> <span class="s1">&#39;🐹&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;rust&#39;</span><span class="p">:</span> <span class="s1">&#39;🦀&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;ruby&#39;</span><span class="p">:</span> <span class="s1">&#39;💎&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;php&#39;</span><span class="p">:</span> <span class="s1">&#39;🐘&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;swift&#39;</span><span class="p">:</span> <span class="s1">&#39;🦉&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;bash&#39;</span><span class="p">:</span> <span class="s1">&#39;🐚&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;sql&#39;</span><span class="p">:</span> <span class="s1">&#39;🗄️&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;html&#39;</span><span class="p">:</span> <span class="s1">&#39;🌐&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;css&#39;</span><span class="p">:</span> <span class="s1">&#39;🎨&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;scss&#39;</span><span class="p">:</span> <span class="s1">&#39;🎨&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;sass&#39;</span><span class="p">:</span> <span class="s1">&#39;🎨&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;less&#39;</span><span class="p">:</span> <span class="s1">&#39;🎨&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;json&#39;</span><span class="p">:</span> <span class="s1">&#39;📋&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;yaml&#39;</span><span class="p">:</span> <span class="s1">&#39;📄&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;xml&#39;</span><span class="p">:</span> <span class="s1">&#39;📰&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;markdown&#39;</span><span class="p">:</span> <span class="s1">&#39;📝&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;r&#39;</span><span class="p">:</span> <span class="s1">&#39;📊&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;lua&#39;</span><span class="p">:</span> <span class="s1">&#39;🌙&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;vim&#39;</span><span class="p">:</span> <span class="s1">&#39;📝&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;dockerfile&#39;</span><span class="p">:</span> <span class="s1">&#39;🐳&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;makefile&#39;</span><span class="p">:</span> <span class="s1">&#39;🔧&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;cmake&#39;</span><span class="p">:</span> <span class="s1">&#39;🔨&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;gradle&#39;</span><span class="p">:</span> <span class="s1">&#39;🐘&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;properties&#39;</span><span class="p">:</span> <span class="s1">&#39;⚙️&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;ini&#39;</span><span class="p">:</span> <span class="s1">&#39;⚙️&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;toml&#39;</span><span class="p">:</span> <span class="s1">&#39;⚙️&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;env&#39;</span><span class="p">:</span> <span class="s1">&#39;🔐&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;gitignore&#39;</span><span class="p">:</span> <span class="s1">&#39;🚫&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;dockerignore&#39;</span><span class="p">:</span> <span class="s1">&#39;🚫&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;text&#39;</span><span class="p">:</span> <span class="s1">&#39;📄&#39;</span>
+    <span class="p">}</span>
+    
+    <span class="k">return</span> <span class="n">emoji_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">language</span><span class="o">.</span><span class="n">lower</span><span class="p">(),</span> <span class="s1">&#39;📄&#39;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SensitiveDataFilter">
+<a class="viewcode-back" href="../modules/index.html#utils.SensitiveDataFilter">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">SensitiveDataFilter</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">Filter</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;מסנן שמטשטש טוקנים ונתונים רגישים בלוגים.&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="SensitiveDataFilter.filter">
+<a class="viewcode-back" href="../modules/index.html#utils.SensitiveDataFilter.filter">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">record</span><span class="p">:</span> <span class="n">logging</span><span class="o">.</span><span class="n">LogRecord</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="o">.</span><span class="n">getMessage</span><span class="p">())</span>
+            <span class="c1"># זיהוי בסיסי של טוקנים: ghp_..., github_pat_..., Bearer ...</span>
+            <span class="n">patterns</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;ghp_[A-Za-z0-9]{20,}&quot;</span><span class="p">,</span> <span class="s2">&quot;ghp_***REDACTED***&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;github_pat_[A-Za-z0-9_]{20,}&quot;</span><span class="p">,</span> <span class="s2">&quot;github_pat_***REDACTED***&quot;</span><span class="p">),</span>
+                <span class="p">(</span><span class="sa">r</span><span class="s2">&quot;Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}&quot;</span><span class="p">,</span> <span class="s2">&quot;Bearer ***REDACTED***&quot;</span><span class="p">),</span>
+            <span class="p">]</span>
+            <span class="n">redacted</span> <span class="o">=</span> <span class="n">msg</span>
+            <span class="kn">import</span> <span class="nn">re</span> <span class="k">as</span> <span class="nn">_re</span>
+            <span class="k">for</span> <span class="n">pat</span><span class="p">,</span> <span class="n">repl</span> <span class="ow">in</span> <span class="n">patterns</span><span class="p">:</span>
+                <span class="n">redacted</span> <span class="o">=</span> <span class="n">_re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">pat</span><span class="p">,</span> <span class="n">repl</span><span class="p">,</span> <span class="n">redacted</span><span class="p">)</span>
+            <span class="c1"># עדכן רק את message הפורמטי</span>
+            <span class="n">record</span><span class="o">.</span><span class="n">msg</span> <span class="o">=</span> <span class="n">redacted</span>
+            <span class="c1"># חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError</span>
+            <span class="n">record</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">return</span> <span class="kc">True</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="install_sensitive_filter">
+<a class="viewcode-back" href="../modules/index.html#utils.install_sensitive_filter">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">install_sensitive_filter</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;התקנת המסנן על כל ה-handlers הקיימים.&quot;&quot;&quot;</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">()</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="n">SensitiveDataFilter</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">root</span><span class="o">.</span><span class="n">handlers</span><span class="p">:</span>
+        <span class="n">h</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="n">f</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Development Team.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -63,7 +63,16 @@ class GoogleDriveMenuHandler:
             data = "drive_sel_adv"
         if data == "drive_auth":
             __import__('logging').getLogger(__name__).warning(f"Drive: start auth by user {user_id}")
-            flow = gdrive.start_device_authorization(user_id)
+            try:
+                flow = gdrive.start_device_authorization(user_id)
+            except Exception as e:
+                # הצג שגיאה ידידותית כאשר קונפיגורציית OAuth חסרה/שגויה או כשיש בעיית רשת
+                kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_menu")]]
+                await query.edit_message_text(
+                    f"❌ לא ניתן להתחבר ל‑Drive.\n{e}\n\nבדוק שהוגדר GOOGLE_CLIENT_ID (ו‑GOOGLE_CLIENT_SECRET אם נדרש) ושההרשאות תקינות.",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+                return
             sess = self._session(user_id)
             sess["device_code"] = flow.get("device_code")
             sess["interval"] = max(3, int(flow.get("interval", 5)))
@@ -85,6 +94,26 @@ class GoogleDriveMenuHandler:
                     s = self._session(uid)
                     dc = s.get("device_code")
                     if not dc:
+                        return
+                    # Expiry guard: stop polling and notify
+                    import time as _t
+                    exp = s.get("auth_expires_at") or 0
+                    if exp and _t.time() > exp:
+                        try:
+                            ctx.job.schedule_removal()
+                        except Exception:
+                            pass
+                        ctx.bot_data.setdefault("drive_auth_jobs", {}).pop(uid, None)
+                        s.pop("device_code", None)
+                        try:
+                            await ctx.bot.edit_message_text(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text="⌛ פג תוקף בקשת ההתחברות. לחץ שוב על \"התחבר ל‑Drive\".",
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]])
+                            )
+                        except Exception:
+                            pass
                         return
                     tokens = gdrive.poll_device_token(dc)
                     # None => עדיין ממתינים; dict עם error => לא לשמור, להמתין
@@ -146,12 +175,26 @@ class GoogleDriveMenuHandler:
             except Exception:
                 tokens = None
             if not tokens:
-                await query.answer("עדיין ממתינים לאישור…", show_alert=False)
+                # Visible feedback in message
+                text = (
+                    "🔐 התחברות ל‑Google Drive\n\n"
+                    "⌛ עדיין ממתינים לאישור בדפדפן…\n\n"
+                    "לאחר האישור, לחץ על ׳🔄 בדוק חיבור׳ או המתן לאימות אוטומטי."
+                )
+                kb = [
+                    [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
+                    [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
+                ]
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
                 return
             if isinstance(tokens, dict) and tokens.get("error"):
                 err = tokens.get("error")
                 desc = tokens.get("error_description") or "בקשה נדחתה. נא לאשר בדפדפן ולנסות שוב."
-                await query.answer(f"שגיאה: {err}\n{desc}"[:190], show_alert=True)
+                kb = [
+                    [InlineKeyboardButton("🔄 בדוק חיבור", callback_data="drive_poll_once")],
+                    [InlineKeyboardButton("❌ בטל", callback_data="drive_cancel_auth")],
+                ]
+                await query.edit_message_text(f"❌ שגיאה: {err}\n{desc}", reply_markup=InlineKeyboardMarkup(kb))
                 return
             gdrive.save_tokens(user_id, tokens)
             # cancel background job if exists
