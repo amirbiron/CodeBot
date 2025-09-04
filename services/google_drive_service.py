@@ -295,10 +295,19 @@ def _category_label(category: str) -> str:
 
 
 def compute_subpath(category: str, repo_name: Optional[str] = None) -> str:
+    """Return destination subpath under the user's root folder.
+
+    Simplified structure without date-based nesting to avoid deep paths:
+    - zip        -> "zip"
+    - all        -> "הכל"
+    - by_repo    -> "לפי_ריפו/<repo_name>"
+    - large      -> "קבצים_גדולים"
+    - other      -> "שאר_קבצים"
+    """
     base = _category_label(category)
     if category == "by_repo" and repo_name:
-        return f"{base}/{repo_name}/{_date_path()}"
-    return f"{base}/{_date_path()}"
+        return f"{base}/{repo_name}"
+    return base
 
 
 def _rating_to_emoji(rating: Optional[str]) -> str:
