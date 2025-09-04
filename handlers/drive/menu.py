@@ -2,6 +2,10 @@ from typing import Any, Dict, Optional
 import os
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+try:
+    from telegram.error import BadRequest
+except Exception:  # pragma: no cover
+    BadRequest = Exception  # type: ignore[assignment]
 from telegram.ext import ContextTypes
 
 from services import google_drive_service as gdrive
