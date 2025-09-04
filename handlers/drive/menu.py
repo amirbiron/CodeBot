@@ -671,13 +671,16 @@ class GoogleDriveMenuHandler:
 
     def _compose_selection_header(self, user_id: int) -> str:
         sess = self._session(user_id)
+        # Prefer showing current selection (UI state) over last executed upload
+        selected = sess.get("selected_category")
         last_upload = sess.get("last_upload")
-        if last_upload == "zip":
+        category = selected or last_upload
+        if category == "zip":
             typ = "קבצי ZIP"
-        elif last_upload == "all":
+        elif category == "all":
             typ = "הכל"
-        elif isinstance(last_upload, str) and last_upload in {"by_repo", "large", "other"}:
-            typ = {"by_repo": "לפי ריפו", "large": "קבצים גדולים", "other": "שאר קבצים"}[last_upload]
+        elif isinstance(category, str) and category in {"by_repo", "large", "other"}:
+            typ = {"by_repo": "לפי ריפו", "large": "קבצים גדולים", "other": "שאר קבצים"}[category]
         else:
             typ = "—"
         folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
