@@ -598,6 +598,11 @@ class GoogleDriveMenuHandler:
                 f"מועד גיבוי הבא: {next_run_text}\n"
             )
             kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+            # הגדר דגל כדי שבחזרה נשלח הודעה חדשה במסך הראשי (מניעת תצוגה "צרה")
+            try:
+                self._session(user_id)["force_new_simple"] = True
+            except Exception:
+                pass
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
             return
         if data.startswith("drive_set_schedule:"):
@@ -816,11 +821,13 @@ class GoogleDriveMenuHandler:
 
     async def _render_simple_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, header_prefix: str = ""):
         query = update.callback_query if update.callback_query else None
-        if query:
+        user_id = update.effective_user.id
+        # אם הופעל דגל 'force_new_simple' נשלח הודעה חדשה במקום עריכת הקיימת כדי לשמור על פריסה מלאה
+        force_new = self._should_send_new_message(user_id)
+        if query and not force_new:
             send = query.edit_message_text
         else:
             send = update.message.reply_text
-        user_id = update.effective_user.id
         sess = self._session(user_id)
         # הצג וי רק אחרי "אישור" מוצלח. ננקה וי אם המשתמש החליף בחירה לפני אישור מחדש
         selected = sess.get("selected_category")
@@ -876,6 +883,14 @@ class GoogleDriveMenuHandler:
         ]
         header = header_prefix + self._compose_selection_header(user_id)
         await query.edit_message_text(header + "בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
+
+    def _should_send_new_message(self, user_id: int) -> bool:
+        try:
+            if self._session(user_id).pop("force_new_simple", False):
+                return True
+        except Exception:
+            pass
+        return False
 
     async def _render_simple_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
