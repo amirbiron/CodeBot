@@ -261,6 +261,11 @@ class GoogleDriveMenuHandler:
                 await query.answer("כבר נבחר 'קבצי ZIP'", show_alert=False)
                 return
             sess["selected_category"] = "zip"
+            # שמירת בחירה אחרונה בפרפרנסים כדי שתשרוד דיפלוי
+            try:
+                db.save_drive_prefs(user_id, {"last_selected_category": "zip"})
+            except Exception:
+                pass
             prefix = "ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. באישור לא יועלה דבר.\n\n" if not saved_zips else "✅ נבחר: קבצי ZIP\n\n"
             await self._render_simple_selection(update, context, header_prefix=prefix)
             return
@@ -271,6 +276,10 @@ class GoogleDriveMenuHandler:
                 await query.answer("כבר נבחר 'הכל'", show_alert=False)
                 return
             sess["selected_category"] = "all"
+            try:
+                db.save_drive_prefs(user_id, {"last_selected_category": "all"})
+            except Exception:
+                pass
             await self._render_simple_selection(update, context, header_prefix="✅ נבחר: הכל\n\n")
             return
         if data == "drive_sel_adv":
@@ -424,6 +433,10 @@ class GoogleDriveMenuHandler:
             sess = self._session(user_id)
             sess["target_folder_label"] = "גיבויי_קודלי"
             sess["target_folder_auto"] = False
+            try:
+                db.save_drive_prefs(user_id, {"target_folder_label": "גיבויי_קודלי", "target_folder_auto": False, "target_folder_path": None})
+            except Exception:
+                pass
             # Return to proper menu depending on origin (אל תציג כשל גם אם לא הצלחנו ליצור בפועל כרגע)
             await self._render_after_folder_selection(update, context, success=True)
             return
@@ -433,6 +446,10 @@ class GoogleDriveMenuHandler:
             sess = self._session(user_id)
             sess["target_folder_label"] = "אוטומטי"
             sess["target_folder_auto"] = True
+            try:
+                db.save_drive_prefs(user_id, {"target_folder_label": "אוטומטי", "target_folder_auto": True})
+            except Exception:
+                pass
             await self._render_after_folder_selection(update, context, success=bool(fid))
             return
         if data == "drive_folder_set":
@@ -694,6 +711,10 @@ class GoogleDriveMenuHandler:
                 sess = self._session(update.effective_user.id)
                 sess["target_folder_label"] = path
                 sess["target_folder_auto"] = False
+                try:
+                    db.save_drive_prefs(update.effective_user.id, {"target_folder_label": path, "target_folder_auto": False, "target_folder_path": path})
+                except Exception:
+                    pass
                 await update.message.reply_text("✅ תיקייה יעד עודכנה בהצלחה")
             else:
                 await update.message.reply_text("❌ לא ניתן להגדיר את התיקייה. ודא בהרשאות Drive.")
