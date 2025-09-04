@@ -614,18 +614,29 @@ class BackupMenuHandler:
 			await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
 			return
 		try:
-			# בנה שם קובץ ידידותי בעת שליחה
+			# בנה שם קובץ ידידותי בעת שליחה — ללא תווי "/" בשם
 			friendly = None
 			try:
 				repo_name = getattr(match, 'repo', None)
+				created_at = getattr(match, 'created_at', None)
+				date_str = _format_date(created_at)
+				# המרה לפורמט בטוח לשם קובץ (ללא "/")
+				date_str = date_str.replace('/', '-').replace(':', '.')
+				# הוסף אימוג'י דירוג אם קיים
+				try:
+					from database import db as _db
+					rating = _db.get_backup_rating(user_id, backup_id) or ""
+				except Exception:
+					rating = ""
+				emoji = rating.split()[0] if isinstance(rating, str) and rating else ""
 				if repo_name:
 					# גרסת vN לפי מיקום ברשימת אותו ריפו
 					infos = backup_manager.list_backups(user_id)
 					vcount = len([b for b in infos if getattr(b, 'repo', None) == repo_name])
 					name_part = _repo_only(repo_name)
-					friendly = f"BKP zip {name_part} v{vcount} - {_format_date(getattr(match, 'created_at', ''))[:-3]}.zip"
+					friendly = f"BKP zip {name_part} v{vcount}{(' ' + emoji) if emoji else ''} - {date_str}.zip"
 				else:
-					friendly = f"BKP zip {backup_id.replace('backup_', '')} - {_format_date(getattr(match, 'created_at', ''))[:-3]}.zip"
+					friendly = f"BKP zip {backup_id.replace('backup_', '')}{(' ' + emoji) if emoji else ''} - {date_str}.zip"
 			except Exception:
 				friendly = None
 			with open(match.file_path, 'rb') as f:
