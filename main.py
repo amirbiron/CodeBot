@@ -1362,7 +1362,6 @@ class CodeKeeperBot:
                 except Exception:
                     is_zip_actual = False
                 if is_zip_hint and is_zip_actual:
-                    from file_manager import backup_manager
                     backup_id = f"upload_{user_id}_{int(datetime.now(timezone.utc).timestamp())}"
                     target_path = backup_manager.backup_dir / f"{backup_id}.zip"
                     try:

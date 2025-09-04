@@ -437,7 +437,8 @@ class BackupMenuHandler:
 				repo_display = _repo_only(repo_name)
 				first_line = f"• {repo_display} — {_format_date(getattr(info, 'created_at', ''))}"
 			else:
-				first_line = f"• {getattr(info, 'backup_id', '')} — {_format_date(getattr(info, 'created_at', ''))}"
+				# עבור ZIP כללי, הצג שם ידידותי בסגנון הכפתורים
+				first_line = f"• BKP zip {getattr(info, 'backup_id', '').replace('backup_', '')} — {_format_date(getattr(info, 'created_at', ''))}"
 			lines.append(first_line)
 			# שורה שנייה עם גודל | קבצים | גרסה (+דירוג אם קיים)
 			try:
@@ -613,9 +614,23 @@ class BackupMenuHandler:
 			await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
 			return
 		try:
+			# בנה שם קובץ ידידותי בעת שליחה
+			friendly = None
+			try:
+				repo_name = getattr(match, 'repo', None)
+				if repo_name:
+					# גרסת vN לפי מיקום ברשימת אותו ריפו
+					infos = backup_manager.list_backups(user_id)
+					vcount = len([b for b in infos if getattr(b, 'repo', None) == repo_name])
+					name_part = _repo_only(repo_name)
+					friendly = f"BKP zip {name_part} v{vcount} - {_format_date(getattr(match, 'created_at', ''))[:-3]}.zip"
+				else:
+					friendly = f"BKP zip {backup_id.replace('backup_', '')} - {_format_date(getattr(match, 'created_at', ''))[:-3]}.zip"
+			except Exception:
+				friendly = None
 			with open(match.file_path, 'rb') as f:
 				await query.message.reply_document(
-					document=InputFile(f, filename=os.path.basename(match.file_path)),
+					document=InputFile(f, filename=(friendly or os.path.basename(match.file_path))),
 					caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
 				)
 			# השאר בתצוגת רשימה — רענן את הרשימה

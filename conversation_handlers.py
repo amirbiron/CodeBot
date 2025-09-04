@@ -1980,8 +1980,8 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             MessageHandler(filters.Regex("^🗂 לפי ריפו$"), show_by_repo_menu),
             MessageHandler(filters.Regex("^ℹ️ הסבר על הבוט$"), lambda u, c: show_help_page(u, c, page=1)),
             
-            # כניסה לעריכת קוד/שם גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
-            CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|lf_edit_)')
+            # כניסה לעריכת קוד/שם/הערה גם דרך כפתורי callback כדי שמצב השיחה ייקבע כראוי
+            CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|edit_note_|edit_note_direct_|lf_edit_)')
         ],
         states={
             GET_CODE: [

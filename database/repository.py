@@ -36,11 +36,29 @@ class Repository:
             return False
 
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str) -> bool:
+        # Preserve existing description and tags when creating a new version during edits
+        try:
+            existing = self.get_latest_version(user_id, file_name)
+        except Exception:
+            existing = None
+        prev_description = ""
+        prev_tags: List[str] = []
+        if isinstance(existing, dict) and existing:
+            try:
+                prev_description = (existing.get('description') or "")
+            except Exception:
+                prev_description = ""
+            try:
+                prev_tags = list(existing.get('tags') or [])
+            except Exception:
+                prev_tags = []
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=file_name,
             code=code,
             programming_language=programming_language,
+            description=prev_description,
+            tags=prev_tags,
         )
         return self.save_code_snippet(snippet)
 
