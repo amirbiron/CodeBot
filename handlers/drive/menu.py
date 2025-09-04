@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 import os
 import asyncio
+from datetime import datetime, timezone, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 try:
@@ -40,6 +41,54 @@ class GoogleDriveMenuHandler:
         except Exception:
             pass
 
+    async def _ensure_schedule_job(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, sched_key: str) -> None:
+        interval_map = {
+            "daily": 24 * 3600,
+            "every3": 3 * 24 * 3600,
+            "weekly": 7 * 24 * 3600,
+            "biweekly": 14 * 24 * 3600,
+            "monthly": 30 * 24 * 3600,
+        }
+        seconds = interval_map.get(sched_key, 24 * 3600)
+
+        async def _scheduled_backup_cb(ctx: ContextTypes.DEFAULT_TYPE):
+            try:
+                uid = ctx.job.data["user_id"]
+                ok = gdrive.perform_scheduled_backup(uid)
+                if ok:
+                    await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
+                # עדכן זמן הבא בהעדפות
+                try:
+                    next_dt = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+                    db.save_drive_prefs(uid, {"schedule_next_at": next_dt.isoformat()})
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        try:
+            jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+            # cancel existing
+            old = jobs.get(user_id)
+            if old:
+                try:
+                    old.schedule_removal()
+                except Exception:
+                    pass
+            # קבע first להרצה הבאה והעדכן schedule_next_at
+            first_seconds = max(10, seconds)
+            job = context.application.job_queue.run_repeating(
+                _scheduled_backup_cb, interval=seconds, first=first_seconds, name=f"drive_{user_id}", data={"user_id": user_id}
+            )
+            jobs[user_id] = job
+            try:
+                next_dt = datetime.now(timezone.utc) + timedelta(seconds=first_seconds)
+                db.save_drive_prefs(user_id, {"schedule_next_at": next_dt.isoformat()})
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
         if not config.DRIVE_MENU_V2:
@@ -68,6 +117,16 @@ class GoogleDriveMenuHandler:
             await send("Google Drive\n\nלא מחובר. התחבר כדי לגבות לקבצי Drive.", reply_markup=InlineKeyboardMarkup(kb))
             return
 
+        # Ensure schedule job exists if a schedule is configured (after restart/deploy)
+        try:
+            prefs = db.get_drive_prefs(user_id) or {}
+            sched_key = prefs.get("schedule")
+            if sched_key:
+                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+                if not jobs.get(user_id):
+                    await self._ensure_schedule_job(context, user_id, sched_key)
+        except Exception:
+            pass
         # Connected -> show main backup selection directly per requested flow
         await self._render_simple_selection(update, context, header_prefix="Google Drive — מחובר\n")
 
@@ -499,23 +558,38 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_status":
             # מסך מצב גיבוי: סוג נבחר/אחרון, תיקייה, תזמון, מועד ריצה הבא (אם קיים)
-            sess = self._session(user_id)
+            # ודא שקיימת עבודה מתוזמנת אם יש תזמון בהעדפות
+            try:
+                prefs = db.get_drive_prefs(user_id) or {}
+                sched_key = prefs.get("schedule")
+                if sched_key:
+                    jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+                    if not jobs.get(user_id):
+                        await self._ensure_schedule_job(context, user_id, sched_key)
+            except Exception:
+                prefs = {}
             # פרטי תצוגה
             header = self._compose_selection_header(user_id)
             # חישוב מועד הבא
             next_run_text = "—"
             try:
-                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
-                job = jobs.get(user_id)
-                if job:
+                # העדף זמן הבא מהעדפות אם הוגדר בזמן התזמון
+                prefs = db.get_drive_prefs(user_id) or {}
+                nxt_iso = prefs.get("schedule_next_at")
+                if nxt_iso:
                     try:
-                        # python-telegram-bot stores .next_t in job (datetime)
+                        nxt_dt = datetime.fromisoformat(nxt_iso)
+                        next_run_text = nxt_dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+                    except Exception:
+                        next_run_text = "—"
+                else:
+                    # נסה לשלוף מה-Job אם קיים
+                    jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+                    job = jobs.get(user_id)
+                    if job:
                         nxt = getattr(job, "next_t", None)
                         if nxt:
-                            # הצגה בפורמט קריא
-                            next_run_text = nxt.strftime("%d/%m/%Y %H:%M UTC")
-                    except Exception:
-                        pass
+                            next_run_text = nxt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
             except Exception:
                 pass
             text = (
@@ -524,6 +598,11 @@ class GoogleDriveMenuHandler:
                 f"מועד גיבוי הבא: {next_run_text}\n"
             )
             kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+            # הגדר דגל כדי שבחזרה נשלח הודעה חדשה במסך הראשי (מניעת תצוגה "צרה")
+            try:
+                self._session(user_id)["force_new_simple"] = True
+            except Exception:
+                pass
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
             return
         if data.startswith("drive_set_schedule:"):
@@ -542,40 +621,8 @@ class GoogleDriveMenuHandler:
                 await query.edit_message_text("⛔ תזמון בוטל")
                 return
             db.save_drive_prefs(user_id, {"schedule": key})
-            # schedule job
-            interval_map = {
-                "daily": 24 * 3600,
-                "every3": 3 * 24 * 3600,
-                "weekly": 7 * 24 * 3600,
-                "biweekly": 14 * 24 * 3600,
-                "monthly": 30 * 24 * 3600,
-            }
-            seconds = interval_map.get(key, 24 * 3600)
-
-            async def _scheduled_backup_cb(ctx: ContextTypes.DEFAULT_TYPE):
-                try:
-                    uid = ctx.job.data["user_id"]
-                    ok = gdrive.perform_scheduled_backup(uid)
-                    if ok:
-                        await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
-                except Exception:
-                    pass
-
-            try:
-                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
-                # cancel existing
-                old = jobs.get(user_id)
-                if old:
-                    try:
-                        old.schedule_removal()
-                    except Exception:
-                        pass
-                job = context.application.job_queue.run_repeating(
-                    _scheduled_backup_cb, interval=seconds, first=10, name=f"drive_{user_id}", data={"user_id": user_id}
-                )
-                jobs[user_id] = job
-            except Exception:
-                pass
+            # schedule/update job and persist next run time
+            await self._ensure_schedule_job(context, user_id, key)
             # Re-render menu to reflect updated schedule label
             if self._session(user_id).get("last_menu") == "adv":
                 await self._render_advanced_menu(update, context, header_prefix="✅ תזמון נשמר\n\n")
@@ -774,11 +821,13 @@ class GoogleDriveMenuHandler:
 
     async def _render_simple_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, header_prefix: str = ""):
         query = update.callback_query if update.callback_query else None
-        if query:
+        user_id = update.effective_user.id
+        # אם הופעל דגל 'force_new_simple' נשלח הודעה חדשה במקום עריכת הקיימת כדי לשמור על פריסה מלאה
+        force_new = self._should_send_new_message(user_id)
+        if query and not force_new:
             send = query.edit_message_text
         else:
             send = update.message.reply_text
-        user_id = update.effective_user.id
         sess = self._session(user_id)
         # הצג וי רק אחרי "אישור" מוצלח. ננקה וי אם המשתמש החליף בחירה לפני אישור מחדש
         selected = sess.get("selected_category")
@@ -834,6 +883,14 @@ class GoogleDriveMenuHandler:
         ]
         header = header_prefix + self._compose_selection_header(user_id)
         await query.edit_message_text(header + "בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
+
+    def _should_send_new_message(self, user_id: int) -> bool:
+        try:
+            if self._session(user_id).pop("force_new_simple", False):
+                return True
+        except Exception:
+            pass
+        return False
 
     async def _render_simple_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query

@@ -64,7 +64,7 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         cd docs
-        sphinx-build -b html . _build/html --keep-going
+        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going
       env:
         SPHINX_MOCK_IMPORTS: true
         BOT_TOKEN: dummy_token_for_docs
@@ -74,7 +74,7 @@ jobs:
       if: github.ref == 'refs/heads/main' && github.event_name == 'push' || github.event_name == 'pull_request'
       run: |
         cd docs
-        sphinx-multiversion . _build/html
+        DISABLE_DB=1 sphinx-multiversion . _build/html
     
     - name: 📊 Generate documentation coverage report
       if: github.event_name == 'pull_request'
