@@ -261,6 +261,11 @@ class GoogleDriveMenuHandler:
                 await query.answer("כבר נבחר 'קבצי ZIP'", show_alert=False)
                 return
             sess["selected_category"] = "zip"
+            # שמירת בחירה אחרונה בפרפרנסים כדי שתשרוד דיפלוי
+            try:
+                db.save_drive_prefs(user_id, {"last_selected_category": "zip"})
+            except Exception:
+                pass
             prefix = "ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. באישור לא יועלה דבר.\n\n" if not saved_zips else "✅ נבחר: קבצי ZIP\n\n"
             await self._render_simple_selection(update, context, header_prefix=prefix)
             return
@@ -271,6 +276,10 @@ class GoogleDriveMenuHandler:
                 await query.answer("כבר נבחר 'הכל'", show_alert=False)
                 return
             sess["selected_category"] = "all"
+            try:
+                db.save_drive_prefs(user_id, {"last_selected_category": "all"})
+            except Exception:
+                pass
             await self._render_simple_selection(update, context, header_prefix="✅ נבחר: הכל\n\n")
             return
         if data == "drive_sel_adv":
@@ -424,6 +433,10 @@ class GoogleDriveMenuHandler:
             sess = self._session(user_id)
             sess["target_folder_label"] = "גיבויי_קודלי"
             sess["target_folder_auto"] = False
+            try:
+                db.save_drive_prefs(user_id, {"target_folder_label": "גיבויי_קודלי", "target_folder_auto": False, "target_folder_path": None})
+            except Exception:
+                pass
             # Return to proper menu depending on origin (אל תציג כשל גם אם לא הצלחנו ליצור בפועל כרגע)
             await self._render_after_folder_selection(update, context, success=True)
             return
@@ -433,6 +446,10 @@ class GoogleDriveMenuHandler:
             sess = self._session(user_id)
             sess["target_folder_label"] = "אוטומטי"
             sess["target_folder_auto"] = True
+            try:
+                db.save_drive_prefs(user_id, {"target_folder_label": "אוטומטי", "target_folder_auto": True})
+            except Exception:
+                pass
             await self._render_after_folder_selection(update, context, success=bool(fid))
             return
         if data == "drive_folder_set":
@@ -479,6 +496,35 @@ class GoogleDriveMenuHandler:
                 [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
             ]
             await query.edit_message_text("בחר תדירות גיבוי אוטומטי:", reply_markup=InlineKeyboardMarkup(kb))
+            return
+        if data == "drive_status":
+            # מסך מצב גיבוי: סוג נבחר/אחרון, תיקייה, תזמון, מועד ריצה הבא (אם קיים)
+            sess = self._session(user_id)
+            # פרטי תצוגה
+            header = self._compose_selection_header(user_id)
+            # חישוב מועד הבא
+            next_run_text = "—"
+            try:
+                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+                job = jobs.get(user_id)
+                if job:
+                    try:
+                        # python-telegram-bot stores .next_t in job (datetime)
+                        nxt = getattr(job, "next_t", None)
+                        if nxt:
+                            # הצגה בפורמט קריא
+                            next_run_text = nxt.strftime("%d/%m/%Y %H:%M UTC")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            text = (
+                "📊 מצב גיבוי\n\n" +
+                header +
+                f"מועד גיבוי הבא: {next_run_text}\n"
+            )
+            kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
             return
         if data.startswith("drive_set_schedule:"):
             key = data.split(":", 1)[1]
@@ -579,7 +625,7 @@ class GoogleDriveMenuHandler:
                     return
                 # פידבק מיידי לפני פעולת העלאה שעלולה לקחת זמן
                 try:
-                    await query.edit_message_text("⏳ מעלה קבצי ZIP ל‑Drive…")
+                    await query.edit_message_text("⏳ מעלה קבצי ZIP ל‑Drive…\nזה עשוי לקחת כמה דקות.\n🔔 תתקבל הודעה בסיום.")
                 except Exception:
                     pass
                 # הרצת ההעלאה בת׳רד נפרד כדי לא לחסום את הלולאה האסינכרונית
@@ -595,7 +641,7 @@ class GoogleDriveMenuHandler:
             if selected == "all":
                 # פידבק מיידי לפני יצירת ZIP מלא והעלאה
                 try:
-                    await query.edit_message_text("⏳ מכין גיבוי מלא ומעלה ל‑Drive…")
+                    await query.edit_message_text("⏳ מכין גיבוי מלא ומעלה ל‑Drive…\nזה עשוי לקחת כמה דקות.\n🔔 תתקבל הודעה בסיום.")
                 except Exception:
                     pass
                 from config import config as _cfg
@@ -622,7 +668,7 @@ class GoogleDriveMenuHandler:
         if data == "drive_make_zip_now":
             # צור גיבוי מלא ושמור אותו בבוט (לא בדרייב), כדי שיהיו ZIPים זמינים להעלאה
             from services import backup_service as _backup_service
-            await query.edit_message_text("⏳ יוצר ZIP שמור בבוט…")
+            await query.edit_message_text("⏳ יוצר ZIP שמור בבוט…\nזה עשוי לקחת כמה דקות.\n🔔 תתקבל הודעה בסיום.")
             try:
                 # נשתמש בשירות הגיבוי המקומי ליצירת ZIP ושמירה
                 fn, data_bytes = gdrive.create_full_backup_zip_bytes(user_id, category="all")
@@ -665,7 +711,11 @@ class GoogleDriveMenuHandler:
                 sess = self._session(update.effective_user.id)
                 sess["target_folder_label"] = path
                 sess["target_folder_auto"] = False
-                await update.message.reply_text("✅ תיקיית יעד עודכנה בהצלחה")
+                try:
+                    db.save_drive_prefs(update.effective_user.id, {"target_folder_label": path, "target_folder_auto": False, "target_folder_path": path})
+                except Exception:
+                    pass
+                await update.message.reply_text("✅ תיקייה יעד עודכנה בהצלחה")
             else:
                 await update.message.reply_text("❌ לא ניתן להגדיר את התיקייה. ודא בהרשאות Drive.")
             return True
@@ -691,18 +741,29 @@ class GoogleDriveMenuHandler:
         selected = sess.get("selected_category")
         last_upload = sess.get("last_upload")
         category = selected or last_upload
+        # סוג + אימוג'י לפי הכפתורים בתצוגה הפשוטה
+        type_emoji = ""
         if category == "zip":
+            type_emoji = "📦"
             typ = "קבצי ZIP"
         elif category == "all":
+            type_emoji = "🧰"
             typ = "הכל"
         elif isinstance(category, str) and category in {"by_repo", "large", "other"}:
+            # ללא אימוג'י ייעודי כי בכפתורי המתקדם אין אימוג'ים לקטגוריות אלו
             typ = {"by_repo": "לפי ריפו", "large": "קבצים גדולים", "other": "שאר קבצים"}[category]
         else:
             typ = "—"
         folder = sess.get("target_folder_label") or "ברירת מחדל (גיבויי_קודלי)"
         sched = self._schedule_button_label(user_id)
+        # הוצא את הטקסט ללא האימוג'י המובנה ונוסיף ידנית
         sched_text = sched.replace("🕑 ", "") if sched != "🗓 זמני גיבוי" else "לא נקבע"
-        return f"סוג: {typ}\nתיקייה: {folder}\nתזמון: {sched_text}\n"
+        sched_emoji = "🕑" if sched != "🗓 זמני גיבוי" else "🗓"
+        # פורמט סופי עם אימוג'ים
+        type_line = f"סוג: {type_emoji + ' ' if type_emoji else ''}{typ}"
+        folder_line = f"תיקייה: 📂 {folder}"
+        sched_line = f"תזמון: {sched_emoji} {sched_text}"
+        return f"{type_line}\n{folder_line}\n{sched_line}\n"
 
     def _folder_button_label(self, user_id: int) -> str:
         sess = self._session(user_id)
@@ -719,6 +780,11 @@ class GoogleDriveMenuHandler:
             send = update.message.reply_text
         user_id = update.effective_user.id
         sess = self._session(user_id)
+        # הצג וי רק אחרי "אישור" מוצלח. ננקה וי אם המשתמש החליף בחירה לפני אישור מחדש
+        selected = sess.get("selected_category")
+        if selected and selected != sess.get("last_upload"):
+            sess["zip_done"] = False
+            sess["all_done"] = False
         zip_label = "📦 קבצי ZIP" + (" ✅️" if sess.get("zip_done") else "")
         all_label = "🧰 הכל" + (" ✅️" if sess.get("all_done") else "")
         folder_label = self._folder_button_label(user_id)
@@ -729,19 +795,19 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton(all_label, callback_data="drive_sel_all")],
             [InlineKeyboardButton(folder_label, callback_data="drive_choose_folder")],
             [InlineKeyboardButton(schedule_label, callback_data="drive_schedule")],
+            [InlineKeyboardButton("📊 מצב גיבוי", callback_data="drive_status")],
             [InlineKeyboardButton("✅ אישור", callback_data="drive_simple_confirm")],
-            [InlineKeyboardButton("⚙️ מתקדם", callback_data="drive_sel_adv")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
-        await send(header + "בחר מה לגבות:", reply_markup=InlineKeyboardMarkup(kb))
+        await send(header, reply_markup=InlineKeyboardMarkup(kb))
 
     async def _render_after_folder_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE, success: bool):
         query = update.callback_query
         user_id = query.from_user.id
         # Determine where to go back based on last context (advanced vs simple)
         last = self._session(user_id).get("last_menu")
-        prefix = "✅ תיקיית יעד עודכנה\n\n" if success else "❌ כשל בקביעת תיקייה\n\n"
+        prefix = "✅ תיקייה יעד עודכנה\n\n" if success else "❌ כשל בקביעת תיקייה\n\n"
         if last == "adv":
             await self._render_advanced_menu(update, context, header_prefix=prefix)
         else:

@@ -4,6 +4,7 @@ Configuration file for the Sphinx documentation builder.
 """
 
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -87,6 +88,15 @@ smv_remote_whitelist = r'^origin$'
 smv_released_pattern = r'^tags/.+$'
 smv_latest_version = 'main'
 
+# Include PR branch in multiversion build when running on pull_request
+_event = os.getenv('GITHUB_EVENT_NAME', '')
+_pr_branch = os.getenv('GITHUB_HEAD_REF') or os.getenv('GITHUB_REF_NAME')
+try:
+    if _event == 'pull_request' and _pr_branch:
+        smv_branch_whitelist = rf'^(main|master|{re.escape(_pr_branch)})$'
+except Exception:
+    pass
+
 # Static files
 html_static_path = ['_static']
 
@@ -97,6 +107,7 @@ html_sidebars = {
         'relations.html',
         'sourcelink.html',
         'searchbox.html',
+        'versions.html',
     ]
 }
 
