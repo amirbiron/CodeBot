@@ -1677,15 +1677,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "by_repo_menu":
             return await show_by_repo_menu_callback(update, context)
         elif data == "add_code_regular":
-            # מעבר לזרימת "קוד רגיל" הקיימת
-            # ננקה את המסך ונבקש קוד כפי שנהוג ב-start_save_flow
-            await query.edit_message_text("✨ מצב הוספת קוד רגיל")
-            # נשתמש בפונקציה הקיימת כדי להציג את הודעת הפתיחה ולשנות סטייט
-            # נייצר אובייקט מדומה שמופיע כהודעה חדשה למען שימוש חוזר
-            class _U:
-                def __init__(self, q):
-                    self.message = q.message
-            return await start_save_flow(_U(query), context)
+            # מעבר לזרימת "קוד רגיל" הקיימת - נשלח הודעה חדשה כמו start_save_flow
+            await query.answer()
+            # הסתרת תת-התפריט כדי למנוע בלבול
+            try:
+                await query.edit_message_text("✨ מצב הוספת קוד רגיל")
+            except Exception:
+                pass
+            return await start_save_flow(update, context)
         elif data == "add_code_long":
             # כניסה למצב איסוף קוד ארוך
             return await start_long_collect(update, context)
@@ -1700,6 +1699,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return ConversationHandler.END
         elif data == "cancel":
             # ביטול כללי דרך כפתור
+            # ביטול טיימאאוט אם קיים
+            try:
+                job = context.user_data.get('long_collect_job')
+                if job:
+                    job.schedule_removal()
+            except Exception:
+                pass
             context.user_data.clear()
             await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
             await query.message.reply_text(
@@ -1972,6 +1978,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """ביטול מתקדם"""
+    # ביטול טיימאאוט אם קיים וניקוי מצב איסוף
+    try:
+        job = context.user_data.get('long_collect_job')
+        if job:
+            job.schedule_removal()
+    except Exception:
+        pass
     context.user_data.clear()
     
     await update.message.reply_text(

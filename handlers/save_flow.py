@@ -1,5 +1,6 @@
 import re
 import logging
+from io import BytesIO
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -8,6 +9,106 @@ from services import code_service
 
 logger = logging.getLogger(__name__)
 
+# הגדרות מצב איסוף
+LONG_COLLECT_MAX_BYTES = 300 * 1024  # 300KB
+LONG_COLLECT_TIMEOUT_SECONDS = 15 * 60  # 15 דקות
+
+
+def _get_total_bytes(parts: list[str]) -> int:
+    try:
+        return sum(len(p.encode('utf-8', errors='ignore')) for p in parts)
+    except Exception:
+        return 0
+
+
+def _sanitize_part(text: str) -> str:
+    # הסר אליפסות יוניקוד '…' מכל חלק
+    try:
+        return (text or '').replace('…', '')
+    except Exception:
+        return text or ''
+
+
+def _detect_secrets(text: str) -> list[str]:
+    """זיהוי גס של סודות כדי להתריע למשתמש לפני שיתוף/שמירה."""
+    patterns = [
+        r"ghp_[A-Za-z0-9]{36,}",
+        r"github_pat_[A-Za-z0-9_]{30,}",
+        r"AIza[0-9A-Za-z\-_]{35}",  # Google API
+        r"sk_(live|test)_[0-9A-Za-z]{20,}",  # Stripe
+        r"xox[abprs]-[0-9A-Za-z\-]{10,}",  # Slack
+        r"AWS_ACCESS_KEY_ID\s*=\s*[A-Z0-9]{16,20}",
+        r"AWS_SECRET_ACCESS_KEY\s*=\s*[A-Za-z0-9/+=]{30,}",
+        r"-----BEGIN (RSA |EC |)PRIVATE KEY-----",
+        r"(?i)(api|secret|token|key)[\s:=\"]{1,20}[A-Za-z0-9_\-]{16,}"
+    ]
+    matches = []
+    try:
+        for pat in patterns:
+            if re.search(pat, text or ''):
+                matches.append(pat)
+    except Exception:
+        pass
+    return matches
+
+
+def _cancel_long_collect_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
+    job = context.user_data.pop('long_collect_job', None)
+    try:
+        if job:
+            job.schedule_removal()
+    except Exception:
+        pass
+
+
+def _schedule_long_collect_timeout(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """קבע טיימאאוט ללא פעילות, מאופס בכל קבלת חלק."""
+    _cancel_long_collect_timeout(context)
+    try:
+        job = context.job_queue.run_once(
+            long_collect_timeout_job,
+            when=LONG_COLLECT_TIMEOUT_SECONDS,
+            data={
+                'chat_id': update.effective_chat.id if getattr(update, 'effective_chat', None) else update.callback_query.message.chat_id,
+                'user_id': update.effective_user.id,
+            },
+            name=f"long_collect_timeout:{update.effective_user.id}"
+        )
+        context.user_data['long_collect_job'] = job
+    except Exception as e:
+        logger.warning(f"Failed scheduling timeout: {e}")
+
+
+async def long_collect_timeout_job(context: ContextTypes.DEFAULT_TYPE):
+    """קריאת טיימאאוט: מסכם ומתקדם לפי חלקים שנאספו."""
+    try:
+        data = context.job.data or {}
+        chat_id = data.get('chat_id')
+        user_id = data.get('user_id')
+        # שליפת נתוני המשתמש
+        parts = context.user_data.get('long_collect_parts') or []
+        if not parts:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⏳ מצב איסוף הסתיים אוטומטית לאחר 15 דקות ללא פעילות.\nלא נאספו חלקים, ולכן המצב נסגר."
+            )
+            context.user_data.pop('long_collect_active', None)
+            _cancel_long_collect_timeout(context)
+            return
+        # סמן נעילה כדי למנוע הוספה נוספת
+        context.user_data['long_collect_locked'] = True
+        total_bytes = _get_total_bytes(parts)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"⏳ מצב איסוף נסגר לאחר חוסר פעילות.\n"
+                f"✅ נאספו {len(parts)} חלקים (סה""כ ~{total_bytes // 1024}KB).\n"
+                f"שלח/י /done לאיחוד לקובץ אחד או /cancel לביטול."
+            )
+        )
+        # נשארים בסטייט, אך נעולים להוספה נוספת עד /done או /cancel
+    except Exception as e:
+        logger.warning(f"Timeout job failed: {e}")
 
 async def start_save_flow(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
@@ -44,6 +145,8 @@ async def start_long_collect(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """כניסה למצב איסוף קוד ארוך"""
     # איפוס/אתחול רשימת החלקים
     context.user_data['long_collect_parts'] = []
+    context.user_data['long_collect_active'] = True
+    context.user_data['long_collect_locked'] = False
     await update.callback_query.answer()
     await update.callback_query.message.reply_text(
         "נכנסתי למצב איסוף קוד ✍️\n"
@@ -51,18 +154,63 @@ async def start_long_collect(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "כשתסיים/י, שלח/י /done כדי לאחד את הכל לקובץ אחד.\n"
         "אפשר גם /cancel לביטול."
     )
+    _schedule_long_collect_timeout(update, context)
     return LONG_COLLECT
 
 
 async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """קבלת חלק קוד נוסף במצב איסוף"""
-    text = update.message.text or ''
+    # אם מצב נעול בעקבות טיימאאוט, למנוע הוספה
+    if context.user_data.get('long_collect_locked'):
+        await update.message.reply_text("מצב האיסוף נעול לאחר חוסר פעילות. שלח/י /done או /cancel.")
+        return LONG_COLLECT
+
+    # התעלמות מתכנים שאינם טקסט או מסמכי טקסט
+    if update.message.document:
+        doc = update.message.document
+        mime = (doc.mime_type or '').lower()
+        if mime.startswith('text/') or doc.file_name.endswith(('.txt', '.md', '.py', '.js', '.ts', '.json', '.yml', '.yaml', '.java', '.kt', '.go', '.rs', '.c', '.cpp', '.h', '.cs', '.rb', '.php', '.swift', '.sql', '.sh', '.bat', '.ps1')):
+            # הורדה כטקסט
+            file = await doc.get_file()
+            bio = BytesIO()
+            await file.download_to_memory(out=bio)
+            text = bio.getvalue().decode('utf-8', errors='ignore')
+        else:
+            await update.message.reply_text("📎 קיבלתי קובץ שאינו טקסט. שלח/י מסמך טקסט או הדבק/י את הקוד כהודעת טקסט.")
+            return LONG_COLLECT
+    elif update.message.text:
+        text = update.message.text or ''
+    else:
+        await update.message.reply_text("🖼️ התקבלה הודעה שאינה טקסט. שלח/י קוד כהודעת טקסט או קובץ טקסט.")
+        return LONG_COLLECT
+
+    text = _sanitize_part(text)
     parts = context.user_data.get('long_collect_parts')
     if parts is None:
         parts = []
         context.user_data['long_collect_parts'] = parts
     # הוסף את החלק כפי שהוא
     parts.append(text)
+    total_bytes = _get_total_bytes(parts)
+    if total_bytes > LONG_COLLECT_MAX_BYTES:
+        # גלול אחורה את התוספת האחרונה
+        parts.pop()
+        await update.message.reply_text(
+            f"❗ חרגת מתקרת הגודל ({LONG_COLLECT_MAX_BYTES // 1024}KB). החלק האחרון לא נשמר.\n"
+            f"נוכחי: ~{total_bytes // 1024}KB (כולל נסיון החלק האחרון)."
+        )
+        return LONG_COLLECT
+
+    # רמיזת אבטחה בסיסית
+    try:
+        if _detect_secrets(text):
+            await update.message.reply_text("⚠️ שים/שימי לב: נראה שההודעה מכילה מפתח/סוד. ודא/י שלא לשתף מידע רגיש.")
+    except Exception:
+        pass
+
+    # עדכון ספירת חלקים
+    await update.message.reply_text(f"נשמר ✔️ (סה״כ {len(parts)} חלקים)")
+    _schedule_long_collect_timeout(update, context)
     # הישאר במצב האיסוף
     return LONG_COLLECT
 
@@ -77,6 +225,15 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return LONG_COLLECT
     code_text = "\n".join(parts)
     context.user_data['code_to_save'] = code_text
+    # אזהרת סודות באיחוד הכולל
+    try:
+        if _detect_secrets(code_text):
+            await update.message.reply_text("⚠️ אזהרה: בטקסט המאוחד נמצאו מפתחות/סודות פוטנציאליים. ודא/י שאין חשיפת מידע רגיש.")
+    except Exception:
+        pass
+    context.user_data.pop('long_collect_active', None)
+    context.user_data.pop('long_collect_locked', None)
+    _cancel_long_collect_timeout(context)
     # הצג הודעת סיכום והמשך לבקשת שם קובץ
     lines = len(code_text.split('\n'))
     chars = len(code_text)
