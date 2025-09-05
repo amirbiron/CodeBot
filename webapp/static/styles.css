@@ -1,0 +1,30 @@
+:root{
+  --bg:#0b1020; --panel:#121832; --muted:#8aa2c0; --text:#e9f0fb; --accent:#8ab4ff; --danger:#ff5d5d; --success:#7ee787;
+  --border:rgba(255,255,255,0.08); --hover:rgba(255,255,255,0.06);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:linear-gradient(180deg,var(--bg),#0d1428);color:var(--text);font:400 16px 'Rubik',system-ui,Segoe UI,Arial}
+.app-header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.2);backdrop-filter:saturate(140%) blur(8px);position:sticky;top:0;z-index:10}
+.brand{font-weight:700;letter-spacing:0.3px}
+.tabs{display:flex;gap:10px}
+.tab{background:transparent;color:var(--muted);border:1px solid var(--border);padding:8px 12px;border-radius:10px;cursor:pointer}
+.tab.active{color:var(--text);border-color:var(--accent);box-shadow:0 0 0 2px rgba(138,180,255,0.25) inset}
+.container{max-width:1100px;margin:20px auto;padding:0 16px}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+.toolbar .spacer{flex:1}
+.toolbar input{background:#0d1428;border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:10px;min-width:160px}
+.toolbar .hidden{display:none}
+.btn{background:#192147;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer}
+.btn:hover{background:var(--hover)}
+.btn.danger{border-color:#ff7a7a33;color:#ffd2d2;background:#3a1220}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.meta{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--muted)}
+.grid{width:100%;border-collapse:collapse}
+.grid th,.grid td{padding:10px 12px;border-bottom:1px solid var(--border)}
+.grid tbody tr:hover{background:var(--hover)}
+.pager{display:flex;justify-content:center;align-items:center;gap:10px;padding:10px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111a33;border:1px solid var(--border);padding:10px 14px;border-radius:10px}
+.hidden{display:none}
+

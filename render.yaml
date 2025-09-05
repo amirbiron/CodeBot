@@ -46,6 +46,10 @@ services:
         
       - key: HIGHLIGHT_THEME
         value: github-dark
+      - key: WEBAPP_ENABLED
+        value: "1"
+      - key: WEBAPP_PORT
+        value: "8000"
         
       - key: AUTO_BACKUP_ENABLED
         value: true

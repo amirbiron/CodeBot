@@ -75,6 +75,8 @@ alembic==1.13.1
 # Web Server
 gunicorn==23.0.0
 uvicorn==0.24.0
+fastapi==0.115.0
+pydantic==2.8.2
 whitenoise==6.6.0
 
 # File Format Support

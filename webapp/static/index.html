@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodeBot – קבצים</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">CodeBot</div>
+    <nav class="tabs">
+      <button id="tab-other" class="tab active">שאר הקבצים</button>
+      <button id="tab-repo" class="tab">לפי ריפו</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section class="toolbar">
+      <input id="userId" type="number" placeholder="User ID" />
+      <input id="search" type="search" placeholder="חיפוש בשם קובץ" />
+      <input id="repoTag" type="text" placeholder="repo:owner/name" class="hidden" />
+      <button id="refresh" class="btn">רענון</button>
+      <div class="spacer"></div>
+      <button id="bulkDelete" class="btn danger" disabled>🗑️ מחיקה מרובה</button>
+    </section>
+
+    <section class="card">
+      <div id="meta" class="meta"></div>
+      <table class="grid">
+        <thead>
+          <tr>
+            <th style="width:40px;"><input type="checkbox" id="selectAll" /></th>
+            <th>שם קובץ</th>
+            <th>שפה</th>
+            <th>עודכן</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="pager">
+        <button id="prev" class="btn" disabled>⬅️ הקודם</button>
+        <span id="pageInfo"></span>
+        <button id="next" class="btn" disabled>➡️ הבא</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+  <script>
+    // שמור עמוד נוכחי לבלוקציות
+    window.__state = { page: 1, per_page: 50, mode: 'other', selected: new Set() };
+  </script>
+</body>
+</html>
+
