@@ -55,6 +55,7 @@ class AdvancedBotHandlers:
         
         # פקודות שיתוף
         self.application.add_handler(CommandHandler("share", self.share_command))
+        self.application.add_handler(CommandHandler("share_help", self.share_help_command))
         # self.application.add_handler(CommandHandler("export", self.export_command))
         self.application.add_handler(CommandHandler("download", self.download_command))
         
@@ -522,6 +523,25 @@ class AdvancedBotHandlers:
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
             )
+
+    async def share_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """הסבר קצר על פקודת /share"""
+        reporter.report_activity(update.effective_user.id)
+        help_text = (
+            "ℹ️ פקודת /share – שיתוף קבצים\n\n"
+            "איך משתמשים:\n"
+            "• קובץ יחיד: `/share script.py`\n"
+            "• כמה קבצים: `/share app.py utils.py README.md`\n"
+            "• תבניות (wildcards): `/share *.py main.*`\n\n"
+            "מה מקבלים:\n"
+            "• 🐙 GitHub Gist – תומך גם במרובה קבצים\n"
+            "• 📋 Pastebin – קובץ יחיד בלבד\n"
+            "• 📱 קישור פנימי – יוצר לינק זמני (כשבוע)\n\n"
+            "דרישות (לא חובה לכול):\n"
+            "• Gist: צריך `GITHUB_TOKEN`\n"
+            "• Pastebin: צריך `PASTEBIN_API_KEY`\n"
+        )
+        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
     
     async def download_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הורדת קובץ"""
