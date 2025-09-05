@@ -1811,6 +1811,18 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     await application.bot.delete_my_commands()
     logger.info("✅ All public commands removed")
     
+    # הגדרת פקודות ציבוריות: share, share_help
+    try:
+        await application.bot.set_my_commands(
+            commands=[
+                BotCommand("share", "שיתוף קבצים"),
+                BotCommand("share_help", "הסבר על פקודת השיתוף"),
+            ]
+        )
+        logger.info("✅ Public commands set: share, share_help")
+    except Exception as e:
+        logger.error(f"⚠️ Error setting public commands: {e}")
+    
     # הגדרת פקודת stats רק למנהל (אמיר בירון)
     AMIR_ID = 6865105071  # ה-ID של אמיר בירון
     

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 import requests
-from github import Github
+from github import Github, InputFileContent
 from github.GithubException import GithubException
 
 from config import config
@@ -53,11 +53,7 @@ class GitHubGistIntegration:
                 description = f"קטע קוד {language} - {file_name}"
             
             # יצירת הקבצים עבור ה-Gist
-            files = {
-                file_name: {
-                    "content": code
-                }
-            }
+            files = {file_name: InputFileContent(code)}
             
             # יצירת ה-Gist
             gist = self.user.create_gist(
@@ -106,9 +102,9 @@ class GitHubGistIntegration:
             if not description:
                 description = f"שיתוף קוד מרובה קבצים ({len(files_map)})"
 
-            files: Dict[str, Dict[str, str]] = {}
+            files: Dict[str, InputFileContent] = {}
             for name, content in files_map.items():
-                files[name] = {"content": content}
+                files[name] = InputFileContent(content)
 
             gist = self.user.create_gist(
                 public=public,
