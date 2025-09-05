@@ -3,7 +3,7 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
-from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE
+from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, WAIT_ADD_CODE_MODE, LONG_COLLECT
 from services import code_service
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 async def start_save_flow(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     cancel_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
-    await update.message.reply_text(
+    # תמיכה גם בקריאה מתוך callback וגם מתוך הודעת טקסט
+    target_msg = getattr(update, "message", None)
+    if target_msg is None and getattr(update, "callback_query", None) is not None:
+        target_msg = update.callback_query.message
+    await target_msg.reply_text(
         "✨ *מצוין!* בואו נצור קוד חדש!\n\n"
         "📝 שלח לי את קטע הקוד המבריק שלך.\n"
         "💡 אני אזהה את השפה אוטומטית ואארגן הכל!",
@@ -19,6 +23,76 @@ async def start_save_flow(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         parse_mode='Markdown',
     )
     return GET_CODE
+
+
+async def start_add_code_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט בחירת מצב הוספת קוד: רגיל או איסוף ארוך"""
+    keyboard = [
+        [InlineKeyboardButton("🧩 קוד רגיל", callback_data="add_code_regular")],
+        [InlineKeyboardButton("✍️ איסוף קוד ארוך", callback_data="add_code_long")],
+        [InlineKeyboardButton("❌ ביטול", callback_data="cancel")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "איך תרצו להוסיף קוד?",
+        reply_markup=reply_markup
+    )
+    return WAIT_ADD_CODE_MODE
+
+
+async def start_long_collect(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """כניסה למצב איסוף קוד ארוך"""
+    # איפוס/אתחול רשימת החלקים
+    context.user_data['long_collect_parts'] = []
+    await update.callback_query.answer()
+    await update.callback_query.message.reply_text(
+        "נכנסתי למצב איסוף קוד ✍️\n"
+        "שלח/י את חלקי הקוד בהודעות נפרדות.\n"
+        "כשתסיים/י, שלח/י /done כדי לאחד את הכל לקובץ אחד.\n"
+        "אפשר גם /cancel לביטול."
+    )
+    return LONG_COLLECT
+
+
+async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """קבלת חלק קוד נוסף במצב איסוף"""
+    text = update.message.text or ''
+    parts = context.user_data.get('long_collect_parts')
+    if parts is None:
+        parts = []
+        context.user_data['long_collect_parts'] = parts
+    # הוסף את החלק כפי שהוא
+    parts.append(text)
+    # הישאר במצב האיסוף
+    return LONG_COLLECT
+
+
+async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """סיום איסוף, איחוד ושילוב לזרימת שמירה רגילה"""
+    parts = context.user_data.get('long_collect_parts') or []
+    if not parts:
+        await update.message.reply_text(
+            "לא התקבלו חלקים עדיין. שלח/י קוד, או /cancel לביטול."
+        )
+        return LONG_COLLECT
+    code_text = "\n".join(parts)
+    context.user_data['code_to_save'] = code_text
+    # הצג הודעת סיכום והמשך לבקשת שם קובץ
+    lines = len(code_text.split('\n'))
+    chars = len(code_text)
+    words = len(code_text.split())
+    await update.message.reply_text(
+        "📝 כל החלקים אוחדו בהצלחה.\n"
+        "הנה הקובץ המלא.\n\n"
+        f"📊 **סטטיסטיקות מהירות:**\n"
+        f"• 📏 שורות: {lines:,}\n"
+        f"• 🔤 תווים: {chars:,}\n"
+        f"• 📝 מילים: {words:,}\n\n"
+        f"💭 עכשיו תן לי שם קובץ חכם (למשל: `my_amazing_script.py`)\n"
+        f"🧠 השם יעזור לי לזהות את השפה ולארגן הכל מושלם!",
+        parse_mode='Markdown',
+    )
+    return GET_FILENAME
 
 
 async def get_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
