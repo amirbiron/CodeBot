@@ -1309,7 +1309,7 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_document(
             document=file_bytes,
             filename=file_name,
-            caption=f"📥 *הורדת קובץ*\n\n📄 **שם:** `{file_name}`\n📏 **גודל:** {len(code):,} תווים"
+            caption=f"📥 הורדת קובץ\n\n📄 שם: `{file_name}`\n📏 גודל: {len(code):,} תווים"
         )
         
         keyboard = []
@@ -1321,10 +1321,9 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            f"✅ *הקובץ הורד בהצלחה!*\n\n"
-            f"📄 **שם:** `{file_name}`",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
+            f"✅ הקובץ הורד בהצלחה!\n\n"
+            f"📄 שם: `{file_name}`",
+            reply_markup=reply_markup
         )
         
     except Exception as e:
