@@ -69,3 +69,59 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - בצעו git restore/git checkout לקבצים או git revert לקומיטים
 - אם אין היסטוריה מקומית: שחזרו מ-CI artifacts/ענף גיבוי/מכונה אחרת
 
+---
+
+# קישור לתיעוד והקשר
+
+- קראו והסתמכו על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
+- קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד.
+
+# כללי שימוש ב-AI/CodeBot
+
+- כל שינוי שמוצע ע״י AI עובר code review אנושי לפני merge.
+- אין להזין סודות, מפתחות או PII לפרומפטים או קבצי הקשר.
+- פקודות שמורצות אוטומטית: ללא sudo, לא אינטראקטיביות, ורק בתיקיות tmp.
+- תעדו ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו.
+
+# Android/Kotlin/Compose
+
+- Kotlin: העדיפו val על var, אי-שינוי, data/sealed classes, Null-safety ברורה.
+- Concurrency: Coroutines עם Structured Concurrency, שימוש ב-viewModelScope/CoroutineScope נכון.
+- זרימות נתונים: העדיפו Flow, מיפוי ב-Repository, Dispatchers מתאימים (IO/Default).
+- ארכיטקטורה: MVVM, Single Source of Truth, Repository/UseCases, DI עם Hilt.
+- Compose: State hoisting, remember/derivedStateOf, הימנעות מ-side effects בתוך Composables, שימוש ב-LaunchedEffect/DisposableEffect, בדיקות עם compose-ui-test.
+
+# Commit/PR
+
+- Conventional Commits (feat/fix/chore/docs/refactor/test/build).
+- לפני merge: תיאור ברור, תוכנית בדיקות, סיכוני Rollback, עדכון docs.
+- UI: צרפו צילום/וידאו תוצאות אם רלוונטי.
+
+# CI Gates
+
+- חובת מעבר: ./gradlew test detekt ktlintCheck ירוק.
+- אין להריץ git clean/reset על ה-workspace; עבודה רק על תיקיות זמניות.
+- טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט.
+
+# סודות ולוגים
+
+- אין לשמור סודות בקוד או בלוגים; שימוש ב-ENV/Secret Manager.
+- אל תרשמו PII; בצעו השחרה (redaction) לערכים רגישים בלוגים.
+
+# מעטפת Bash למחיקה בטוחה
+
+```bash
+set -euo pipefail
+IFS=$'\n\t'
+safe_rmrf() {
+  local target="${1:-}"; local allow_under="${2:-}"
+  [[ -z "$target" || -z "$allow_under" ]] && { echo "empty path"; exit 1; }
+  local rp_target rp_base
+  rp_target="$(readlink -f -- "$target")"
+  rp_base="$(readlink -f -- "$allow_under")"
+  [[ "$rp_target" == "/" || "$rp_target" == "$HOME" || "$rp_target" == "$PWD" ]] && { echo "unsafe"; exit 1; }
+  [[ "$rp_target" != "$rp_base"/* ]] && { echo "outside allowlist"; exit 1; }
+  rm -rf -- "$rp_target"
+}
+```
+
