@@ -131,7 +131,7 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            return list(self.manager.collection.aggregate(pipeline))
+            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
         except Exception as e:
             logger.error(f"שגיאה בקבלת קבצי משתמש: {e}")
             return []
@@ -154,7 +154,7 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            return list(self.manager.collection.aggregate(pipeline))
+            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
         except Exception as e:
             logger.error(f"שגיאה בחיפוש קוד: {e}")
             return []
@@ -206,7 +206,7 @@ class Repository:
                     "latest_activity": {"$max": "$latest_update"},
                 }},
             ]
-            result = list(self.manager.collection.aggregate(pipeline))
+            result = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             if result:
                 stats = result[0]
                 stats.pop('_id', None)
