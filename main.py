@@ -1831,11 +1831,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # הגדר את פקודת stats רק לאמיר
         await application.bot.set_my_commands(
             commands=[
-                BotCommand("stats", "📊 סטטיסטיקות שימוש")
+                BotCommand("share", "שיתוף קבצים"),
+                BotCommand("share_help", "הסבר על פקודת השיתוף"),
+                BotCommand("stats", "📊 סטטיסטיקות שימוש"),
             ],
             scope=BotCommandScopeChat(chat_id=AMIR_ID)
         )
-        logger.info(f"✅ Stats command set for Amir (ID: {AMIR_ID})")
+        logger.info(f"✅ Commands set for Amir (ID: {AMIR_ID}): share, share_help, stats")
         
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
