@@ -1842,8 +1842,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
     
-    # הפעלת שרת קטן ל-/health ו-/share/<id> רק אם יש צורך ציבורי
-    if config.PUBLIC_BASE_URL:
+    # הפעלת שרת קטן ל-/health ו-/share/<id> — כבוי כברירת מחדל
+    enable_internal_web = str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
+    if enable_internal_web and config.PUBLIC_BASE_URL:
         try:
             from services.webserver import create_app
             aiohttp_app = create_app()
@@ -1859,7 +1860,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         except Exception as e:
             logger.error(f"⚠️ Failed to start internal web server: {e}")
     else:
-        logger.info("ℹ️ Skipping internal web server (PUBLIC_BASE_URL not set)")
+        logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
 
 if __name__ == "__main__":
     main()
