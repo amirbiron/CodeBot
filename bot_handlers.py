@@ -70,7 +70,14 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         
         # Callback handlers לכפתורים
+        # Handler כללי (תאימות לאחור)
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+        # Handler ממוקד עם קדימות גבוהה לכפתורי /share
+        try:
+            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share|noop)'
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
+        except Exception:
+            pass
     
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
