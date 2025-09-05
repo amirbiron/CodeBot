@@ -8,6 +8,7 @@ import io
 import logging
 import re
 import html
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -400,49 +401,100 @@ class AdvancedBotHandlers:
         await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
     
     async def share_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """שיתוף קטע קוד ב-Gist או Pastebin"""
+        """שיתוף קטע(י) קוד ב-Gist/Pastebin/קישור פנימי. תומך בשם יחיד או שמות מרובים."""
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         if not context.args:
             await update.message.reply_text(
-                "🌐 אנא ציין שם קובץ לשיתוף:\n"
-                "דוגמה: `/share script.py`",
+                "🌐 אנא ציין שם קובץ או כמה שמות, מופרדים ברווח:\n"
+                "דוגמאות:\n"
+                "• `/share script.py`\n"
+                "• `/share app.py utils.py README.md`",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
         
-        file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
-        
-        if not file_data:
+        # תמיכה בשמות מרובים
+        requested_names: List[str] = context.args
+        # ניקוי כפילויות, שימור סדר
+        seen: set = set()
+        file_names: List[str] = []
+        for name in requested_names:
+            if name not in seen:
+                seen.add(name)
+                file_names.append(name)
+
+        # שליפת פרטי הקבצים
+        found_files: List[Dict[str, Any]] = []
+        missing: List[str] = []
+        for fname in file_names:
+            data = db.get_latest_version(user_id, fname)
+            if data:
+                found_files.append(data)
+            else:
+                missing.append(fname)
+
+        if not found_files:
             await update.message.reply_text(
-                f"❌ קובץ `{file_name}` לא נמצא.",
+                "❌ לא נמצאו קבצים לשיתוף.",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
-        
-        # כפתורי אפשרויות שיתוף
-        keyboard = [
-            [
-                InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_{file_name}"),
-                InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
-                InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+
+        # קידוד מזהה הקשר לשיתוף מרובה קבצים
+        if len(found_files) == 1:
+            single = found_files[0]
+            file_name = single['file_name']
+            keyboard = [
+                [
+                    InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_{file_name}"),
+                    InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_{file_name}")
+                ],
+                [
+                    InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ]
             ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            f"🌐 **שיתוף קובץ:** `{file_name}`\n\n"
-            f"🔤 שפה: {file_data['programming_language']}\n"
-            f"📏 גודל: {len(file_data['code'])} תווים\n\n"
-            f"בחר אופן שיתוף:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=reply_markup
-        )
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"🌐 **שיתוף קובץ:** `{file_name}`\n\n"
+                f"🔤 שפה: {single['programming_language']}\n"
+                f"📏 גודל: {len(single['code'])} תווים\n\n"
+                f"בחר אופן שיתוף:",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
+        else:
+            # רישום מזהה ייחודי לרשימת הקבצים אצל המשתמש
+            share_id = secrets.token_urlsafe(8)
+            if 'multi_share' not in context.user_data:
+                context.user_data['multi_share'] = {}
+            # נשמור מיפוי share_id -> רשימת שמות קבצים
+            context.user_data['multi_share'][share_id] = [f['file_name'] for f in found_files]
+
+            files_list_preview = "\n".join([f"• `{f['file_name']}` ({len(f['code'])} תווים)" for f in found_files[:10]])
+            more = "" if len(found_files) <= 10 else f"\n(ועוד {len(found_files)-10} קבצים...)"
+
+            keyboard = [
+                [
+                    InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}"),
+                    InlineKeyboardButton("📋 Pastebin (לא תומך מרובה)", callback_data="noop")
+                ],
+                [
+                    InlineKeyboardButton("📱 קישור פנימי (מרובה)", callback_data=f"share_internal_multi:{share_id}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                f"🌐 **שיתוף מספר קבצים ({len(found_files)}):**\n\n"
+                f"{files_list_preview}{more}\n\n"
+                f"בחר אופן שיתוף:",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=reply_markup
+            )
     
     async def download_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הורדת קובץ"""
@@ -601,6 +653,14 @@ class AdvancedBotHandlers:
             elif data == "cancel_share":
                 await query.edit_message_text("❌ השיתוף בוטל.")
             
+            elif data.startswith("share_gist_multi:"):
+                share_id = data.split(":", 1)[1]
+                await self._share_to_gist_multi(query, context, user_id, share_id)
+            
+            elif data.startswith("share_internal_multi:"):
+                share_id = data.split(":", 1)[1]
+                await self._share_internal_multi(query, context, user_id, share_id)
+            
             elif data.startswith("download_"):
                 file_name = data.replace("download_", "")
                 await self._send_file_download(query, user_id, file_name)
@@ -754,6 +814,90 @@ class AdvancedBotHandlers:
         except Exception as e:
             logger.error(f"שגיאה ביצירת קישור פנימי: {e}")
             await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
+
+    async def _share_to_gist_multi(self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, share_id: str):
+        """שיתוף מספר קבצים לגיסט אחד"""
+        from integrations import gist_integration
+        files_map: Dict[str, str] = {}
+        names: List[str] = (context.user_data.get('multi_share', {}).get(share_id) or [])
+        if not names:
+            await query.edit_message_text("❌ לא נמצאה רשימת קבצים עבור השיתוף.")
+            return
+        for fname in names:
+            data = db.get_latest_version(user_id, fname)
+            if data:
+                files_map[data['file_name']] = data['code']
+        if not files_map:
+            await query.edit_message_text("❌ לא נמצאו קבצים פעילים לשיתוף.")
+            return
+        if not config.GITHUB_TOKEN:
+            await query.edit_message_text("❌ שיתוף ב-Gist לא זמין - אין GITHUB_TOKEN.")
+            return
+        try:
+            description = f"שיתוף מרובה קבצים ({len(files_map)}) דרך {config.BOT_LABEL}"
+            result = gist_integration.create_gist_multi(files_map=files_map, description=description, public=True)
+            if not result or not result.get("url"):
+                await query.edit_message_text("❌ יצירת Gist מרובה קבצים נכשלה.")
+                return
+            await query.edit_message_text(
+                f"🐙 **שותף ב-GitHub Gist (מרובה קבצים)!**\n\n"
+                f"📄 קבצים: {len(files_map)}\n"
+                f"🔗 קישור: {result['url']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"שגיאה בשיתוף גיסט מרובה: {e}")
+            await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
+        finally:
+            try:
+                context.user_data.get('multi_share', {}).pop(share_id, None)
+            except Exception:
+                pass
+
+    async def _share_internal_multi(self, query, context: ContextTypes.DEFAULT_TYPE, user_id: int, share_id: str):
+        """יצירת קישור פנימי למספר קבצים — מאחד לקובץ טקסט אחד"""
+        from integrations import code_sharing
+        names: List[str] = (context.user_data.get('multi_share', {}).get(share_id) or [])
+        if not names:
+            await query.edit_message_text("❌ לא נמצאה רשימת קבצים עבור השיתוף.")
+            return
+        # נאחד לקובץ טקסט אחד קצר עם מפרידים
+        bundle_parts: List[str] = []
+        lang_hint = None
+        for fname in names:
+            data = db.get_latest_version(user_id, fname)
+            if data:
+                lang_hint = lang_hint or data['programming_language']
+                bundle_parts.append(f"// ==== {data['file_name']} ====\n{data['code']}\n")
+        if not bundle_parts:
+            await query.edit_message_text("❌ לא נמצאו קבצים לשיתוף פנימי.")
+            return
+        combined_code = "\n".join(bundle_parts)
+        try:
+            result = await code_sharing.share_code(
+                service="internal",
+                file_name=f"bundle-{share_id}.txt",
+                code=combined_code,
+                language=lang_hint or "text",
+                description=f"שיתוף פנימי מרובה קבצים ({len(names)})"
+            )
+            if not result or not result.get("url"):
+                await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
+                return
+            await query.edit_message_text(
+                f"📱 **נוצר קישור פנימי (מרובה קבצים)!**\n\n"
+                f"📄 קבצים: {len(names)}\n"
+                f"🔗 קישור: {result['url']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"שגיאה בקישור פנימי מרובה: {e}")
+            await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
+        finally:
+            try:
+                context.user_data.get('multi_share', {}).pop(share_id, None)
+            except Exception:
+                pass
 
     async def _send_file_download(self, query, user_id: int, file_name: str):
         file_data = db.get_latest_version(user_id, file_name)
