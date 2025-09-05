@@ -218,8 +218,8 @@ class DatabaseManager:
     def save_code_snippet(self, snippet) -> bool:
         return self._get_repo().save_code_snippet(snippet)
 
-    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str) -> bool:
-        return self._get_repo().save_file(user_id, file_name, code, programming_language)
+    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: List[str] = None) -> bool:
+        return self._get_repo().save_file(user_id, file_name, code, programming_language, extra_tags)
 
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_latest_version(user_id, file_name)
