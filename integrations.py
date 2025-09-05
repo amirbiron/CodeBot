@@ -46,7 +46,7 @@ class GitHubGistIntegration:
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
             return None
-        
+
         try:
             # הכנת תיאור
             if not description:
@@ -95,6 +95,54 @@ class GitHubGistIntegration:
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist: {e}")
+            return None
+
+    def create_gist_multi(self, files_map: Dict[str, str], description: str = "", public: bool = True) -> Optional[Dict[str, Any]]:
+        """יצירת Gist עם מספר קבצים"""
+        if not self.is_available():
+            logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
+            return None
+        try:
+            if not description:
+                description = f"שיתוף קוד מרובה קבצים ({len(files_map)})"
+
+            files: Dict[str, Dict[str, str]] = {}
+            for name, content in files_map.items():
+                files[name] = {"content": content}
+
+            gist = self.user.create_gist(
+                public=public,
+                files=files,
+                description=description
+            )
+
+            result: Dict[str, Any] = {
+                "id": gist.id,
+                "url": gist.html_url,
+                "git_pull_url": gist.git_pull_url,
+                "git_push_url": gist.git_push_url,
+                "created_at": gist.created_at.isoformat(),
+                "description": gist.description,
+                "public": gist.public,
+                "files": {}
+            }
+
+            for name, file_obj in gist.files.items():
+                result["files"][name] = {
+                    "filename": file_obj.filename,
+                    "type": file_obj.type,
+                    "language": file_obj.language,
+                    "size": file_obj.size,
+                    "raw_url": file_obj.raw_url
+                }
+
+            logger.info(f"נוצר Gist מרובה קבצים בהצלחה: {gist.html_url}")
+            return result
+        except GithubException as e:
+            logger.error(f"שגיאה ביצירת Gist מרובה קבצים: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"שגיאה כללית ביצירת Gist מרובה קבצים: {e}")
             return None
     
     def update_gist(self, gist_id: str, file_name: str, new_code: str) -> Optional[Dict[str, Any]]:
