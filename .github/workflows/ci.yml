@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [ '**' ]
     types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - ".cursorrules"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +14,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
 
@@ -142,6 +144,7 @@ MD
   code-quality:
     name: "🔍 Code Quality & Security"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -181,6 +184,7 @@ MD
   unit-tests:
     name: "🧪 Unit Tests (${{ matrix.python-version }})"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -305,6 +309,7 @@ MD
     name: "Alembic migrations check"
 
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
