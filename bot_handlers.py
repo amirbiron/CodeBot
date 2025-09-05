@@ -900,11 +900,14 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
+<<<<<<< HEAD
             if not config.PUBLIC_BASE_URL:
                 await query.edit_message_text(
                     "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
                     "באפשרותך להשתמש ב-Gist/Pastebin במקום.")
                 return
+=======
+>>>>>>> origin/main
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
             expiry_line = f"⏳ תוקף: {expires_iso}"
@@ -1009,11 +1012,14 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
+<<<<<<< HEAD
             if not config.PUBLIC_BASE_URL:
                 await query.edit_message_text(
                     "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
                     "באפשרותך להשתמש ב-Gist במרובה קבצים.")
                 return
+=======
+>>>>>>> origin/main
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
             expiry_line = f"⏳ תוקף: {expires_iso}"
