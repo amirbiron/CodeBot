@@ -246,8 +246,14 @@ class DatabaseManager:
     def search_code(self, user_id: int, query: str, programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
         return self._get_repo().search_code(user_id, query, programming_language, tags, limit)
 
+    def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
+        return self._get_repo().get_user_files_by_repo(user_id, repo_tag, page, per_page)
+
     def delete_file(self, user_id: int, file_name: str) -> bool:
         return self._get_repo().delete_file(user_id, file_name)
+
+    def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
+        return self._get_repo().soft_delete_files_by_names(user_id, file_names)
 
     def delete_file_by_id(self, file_id: str) -> int:
         return self._get_repo().delete_file_by_id(file_id)

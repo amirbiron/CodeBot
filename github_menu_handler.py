@@ -711,6 +711,74 @@ class GitHubMenuHandler:
         elif query.data.startswith("gh_upload_repo:"):
             tag = query.data.split(":", 1)[1]
             await self.show_upload_repo_files(update, context, tag)
+        elif query.data.startswith("other_files_page_"):
+            try:
+                p = int(query.data.split("_")[-1])
+            except Exception:
+                p = 1
+            # שמירת עמוד, כדי שלא נקפוץ לעמוד הראשון אחרי פעולה
+            context.user_data["other_files_page"] = max(1, p)
+            await self.show_upload_other_files(update, context)
+        elif query.data.startswith("toggle_other_file:"):
+            fid = query.data.split(":", 1)[1]
+            sel = set(context.user_data.get("other_files_selected", []))
+            if fid in sel:
+                sel.remove(fid)
+            else:
+                sel.add(fid)
+            context.user_data["other_files_selected"] = list(sel)
+            # הישאר באותו עמוד
+            await self.show_upload_other_files(update, context)
+        elif query.data == "other_files_delete":
+            sel = list(context.user_data.get("other_files_selected", []))
+            if not sel:
+                await query.answer("לא נבחרו קבצים", show_alert=True)
+            else:
+                # שלב 1: אישור
+                kb = [
+                    [InlineKeyboardButton("🚫 בטל", callback_data="other_files_cancel_delete"),
+                     InlineKeyboardButton("✅ אשר מחיקה", callback_data="other_files_confirm_delete")]
+                ]
+                await query.edit_message_text(
+                    f"אתה עומד למחוק {len(sel)} קבצים (מחיקה רכה). להמשיך?",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+        elif query.data == "other_files_cancel_delete":
+            await self.show_upload_other_files(update, context)
+        elif query.data == "other_files_confirm_delete":
+            # מחיקה רכה לפי שמות הקבצים שנבחרו
+            try:
+                from bson import ObjectId
+                from database import db
+                user_id = update.effective_user.id
+                sel_ids = list(context.user_data.get("other_files_selected", []))
+                if not sel_ids:
+                    await update.callback_query.answer("לא נבחרו קבצים", show_alert=True)
+                    return
+                # קבל שמות לפי ids
+                docs = list(db.collection.find({"_id": {"$in": [ObjectId(s) for s in sel_ids]}, "user_id": user_id}))
+                names = [d.get("file_name") for d in docs if d.get("file_name")]
+                deleted = db.soft_delete_files_by_names(user_id, names)
+                # נקה בחירה, הישאר באותו עמוד
+                context.user_data["other_files_selected"] = []
+                await update.callback_query.answer(f"נמחקו {deleted} קבצים (is_active=false)", show_alert=True)
+            except Exception as e:
+                await update.callback_query.answer(f"שגיאה במחיקה: {e}", show_alert=True)
+            # רענון המסך הנוכחי ללא קפיצה לעמוד ראשון
+            await self.show_upload_other_files(update, context)
+        elif query.data.startswith("repo_files_page:"):
+            # פורמט: repo_files_page:<repo_tag>:<page>
+            try:
+                _, repo_tag, page_s = query.data.split(":", 2)
+                page = int(page_s)
+            except Exception:
+                repo_tag, page = None, 1
+            if repo_tag:
+                # שמור עמוד נוכחי לכל תגית
+                d = context.user_data.get("repo_files_page") or {}
+                d[repo_tag] = page
+                context.user_data["repo_files_page"] = d
+                await self.show_upload_repo_files(update, context, repo_tag)
         elif query.data.startswith("gh_upload_large:"):
             file_id = query.data.split(":", 1)[1]
             await self.handle_large_file_upload(update, context, file_id)
@@ -2189,32 +2257,71 @@ class GitHubMenuHandler:
  
 
     async def show_upload_other_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים"""
+        """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים, עם עימוד ובחירה מרובה למחיקה"""
         user_id = update.effective_user.id
         from database import db
         query = update.callback_query
         try:
+            # קריאת נתונים
             all_files = db.get_user_files(user_id, limit=1000)
-            # שלוף שמות קבצים גדולים כדי להחריג
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
             large_names = {lf.get('file_name') for lf in large_files if lf.get('file_name')}
-            # סינון: ללא תגיות repo: וללא קבצים גדולים
+
             other_files = []
             for f in all_files:
                 name = f.get('file_name')
                 tags = f.get('tags') or []
                 if name and name not in large_names and not any(isinstance(t, str) and t.startswith('repo:') for t in tags):
                     other_files.append(f)
+
             if not other_files:
                 await query.edit_message_text("ℹ️ אין 'שאר קבצים' להצגה (לא מתויגים כריפו ואינם גדולים)")
                 return
+
+            # מצב עמוד ובחירה
+            try:
+                page = int(context.user_data.get("other_files_page", 1))
+            except Exception:
+                page = 1
+            per_page = 50
+            total = len(other_files)
+            pages = max(1, (total + per_page - 1) // per_page)
+            if page > pages:
+                page = pages
+                context.user_data["other_files_page"] = page
+            start = (page - 1) * per_page
+            end = start + per_page
+            page_items = other_files[start:end]
+
+            selected_ids = set(context.user_data.get("other_files_selected", []))
+
+            # בניית מקלדת עם סימון
             keyboard = []
-            for f in other_files[:50]:
+            for f in page_items:
                 fid = str(f.get('_id'))
                 name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+                mark = "✅" if fid in selected_ids else "⬜️"
+                keyboard.append([InlineKeyboardButton(f"{mark} {name}", callback_data=f"toggle_other_file:{fid}")])
+
+            # ניווט עמודים
+            nav = []
+            if page > 1:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"other_files_page_{page-1}"))
+            if page < pages:
+                nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"other_files_page_{page+1}"))
+            if nav:
+                keyboard.append(nav)
+
+            # כפתור מחיקה מרובה אם יש בחירה
+            if selected_ids:
+                keyboard.append([InlineKeyboardButton(f"🗑️ מחיקה מרובה ({len(selected_ids)})", callback_data="other_files_delete")])
+
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="upload_file")])
-            await query.edit_message_text("בחר/י קובץ להעלאה (שאר הקבצים):", reply_markup=InlineKeyboardMarkup(keyboard))
+
+            await query.edit_message_text(
+                f"בחר/י קבצים (שאר הקבצים) — עמוד {page}/{pages} | נבחרו {len(selected_ids)}:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת 'שאר הקבצים': {e}")
 
@@ -2241,24 +2348,41 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת רשימת ריפואים: {e}")
     async def show_upload_repo_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE,_repo_tag: str):
-        """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם"""
+        """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם עם עימוד"""
         user_id = update.effective_user.id
         from database import db
         query = update.callback_query
         try:
             repo_tag = _repo_tag
-            # שלוף קבצים תחת התגית
-            files = db.search_code(user_id, query="", tags=[repo_tag], limit=100)
+            # עימוד: קרא מה-context או התחל בעמוד 1
+            try:
+                page = int((context.user_data.get("repo_files_page") or {}).get(repo_tag, 1))
+            except Exception:
+                page = 1
+            per_page = 50
+            files, total = db.get_user_files_by_repo(user_id, repo_tag, page=page, per_page=per_page)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים תחת התגית הזו")
                 return
+            pages = max(1, (total + per_page - 1) // per_page)
+            # בניית כפתורים
             keyboard = []
-            for f in files[:50]:
+            for f in files:
                 fid = str(f.get('_id'))
                 name = f.get('file_name', 'ללא שם')
                 keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+            nav = []
+            if page > 1:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"repo_files_page:{repo_tag}:{page-1}"))
+            if page < pages:
+                nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"repo_files_page:{repo_tag}:{page+1}"))
+            if nav:
+                keyboard.append(nav)
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="gh_upload_cat:repos")])
-            await query.edit_message_text(f"בחר/י קובץ להעלאה מהתגית {repo_tag}:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
+                f"בחר/י קובץ להעלאה מהתגית {repo_tag} (עמוד {page}/{pages}, סך הכל {total}):",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת קבצים: {e}")
 

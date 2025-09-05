@@ -159,6 +159,37 @@ class Repository:
             logger.error(f"שגיאה בחיפוש קוד: {e}")
             return []
 
+    def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
+        """מחזיר קבצים לפי תגית ריפו עם דפדוף, וכן ספירת סה"כ קבצים (distinct לפי file_name)."""
+        try:
+            skip = max(0, (page - 1) * per_page)
+            match_stage = {"user_id": user_id, "is_active": True, "tags": repo_tag}
+
+            # שלוף פריטים בעמוד
+            items_pipeline = [
+                {"$match": match_stage},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$sort": {"updated_at": -1}},
+                {"$skip": skip},
+                {"$limit": per_page},
+            ]
+            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
+
+            # ספירת סה"כ (distinct שמות קבצים)
+            count_pipeline = [
+                {"$match": match_stage},
+                {"$group": {"_id": "$file_name"}},
+                {"$count": "count"},
+            ]
+            cnt_res = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
+            total = int((cnt_res[0]["count"]) if cnt_res else 0)
+            return items, total
+        except Exception as e:
+            logger.error(f"שגיאה בקבלת קבצי ריפו: {e}")
+            return [], 0
+
     def delete_file(self, user_id: int, file_name: str) -> bool:
         try:
             result = self.manager.collection.update_many(
@@ -172,6 +203,21 @@ class Repository:
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ: {e}")
             return False
+
+    def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
+        """מחיקה רכה (is_active=false) למספר קבצים לפי שמות."""
+        if not file_names:
+            return 0
+        try:
+            result = self.manager.collection.update_many(
+                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}},
+                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
+            )
+            cache.invalidate_user_cache(user_id)
+            return int(result.modified_count or 0)
+        except Exception as e:
+            logger.error(f"שגיאה במחיקה רכה מרובה: {e}")
+            return 0
 
     def delete_file_by_id(self, file_id: str) -> int:
         try:
