@@ -35,7 +35,7 @@ class Repository:
             logger.error(f"שגיאה בשמירת קטע קוד: {e}")
             return False
 
-    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str) -> bool:
+    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
         # Preserve existing description and tags when creating a new version during edits
         try:
             existing = self.get_latest_version(user_id, file_name)
@@ -52,13 +52,31 @@ class Repository:
                 prev_tags = list(existing.get('tags') or [])
             except Exception:
                 prev_tags = []
+        # Merge previous tags with any extra_tags provided (deduplicated, preserve order)
+        merged_tags: List[str] = []
+        try:
+            merged_source = list(prev_tags) + (list(extra_tags) if extra_tags else [])
+            seen = set()
+            for t in merged_source:
+                if not isinstance(t, str):
+                    continue
+                ts = t.strip()
+                if not ts:
+                    continue
+                if ts in seen:
+                    continue
+                seen.add(ts)
+                merged_tags.append(ts)
+        except Exception:
+            # Fallback safely to previous tags if anything goes wrong
+            merged_tags = list(prev_tags)
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=file_name,
             code=code,
             programming_language=programming_language,
             description=prev_description,
-            tags=prev_tags,
+            tags=merged_tags,
         )
         return self.save_code_snippet(snippet)
 

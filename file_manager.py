@@ -404,7 +404,8 @@ class BackupManager:
                                 results["errors"].append(f"decode failed for {name}: {e}")
                                 continue
                         lang = detect_language_from_filename(name)
-                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang)
+                        # העברת extra_tags כדי לתייג כל קובץ מיובא (למשל repo:owner/name)
+                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang, extra_tags=(extra_tags or []))
                         if ok:
                             results["restored_files"] += 1
                         else:

@@ -383,7 +383,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # - קבצים גדולים אינם מוחזרים כאן ממילא
         # - קבצי ZIP אינם חלק ממסד הקבצים
         # - קבצים עם תגית repo: יוצגו תחת "לפי ריפו" ולכן יוחרגו כאן
-        all_files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         # מסך בחירה: 4 כפתורים
@@ -475,7 +475,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     from database import db
     
     try:
-        all_files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         if not files:
@@ -546,7 +546,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     from database import db
     try:
         # קרא את כל הקבצים כדי לחשב עימוד, אך הצג רק "שאר הקבצים"
-        all_files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         if not files:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
@@ -1930,28 +1930,83 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             action = data.split(":", 1)[1]
             return await execute_batch_on_current_selection(update, context, action)
         elif data.startswith("by_repo:"):
-            # הצגת קבצים לפי תגית ריפו
+            # הצגת קבצים לפי תגית ריפו + אפשרות מחיקה מרוכזת
             tag = data.split(":", 1)[1]
             # סימון מקור הרשימה: "לפי ריפו" עם התגית שנבחרה
             context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=200)
+            files = db.search_code(user_id, query="", tags=[tag], limit=10000)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים עבור התגית הזו.")
                 return ConversationHandler.END
             keyboard = []
+            # שמירת קאש לכל הקבצים לשימוש בעימוד/פתיחה
+            context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
-                # שמור קאש קל להצגה
-                context.user_data.setdefault('files_cache', {})[str(i)] = f
+                context.user_data['files_cache'][str(i)] = f
+            # פעולת מחיקה לריפו הנוכחי
+            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"repo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
                 f"📂 קבצים עם {tag}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+        elif data.startswith("repo_delete_confirm:"):
+            # שלב אישור ראשון למחיקת כל הקבצים תחת תגית ריפו
+            tag = data.split(":", 1)[1]
+            from database import db
+            user_id = update.effective_user.id
+            files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            total = len(files)
+            warn_text = (
+                f"⚠️ עומד/ת למחוק <b>{total}</b> קבצים תחת התגית <code>{tag}</code>\n"
+                "פעולה זו תסמן את הקבצים כלא־פעילים ולא תימחק פיזית קבצי ZIP/גדולים.\n\n"
+                "אם זה בטעות, חזור אחורה."
+            )
+            kb = [
+                [InlineKeyboardButton("✅ אני מאשר/ת", callback_data=f"repo_delete_double_confirm:{tag}")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data=f"by_repo:{tag}")],
+            ]
+            await query.edit_message_text(warn_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        elif data.startswith("repo_delete_double_confirm:"):
+            # שלב אישור שני
+            tag = data.split(":", 1)[1]
+            text2 = (
+                "🧨 אישור סופי למחיקה\n"
+                f"כל הקבצים תחת <code>{tag}</code> יימחקו (יוגדרו כלא־פעילים).\n"
+                "הפעולה בלתי הפיכה."
+            )
+            kb = [
+                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"repo_delete_do:{tag}")],
+                [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
+            ]
+            await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        elif data.startswith("repo_delete_do:"):
+            # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
+            tag = data.split(":", 1)[1]
+            from database import db
+            user_id = update.effective_user.id
+            files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            deleted = 0
+            for f in files:
+                name = f.get('file_name')
+                if not name:
+                    continue
+                try:
+                    if db.delete_file(user_id, name):
+                        deleted += 1
+                except Exception:
+                    continue
+            msg = f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code>."
+            kb = [
+                [InlineKeyboardButton("🔙 חזור לתפריט ריפו", callback_data="by_repo_menu")],
+                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
+            ]
+            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
         elif data.startswith("batch_zip_page_"):
             try:
                 p = int(data.split("_")[-1])

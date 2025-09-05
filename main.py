@@ -1258,15 +1258,65 @@ class CodeKeeperBot:
                     await update.message.reply_text("❌ הקובץ שהועלה אינו ZIP תקין.")
                     return
                 # נסה לקרוא metadata כדי לצרף תגית repo
-                import json
+                import json, re
                 repo_tag = []
+                # 1) נסה metadata.json כפי שמיוצר ע"י זרימות הבוט
                 try:
                     with zipfile.ZipFile(tmp_path, 'r') as zf:
                         md = json.loads(zf.read('metadata.json'))
                         if md.get('repo'):
                             repo_tag = [f"repo:{md['repo']}"]
                 except Exception:
-                    pass
+                    repo_tag = []
+                # 2) אם אין מטאדטה: נסה לגלות owner/name מתוך תיקיית השורש של GitHub ZIP או שם הקובץ
+                if not repo_tag:
+                    try:
+                        def _parse_repo_full_from_label(label: str) -> str:
+                            if not isinstance(label, str) or not label:
+                                return ""
+                            # נקה סיומות ונתיבים
+                            base = label.strip().strip('/').strip()
+                            base = re.sub(r"\.zip$", "", base, flags=re.IGNORECASE)
+                            # פענוח תבנית GitHub: owner-repo-<branch|sha>
+                            parts = base.split('-') if '-' in base else [base]
+                            if len(parts) < 2:
+                                return ""
+                            owner = parts[0]
+                            # הסר סיומות נפוצות של branch/sha
+                            tail = parts[1:]
+                            while tail:
+                                last = tail[-1]
+                                is_sha = bool(re.fullmatch(r"[0-9a-fA-F]{7,40}", last))
+                                is_branch_hint = last.lower() in {"main", "master", "develop", "dev", "release"}
+                                if is_sha or is_branch_hint:
+                                    tail = tail[:-1]
+                                else:
+                                    break
+                            if not tail:
+                                return ""
+                            repo_name = "-".join(tail)
+                            if not owner or not repo_name:
+                                return ""
+                            return f"{owner}/{repo_name}"
+
+                        guessed_full = ""
+                        # מתוך תיקיית השורש של ה‑ZIP (GitHub שם שם יחיד לרוב)
+                        with zipfile.ZipFile(tmp_path, 'r') as zf:
+                            all_names = zf.namelist()
+                            top_levels = set()
+                            for n in all_names:
+                                if '/' in n and not n.startswith('__MACOSX/'):
+                                    top_levels.add(n.split('/', 1)[0])
+                            common_root = list(top_levels)[0] if len(top_levels) == 1 else None
+                        if common_root:
+                            guessed_full = _parse_repo_full_from_label(common_root)
+                        if not guessed_full and safe_name:
+                            name_wo_ext = os.path.splitext(os.path.basename(safe_name))[0]
+                            guessed_full = _parse_repo_full_from_label(name_wo_ext)
+                        if guessed_full:
+                            repo_tag = [f"repo:{guessed_full}"]
+                    except Exception:
+                        repo_tag = []
                 # בצע ייבוא ללא מחיקה, עם תגיות אם קיימות
                 results = backup_manager.restore_from_backup(user_id=user_id, backup_path=tmp_path, overwrite=True, purge=False, extra_tags=repo_tag)
                 restored = results.get('restored_files', 0)
