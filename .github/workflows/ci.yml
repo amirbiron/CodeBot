@@ -38,11 +38,11 @@ jobs:
           set -euo pipefail
           pattern='(shutil\\.rmtree|os\\.remove\(|Path\\.unlink\(|rm -rf|rimraf)'
           # All matches across repo (exclude only .git)
-          grep -R -nE "$pattern" . --exclude-dir=.git || true > matches_all.txt
+          grep -R -nE "$pattern" . --exclude-dir=.git > matches_all.txt || true
 
           # Excluded matches (safe locations)
           excluded_re='^(\./)?docs/|README|Dockerfile|get-pip\\.py|Makefile|build_docs\\.sh'
-          grep -E "$excluded_re" matches_all.txt || true > matches_excluded.txt
+          grep -E "$excluded_re" matches_all.txt > matches_excluded.txt || true
 
           # Flagged matches (blocking) from tracked Python and Shell code, excluding known-safe locations
           : > flagged.txt
@@ -97,8 +97,11 @@ MD
           sed -i "s/PLACEHOLDER_NUM_FLAGGED/${num_flagged}/g" scan_report.md
           sed -i "s/PLACEHOLDER_NUM_EXCLUDED/${num_excluded}/g" scan_report.md
           sed -i "s/PLACEHOLDER_NUM_ALL/${num_all}/g" scan_report.md
-          sed -i "s|PLACEHOLDER_FLAGGED|$(sed 's|/|\\/|g' flagged.txt || true)|g" scan_report.md
-          sed -i "s|PLACEHOLDER_EXCLUDED|$(sed 's|/|\\/|g' matches_excluded.txt || true)|g" scan_report.md
+          flagged_content=$(cat flagged.txt 2>/dev/null || true)
+          excluded_content=$(cat matches_excluded.txt 2>/dev/null || true)
+          # Safely replace placeholders by using perl with escaped content
+          perl -0777 -pe "s/PLACEHOLDER_FLAGGED/\${flagged_content//\//\\\/}/g" scan_report.md > scan_report.tmp && mv scan_report.tmp scan_report.md || true
+          perl -0777 -pe "s/PLACEHOLDER_EXCLUDED/\${excluded_content//\//\\\/}/g" scan_report.md > scan_report.tmp && mv scan_report.tmp scan_report.md || true
 
           # output flag
           if [ "$num_flagged" -gt 0 ]; then
