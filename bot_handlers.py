@@ -415,7 +415,7 @@ class AdvancedBotHandlers:
             )
             return
         
-        # תמיכה בשמות מרובים
+        # תמיכה בשמות מרובים + wildcards (כמו *.py)
         requested_names: List[str] = context.args
         # ניקוי כפילויות, שימור סדר
         seen: set = set()
@@ -425,10 +425,37 @@ class AdvancedBotHandlers:
                 seen.add(name)
                 file_names.append(name)
 
-        # שליפת פרטי הקבצים
+        # שליפת פרטי הקבצים (תומך ב-wildcards)
         found_files: List[Dict[str, Any]] = []
         missing: List[str] = []
-        for fname in file_names:
+        # נקבל את רשימת הקבצים של המשתמש למסנן wildcards בזיכרון
+        all_files = db.get_user_files(user_id, limit=1000)
+        all_names = [f['file_name'] for f in all_files]
+
+        def _expand_pattern(pattern: str) -> List[str]:
+            # תמיכה בסיסית ב-* בלבד (תחילת/סוף/אמצע)
+            if '*' not in pattern:
+                return [pattern]
+            # ממפה ל-regex פשוט
+            import re as _re
+            expr = '^' + _re.escape(pattern).replace('\\*', '.*') + '$'
+            rx = _re.compile(expr)
+            return [n for n in all_names if rx.match(n)]
+
+        expanded_names: List[str] = []
+        for name in file_names:
+            expanded = _expand_pattern(name)
+            expanded_names.extend(expanded)
+
+        # ניפוי כפילויות ושמירת סדר
+        seen2 = set()
+        final_names: List[str] = []
+        for n in expanded_names:
+            if n not in seen2:
+                seen2.add(n)
+                final_names.append(n)
+
+        for fname in final_names:
             data = db.get_latest_version(user_id, fname)
             if data:
                 found_files.append(data)
@@ -652,6 +679,10 @@ class AdvancedBotHandlers:
             
             elif data == "cancel_share":
                 await query.edit_message_text("❌ השיתוף בוטל.")
+            
+            elif data == "noop":
+                # פעולה לא נתמכת (לדוגמה: Pastebin מרובה קבצים)
+                await query.answer("כרגע לא נתמך במרובה קבצים", show_alert=True)
             
             elif data.startswith("share_gist_multi:"):
                 share_id = data.split(":", 1)[1]
