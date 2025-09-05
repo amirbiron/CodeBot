@@ -690,6 +690,9 @@ class GoogleDriveMenuHandler:
             kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
             return
+        if data == "drive_help":
+            await self._render_help(update, context)
+            return
         if data.startswith("drive_set_schedule:"):
             key = data.split(":", 1)[1]
             # Save preference
@@ -990,6 +993,7 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("📊 מצב גיבוי", callback_data="drive_status")],
             [InlineKeyboardButton("✅ אישור", callback_data="drive_simple_confirm")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
+            [InlineKeyboardButton("ℹ️ הסבר", callback_data="drive_help")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
         # שלח טקסט בהתאם להקשר: עריכת הודעה קיימת או שליחת חדשה בבטחה
@@ -1037,9 +1041,31 @@ class GoogleDriveMenuHandler:
             [InlineKeyboardButton("✅ אישור", callback_data="drive_adv_confirm")],
             [InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")],
             [InlineKeyboardButton("🚪 התנתק", callback_data="drive_logout")],
+            [InlineKeyboardButton("ℹ️ הסבר", callback_data="drive_help")],
         ]
         header = header_prefix + self._compose_selection_header(user_id)
         await query.edit_message_text(header + "בחר קטגוריה מתקדמת:", reply_markup=InlineKeyboardMarkup(kb))
+
+    async def _render_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        sess = self._session(user_id)
+        last = sess.get("last_menu")
+        back_cb = "drive_sel_adv" if last == "adv" else "drive_backup_now"
+        text = (
+            "ℹ️ הסבר תפריט גיבוי ל‑Drive\n\n"
+            "- בחרו סוג גיבוי: 📦 קבצי ZIP (קיימים בבוט) או 🧰 הכל.\n"
+            "- 📦 ZIP: מעלה רק ZIPים שכבר שמורים בבוט. אין ZIP? אפשר ליצור דרך '📦 צור ZIP שמור בבוט'.\n"
+            "- 🧰 הכל: יוצר ZIP מלא של כל הקבצים ומעלה ל‑Drive (בתיקיית 'הכל').\n"
+            "- 📂 תיקיית יעד: ברירת מחדל 'גיבויי_קודלי'. ניתן לבחור/להגדיר נתיב מותאם.\n"
+            "- 🗓 תזמון: קבעו גיבוי אוטומטי (יומי/שבועי וכו').\n"
+            "- ✅ אישור: מבצע את ההעלאה לפי הבחירה.\n"
+            "- מתקדם: לפי ריפו/קבצים גדולים/שאר קבצים, אפשר גם בחירה מרובה.\n"
+            "- 📊 מצב גיבוי: מציג תקציר מצב ותאריך הריצה הבא.\n"
+            "- 🚪 התנתק: הסרת החיבור ל‑Drive.\n"
+        )
+        kb = [[InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)]]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb))
 
     def _should_send_new_message(self, user_id: int) -> bool:
         try:
