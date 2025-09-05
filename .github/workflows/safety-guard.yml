@@ -63,34 +63,22 @@ jobs:
           num_excluded=$(grep -c ':' matches_excluded.txt 2>/dev/null || echo 0)
           num_all=$(grep -c ':' matches_all.txt 2>/dev/null || echo 0)
 
-          cat > scan_report.md << 'MD'
-## 🧯 Dangerous deletes guard report
-
-Policy: see `.cursorrules` — dangerous deletions are blocked unless wrapped safely.
-
-Summary:
-- Flagged findings (blocking): PLACEHOLDER_NUM_FLAGGED
-- Excluded matches (not blocking): PLACEHOLDER_NUM_EXCLUDED
-- Total matches (all files): PLACEHOLDER_NUM_ALL
-
-Flagged findings (file:line:snippet):
-```
-PLACEHOLDER_FLAGGED
-```
-
-Excluded matches (by path pattern):
-```
-PLACEHOLDER_EXCLUDED
-```
-MD
-
-          sed -i "s/PLACEHOLDER_NUM_FLAGGED/${num_flagged}/g" scan_report.md
-          sed -i "s/PLACEHOLDER_NUM_EXCLUDED/${num_excluded}/g" scan_report.md
-          sed -i "s/PLACEHOLDER_NUM_ALL/${num_all}/g" scan_report.md
-          flagged_content=$(cat flagged.txt 2>/dev/null || true)
-          excluded_content=$(cat matches_excluded.txt 2>/dev/null || true)
-          perl -0777 -pe "s/PLACEHOLDER_FLAGGED/\${flagged_content//\//\\/}/g" scan_report.md > scan_report.tmp && mv scan_report.tmp scan_report.md || true
-          perl -0777 -pe "s/PLACEHOLDER_EXCLUDED/\${excluded_content//\//\\/}/g" scan_report.md > scan_report.tmp && mv scan_report.tmp scan_report.md || true
+          {
+            echo "## 🧯 Dangerous deletes guard report"
+            echo
+            echo "Policy: see .cursorrules — dangerous deletions are blocked unless wrapped safely."
+            echo
+            echo "Summary:"
+            echo "- Flagged findings (blocking): ${num_flagged}"
+            echo "- Excluded matches (not blocking): ${num_excluded}"
+            echo "- Total matches (all files): ${num_all}"
+            echo
+            echo "Flagged findings (file:line:snippet):"
+            cat flagged.txt 2>/dev/null || true
+            echo
+            echo "Excluded matches (by path pattern):"
+            cat matches_excluded.txt 2>/dev/null || true
+          } > scan_report.md
 
           if [ "$num_flagged" -gt 0 ]; then
             echo "has_violations=true" >> "$GITHUB_OUTPUT"
