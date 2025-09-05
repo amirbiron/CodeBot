@@ -879,11 +879,35 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
+            # ניסוח תוקף קריא
+            expires_iso = result.get('expires_at', '')
+            expiry_line = f"⏳ תוקף: {expires_iso}"
+            try:
+                dt = datetime.fromisoformat(expires_iso)
+                now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+                delta = dt - now
+                total_seconds = int(delta.total_seconds())
+                if total_seconds > 0:
+                    days = total_seconds // 86400
+                    hours = (total_seconds % 86400) // 3600
+                    if days > 0:
+                        rel = f"בעוד ~{days} ימים" + (f" ו-{hours} שעות" if hours > 0 else "")
+                    elif hours > 0:
+                        rel = f"בעוד ~{hours} שעות"
+                    else:
+                        minutes = (total_seconds % 3600) // 60
+                        rel = f"בעוד ~{minutes} דקות"
+                else:
+                    rel = "פג"
+                date_str = dt.strftime("%d/%m/%Y %H:%M")
+                expiry_line = f"⏳ תוקף: {date_str} ({rel})"
+            except Exception:
+                pass
             await query.edit_message_text(
                 f"📱 **נוצר קישור פנימי!**\n\n"
                 f"📄 קובץ: `{file_name}`\n"
                 f"🔗 קישור: {result['url']}\n"
-                f"⏳ יפוג: {result.get('expires_at','')}",
+                f"{expiry_line}",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
@@ -959,10 +983,35 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
+            # ניסוח תוקף קריא
+            expires_iso = result.get('expires_at', '')
+            expiry_line = f"⏳ תוקף: {expires_iso}"
+            try:
+                dt = datetime.fromisoformat(expires_iso)
+                now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+                delta = dt - now
+                total_seconds = int(delta.total_seconds())
+                if total_seconds > 0:
+                    days = total_seconds // 86400
+                    hours = (total_seconds % 86400) // 3600
+                    if days > 0:
+                        rel = f"בעוד ~{days} ימים" + (f" ו-{hours} שעות" if hours > 0 else "")
+                    elif hours > 0:
+                        rel = f"בעוד ~{hours} שעות"
+                    else:
+                        minutes = (total_seconds % 3600) // 60
+                        rel = f"בעוד ~{minutes} דקות"
+                else:
+                    rel = "פג"
+                date_str = dt.strftime("%d/%m/%Y %H:%M")
+                expiry_line = f"⏳ תוקף: {date_str} ({rel})"
+            except Exception:
+                pass
             await query.edit_message_text(
                 f"📱 **נוצר קישור פנימי (מרובה קבצים)!**\n\n"
                 f"📄 קבצים: {len(names)}\n"
-                f"🔗 קישור: {result['url']}",
+                f"🔗 קישור: {result['url']}\n"
+                f"{expiry_line}",
                 parse_mode=ParseMode.MARKDOWN
             )
         except Exception as e:
