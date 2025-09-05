@@ -383,7 +383,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # - קבצים גדולים אינם מוחזרים כאן ממילא
         # - קבצי ZIP אינם חלק ממסד הקבצים
         # - קבצים עם תגית repo: יוצגו תחת "לפי ריפו" ולכן יוחרגו כאן
-        all_files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         # מסך בחירה: 4 כפתורים
@@ -475,7 +475,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     from database import db
     
     try:
-        all_files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
         if not files:
@@ -546,7 +546,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     from database import db
     try:
         # קרא את כל הקבצים כדי לחשב עימוד, אך הצג רק "שאר הקבצים"
-        all_files = db.get_user_files(user_id)
+        all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         if not files:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
