@@ -1842,21 +1842,24 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
     
-    # הפעלת שרת קטן ל-/health ו-/share/<id>
-    try:
-        from services.webserver import create_app
-        aiohttp_app = create_app()
-        async def _start_web_job(context: ContextTypes.DEFAULT_TYPE):
-            runner = web.AppRunner(aiohttp_app)
-            await runner.setup()
-            port = int(os.getenv("PORT", "10000"))
-            site = web.TCPSite(runner, host="0.0.0.0", port=port)
-            await site.start()
-            logger.info(f"🌐 Internal web server started on :{port}")
-        # להריץ אחרי שהאפליקציה התחילה, כדי להימנע מ-PTBUserWarning
-        application.job_queue.run_once(_start_web_job, when=0)
-    except Exception as e:
-        logger.error(f"⚠️ Failed to start internal web server: {e}")
+    # הפעלת שרת קטן ל-/health ו-/share/<id> רק אם יש צורך ציבורי
+    if config.PUBLIC_BASE_URL:
+        try:
+            from services.webserver import create_app
+            aiohttp_app = create_app()
+            async def _start_web_job(context: ContextTypes.DEFAULT_TYPE):
+                runner = web.AppRunner(aiohttp_app)
+                await runner.setup()
+                port = int(os.getenv("PORT", "10000"))
+                site = web.TCPSite(runner, host="0.0.0.0", port=port)
+                await site.start()
+                logger.info(f"🌐 Internal web server started on :{port}")
+            # להריץ אחרי שהאפליקציה התחילה, כדי להימנע מ-PTBUserWarning
+            application.job_queue.run_once(_start_web_job, when=0)
+        except Exception as e:
+            logger.error(f"⚠️ Failed to start internal web server: {e}")
+    else:
+        logger.info("ℹ️ Skipping internal web server (PUBLIC_BASE_URL not set)")
 
 if __name__ == "__main__":
     main()
