@@ -1,0 +1,127 @@
+# Android & AI Style Rules
+
+## כללי כתיבה
+
+- כתוב תמיד בשפה פשוטה ומובנת לכל ולא במילים גבוהות
+- שמור על טון עניו, הסבר כאילו אתה מסביר לחבר טוב
+- אם יש כמה אפשרויות, הצג קודם את הפתרון הפשוט והאמין ביותר
+
+---
+
+# הימנעות ממחיקות קבצים בטסטים ובסקריפטים
+
+## 1. עבדו רק על תיקיות זמניות
+
+- השתמשו ב-tmp לכל קלט/פלט בטסטים (pytest: tmp_path)
+- אל תכתבו/תמחקו ב-root של הפרויקט או בתקיות קוד מקור
+
+## 2. קבעו ENV/קונפיג למסלולי tmp בלבד
+
+- ודאו ש-ENV כמו OUTPUT_DIR/WORKDIR מוגדרים לתיקיות tmp
+- בדקו שהם לא ריקים לפני שימוש (assert ולא default ל-".")
+
+## 3. אל תשתמשו בגלובים גורפים
+
+- הימנעו מ-rm -rf */* או תבניות כמו build*
+- העדיפו allowlist שמיועד לתת-תיקיה אחת ספציפית
+
+## 4. סורגי בטיחות לפני מחיקה
+
+- אל תמחקו אם הנתיב לא מתחת ל-allowlist
+- אל תמחקו נתיבים מסוכנים: '/', '.', ספריית הפרויקט
+
+## דוגמת Python למחיקה בטוחה
+
+from pathlib import Path
+import shutil
+
+def safe_rmtree(path: Path, allow_under: Path) -> None:
+    p = path.resolve()
+    base = allow_under.resolve()
+    if not str(p).startswith(str(base)) or p in (Path('/'), base.parent, Path.cwd()):
+        raise RuntimeError(f"Refusing to delete unsafe path: {p}")
+    shutil.rmtree(p)
+## 5. הימנעו משינוי cwd
+
+- אם חייבים, שמרו/שחזרו cwd, והשתמשו בנתיבים מוחלטים למחיקה
+
+## 6. נטרלו ניקוי מסוכן ב-CI
+
+- הימנעו מ-git clean/reset על ה-workspace
+- אם חייבים, עבדו על clone זמני בלבד
+
+## 7. במקביליות – הפרידו תיקיות עבודה
+
+- לכל טסט UUID ייחודי (ex: /tmp/app-test-<uuid>)
+- או סדרו טסטים שנוגעים לקבצים לריצה סריאלית
+
+## 8. בדקו תקלות מוקדם
+
+- הרחיקו הרשאות כתיבה מ-src בתקופת הטסטים (chmod -w)
+- כרכו קריאות מחיקה ב-wrapper בטוח כדי להרים חריגה מוקדם
+
+## בדיקת קוד לאיתור מחיקות לא בטוחות
+
+rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
+## שחזור לאחר מחיקה בטעות
+
+- אל תבצעו merge/PR כדי לא לדרוס היסטוריה
+- בצעו git restore/git checkout לקבצים או git revert לקומיטים
+- אם אין היסטוריה מקומית: שחזרו מ-CI artifacts/ענף גיבוי/מכונה אחרת
+
+---
+
+# קישור לתיעוד והקשר
+
+- קראו והסתמכו על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
+- קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד.
+
+# כללי שימוש ב-AI/CodeBot
+
+- כל שינוי שמוצע ע״י AI עובר code review אנושי לפני merge.
+- אין להזין סודות, מפתחות או PII לפרומפטים או קבצי הקשר.
+- פקודות שמורצות אוטומטית: ללא sudo, לא אינטראקטיביות, ורק בתיקיות tmp.
+- תעדו ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו.
+
+# Android/Kotlin/Compose
+
+- Kotlin: העדיפו val על var, אי-שינוי, data/sealed classes, Null-safety ברורה.
+- Concurrency: Coroutines עם Structured Concurrency, שימוש ב-viewModelScope/CoroutineScope נכון.
+- זרימות נתונים: העדיפו Flow, מיפוי ב-Repository, Dispatchers מתאימים (IO/Default).
+- ארכיטקטורה: MVVM, Single Source of Truth, Repository/UseCases, DI עם Hilt.
+- Compose: State hoisting, remember/derivedStateOf, הימנעות מ-side effects בתוך Composables, שימוש ב-LaunchedEffect/DisposableEffect, בדיקות עם compose-ui-test.
+
+# Commit/PR
+
+- Conventional Commits (feat/fix/chore/docs/refactor/test/build).
+- לפני merge: תיאור ברור, תוכנית בדיקות, סיכוני Rollback, עדכון docs.
+- UI: צרפו צילום/וידאו תוצאות אם רלוונטי.
+
+# CI Gates
+
+- חובת מעבר: ./gradlew test detekt ktlintCheck ירוק.
+- אין להריץ git clean/reset על ה-workspace; עבודה רק על תיקיות זמניות.
+- טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט.
+
+# סודות ולוגים
+
+- אין לשמור סודות בקוד או בלוגים; שימוש ב-ENV/Secret Manager.
+- אל תרשמו PII; בצעו השחרה (redaction) לערכים רגישים בלוגים.
+
+# מעטפת Bash למחיקה בטוחה
+
+```bash
+set -euo pipefail
+IFS=$'\n\t'
+safe_rmrf() {
+  local target="${1:-}"; local allow_under="${2:-}"
+  [[ -z "$target" || -z "$allow_under" ]] && { echo "empty path"; exit 1; }
+  local rp_target rp_base
+  rp_target="$(readlink -f -- "$target")"
+  rp_base="$(readlink -f -- "$allow_under")"
+  [[ "$rp_target" == "/" || "$rp_target" == "$HOME" || "$rp_target" == "$PWD" ]] && { echo "unsafe"; exit 1; }
+  [[ "$rp_target" != "$rp_base"/* ]] && { echo "outside allowlist"; exit 1; }
+  rm -rf -- "$rp_target"
+}
+```
+
