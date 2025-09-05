@@ -74,7 +74,7 @@ class AdvancedBotHandlers:
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
         try:
-            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share|noop|share_noop)'
+            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
         except Exception:
             pass
@@ -518,8 +518,7 @@ class AdvancedBotHandlers:
 
             keyboard = [
                 [
-                    InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}"),
-                    InlineKeyboardButton("📋 Pastebin (לא תומך מרובה)", callback_data="share_noop")
+                    InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}")
                 ]
             ]
             if config.PUBLIC_BASE_URL:
@@ -562,7 +561,7 @@ class AdvancedBotHandlers:
                 "- קישור יציב ואמין\n"
                 "- כדי להשתמש יש להגדיר `GITHUB_TOKEN`\n\n"
                 "### 📋 Pastebin\n"
-                "- **רק לקובץ יחיד**\n"
+                "- **רק לקובץ יחיד (מרובה קבצים לא נתמך)**\n"
                 "- מהיר ופשוט לשימוש\n"
                 "- כדי להשתמש יש להגדיר `PASTEBIN_API_KEY`\n\n"
                 "### 📱 קישור פנימי\n"
@@ -588,7 +587,7 @@ class AdvancedBotHandlers:
                 "- קישור יציב ואמין\n"
                 "- כדי להשתמש יש להגדיר `GITHUB_TOKEN`\n\n"
                 "### 📋 Pastebin\n"
-                "- **רק לקובץ יחיד**\n"
+                "- **רק לקובץ יחיד (מרובה קבצים לא נתמך)**\n"
                 "- מהיר ופשוט לשימוש\n"
                 "- כדי להשתמש יש להגדיר `PASTEBIN_API_KEY`\n\n"
                 "(קישור פנימי אינו זמין בסביבה זו)\n\n"
@@ -753,9 +752,7 @@ class AdvancedBotHandlers:
                 file_name = data.replace("share_internal_", "")
                 await self._share_internal(query, user_id, file_name)
 
-            elif data in {"noop", "share_noop"}:
-                # פעולה לא נתמכת (לדוגמה: Pastebin מרובה קבצים)
-                await query.answer("Pastebin במרובה קבצים אינו נתמך כרגע", show_alert=True)
+            # הסרנו noop/‏share_noop — אין צורך עוד
 
             elif data.startswith("share_internal_multi:"):
                 share_id = data.split(":", 1)[1]
