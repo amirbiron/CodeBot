@@ -74,7 +74,7 @@ class AdvancedBotHandlers:
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
         try:
-            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share|noop)'
+            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share|noop|share_noop)'
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
         except Exception:
             pass
@@ -737,6 +737,10 @@ class AdvancedBotHandlers:
                 file_name = data.replace("highlight_", "")
                 await self._send_highlighted_code(query, user_id, file_name)
             
+            elif data.startswith("share_gist_multi:"):
+                share_id = data.split(":", 1)[1]
+                await self._share_to_gist_multi(query, context, user_id, share_id)
+            
             elif data.startswith("share_gist_"):
                 file_name = data.replace("share_gist_", "")
                 await self._share_to_gist(query, user_id, file_name)
@@ -900,14 +904,11 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
-<<<<<<< HEAD
             if not config.PUBLIC_BASE_URL:
                 await query.edit_message_text(
                     "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
                     "באפשרותך להשתמש ב-Gist/Pastebin במקום.")
                 return
-=======
->>>>>>> origin/main
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
             expiry_line = f"⏳ תוקף: {expires_iso}"
@@ -1012,14 +1013,11 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
-<<<<<<< HEAD
             if not config.PUBLIC_BASE_URL:
                 await query.edit_message_text(
                     "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
                     "באפשרותך להשתמש ב-Gist במרובה קבצים.")
                 return
-=======
->>>>>>> origin/main
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
             expiry_line = f"⏳ תוקף: {expires_iso}"
