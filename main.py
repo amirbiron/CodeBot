@@ -1846,13 +1846,15 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     try:
         from services.webserver import create_app
         aiohttp_app = create_app()
-        async def _start_web():
+        async def _start_web_job(context: ContextTypes.DEFAULT_TYPE):
             runner = web.AppRunner(aiohttp_app)
             await runner.setup()
-            site = web.TCPSite(runner, host="0.0.0.0", port=10000)
+            port = int(os.getenv("PORT", "10000"))
+            site = web.TCPSite(runner, host="0.0.0.0", port=port)
             await site.start()
-            logger.info("🌐 Internal web server started on :10000")
-        application.create_task(_start_web())
+            logger.info(f"🌐 Internal web server started on :{port}")
+        # להריץ אחרי שהאפליקציה התחילה, כדי להימנע מ-PTBUserWarning
+        application.job_queue.run_once(_start_web_job, when=0)
     except Exception as e:
         logger.error(f"⚠️ Failed to start internal web server: {e}")
 

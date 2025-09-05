@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from aiohttp import web
+from html import escape as html_escape
 
 from integrations import code_sharing
 
@@ -46,7 +47,7 @@ def create_app() -> web.Application:
   <body>
     <h1>📄 {file_name}</h1>
     <div class="meta">שפה: {language}</div>
-    <pre>{web.html_escape(code)}</pre>
+    <pre>{html_escape(code)}</pre>
   </body>
 </html>
 """
