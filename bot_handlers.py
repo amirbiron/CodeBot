@@ -519,7 +519,7 @@ class AdvancedBotHandlers:
             keyboard = [
                 [
                     InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}"),
-                    InlineKeyboardButton("📋 Pastebin (לא תומך מרובה)", callback_data="noop")
+                    InlineKeyboardButton("📋 Pastebin (לא תומך מרובה)", callback_data="share_noop")
                 ]
             ]
             if config.PUBLIC_BASE_URL:
@@ -749,9 +749,9 @@ class AdvancedBotHandlers:
                 file_name = data.replace("share_internal_", "")
                 await self._share_internal(query, user_id, file_name)
 
-            elif data == "noop":
+            elif data in {"noop", "share_noop"}:
                 # פעולה לא נתמכת (לדוגמה: Pastebin מרובה קבצים)
-                await query.answer("כרגע לא נתמך במרובה קבצים", show_alert=True)
+                await query.answer("Pastebin במרובה קבצים אינו נתמך כרגע", show_alert=True)
 
             elif data.startswith("share_internal_multi:"):
                 share_id = data.split(":", 1)[1]
