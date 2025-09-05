@@ -76,7 +76,7 @@ def _format_bytes(num: int) -> str:
 logger = logging.getLogger(__name__)
 
 # הגדרת שלבי השיחה (מועברים למודול משותף)
-from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME
+from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME, WAIT_ADD_CODE_MODE, LONG_COLLECT
 
 # קבועי עימוד
 FILES_PAGE_SIZE = 10
@@ -613,6 +613,10 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     return ConversationHandler.END
 
 from handlers.save_flow import start_save_flow as start_save_flow
+from handlers.save_flow import start_add_code_menu as start_add_code_menu
+from handlers.save_flow import start_long_collect as start_long_collect
+from handlers.save_flow import long_collect_receive as long_collect_receive
+from handlers.save_flow import long_collect_done as long_collect_done
 
 from handlers.save_flow import get_code as get_code
 
@@ -1672,6 +1676,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await show_all_files_callback(update, context)
         elif data == "by_repo_menu":
             return await show_by_repo_menu_callback(update, context)
+        elif data == "add_code_regular":
+            # מעבר לזרימת "קוד רגיל" הקיימת - נשלח הודעה חדשה כמו start_save_flow
+            await query.answer()
+            # הסתרת תת-התפריט כדי למנוע בלבול
+            try:
+                await query.edit_message_text("✨ מצב הוספת קוד רגיל")
+            except Exception:
+                pass
+            return await start_save_flow(update, context)
+        elif data == "add_code_long":
+            # כניסה למצב איסוף קוד ארוך
+            return await start_long_collect(update, context)
         elif data.startswith("files_page_"):
             return await show_regular_files_page_callback(update, context)
         elif data == "main" or data == "main_menu":
@@ -1683,6 +1699,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return ConversationHandler.END
         elif data == "cancel":
             # ביטול כללי דרך כפתור
+            # ביטול טיימאאוט אם קיים
+            try:
+                job = context.user_data.get('long_collect_job')
+                if job:
+                    job.schedule_removal()
+            except Exception:
+                pass
             context.user_data.clear()
             await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
             await query.message.reply_text(
@@ -1955,6 +1978,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """ביטול מתקדם"""
+    # ביטול טיימאאוט אם קיים וניקוי מצב איסוף
+    try:
+        job = context.user_data.get('long_collect_job')
+        if job:
+            job.schedule_removal()
+    except Exception:
+        pass
     context.user_data.clear()
     
     await update.message.reply_text(
@@ -1971,7 +2001,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
     return ConversationHandler(
         entry_points=[
             CommandHandler("start", start_command),
-            MessageHandler(filters.Regex("^➕ הוסף קוד חדש$"), start_save_flow),
+            MessageHandler(filters.Regex("^➕ הוסף קוד חדש$"), start_add_code_menu),
             MessageHandler(filters.Regex("^📚 הצג את כל הקבצים שלי$"), show_all_files),
             MessageHandler(filters.Regex("^📂 קבצים גדולים$"), show_large_files_direct),
             MessageHandler(filters.Regex("^🔧 GitHub$"), show_github_menu),
@@ -1984,6 +2014,9 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             CallbackQueryHandler(handle_callback_query, pattern=r'^(edit_code_|edit_name_|edit_note_|edit_note_direct_|lf_edit_)')
         ],
         states={
+            WAIT_ADD_CODE_MODE: [
+                CallbackQueryHandler(handle_callback_query)
+            ],
             GET_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_code)
             ],
@@ -1993,6 +2026,10 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
             ],
             GET_NOTE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)
+            ],
+            LONG_COLLECT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, long_collect_receive),
+                CommandHandler("done", long_collect_done),
             ],
             EDIT_CODE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_new_code)
