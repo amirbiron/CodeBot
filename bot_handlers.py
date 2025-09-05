@@ -748,18 +748,11 @@ class AdvancedBotHandlers:
             elif data.startswith("share_internal_"):
                 file_name = data.replace("share_internal_", "")
                 await self._share_internal(query, user_id, file_name)
-            
-            elif data == "cancel_share":
-                await query.edit_message_text("❌ השיתוף בוטל.")
-            
+
             elif data == "noop":
                 # פעולה לא נתמכת (לדוגמה: Pastebin מרובה קבצים)
                 await query.answer("כרגע לא נתמך במרובה קבצים", show_alert=True)
-            
-            elif data.startswith("share_gist_multi:"):
-                share_id = data.split(":", 1)[1]
-                await self._share_to_gist_multi(query, context, user_id, share_id)
-            
+
             elif data.startswith("share_internal_multi:"):
                 share_id = data.split(":", 1)[1]
                 await self._share_internal_multi(query, context, user_id, share_id)
