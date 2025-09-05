@@ -186,6 +186,14 @@ def get_drive_service(user_id: int):
         return None
 
 
+def _get_file_metadata(service, file_id: str, fields: str = "id, name, trashed, mimeType, parents") -> Optional[Dict[str, Any]]:
+    """Return file metadata or None if not found/inaccessible."""
+    try:
+        return service.files().get(fileId=file_id, fields=fields).execute()
+    except Exception:
+        return None
+
+
 def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
     if not service:
@@ -215,9 +223,21 @@ def ensure_folder(user_id: int, name: str, parent_id: Optional[str] = None) -> O
 def get_or_create_default_folder(user_id: int) -> Optional[str]:
     prefs = db.get_drive_prefs(user_id) or {}
     folder_id = prefs.get("target_folder_id")
+    # Validate existing folder id is not trashed/deleted
+    try:
+        service = get_drive_service(user_id)
+    except Exception:
+        service = None
+    if service and folder_id:
+        meta = _get_file_metadata(service, folder_id, fields="id, trashed, mimeType")
+        if meta and not bool(meta.get("trashed")) and str(meta.get("mimeType")) == "application/vnd.google-apps.folder":
+            return folder_id
+        # stale/trashed id — ignore and recreate below
+        folder_id = None
     if folder_id:
+        # No service to validate — optimistically return; upload will validate again
         return folder_id
-    # Create default root folder at Drive
+    # Create or find non-trashed default root folder at Drive
     fid = ensure_folder(user_id, "גיבויי_קודלי", None)
     if fid:
         db.save_drive_prefs(user_id, {"target_folder_id": fid})
@@ -240,11 +260,7 @@ def ensure_path(user_id: int, path: str) -> Optional[str]:
 
 
 def _get_root_folder(user_id: int) -> Optional[str]:
-    """Return user's target root folder id, creating default if needed."""
-    prefs = db.get_drive_prefs(user_id) or {}
-    folder_id = prefs.get("target_folder_id")
-    if folder_id:
-        return folder_id
+    """Return user's target root folder id, validating it's active; create default if needed."""
     return get_or_create_default_folder(user_id)
 
 
@@ -398,9 +414,22 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
         prefs = db.get_drive_prefs(user_id) or {}
         uploaded_set = set(prefs.get('uploaded_backup_ids') or [])
     except Exception:
+        prefs = {}
         uploaded_set = set()
+    # Resolve/validate root; if it changed, drop uploaded_set to allow re‑upload
+    old_root_id = prefs.get('target_folder_id')
+    try:
+        current_root_id = _get_root_folder(user_id)
+    except Exception:
+        current_root_id = old_root_id
+    if current_root_id and old_root_id and current_root_id != old_root_id:
+        uploaded_set = set()
+        try:
+            db.save_drive_prefs(user_id, {"uploaded_backup_ids": []})
+        except Exception:
+            pass
     # Also deduplicate by content hash against existing files in Drive (folder: zip)
-    existing_md5: set[str] = set()
+    existing_md5: Optional[set[str]] = set()
     try:
         service = get_drive_service(user_id)
         if service is not None:
@@ -417,22 +446,22 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                             pageToken=page_token
                         ).execute()
                     except Exception:
+                        existing_md5 = None
                         break
                     for f in (resp.get('files') or []):
                         md5v = f.get('md5Checksum')
                         if isinstance(md5v, str) and md5v:
+                            assert isinstance(existing_md5, set)
                             existing_md5.add(md5v)
                     page_token = resp.get('nextPageToken')
                     if not page_token:
                         break
     except Exception:
-        pass
+        existing_md5 = None
     new_uploaded: List[str] = []
     for b in backups:
         try:
             b_id = getattr(b, 'backup_id', None)
-            if b_id and b_id in uploaded_set:
-                continue
             path = getattr(b, "file_path", None)
             if not path or not str(path).endswith(".zip"):
                 continue
@@ -441,9 +470,12 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             # If a file with the same content already exists in Drive, mark as uploaded and skip
             try:
                 md5_local = hashlib.md5(data).hexdigest()
-                if md5_local in existing_md5:
+                if isinstance(existing_md5, set) and md5_local in existing_md5:
                     if b_id:
                         new_uploaded.append(b_id)
+                    continue
+                # If we could not list Drive files (existing_md5 is None), fallback to uploaded_set guard
+                if existing_md5 is None and b_id and b_id in uploaded_set:
                     continue
             except Exception:
                 pass
