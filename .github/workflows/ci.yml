@@ -16,6 +16,52 @@ concurrency:
 
 jobs:
 
+  safety-guard:
+    name: "🧯 Dangerous deletes guard"
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+      - name: ✅ Ensure .cursorrules exists
+        run: |
+          if [ ! -f .cursorrules ]; then
+            echo "::error::Missing .cursorrules file at repo root"
+            exit 1
+          fi
+      - name: 🔎 Scan for dangerous deletion commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Listing matches in the repo (excluding docs, Dockerfiles, README, get-pip.py, Makefiles, build_docs.sh):"
+          grep -R -nE '(shutil\\.rmtree|os\\.remove\(|Path\\.unlink\(|rm -rf|rimraf)' . \
+            --exclude-dir=.git \
+            --exclude-dir=docs \
+            --exclude='README*' \
+            --exclude='Dockerfile*' \
+            --exclude='get-pip.py' \
+            --exclude='*Makefile*' \
+            --exclude='build_docs.sh' || true
+          echo "Failing if unsafe matches are found in tracked Python/Shell code (excluding allowed locations)..."
+          py_files=$(git ls-files '*.py' | grep -v '^docs/' | grep -v '^get-pip\.py$' || true)
+          sh_files=$(git ls-files '*.sh' | grep -v '^docs/' || true)
+          fail=0
+          if [ -n "${py_files:-}" ]; then
+            if grep -nE '(shutil\\.rmtree|os\\.remove\(|Path\\.unlink\()' $py_files | grep -v -E 'safe_rmtree|ignore_errors=True' ; then
+              echo "::error::Found potentially unsafe delete calls in Python code"
+              fail=1
+            fi || true
+          fi
+          if [ -n "${sh_files:-}" ]; then
+            if grep -nE '(rm -rf|rimraf)' $sh_files ; then
+              echo "::error::Found potentially unsafe rm -rf/rimraf in shell scripts"
+              fail=1
+            fi || true
+          fi
+          if [ "$fail" -ne 0 ]; then
+            echo "Guard failed. See errors above."
+            exit 1
+          fi
+
   code-quality:
     name: "🔍 Code Quality & Security"
     runs-on: ubuntu-latest
