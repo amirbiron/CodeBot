@@ -74,7 +74,7 @@ class AdvancedBotHandlers:
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
         try:
-            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share|noop)'
+            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
         except Exception:
             pass
@@ -485,12 +485,17 @@ class AdvancedBotHandlers:
                 [
                     InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_{file_name}"),
                     InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_{file_name}")
-                ],
-                [
-                    InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
-                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
                 ]
             ]
+            if config.PUBLIC_BASE_URL:
+                keyboard.append([
+                    InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 f"🌐 **שיתוף קובץ:** `{file_name}`\n\n"
@@ -513,14 +518,18 @@ class AdvancedBotHandlers:
 
             keyboard = [
                 [
-                    InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}"),
-                    InlineKeyboardButton("📋 Pastebin (לא תומך מרובה)", callback_data="noop")
-                ],
-                [
-                    InlineKeyboardButton("📱 קישור פנימי (מרובה)", callback_data=f"share_internal_multi:{share_id}"),
-                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                    InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}")
                 ]
             ]
+            if config.PUBLIC_BASE_URL:
+                keyboard.append([
+                    InlineKeyboardButton("📱 קישור פנימי (מרובה)", callback_data=f"share_internal_multi:{share_id}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.message.reply_text(
@@ -534,37 +543,55 @@ class AdvancedBotHandlers:
     async def share_help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הסבר קצר על פקודת /share"""
         reporter.report_activity(update.effective_user.id)
-        help_text = (
-            "# 📤 פקודת /share – שיתוף קבצים בקלות\n\n"
-            "## מה זה עושה?\n"
-            "פקודת `/share` מאפשרת לך לשתף קבצים מהבוט באופן מהיר ונוח. הבוט יוצר עבורך קישורי שיתוף אוטומטיים לקבצים שאתה בוחר.\n\n"
-            "## איך להשתמש?\n\n"
-            "### דוגמאות פשוטות:\n"
-            "- **קובץ יחיד:** `/share script.py`\n"
-            "- **מספר קבצים:** `/share app.py utils.py README.md`\n"
-            "- **עם כוכביות (wildcards):** `/share *.py` או `/share main.*`\n\n"
-            "### ⚠️ חשוב לזכור:\n"
-            "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n\n"
-            "## איזה סוגי קישורים אפשר לקבל?\n\n"
-            "### 🐙 GitHub Gist\n"
-            "- **מתאים לכל סוג קובץ ומספר קבצים**\n"
-            "- קישור יציב ואמין\n"
-            "- דורש הגדרת `GITHUB_TOKEN` (אופציונלי)\n\n"
-            "### 📋 Pastebin\n"
-            "- **רק לקובץ יחיד**\n"
-            "- מהיר ופשוט לשימוש\n"
-            "- דורש הגדרת `PASTEBIN_API_KEY` (אופציונלי)\n\n"
-            "### 📱 קישור פנימי\n"
-            "- **זמין תמיד, ללא הגדרות נוספות**\n"
-            "- קישור זמני (בתוקף כשבוע בערך)\n"
-            "- עובד עם כל סוג וכמות קבצים\n\n"
-            "## הגדרות נוספות (אופציונליות)\n"
-            "אם אתה רוצה להשתמש בשירותים החיצוניים, תצטרך להגדיר:\n"
-            "- **לGitHub Gist:** טוקן `GITHUB_TOKEN`\n"
-            "- **לPastebin:** מפתח `PASTEBIN_API_KEY`\n\n"
-            "---\n"
-            "*הפקודה פועלת גם ללא ההגדרות החיצוניות - תמיד יהיה לך קישור פנימי זמין!*"
-        )
+        if config.PUBLIC_BASE_URL:
+            help_text = (
+                "# 📤 פקודת /share – שיתוף קבצים בקלות\n\n"
+                "## מה זה עושה?\n"
+                "פקודת `/share` מאפשרת לך לשתף קבצים מהבוט באופן מהיר ונוח. הבוט יוצר עבורך קישורי שיתוף אוטומטיים לקבצים שאתה בוחר.\n\n"
+                "## איך להשתמש?\n\n"
+                "### דוגמאות פשוטות:\n"
+                "- **קובץ יחיד:** `/share script.py`\n"
+                "- **מספר קבצים:** `/share app.py utils.py README.md`\n"
+                "- **עם כוכביות (wildcards):** `/share *.py` או `/share main.*`\n\n"
+                "### ⚠️ חשוב לזכור:\n"
+                "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n\n"
+                "## איזה סוגי קישורים אפשר לקבל?\n\n"
+                "### 🐙 GitHub Gist\n"
+                "- **מתאים לכל סוג קובץ ומספר קבצים**\n"
+                "- קישור יציב ואמין\n"
+                "- כדי להשתמש יש להגדיר `GITHUB_TOKEN`\n\n"
+                "### 📋 Pastebin\n"
+                "- **רק לקובץ יחיד (מרובה קבצים לא נתמך)**\n"
+                "- מהיר ופשוט לשימוש\n"
+                "- כדי להשתמש יש להגדיר `PASTEBIN_API_KEY`\n\n"
+                "### 📱 קישור פנימי\n"
+                "- **זמין בסביבה זו**\n"
+                "- קישור זמני (בתוקף כשבוע בערך)\n"
+                "- עובד עם כל סוג וכמות קבצים\n\n"
+            )
+        else:
+            help_text = (
+                "# 📤 פקודת /share – שיתוף קבצים בקלות\n\n"
+                "## מה זה עושה?\n"
+                "פקודת `/share` מאפשרת לך לשתף קבצים מהבוט באופן מהיר ונוח. הבוט יוצר עבורך קישורי שיתוף אוטומטיים לקבצים שאתה בוחר.\n\n"
+                "## איך להשתמש?\n\n"
+                "### דוגמאות פשוטות:\n"
+                "- **קובץ יחיד:** `/share script.py`\n"
+                "- **מספר קבצים:** `/share app.py utils.py README.md`\n"
+                "- **עם כוכביות (wildcards):** `/share *.py` או `/share main.*`\n\n"
+                "### ⚠️ חשוב לזכור:\n"
+                "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n\n"
+                "## איזה סוגי קישורים אפשר לקבל?\n\n"
+                "### 🐙 GitHub Gist\n"
+                "- **מתאים לכל סוג קובץ ומספר קבצים**\n"
+                "- קישור יציב ואמין\n"
+                "- כדי להשתמש יש להגדיר `GITHUB_TOKEN`\n\n"
+                "### 📋 Pastebin\n"
+                "- **רק לקובץ יחיד (מרובה קבצים לא נתמך)**\n"
+                "- מהיר ופשוט לשימוש\n"
+                "- כדי להשתמש יש להגדיר `PASTEBIN_API_KEY`\n\n"
+                "(קישור פנימי אינו זמין בסביבה זו)\n\n"
+            )
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
     
     async def download_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -709,6 +736,10 @@ class AdvancedBotHandlers:
                 file_name = data.replace("highlight_", "")
                 await self._send_highlighted_code(query, user_id, file_name)
             
+            elif data.startswith("share_gist_multi:"):
+                share_id = data.split(":", 1)[1]
+                await self._share_to_gist_multi(query, context, user_id, share_id)
+            
             elif data.startswith("share_gist_"):
                 file_name = data.replace("share_gist_", "")
                 await self._share_to_gist(query, user_id, file_name)
@@ -720,18 +751,9 @@ class AdvancedBotHandlers:
             elif data.startswith("share_internal_"):
                 file_name = data.replace("share_internal_", "")
                 await self._share_internal(query, user_id, file_name)
-            
-            elif data == "cancel_share":
-                await query.edit_message_text("❌ השיתוף בוטל.")
-            
-            elif data == "noop":
-                # פעולה לא נתמכת (לדוגמה: Pastebin מרובה קבצים)
-                await query.answer("כרגע לא נתמך במרובה קבצים", show_alert=True)
-            
-            elif data.startswith("share_gist_multi:"):
-                share_id = data.split(":", 1)[1]
-                await self._share_to_gist_multi(query, context, user_id, share_id)
-            
+
+            # הסרנו noop/‏share_noop — אין צורך עוד
+
             elif data.startswith("share_internal_multi:"):
                 share_id = data.split(":", 1)[1]
                 await self._share_internal_multi(query, context, user_id, share_id)
@@ -879,6 +901,11 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
+            if not config.PUBLIC_BASE_URL:
+                await query.edit_message_text(
+                    "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
+                    "באפשרותך להשתמש ב-Gist/Pastebin במקום.")
+                return
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
             expiry_line = f"⏳ תוקף: {expires_iso}"
@@ -982,6 +1009,11 @@ class AdvancedBotHandlers:
             )
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
+                return
+            if not config.PUBLIC_BASE_URL:
+                await query.edit_message_text(
+                    "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
+                    "באפשרותך להשתמש ב-Gist במרובה קבצים.")
                 return
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')

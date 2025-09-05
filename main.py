@@ -43,6 +43,7 @@ from user_stats import user_stats
 # from enhanced_commands import setup_enhanced_handlers  # disabled
 from batch_commands import setup_batch_handlers
 from html import escape as html_escape
+from aiohttp import web  # for internal web server
 
 # (Lock mechanism constants removed)
 
@@ -1830,14 +1831,30 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # הגדר את פקודת stats רק לאמיר
         await application.bot.set_my_commands(
             commands=[
-                BotCommand("stats", "📊 סטטיסטיקות שימוש")
+                BotCommand("share", "שיתוף קבצים"),
+                BotCommand("share_help", "הסבר על פקודת השיתוף"),
+                BotCommand("stats", "📊 סטטיסטיקות שימוש"),
             ],
             scope=BotCommandScopeChat(chat_id=AMIR_ID)
         )
-        logger.info(f"✅ Stats command set for Amir (ID: {AMIR_ID})")
+        logger.info(f"✅ Commands set for Amir (ID: {AMIR_ID}): share, share_help, stats")
         
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
+    
+    # הפעלת שרת קטן ל-/health ו-/share/<id>
+    try:
+        from services.webserver import create_app
+        aiohttp_app = create_app()
+        async def _start_web():
+            runner = web.AppRunner(aiohttp_app)
+            await runner.setup()
+            site = web.TCPSite(runner, host="0.0.0.0", port=10000)
+            await site.start()
+            logger.info("🌐 Internal web server started on :10000")
+        application.create_task(_start_web())
+    except Exception as e:
+        logger.error(f"⚠️ Failed to start internal web server: {e}")
 
 if __name__ == "__main__":
     main()
