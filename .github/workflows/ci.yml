@@ -22,13 +22,6 @@ concurrency:
 
 jobs:
 
-  safety-guard:
-    if: false
-    name: "🧯 Dangerous deletes guard"
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "disabled"
-
   code-quality:
     name: "🔍 Code Quality & Security"
     runs-on: ubuntu-latest
