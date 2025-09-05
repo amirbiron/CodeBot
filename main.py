@@ -1526,9 +1526,14 @@ class CodeKeeperBot:
             await self._save_code_snippet(update, context, text)
             return
         
-        # זיהוי אם זה נראה כמו קוד, למעט בזמן זרימת "הדבק קוד" של GitHub
+        # זיהוי אם זה נראה כמו קוד
+        # דילוג כאשר יש מצב איסוף קוד ארוך פעיל/נעול כדי למנוע ספאם
         if self._looks_like_code(text) and not (
-            context.user_data.get('waiting_for_paste_content') or context.user_data.get('waiting_for_paste_filename')
+            context.user_data.get('waiting_for_paste_content') or
+            context.user_data.get('waiting_for_paste_filename') or
+            context.user_data.get('long_collect_active') or
+            context.user_data.get('long_collect_locked') or
+            context.user_data.get('long_collect_parts')
         ):
             await update.message.reply_text(
                 "🤔 נראה שזה קטע קוד!\n"
