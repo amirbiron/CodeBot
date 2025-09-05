@@ -590,6 +590,17 @@ class AdvancedBotHandlers:
                 file_name = data.replace("share_gist_", "")
                 await self._share_to_gist(query, user_id, file_name)
             
+            elif data.startswith("share_pastebin_"):
+                file_name = data.replace("share_pastebin_", "")
+                await self._share_to_pastebin(query, user_id, file_name)
+            
+            elif data.startswith("share_internal_"):
+                file_name = data.replace("share_internal_", "")
+                await self._share_internal(query, user_id, file_name)
+            
+            elif data == "cancel_share":
+                await query.edit_message_text("❌ השיתוף בוטל.")
+            
             elif data.startswith("download_"):
                 file_name = data.replace("download_", "")
                 await self._send_file_download(query, user_id, file_name)
@@ -662,18 +673,86 @@ class AdvancedBotHandlers:
             return
         
         try:
-            # כאן יהיה הקוד לשיתוף ב-Gist (יתווסף בintegrations.py)
-            gist_url = "https://gist.github.com/example"  # placeholder
-            
+            from integrations import code_sharing
+            description = f"שיתוף אוטומטי דרך CodeBot — {file_name}"
+            result = await code_sharing.share_code(
+                service="gist",
+                file_name=file_name,
+                code=file_data["code"],
+                language=file_data["programming_language"],
+                description=description,
+                public=True
+            )
+            if not result or not result.get("url"):
+                await query.edit_message_text("❌ יצירת Gist נכשלה. ודא שטוקן GitHub תקין והרשאות מתאימות.")
+                return
             await query.edit_message_text(
                 f"🐙 **שותף ב-GitHub Gist!**\n\n"
                 f"📄 קובץ: `{file_name}`\n"
-                f"🔗 קישור: {gist_url}",
+                f"🔗 קישור: {result['url']}",
                 parse_mode=ParseMode.MARKDOWN
             )
             
         except Exception as e:
             logger.error(f"שגיאה בשיתוף Gist: {e}")
+            await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
+
+    async def _share_to_pastebin(self, query, user_id: int, file_name: str):
+        """שיתוף ב-Pastebin"""
+        from integrations import code_sharing
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
+            return
+        try:
+            result = await code_sharing.share_code(
+                service="pastebin",
+                file_name=file_name,
+                code=file_data["code"],
+                language=file_data["programming_language"],
+                private=True,
+                expire="1M"
+            )
+            if not result or not result.get("url"):
+                await query.edit_message_text("❌ יצירת Pastebin נכשלה. בדוק מפתח API.")
+                return
+            await query.edit_message_text(
+                f"📋 **שותף ב-Pastebin!**\n\n"
+                f"📄 קובץ: `{file_name}`\n"
+                f"🔗 קישור: {result['url']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"שגיאה בשיתוף Pastebin: {e}")
+            await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
+
+    async def _share_internal(self, query, user_id: int, file_name: str):
+        """יצירת קישור שיתוף פנימי"""
+        from integrations import code_sharing
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
+            return
+        try:
+            result = await code_sharing.share_code(
+                service="internal",
+                file_name=file_name,
+                code=file_data["code"],
+                language=file_data["programming_language"],
+                description=f"שיתוף פנימי של {file_name}"
+            )
+            if not result or not result.get("url"):
+                await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
+                return
+            await query.edit_message_text(
+                f"📱 **נוצר קישור פנימי!**\n\n"
+                f"📄 קובץ: `{file_name}`\n"
+                f"🔗 קישור: {result['url']}\n"
+                f"⏳ יפוג: {result.get('expires_at','')}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"שגיאה ביצירת קישור פנימי: {e}")
             await query.edit_message_text("❌ שגיאה בשיתוף. נסה שוב מאוחר יותר.")
 
     async def _send_file_download(self, query, user_id: int, file_name: str):
