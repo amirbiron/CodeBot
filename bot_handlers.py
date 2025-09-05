@@ -485,12 +485,17 @@ class AdvancedBotHandlers:
                 [
                     InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_{file_name}"),
                     InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_{file_name}")
-                ],
-                [
-                    InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
-                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
                 ]
             ]
+            if config.PUBLIC_BASE_URL:
+                keyboard.append([
+                    InlineKeyboardButton("📱 קישור פנימי", callback_data=f"share_internal_{file_name}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 f"🌐 **שיתוף קובץ:** `{file_name}`\n\n"
@@ -515,12 +520,17 @@ class AdvancedBotHandlers:
                 [
                     InlineKeyboardButton("🐙 GitHub Gist (מרובה)", callback_data=f"share_gist_multi:{share_id}"),
                     InlineKeyboardButton("📋 Pastebin (לא תומך מרובה)", callback_data="noop")
-                ],
-                [
-                    InlineKeyboardButton("📱 קישור פנימי (מרובה)", callback_data=f"share_internal_multi:{share_id}"),
-                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
                 ]
             ]
+            if config.PUBLIC_BASE_URL:
+                keyboard.append([
+                    InlineKeyboardButton("📱 קישור פנימי (מרובה)", callback_data=f"share_internal_multi:{share_id}"),
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
+            else:
+                keyboard.append([
+                    InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")
+                ])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.message.reply_text(
@@ -879,6 +889,11 @@ class AdvancedBotHandlers:
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
                 return
+            if not config.PUBLIC_BASE_URL:
+                await query.edit_message_text(
+                    "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
+                    "באפשרותך להשתמש ב-Gist/Pastebin במקום.")
+                return
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
             expiry_line = f"⏳ תוקף: {expires_iso}"
@@ -982,6 +997,11 @@ class AdvancedBotHandlers:
             )
             if not result or not result.get("url"):
                 await query.edit_message_text("❌ יצירת קישור פנימי נכשלה.")
+                return
+            if not config.PUBLIC_BASE_URL:
+                await query.edit_message_text(
+                    "ℹ️ קישור פנימי אינו זמין כרגע (לא הוגדר PUBLIC_BASE_URL).\n"
+                    "באפשרותך להשתמש ב-Gist במרובה קבצים.")
                 return
             # ניסוח תוקף קריא
             expires_iso = result.get('expires_at', '')
