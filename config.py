@@ -29,6 +29,9 @@ class BotConfig:
     MAX_FILES_PER_USER: int = 1000
     SUPPORTED_LANGUAGES: list = None
     
+    # כתובת בסיס ציבורית להצגת קישורים פנימיים (לשירות web)
+    PUBLIC_BASE_URL: Optional[str] = None
+    
     # מצב תחזוקה/דיפלוי
     MAINTENANCE_MODE: bool = False
     MAINTENANCE_MESSAGE: str = "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"
@@ -96,6 +99,7 @@ def load_config() -> BotConfig:
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
+        PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה

@@ -372,8 +372,11 @@ class CodeSharingService:
         
         self.internal_shares[share_id] = share_data
         
-        # URL פנימי (במציאות זה יהיה דומיין אמיתי)
-        internal_url = f"https://codekeeper.bot/share/{share_id}"
+        # URL פנימי: אם יש PUBLIC_BASE_URL נגדיר אליו, אחרת נשתמש ב-local path
+        base = (config.PUBLIC_BASE_URL or "")
+        if base.endswith('/'):
+            base = base[:-1]
+        internal_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
         
         result = {
             "id": share_id,
