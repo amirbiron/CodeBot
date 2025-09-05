@@ -70,7 +70,14 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         
         # Callback handlers לכפתורים
+        # Handler כללי (תאימות לאחור)
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+        # Handler ממוקד עם קדימות גבוהה לכפתורי /share
+        try:
+            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share|noop)'
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
+        except Exception:
+            pass
     
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
@@ -528,18 +535,35 @@ class AdvancedBotHandlers:
         """הסבר קצר על פקודת /share"""
         reporter.report_activity(update.effective_user.id)
         help_text = (
-            "ℹ️ פקודת /share – שיתוף קבצים\n\n"
-            "איך משתמשים:\n"
-            "• קובץ יחיד: `/share script.py`\n"
-            "• כמה קבצים: `/share app.py utils.py README.md`\n"
-            "• תבניות (wildcards): `/share *.py main.*`\n\n"
-            "מה מקבלים:\n"
-            "• 🐙 GitHub Gist – תומך גם במרובה קבצים\n"
-            "• 📋 Pastebin – קובץ יחיד בלבד\n"
-            "• 📱 קישור פנימי – יוצר לינק זמני (כשבוע)\n\n"
-            "דרישות (לא חובה לכול):\n"
-            "• Gist: צריך `GITHUB_TOKEN`\n"
-            "• Pastebin: צריך `PASTEBIN_API_KEY`\n"
+            "# 📤 פקודת /share – שיתוף קבצים בקלות\n\n"
+            "## מה זה עושה?\n"
+            "פקודת `/share` מאפשרת לך לשתף קבצים מהבוט באופן מהיר ונוח. הבוט יוצר עבורך קישורי שיתוף אוטומטיים לקבצים שאתה בוחר.\n\n"
+            "## איך להשתמש?\n\n"
+            "### דוגמאות פשוטות:\n"
+            "- **קובץ יחיד:** `/share script.py`\n"
+            "- **מספר קבצים:** `/share app.py utils.py README.md`\n"
+            "- **עם כוכביות (wildcards):** `/share *.py` או `/share main.*`\n\n"
+            "### ⚠️ חשוב לזכור:\n"
+            "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n\n"
+            "## איזה סוגי קישורים אפשר לקבל?\n\n"
+            "### 🐙 GitHub Gist\n"
+            "- **מתאים לכל סוג קובץ ומספר קבצים**\n"
+            "- קישור יציב ואמין\n"
+            "- דורש הגדרת `GITHUB_TOKEN` (אופציונלי)\n\n"
+            "### 📋 Pastebin\n"
+            "- **רק לקובץ יחיד**\n"
+            "- מהיר ופשוט לשימוש\n"
+            "- דורש הגדרת `PASTEBIN_API_KEY` (אופציונלי)\n\n"
+            "### 📱 קישור פנימי\n"
+            "- **זמין תמיד, ללא הגדרות נוספות**\n"
+            "- קישור זמני (בתוקף כשבוע בערך)\n"
+            "- עובד עם כל סוג וכמות קבצים\n\n"
+            "## הגדרות נוספות (אופציונליות)\n"
+            "אם אתה רוצה להשתמש בשירותים החיצוניים, תצטרך להגדיר:\n"
+            "- **לGitHub Gist:** טוקן `GITHUB_TOKEN`\n"
+            "- **לPastebin:** מפתח `PASTEBIN_API_KEY`\n\n"
+            "---\n"
+            "*הפקודה פועלת גם ללא ההגדרות החיצוניות - תמיד יהיה לך קישור פנימי זמין!*"
         )
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
     
