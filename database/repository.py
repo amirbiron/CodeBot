@@ -125,7 +125,7 @@ class Repository:
         try:
             pipeline = [
                 {"$match": {"user_id": user_id, "is_active": True}},
-                {"$sort": {"version": -1}},
+                {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
@@ -148,7 +148,7 @@ class Repository:
                 search_filter["tags"] = {"$in": tags}
             pipeline = [
                 {"$match": search_filter},
-                {"$sort": {"version": -1}},
+                {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},

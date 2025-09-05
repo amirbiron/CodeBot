@@ -101,6 +101,13 @@ class DatabaseManager:
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
+            # אינדקס משופר לתמיכה במיון file_name, version לאחר match על user_id,is_active
+            IndexModel([
+                ("user_id", ASCENDING),
+                ("is_active", ASCENDING),
+                ("file_name", ASCENDING),
+                ("version", DESCENDING),
+            ], name="user_active_file_latest_idx"),
             IndexModel([
                 ("user_id", ASCENDING),
                 ("programming_language", ASCENDING),
