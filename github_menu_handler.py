@@ -711,6 +711,19 @@ class GitHubMenuHandler:
         elif query.data.startswith("gh_upload_repo:"):
             tag = query.data.split(":", 1)[1]
             await self.show_upload_repo_files(update, context, tag)
+        elif query.data.startswith("repo_files_page:"):
+            # פורמט: repo_files_page:<repo_tag>:<page>
+            try:
+                _, repo_tag, page_s = query.data.split(":", 2)
+                page = int(page_s)
+            except Exception:
+                repo_tag, page = None, 1
+            if repo_tag:
+                # שמור עמוד נוכחי לכל תגית
+                d = context.user_data.get("repo_files_page") or {}
+                d[repo_tag] = page
+                context.user_data["repo_files_page"] = d
+                await self.show_upload_repo_files(update, context, repo_tag)
         elif query.data.startswith("gh_upload_large:"):
             file_id = query.data.split(":", 1)[1]
             await self.handle_large_file_upload(update, context, file_id)
@@ -2241,24 +2254,41 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת רשימת ריפואים: {e}")
     async def show_upload_repo_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE,_repo_tag: str):
-        """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם"""
+        """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם עם עימוד"""
         user_id = update.effective_user.id
         from database import db
         query = update.callback_query
         try:
             repo_tag = _repo_tag
-            # שלוף קבצים תחת התגית
-            files = db.search_code(user_id, query="", tags=[repo_tag], limit=100)
+            # עימוד: קרא מה-context או התחל בעמוד 1
+            try:
+                page = int((context.user_data.get("repo_files_page") or {}).get(repo_tag, 1))
+            except Exception:
+                page = 1
+            per_page = 50
+            files, total = db.get_user_files_by_repo(user_id, repo_tag, page=page, per_page=per_page)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים תחת התגית הזו")
                 return
+            pages = max(1, (total + per_page - 1) // per_page)
+            # בניית כפתורים
             keyboard = []
-            for f in files[:50]:
+            for f in files:
                 fid = str(f.get('_id'))
                 name = f.get('file_name', 'ללא שם')
                 keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+            nav = []
+            if page > 1:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"repo_files_page:{repo_tag}:{page-1}"))
+            if page < pages:
+                nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"repo_files_page:{repo_tag}:{page+1}"))
+            if nav:
+                keyboard.append(nav)
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="gh_upload_cat:repos")])
-            await query.edit_message_text(f"בחר/י קובץ להעלאה מהתגית {repo_tag}:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await query.edit_message_text(
+                f"בחר/י קובץ להעלאה מהתגית {repo_tag} (עמוד {page}/{pages}, סך הכל {total}):",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת קבצים: {e}")
 
