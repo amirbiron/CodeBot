@@ -204,6 +204,21 @@ class Repository:
             logger.error(f"שגיאה במחיקת קובץ: {e}")
             return False
 
+    def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
+        """מחיקה רכה (is_active=false) למספר קבצים לפי שמות."""
+        if not file_names:
+            return 0
+        try:
+            result = self.manager.collection.update_many(
+                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}},
+                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
+            )
+            cache.invalidate_user_cache(user_id)
+            return int(result.modified_count or 0)
+        except Exception as e:
+            logger.error(f"שגיאה במחיקה רכה מרובה: {e}")
+            return 0
+
     def delete_file_by_id(self, file_id: str) -> int:
         try:
             result = self.manager.collection.delete_one({"_id": ObjectId(file_id)})
