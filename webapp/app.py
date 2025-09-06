@@ -20,6 +20,7 @@ from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.formatters import HtmlFormatter
 from bson import ObjectId
 import requests
+from datetime import timedelta
 
 # יצירת האפליקציה
 app = Flask(__name__)
@@ -51,6 +52,27 @@ def get_db():
             print(f"Failed to connect to MongoDB: {e}")
             raise
     return db
+
+def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
+    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
+    try:
+        db = get_db()
+        coll = db.internal_shares
+        doc = coll.find_one({"share_id": share_id})
+        if not doc:
+            return None
+        # TTL אמור לטפל במחיקה, אבל אם עדיין לא נמחק — נבדוק תוקף ידנית
+        exp = doc.get("expires_at")
+        if isinstance(exp, datetime) and exp < datetime.now(timezone.utc):
+            return None
+        try:
+            coll.update_one({"_id": doc["_id"]}, {"$inc": {"views": 1}})
+        except Exception:
+            pass
+        return doc
+    except Exception as e:
+        print(f"Error fetching internal share: {e}")
+        return None
 
 # Telegram Login Widget Verification
 def verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
@@ -579,6 +601,60 @@ def health():
         health_data['error'] = str(e)
     
     return jsonify(health_data)
+
+# --- Public share route ---
+@app.route('/share/<share_id>')
+def public_share(share_id):
+    """הצגת שיתוף פנימי בצורה ציבורית ללא התחברות."""
+    doc = get_internal_share(share_id)
+    if not doc:
+        return render_template('404.html'), 404
+
+    # הדגשת קוד בסיסית (ללא סשן)
+    code = doc.get('code', '')
+    language = doc.get('language', 'text') or 'text'
+    file_name = doc.get('file_name', 'snippet.txt')
+    description = doc.get('description', '')
+    try:
+        lexer = get_lexer_by_name(language, stripall=True)
+    except Exception:
+        try:
+            lexer = guess_lexer(code)
+        except Exception:
+            from pygments.lexers import TextLexer
+            lexer = TextLexer()
+    formatter = HtmlFormatter(style='github-dark', linenos=True, cssclass='source', lineanchors='line', anchorlinenos=True)
+    highlighted_code = highlight(code, lexer, formatter)
+    css = formatter.get_style_defs('.source')
+
+    # חישוב מטא
+    size = len(code.encode('utf-8'))
+    lines = len(code.split('\n'))
+    created_at = doc.get('created_at')
+    if isinstance(created_at, datetime):
+        created_at_str = created_at.strftime('%d/%m/%Y %H:%M')
+    else:
+        try:
+            created_at_str = datetime.fromisoformat(created_at).strftime('%d/%m/%Y %H:%M') if created_at else ''
+        except Exception:
+            created_at_str = ''
+
+    # הצגת הדף תוך שימוש בתבנית קיימת כדי לשמור עיצוב
+    file_data = {
+        'id': share_id,
+        'file_name': file_name,
+        'language': language,
+        'icon': get_language_icon(language),
+        'description': description,
+        'tags': [],
+        'size': format_file_size(size),
+        'lines': lines,
+        'created_at': created_at_str,
+        'updated_at': created_at_str,
+        'version': 1,
+    }
+    # השתמש ב-base.html גם ללא התחברות
+    return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
 
 # Error handlers
 @app.errorhandler(404)

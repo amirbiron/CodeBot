@@ -19,6 +19,7 @@ class DatabaseManager:
         self.collection = None
         self.large_files_collection = None
         self.backup_ratings_collection = None
+        self.internal_shares_collection = None
         self._repo = None
         self.connect()
 
@@ -75,6 +76,7 @@ class DatabaseManager:
             self.collection = self.db.code_snippets
             self.large_files_collection = self.db.large_files
             self.backup_ratings_collection = self.db.backup_ratings
+            self.internal_shares_collection = self.db.internal_shares
             self.client.admin.command('ping')
             self._create_indexes()
             logger.info("התחברות למסד הנתונים הצליחה עם Connection Pooling מתקדם")
@@ -177,6 +179,15 @@ class DatabaseManager:
             self.large_files_collection.create_indexes(large_files_indexes)
             if self.backup_ratings_collection is not None:
                 self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
+            # אינדקסים לשיתופים פנימיים: TTL על expires_at + אינדקסים לשימוש
+            if self.internal_shares_collection is not None:
+                internal_shares_indexes = [
+                    IndexModel([("share_id", ASCENDING)], name="share_id_unique", unique=True),
+                    IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
+                    # TTL על expires_at (Date). אם יישמר כמחרוזת ISO, לא יעבוד — נוודא Date בצד הכותב
+                    IndexModel([("expires_at", ASCENDING)], name="expires_ttl", expireAfterSeconds=0),
+                ]
+                self.internal_shares_collection.create_indexes(internal_shares_indexes)
         except Exception as e:
             msg = str(e)
             if 'IndexOptionsConflict' in msg or 'already exists with a different name' in msg:

@@ -31,6 +31,8 @@ class BotConfig:
     
     # כתובת בסיס ציבורית להצגת קישורים פנימיים (לשירות web)
     PUBLIC_BASE_URL: Optional[str] = None
+    # כתובת ה-WebApp (למקרה שהבוט רץ כ-worker ללא דומיין ציבורי)
+    WEBAPP_URL: Optional[str] = None
     
     # מצב תחזוקה/דיפלוי
     MAINTENANCE_MODE: bool = False
@@ -100,6 +102,7 @@ def load_config() -> BotConfig:
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
         PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
+        WEBAPP_URL=os.getenv('WEBAPP_URL'),
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה

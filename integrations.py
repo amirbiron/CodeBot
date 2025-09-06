@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -318,7 +318,7 @@ class CodeSharingService:
     def __init__(self):
         self.gist = GitHubGistIntegration()
         self.pastebin = PastebinIntegration()
-        self.internal_shares = {}  # לשיתוף פנימי זמני
+        self.internal_shares = {}  # לשיתוף פנימי בזיכרון (fallback)
     
     def get_available_services(self) -> List[str]:
         """קבלת רשימת שירותים זמינים"""
@@ -353,58 +353,122 @@ class CodeSharingService:
     
     def _create_internal_share(self, file_name: str, code: str, 
                               language: str, description: str) -> Dict[str, Any]:
-        """יצירת שיתוף פנימי (זמני)"""
-        
-        # יצירת ID יוניקלי
+        """יצירת שיתוף פנימי ושמירתו במסד נתונים (עם TTL),
+        ונפילה לזיכרון אם ה-DB לא זמין."""
+
         share_id = secrets.token_urlsafe(12)
-        
-        # שמירה זמנית (במציאות זה יהיה במסד נתונים)
-        share_data = {
-            "id": share_id,
-            "file_name": file_name,
-            "code": code,
-            "language": language,
-            "description": description,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "views": 0,
-            "expires_at": (datetime.now(timezone.utc).timestamp() + (7 * 24 * 60 * 60))  # שבוע
-        }
-        
-        self.internal_shares[share_id] = share_data
-        
-        # URL פנימי: אם יש PUBLIC_BASE_URL נגדיר אליו, אחרת נשתמש ב-local path
-        base = (config.PUBLIC_BASE_URL or "")
+        now = datetime.now(timezone.utc)
+        # ברירת מחדל: שבוע
+        expires_at = now + timedelta(days=7)
+
+        stored_ok = False
+        try:
+            from database import db as _db
+            coll = _db.internal_shares_collection if hasattr(_db, 'internal_shares_collection') else None
+            # DatabaseManager חושף collection דרך manager; גישה עקיפה:
+            try:
+                coll = _db.internal_shares_collection or _db.db.internal_shares
+            except Exception:
+                try:
+                    coll = _db.db.internal_shares
+                except Exception:
+                    coll = None
+            if coll is None:
+                raise RuntimeError("internal_shares collection not available")
+
+            doc = {
+                "share_id": share_id,
+                "file_name": file_name,
+                "code": code,
+                "language": language,
+                "description": description,
+                "created_at": now,
+                "views": 0,
+                "expires_at": expires_at,  # Date לשימוש ב-TTL
+            }
+            coll.insert_one(doc)
+            stored_ok = True
+        except Exception as e:
+            logger.warning(f"DB not available for internal share; using memory store. Error: {e}")
+            self.internal_shares[share_id] = {
+                "id": share_id,
+                "file_name": file_name,
+                "code": code,
+                "language": language,
+                "description": description,
+                "created_at": now.isoformat(),
+                "views": 0,
+                "expires_at": expires_at.isoformat(),
+            }
+
+        # בסיס URL: אם PUBLIC_BASE_URL לא קיים והוגדר WEBAPP_URL — השתמש בו
+        base = (config.PUBLIC_BASE_URL or config.WEBAPP_URL or "")
         if base.endswith('/'):
             base = base[:-1]
         internal_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
-        
+
         result = {
             "id": share_id,
             "url": internal_url,
-            "created_at": share_data["created_at"],
-            "expires_at": datetime.fromtimestamp(share_data["expires_at"]).isoformat(),
-            "service": "internal"
+            "created_at": (now.isoformat()),
+            "expires_at": expires_at.isoformat(),
+            "service": "internal",
         }
-        
-        logger.info(f"נוצר שיתוף פנימי: {share_id}")
+        logger.info(f"נוצר שיתוף פנימי: {share_id} (stored_in_db={stored_ok})")
         return result
     
     def get_internal_share(self, share_id: str) -> Optional[Dict[str, Any]]:
-        """קבלת שיתוף פנימי"""
-        
-        if share_id not in self.internal_shares:
+        """קבלת שיתוף פנימי מה-DB (אם קיים), אחרת מזיכרון."""
+        # קודם נסה DB
+        try:
+            from database import db as _db
+            coll = None
+            try:
+                coll = _db.internal_shares_collection or _db.db.internal_shares
+            except Exception:
+                coll = _db.db.internal_shares
+            if coll is not None:
+                doc = coll.find_one({"share_id": share_id})
+                if doc:
+                    # TTL ימחק רשומות פגות, אז אם קיים — עדיין בתוקף
+                    try:
+                        coll.update_one({"_id": doc["_id"]}, {"$inc": {"views": 1}})
+                    except Exception:
+                        pass
+                    # החזר מבנה אחיד
+                    return {
+                        "id": doc.get("share_id"),
+                        "file_name": doc.get("file_name"),
+                        "code": doc.get("code"),
+                        "language": doc.get("language"),
+                        "description": doc.get("description"),
+                        "created_at": (doc.get("created_at").isoformat() if isinstance(doc.get("created_at"), datetime) else doc.get("created_at")),
+                        "expires_at": (doc.get("expires_at").isoformat() if isinstance(doc.get("expires_at"), datetime) else doc.get("expires_at")),
+                        "views": int(doc.get("views") or 0),
+                    }
+        except Exception as e:
+            logger.warning(f"DB get_internal_share failed; trying memory. Error: {e}")
+
+        # נפילה לזיכרון
+        share_data = self.internal_shares.get(share_id)
+        if not share_data:
             return None
-        
-        share_data = self.internal_shares[share_id]
-        
         # בדיקת תפוגה
-        if datetime.now(timezone.utc).timestamp() > share_data["expires_at"]:
-            del self.internal_shares[share_id]
-            return None
-        
-        # עדכון מספר צפיות
-        share_data["views"] += 1
-        
+        try:
+            exp = share_data.get("expires_at")
+            exp_dt = datetime.fromisoformat(exp) if isinstance(exp, str) else exp
+            if datetime.now(timezone.utc) > exp_dt:
+                try:
+                    del self.internal_shares[share_id]
+                except Exception:
+                    pass
+                return None
+        except Exception:
+            pass
+        try:
+            share_data["views"] = int(share_data.get("views", 0)) + 1
+        except Exception:
+            pass
         return share_data
 
 class GitRepositoryIntegration:
