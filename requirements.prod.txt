@@ -56,6 +56,8 @@ cryptography==42.0.5
 # Web Server
 gunicorn==23.0.0
 uvicorn==0.24.0
+# fastapi removed (WebApp postponed)
+# pydantic 2.8.2 removed to avoid conflict; keep single pinned version in requirements.txt
 whitenoise==6.6.0
 
 # File Format Support

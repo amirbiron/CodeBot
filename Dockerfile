@@ -106,8 +106,10 @@ except Exception as e: \
     print(f'Health check failed: {e}'); \
     sys.exit(1);"
 
-# פקודת הפעלה - Render compatible
-CMD ["sh", "-c", "python main.py"]
+# פקודת הפעלה - Render compatible (אפשרות ל-WebApp במקביל)
+ENV WEBAPP_ENABLED=0
+ENV WEBAPP_PORT=8000
+CMD ["sh", "-c", "if [ \"$WEBAPP_ENABLED\" = \"1\" ]; then (uvicorn webapp.server:app --host 0.0.0.0 --port ${PORT:-$WEBAPP_PORT} &) ; fi; python main.py"]
 
 ######################################
 # שלב dev נפרד הוסר; משתמשים באותו בסיס בטוח
