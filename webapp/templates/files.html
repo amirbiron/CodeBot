@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}הקבצים שלי - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<h1 class="page-title">הקבצים שלי</h1>
+
+<div class="glass-card">
+    <div class="filters-section" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+        <form method="get" style="display: flex; gap: 1rem; flex-wrap: wrap; flex: 1;">
+            <div style="flex: 1; min-width: 200px;">
+                <input type="text" name="q" value="{{ search_query }}" 
+                       placeholder="חיפוש לפי שם, תיאור או תגית..." 
+                       class="search-input"
+                       style="width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
+            </div>
+            
+            <select name="lang" class="filter-select" 
+                    style="padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
+                <option value="">כל השפות</option>
+                {% for lang in languages %}
+                <option value="{{ lang }}" {% if lang == language_filter %}selected{% endif %}>{{ lang }}</option>
+                {% endfor %}
+            </select>
+            
+            <select name="sort" class="filter-select"
+                    style="padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
+                <option value="-created_at" {% if sort_by == '-created_at' %}selected{% endif %}>חדש ביותר</option>
+                <option value="created_at" {% if sort_by == 'created_at' %}selected{% endif %}>ישן ביותר</option>
+                <option value="file_name" {% if sort_by == 'file_name' %}selected{% endif %}>שם (א-ת)</option>
+                <option value="-file_name" {% if sort_by == '-file_name' %}selected{% endif %}>שם (ת-א)</option>
+                <option value="-updated_at" {% if sort_by == '-updated_at' %}selected{% endif %}>עודכן לאחרונה</option>
+            </select>
+            
+            <button type="submit" class="btn btn-primary btn-icon">
+                <i class="fas fa-search"></i>
+                חפש
+            </button>
+            
+            {% if search_query or language_filter %}
+            <a href="/files" class="btn btn-secondary btn-icon">
+                <i class="fas fa-times"></i>
+                נקה
+            </a>
+            {% endif %}
+        </form>
+    </div>
+    
+    <div class="results-info" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            מציג {{ files|length }} מתוך {{ total_count }} קבצים
+            {% if search_query %}
+            | תוצאות עבור: "{{ search_query }}"
+            {% endif %}
+            {% if language_filter %}
+            | שפה: {{ language_filter }}
+            {% endif %}
+        </div>
+        <div>
+            <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;">
+                <i class="fas fa-plus"></i>
+                הוסף קובץ חדש
+            </a>
+        </div>
+    </div>
+</div>
+
+{% if files %}
+<div class="files-grid" style="display: grid; gap: 1rem;">
+    {% for file in files %}
+    <div class="glass-card file-card" style="padding: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                    <span style="font-size: 2rem;">{{ file.icon }}</span>
+                    <div>
+                        <h3 style="margin: 0; font-size: 1.25rem;">{{ file.file_name }}</h3>
+                        <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                            <span class="badge">{{ file.language }}</span>
+                            <span style="opacity: 0.7; font-size: 0.9rem;">{{ file.lines }} שורות</span>
+                            <span style="opacity: 0.7; font-size: 0.9rem;">{{ file.size }}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                {% if file.description %}
+                <p style="margin: 1rem 0; opacity: 0.9;">{{ file.description }}</p>
+                {% endif %}
+                
+                {% if file.tags %}
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0;">
+                    {% for tag in file.tags %}
+                    <span class="badge" style="background: rgba(102, 126, 234, 0.2); border-color: rgba(102, 126, 234, 0.4);">
+                        #{{ tag }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <div style="display: flex; gap: 2rem; margin-top: 1rem; opacity: 0.7; font-size: 0.9rem;">
+                    <span><i class="fas fa-calendar"></i> נוצר: {{ file.created_at }}</span>
+                    <span><i class="fas fa-edit"></i> עודכן: {{ file.updated_at }}</span>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem;">
+                <a href="/file/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="צפה">
+                    <i class="fas fa-eye"></i>
+                </a>
+                <a href="/download/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="הורד">
+                    <i class="fas fa-download"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
+    {% if has_prev %}
+    <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&sort={{ sort_by }}" 
+       class="btn btn-secondary btn-icon">
+        <i class="fas fa-chevron-right"></i>
+        הקודם
+    </a>
+    {% endif %}
+    
+    <span>עמוד {{ page }} מתוך {{ total_pages }}</span>
+    
+    {% if has_next %}
+    <a href="?page={{ page + 1 }}&q={{ search_query }}&lang={{ language_filter }}&sort={{ sort_by }}" 
+       class="btn btn-secondary btn-icon">
+        הבא
+        <i class="fas fa-chevron-left"></i>
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="glass-card" style="text-align: center; padding: 4rem 2rem;">
+    <div style="font-size: 4rem; margin-bottom: 2rem;">📭</div>
+    <h2>לא נמצאו קבצים</h2>
+    {% if search_query or language_filter %}
+    <p style="margin: 1rem 0; opacity: 0.8;">נסה לשנות את פרמטרי החיפוש</p>
+    <a href="/files" class="btn btn-primary btn-icon" style="margin-top: 1rem;">
+        <i class="fas fa-redo"></i>
+        הצג את כל הקבצים
+    </a>
+    {% else %}
+    <p style="margin: 1rem 0; opacity: 0.8;">התחל לשמור קטעי קוד דרך הבוט בטלגרם</p>
+    <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-primary btn-icon" style="margin-top: 1rem;">
+        <i class="fab fa-telegram"></i>
+        פתח את הבוט
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+<style>
+.search-input::placeholder {
+    color: rgba(255,255,255,0.5);
+}
+
+.filter-select {
+    cursor: pointer;
+}
+
+.filter-select option {
+    background: var(--primary);
+    color: white;
+}
+
+.file-card {
+    transition: transform 0.3s, background 0.3s;
+}
+
+.file-card:hover {
+    transform: translateY(-2px);
+    background: rgba(255,255,255,0.15);
+}
+
+@media (max-width: 768px) {
+    .filters-section form {
+        flex-direction: column;
+    }
+    
+    .filters-section input,
+    .filters-section select,
+    .filters-section button {
+        width: 100% !important;
+    }
+}
+</style>
+{% endblock %}

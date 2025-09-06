@@ -1,10 +1,121 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Code Keeper Web App</title>
-</head>
-<body>
-    <h1>Code Keeper Bot - Web Interface</h1>
-    <p>Coming soon...</p>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Code Keeper Bot - דף הבית{% endblock %}
+
+{% block content %}
+<div class="hero-section" style="text-align: center; padding: 4rem 0;">
+    <div class="glass-card" style="max-width: 800px; margin: 0 auto;">
+        <div style="font-size: 5rem; margin-bottom: 2rem;">🚀</div>
+        <h1 class="page-title">ברוכים הבאים ל-Code Keeper Bot</h1>
+        <p style="font-size: 1.3rem; margin-bottom: 2rem; opacity: 0.9;">
+            המקום המושלם לשמור, לנהל ולשתף את קטעי הקוד שלך
+        </p>
+        
+        <div class="features-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; margin: 3rem 0;">
+            <div class="feature-card">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">💾</div>
+                <h3>שמירה מאובטחת</h3>
+                <p>כל הקוד שלך נשמר בצורה מאובטחת ומגובה</p>
+            </div>
+            
+            <div class="feature-card">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+                <h3>חיפוש מתקדם</h3>
+                <p>מצא כל קטע קוד תוך שניות</p>
+            </div>
+            
+            <div class="feature-card">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">🎨</div>
+                <h3>הדגשת Syntax</h3>
+                <p>תמיכה בעשרות שפות תכנות</p>
+            </div>
+            
+            <div class="feature-card">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">📱</div>
+                <h3>גישה מכל מקום</h3>
+                <p>דרך Telegram או דפדפן האינטרנט</p>
+            </div>
+        </div>
+        
+        {% if not logged_in %}
+        <div class="cta-section" style="margin-top: 3rem;">
+            <h2 style="margin-bottom: 2rem;">התחל עכשיו!</h2>
+            <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                <a href="/login" class="btn btn-primary btn-icon" style="font-size: 1.2rem; padding: 1rem 2rem;">
+                    <i class="fab fa-telegram"></i>
+                    התחבר עם Telegram
+                </a>
+                <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-secondary btn-icon" style="font-size: 1.2rem; padding: 1rem 2rem;">
+                    <i class="fas fa-robot"></i>
+                    פתח את הבוט
+                </a>
+            </div>
+        </div>
+        {% else %}
+        <div class="user-welcome" style="margin-top: 3rem;">
+            <h2 style="margin-bottom: 2rem;">שלום {{ user.first_name }}! 👋</h2>
+            <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                <a href="/dashboard" class="btn btn-primary btn-icon" style="font-size: 1.2rem; padding: 1rem 2rem;">
+                    <i class="fas fa-chart-line"></i>
+                    לדשבורד שלי
+                </a>
+                <a href="/files" class="btn btn-secondary btn-icon" style="font-size: 1.2rem; padding: 1rem 2rem;">
+                    <i class="fas fa-folder"></i>
+                    לקבצים שלי
+                </a>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="stats-section" style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(255,255,255,0.2);">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2rem;">
+                <div>
+                    <div style="font-size: 2rem; font-weight: bold;">1000+</div>
+                    <div style="opacity: 0.8;">משתמשים פעילים</div>
+                </div>
+                <div>
+                    <div style="font-size: 2rem; font-weight: bold;">50K+</div>
+                    <div style="opacity: 0.8;">קטעי קוד נשמרו</div>
+                </div>
+                <div>
+                    <div style="font-size: 2rem; font-weight: bold;">30+</div>
+                    <div style="opacity: 0.8;">שפות נתמכות</div>
+                </div>
+                <div>
+                    <div style="font-size: 2rem; font-weight: bold;">99.9%</div>
+                    <div style="opacity: 0.8;">זמינות</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.feature-card {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 1.5rem;
+    border-radius: 15px;
+    transition: transform 0.3s;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.hero-section {
+    animation: fadeIn 1s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+</style>
+{% endblock %}

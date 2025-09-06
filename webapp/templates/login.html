@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}התחברות - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<div class="login-container" style="max-width: 500px; margin: 4rem auto;">
+    <div class="glass-card" style="text-align: center;">
+        <div style="font-size: 4rem; margin-bottom: 2rem;">🔐</div>
+        <h1 class="page-title">התחברות למערכת</h1>
+        <p style="font-size: 1.2rem; margin-bottom: 3rem; opacity: 0.9;">
+            התחבר באמצעות חשבון הטלגרם שלך
+        </p>
+        
+        <div class="telegram-login-widget" style="margin: 2rem 0;">
+            <script async src="https://telegram.org/js/telegram-widget.js?22" 
+                    data-telegram-login="{{ bot_username }}" 
+                    data-size="large" 
+                    data-auth-url="/auth/telegram"
+                    data-request-access="write"></script>
+        </div>
+        
+        <div class="divider" style="margin: 3rem 0; position: relative;">
+            <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.2);">
+            <span style="position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: rgba(102, 126, 234, 0.9); padding: 0 1rem;">או</span>
+        </div>
+        
+        <div class="alternative-login">
+            <h3 style="margin-bottom: 1rem;">התחבר דרך הבוט</h3>
+            <p style="margin-bottom: 2rem; opacity: 0.8;">
+                שלח הודעה לבוט בטלגרם וקבל קישור התחברות אישי
+            </p>
+            <a href="https://t.me/{{ bot_username }}?start=webapp_login" target="_blank" class="btn btn-primary btn-icon">
+                <i class="fab fa-telegram"></i>
+                פתח את הבוט בטלגרם
+            </a>
+        </div>
+        
+        <div class="security-note" style="margin-top: 3rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
+            <i class="fas fa-shield-alt" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+            <p style="font-size: 0.9rem; opacity: 0.8;">
+                ההתחברות מאובטחת ומתבצעת ישירות מול שרתי Telegram.
+                <br>
+                אנחנו לא שומרים סיסמאות או מידע רגיש.
+            </p>
+        </div>
+    </div>
+</div>
+
+<style>
+.login-container {
+    animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Override Telegram widget styles */
+#telegram-login-{{ bot_username }} {
+    margin: 0 auto;
+}
+</style>
+{% endblock %}
