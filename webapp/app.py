@@ -159,6 +159,60 @@ def telegram_auth():
     
     return redirect(url_for('dashboard'))
 
+@app.route('/auth/token')
+def token_auth():
+    """טיפול באימות עם טוקן מהבוט"""
+    token = request.args.get('token')
+    user_id = request.args.get('user_id')
+    
+    if not token or not user_id:
+        return render_template('404.html'), 404
+    
+    try:
+        db = get_db()
+        # חיפוש הטוקן במסד נתונים
+        token_doc = db.webapp_tokens.find_one({
+            'token': token,
+            'user_id': int(user_id)
+        })
+        
+        if not token_doc:
+            return render_template('login.html', 
+                                 bot_username=BOT_USERNAME,
+                                 error="קישור ההתחברות לא תקף או פג תוקפו")
+        
+        # בדיקת תוקף
+        if token_doc['expires_at'] < datetime.now(timezone.utc):
+            # מחיקת טוקן שפג תוקפו
+            db.webapp_tokens.delete_one({'_id': token_doc['_id']})
+            return render_template('login.html', 
+                                 bot_username=BOT_USERNAME,
+                                 error="קישור ההתחברות פג תוקף. אנא בקש קישור חדש מהבוט.")
+        
+        # מחיקת הטוקן לאחר שימוש (חד פעמי)
+        db.webapp_tokens.delete_one({'_id': token_doc['_id']})
+        
+        # שליפת פרטי המשתמש
+        user = db.users.find_one({'user_id': int(user_id)})
+        
+        # שמירת נתוני המשתמש בסשן
+        session['user_id'] = int(user_id)
+        session['user_data'] = {
+            'id': int(user_id),
+            'first_name': user.get('first_name', ''),
+            'last_name': user.get('last_name', ''),
+            'username': token_doc.get('username', ''),
+            'photo_url': ''
+        }
+        
+        return redirect(url_for('dashboard'))
+        
+    except Exception as e:
+        print(f"Error in token auth: {e}")
+        return render_template('login.html', 
+                             bot_username=BOT_USERNAME,
+                             error="שגיאה בהתחברות. אנא נסה שנית.")
+
 @app.route('/logout')
 def logout():
     """התנתקות"""
