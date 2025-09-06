@@ -930,12 +930,15 @@ class AdvancedBotHandlers:
                 expiry_line = f"⏳ תוקף: {date_str} ({rel})"
             except Exception:
                 pass
+            safe_file = html.escape(file_name)
+            safe_url = html.escape(result['url'])
+            safe_expiry = html.escape(expiry_line)
             await query.edit_message_text(
-                f"📱 **נוצר קישור פנימי!**\n\n"
-                f"📄 קובץ: `{file_name}`\n"
-                f"🔗 קישור: {result['url']}\n"
-                f"{expiry_line}",
-                parse_mode=ParseMode.MARKDOWN
+                f"📱 <b>נוצר קישור פנימי!</b>\n\n"
+                f"📄 קובץ: <code>{safe_file}</code>\n"
+                f"🔗 קישור: <a href=\"{safe_url}\">{safe_url}</a>\n"
+                f"{safe_expiry}",
+                parse_mode=ParseMode.HTML
             )
         except Exception as e:
             logger.error(f"שגיאה ביצירת קישור פנימי: {e}")
@@ -1039,12 +1042,14 @@ class AdvancedBotHandlers:
                 expiry_line = f"⏳ תוקף: {date_str} ({rel})"
             except Exception:
                 pass
+            safe_url = html.escape(result['url'])
+            safe_expiry = html.escape(expiry_line)
             await query.edit_message_text(
-                f"📱 **נוצר קישור פנימי (מרובה קבצים)!**\n\n"
+                f"📱 <b>נוצר קישור פנימי (מרובה קבצים)!</b>\n\n"
                 f"📄 קבצים: {len(names)}\n"
-                f"🔗 קישור: {result['url']}\n"
-                f"{expiry_line}",
-                parse_mode=ParseMode.MARKDOWN
+                f"🔗 קישור: <a href=\"{safe_url}\">{safe_url}</a>\n"
+                f"{safe_expiry}",
+                parse_mode=ParseMode.HTML
             )
         except Exception as e:
             logger.error(f"שגיאה בקישור פנימי מרובה: {e}")
