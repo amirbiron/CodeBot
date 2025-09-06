@@ -82,7 +82,55 @@ services:
         mountPath: /data
         sizeGB: 1
 
-  # Terminal bot worker removed as it is not part of this deploy target
+  # ===================================
+  # Code Keeper Web App - Web Service
+  # ===================================
+  - type: web
+    name: code-keeper-webapp
+    env: python
+    region: oregon
+    plan: free
+    
+    # הגדרות בנייה
+    buildCommand: |
+      cd webapp
+      pip install --upgrade pip
+      pip install --no-cache-dir --upgrade -r requirements.txt
+    
+    # פקודת הפעלה
+    startCommand: cd webapp && gunicorn app:app --bind 0.0.0.0:$PORT
+    
+    # הגדרות runtime
+    runtime: python3.11
+    
+    # Health check
+    healthCheckPath: /
+    
+    # משתני סביבה
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      
+      - key: PYTHONUNBUFFERED
+        value: 1
+        
+      - key: LOG_LEVEL
+        value: INFO
+        
+      # משתני רגישים - יוגדרו בRender Dashboard:
+      # SECRET_KEY (for Flask sessions)
+      # BOT_TOKEN (same as bot)
+      # MONGODB_URL (same as bot)
+      # BOT_USERNAME
+      # WEBAPP_URL
+    
+    # Auto-deploy מ-Git
+    autoDeploy: true
+    
+    # הגדרות נוספות
+    scaling:
+      minInstances: 1
+      maxInstances: 1
 
 # ===================================
 # אפשרויות נוספות לעתיד

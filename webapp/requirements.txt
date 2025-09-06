@@ -1,0 +1,25 @@
+# Code Keeper Bot - Web App Requirements
+# דרישות לאפליקציית הווב בלבד
+
+# Web Framework
+Flask==3.0.0
+gunicorn==23.0.0
+
+# Database
+pymongo==4.6.1
+
+# Code Highlighting
+pygments==2.17.2
+
+# HTTP Requests (for Telegram API)
+requests==2.31.0
+
+# Python environment
+python-dotenv==1.0.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Security
+cryptography==42.0.5
