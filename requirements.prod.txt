@@ -45,7 +45,7 @@ pendulum==2.1.2; python_version < '3.12'
 pendulum>=3.0.0; python_version >= '3.12'
 
 # Logging & Monitoring
-structlog==23.2.0
+structlog==25.4.0
 sentry-sdk==1.39.2
 psutil==5.9.6
 
