@@ -44,7 +44,13 @@ def get_db():
         if not MONGODB_URL:
             raise Exception("MONGODB_URL is not configured")
         try:
-            client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
+            client = MongoClient(
+                MONGODB_URL,
+                serverSelectionTimeoutMS=5000,
+                tz_aware=True,
+                tzinfo=timezone.utc,
+            )
             # בדיקת חיבור
             client.server_info()
             db = client[DATABASE_NAME]
@@ -61,10 +67,21 @@ def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
         doc = coll.find_one({"share_id": share_id})
         if not doc:
             return None
-        # TTL אמור לטפל במחיקה, אבל אם עדיין לא נמחק — נבדוק תוקף ידנית
+        # TTL אמור לטפל במחיקה, אבל אם עדיין לא נמחק — נבדוק תוקף ידנית באופן חסין tz
         exp = doc.get("expires_at")
-        if isinstance(exp, datetime) and exp < datetime.now(timezone.utc):
-            return None
+        if isinstance(exp, datetime):
+            exp_aware = exp if exp.tzinfo is not None else exp.replace(tzinfo=timezone.utc)
+            now_utc = datetime.now(timezone.utc)
+            if exp_aware < now_utc:
+                return None
+        elif isinstance(exp, str):
+            try:
+                exp_dt = datetime.fromisoformat(exp)
+                exp_aware = exp_dt if exp_dt.tzinfo is not None else exp_dt.replace(tzinfo=timezone.utc)
+                if exp_aware < datetime.now(timezone.utc):
+                    return None
+            except Exception:
+                pass
         try:
             coll.update_one({"_id": doc["_id"]}, {"$inc": {"views": 1}})
         except Exception:
