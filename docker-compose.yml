@@ -66,6 +66,9 @@ services:
     environment:
       # Bot settings
       BOT_TOKEN: ${BOT_TOKEN}
+      # Enable internal share web + base URL for public links
+      ENABLE_INTERNAL_SHARE_WEB: ${ENABLE_INTERNAL_SHARE_WEB:-true}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${BOT_PORT:-8000}}
       
       # Database
       MONGODB_URL: mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-password123}@mongodb:27017/${DATABASE_NAME:-code_keeper_bot}?authSource=admin

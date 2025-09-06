@@ -90,6 +90,9 @@ services:
       
       # Appearance
       HIGHLIGHT_THEME: github-dark
+      # Internal share web (dev)
+      ENABLE_INTERNAL_SHARE_WEB: ${ENABLE_INTERNAL_SHARE_WEB:-true}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
       
       # Backup (מבוטל לפיתוח)
       AUTO_BACKUP_ENABLED: false
