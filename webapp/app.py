@@ -231,65 +231,93 @@ def logout():
 @login_required
 def dashboard():
     """דשבורד עם סטטיסטיקות"""
-    db = get_db()
-    user_id = session['user_id']
-    
-    # שליפת סטטיסטיקות
-    total_files = db.code_snippets.count_documents({'user_id': user_id})
-    
-    # חישוב נפח כולל
-    pipeline = [
-        {'$match': {'user_id': user_id}},
-        {'$group': {
-            '_id': None,
-            'total_size': {'$sum': {'$strLenBytes': '$code'}}
-        }}
-    ]
-    size_result = list(db.code_snippets.aggregate(pipeline))
-    total_size = size_result[0]['total_size'] if size_result else 0
-    
-    # שפות פופולריות
-    languages_pipeline = [
-        {'$match': {'user_id': user_id}},
-        {'$group': {
-            '_id': '$programming_language',
-            'count': {'$sum': 1}
-        }},
-        {'$sort': {'count': -1}},
-        {'$limit': 5}
-    ]
-    top_languages = list(db.code_snippets.aggregate(languages_pipeline))
-    
-    # פעילות אחרונה
-    recent_files = list(db.code_snippets.find(
-        {'user_id': user_id},
-        {'file_name': 1, 'programming_language': 1, 'created_at': 1}
-    ).sort('created_at', DESCENDING).limit(5))
-    
-    # עיבוד הנתונים לתצוגה
-    for file in recent_files:
-        file['_id'] = str(file['_id'])
-        file['icon'] = get_language_icon(file.get('programming_language', ''))
-        if 'created_at' in file:
-            file['created_at_formatted'] = file['created_at'].strftime('%d/%m/%Y %H:%M')
-    
-    stats = {
-        'total_files': total_files,
-        'total_size': format_file_size(total_size),
-        'top_languages': [
-            {
-                'name': lang['_id'] or 'לא מוגדר',
-                'count': lang['count'],
-                'icon': get_language_icon(lang['_id'] or '')
-            }
-            for lang in top_languages
-        ],
-        'recent_files': recent_files
-    }
-    
-    return render_template('dashboard.html', 
-                         user=session['user_data'],
-                         stats=stats)
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        
+        # שליפת סטטיסטיקות
+        total_files = db.code_snippets.count_documents({'user_id': user_id})
+        
+        # חישוב נפח כולל
+        pipeline = [
+            {'$match': {'user_id': user_id}},
+            {'$project': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$group': {
+                '_id': None,
+                'total_size': {'$sum': '$code_size'}
+            }}
+        ]
+        size_result = list(db.code_snippets.aggregate(pipeline))
+        total_size = size_result[0]['total_size'] if size_result else 0
+        
+        # שפות פופולריות
+        languages_pipeline = [
+            {'$match': {'user_id': user_id}},
+            {'$group': {
+                '_id': '$programming_language',
+                'count': {'$sum': 1}
+            }},
+            {'$sort': {'count': -1}},
+            {'$limit': 5}
+        ]
+        top_languages = list(db.code_snippets.aggregate(languages_pipeline))
+        
+        # פעילות אחרונה
+        recent_files = list(db.code_snippets.find(
+            {'user_id': user_id},
+            {'file_name': 1, 'programming_language': 1, 'created_at': 1}
+        ).sort('created_at', DESCENDING).limit(5))
+        
+        # עיבוד הנתונים לתצוגה
+        for file in recent_files:
+            file['_id'] = str(file['_id'])
+            file['icon'] = get_language_icon(file.get('programming_language', ''))
+            if 'created_at' in file:
+                file['created_at_formatted'] = file['created_at'].strftime('%d/%m/%Y %H:%M')
+        
+        stats = {
+            'total_files': total_files,
+            'total_size': format_file_size(total_size),
+            'top_languages': [
+                {
+                    'name': lang['_id'] or 'לא מוגדר',
+                    'count': lang['count'],
+                    'icon': get_language_icon(lang['_id'] or '')
+                }
+                for lang in top_languages
+            ],
+            'recent_files': recent_files
+        }
+        
+        return render_template('dashboard.html', 
+                             user=session['user_data'],
+                             stats=stats)
+                             
+    except Exception as e:
+        print(f"Error in dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        # נסה להציג דשבורד ריק במקרה של שגיאה
+        return render_template('dashboard.html', 
+                             user=session.get('user_data', {}),
+                             stats={
+                                 'total_files': 0,
+                                 'total_size': '0 B',
+                                 'top_languages': [],
+                                 'recent_files': []
+                             },
+                             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.")
 
 @app.route('/files')
 @login_required
