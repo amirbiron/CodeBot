@@ -3,7 +3,7 @@
 {% block title %}התחברות - Code Keeper{% endblock %}
 
 {% block extra_head %}
-<script src="https://telegram.org/js/telegram-widget.js?22"></script>
+<!-- Telegram widget script loaded here -->
 {% endblock %}
 
 {% block content %}
@@ -55,16 +55,35 @@
 </div>
 
 <script>
-function onTelegramAuth(user) {
-    // Show loading
-    document.body.innerHTML += `
-        <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+// Show error message with Glass Morphism style
+function showLoginError(message) {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.innerHTML = `
             <div class="glass-morphism p-8 rounded-2xl text-center">
-                <i class="fas fa-spinner fa-spin text-4xl text-white mb-4"></i>
-                <p class="text-white text-xl">מתחבר...</p>
+                <i class="fas fa-exclamation-triangle text-4xl text-red-400 mb-4"></i>
+                <p class="text-white text-xl mb-4">${message}</p>
+                <button onclick="document.getElementById('loading-overlay').remove()" 
+                        class="mt-2 px-6 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-bold transition">
+                    סגור
+                </button>
             </div>
+        `;
+    }
+}
+
+function onTelegramAuth(user) {
+    // Create loading overlay
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loading-overlay';
+    loadingDiv.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    loadingDiv.innerHTML = `
+        <div class="glass-morphism p-8 rounded-2xl text-center">
+            <i class="fas fa-spinner fa-spin text-4xl text-white mb-4"></i>
+            <p class="text-white text-xl">מתחבר...</p>
         </div>
     `;
+    document.body.appendChild(loadingDiv);
     
     // Send authentication data to server
     fetch('/auth/telegram', {
@@ -86,14 +105,12 @@ function onTelegramAuth(user) {
             // Redirect to dashboard
             window.location.href = '/dashboard';
         } else {
-            alert('שגיאה בהתחברות. אנא נסה שוב.');
-            document.getElementById('loading-overlay').remove();
+            showLoginError('שגיאה בהתחברות. אנא נסה שוב.');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('שגיאה בהתחברות. אנא נסה שוב.');
-        document.getElementById('loading-overlay').remove();
+        showLoginError('שגיאה בהתחברות. אנא נסה שוב.');
     });
 }
 </script>

@@ -61,25 +61,41 @@ JWT_EXPIRATION_HOURS = 24
 BOT_TOKEN = config.BOT_TOKEN
 
 def create_jwt_token(user_id: int, username: str) -> str:
-    """Create a JWT token for user authentication"""
+    """Create a JWT token for user authentication with enhanced security"""
+    import uuid
     payload = {
         'user_id': user_id,
         'username': username,
         'exp': datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
-        'iat': datetime.now(timezone.utc)
+        'iat': datetime.now(timezone.utc),
+        'jti': str(uuid.uuid4()),  # JWT ID for token revocation
+        'aud': 'code-keeper-webapp',  # Audience claim
+        'iss': 'code-keeper-bot'  # Issuer claim
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verify and decode JWT token"""
+    """Verify and decode JWT token with audience and issuer validation"""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, 
+            JWT_SECRET, 
+            algorithms=[JWT_ALGORITHM],
+            audience='code-keeper-webapp',
+            issuer='code-keeper-bot'
+        )
         return payload
     except jwt.ExpiredSignatureError:
         logger.warning("JWT token expired")
         return None
+    except jwt.InvalidAudienceError:
+        logger.warning("JWT token has invalid audience")
+        return None
+    except jwt.InvalidIssuerError:
+        logger.warning("JWT token has invalid issuer")
+        return None
     except jwt.InvalidTokenError as e:
-        logger.warning(f"Invalid JWT token: {e}")
+        logger.warning(f"Invalid JWT token")
         return None
 
 def login_required(f):
@@ -162,8 +178,10 @@ def telegram_auth():
         return jsonify({'error': 'Authentication failed'}), 500
 
 def verify_telegram_auth(auth_data: dict) -> bool:
-    """Verify Telegram authentication data"""
+    """Verify Telegram authentication data using HMAC-SHA256"""
     try:
+        import hmac
+        
         check_hash = auth_data.get('hash')
         if not check_hash:
             return False
@@ -176,25 +194,28 @@ def verify_telegram_auth(auth_data: dict) -> bool:
         
         data_check_string = '\n'.join(data_check_arr)
         
-        # Calculate hash
+        # Calculate hash using HMAC-SHA256 as per Telegram docs
         secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-        calculated_hash = hashlib.sha256(
-            (data_check_string.encode() + secret_key)
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256
         ).hexdigest()
         
         # Verify hash
         if calculated_hash != check_hash:
             return False
         
-        # Check auth date (not older than 1 day)
+        # Check auth date (not older than 1 day) - use UTC
         auth_date = int(auth_data.get('auth_date', 0))
-        if (datetime.now().timestamp() - auth_date) > 86400:
+        if (datetime.now(timezone.utc).timestamp() - auth_date) > 86400:
             return False
         
         return True
         
     except Exception as e:
-        logger.error(f"Auth verification error: {e}")
+        # Don't expose internal error details
+        logger.error(f"Auth verification failed")
         return False
 
 @app.route('/logout')
