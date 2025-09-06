@@ -5,9 +5,9 @@
 
 services:
   # ===================================
-  # Code Keeper Bot - Web Service
+  # Code Keeper Bot - Worker Service (Bot)
   # ===================================
-  - type: web
+  - type: worker
     name: code-keeper-bot
     env: python
     region: oregon # או virginia, frankfurt, singapore
@@ -23,9 +23,6 @@ services:
     
     # הגדרות runtime
     runtime: python3.11
-    
-    # Health check
-    healthCheckPath: /health
     
     # משתני סביבה (ערכים ברגישים יוגדרו בRender Dashboard)
     envVars:
@@ -82,7 +79,57 @@ services:
         mountPath: /data
         sizeGB: 1
 
-  # Terminal bot worker removed as it is not part of this deploy target
+  # ===================================
+  # Code Keeper Web App - Web Service
+  # ===================================
+  - type: web
+    name: code-keeper-webapp
+    env: python
+    region: oregon
+    plan: free
+    
+    # הגדרות בנייה
+    buildCommand: |
+      pip install --upgrade pip
+      pip install --no-cache-dir --upgrade -r requirements.txt
+    
+    # פקודת הפעלה
+    startCommand: gunicorn webapp.app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    
+    # הגדרות runtime
+    runtime: python3.11
+    
+    # Health check
+    healthCheckPath: /health
+    
+    # משתני סביבה
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      
+      - key: PYTHONUNBUFFERED
+        value: 1
+        
+      - key: FLASK_ENV
+        value: production
+        
+      - key: LOG_LEVEL
+        value: INFO
+        
+      # משתני רגישים - יוגדרו בRender Dashboard:
+      # WEBAPP_SECRET_KEY (יצירה: python -c "import secrets; print(secrets.token_hex(32))")
+      # JWT_SECRET (יצירה: python -c "import secrets; print(secrets.token_hex(32))")
+      # BOT_TOKEN (אותו טוקן כמו הבוט)
+      # BOT_USERNAME (שם המשתמש של הבוט בטלגרם, לדוגמה: CodeKeeperBot)
+      # MONGODB_URL (אותו URL כמו הבוט)
+    
+    # Auto-deploy מ-Git
+    autoDeploy: true
+    
+    # הגדרות נוספות
+    scaling:
+      minInstances: 1
+      maxInstances: 1
 
 # ===================================
 # אפשרויות נוספות לעתיד

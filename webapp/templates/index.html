@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}ברוכים הבאים - Code Keeper{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- Hero Section -->
+    <div class="text-center py-20">
+        <h1 class="text-6xl font-bold text-white mb-6">
+            <i class="fas fa-code text-5xl mb-4 block"></i>
+            Code Keeper Bot
+        </h1>
+        <p class="text-2xl text-white opacity-90 mb-8">
+            המקום המושלם לשמור, לנהל ולשתף את קטעי הקוד שלך
+        </p>
+        
+        <div class="flex justify-center space-x-4 space-x-reverse">
+            <a href="/login" class="bg-white text-purple-600 px-8 py-4 rounded-full font-bold text-lg hover-scale shadow-xl">
+                <i class="fab fa-telegram"></i> התחבר עם טלגרם
+            </a>
+            <a href="https://t.me/CodeKeeperBot" target="_blank" class="glass-morphism text-white px-8 py-4 rounded-full font-bold text-lg hover-scale">
+                <i class="fas fa-robot"></i> פתח את הבוט
+            </a>
+        </div>
+    </div>
+    
+    <!-- Features Section -->
+    <div class="grid md:grid-cols-3 gap-8 mt-20">
+        <div class="glass-morphism p-8 rounded-2xl text-center hover-scale">
+            <div class="text-5xl text-white mb-4">
+                <i class="fas fa-save"></i>
+            </div>
+            <h3 class="text-2xl font-bold text-white mb-3">שמירה מהירה</h3>
+            <p class="text-white opacity-80">
+                שמור קטעי קוד בקלות ישירות מטלגרם או דרך הממשק הנוח שלנו
+            </p>
+        </div>
+        
+        <div class="glass-morphism p-8 rounded-2xl text-center hover-scale">
+            <div class="text-5xl text-white mb-4">
+                <i class="fas fa-search"></i>
+            </div>
+            <h3 class="text-2xl font-bold text-white mb-3">חיפוש חכם</h3>
+            <p class="text-white opacity-80">
+                מצא את הקוד שאתה צריך במהירות עם חיפוש מתקדם לפי שפה, תגיות או תוכן
+            </p>
+        </div>
+        
+        <div class="glass-morphism p-8 rounded-2xl text-center hover-scale">
+            <div class="text-5xl text-white mb-4">
+                <i class="fas fa-code-branch"></i>
+            </div>
+            <h3 class="text-2xl font-bold text-white mb-3">ניהול גרסאות</h3>
+            <p class="text-white opacity-80">
+                עקוב אחר שינויים ושמור היסטוריית גרסאות לכל קובץ קוד
+            </p>
+        </div>
+    </div>
+    
+    <!-- Statistics Section -->
+    <div class="glass-morphism p-12 rounded-2xl mt-20 text-center">
+        <h2 class="text-4xl font-bold text-white mb-8">הקהילה שלנו במספרים</h2>
+        <div class="grid md:grid-cols-4 gap-8">
+            <div>
+                <div class="text-5xl font-bold text-white">1,000+</div>
+                <div class="text-white opacity-80 mt-2">משתמשים פעילים</div>
+            </div>
+            <div>
+                <div class="text-5xl font-bold text-white">10,000+</div>
+                <div class="text-white opacity-80 mt-2">קטעי קוד שמורים</div>
+            </div>
+            <div>
+                <div class="text-5xl font-bold text-white">50+</div>
+                <div class="text-white opacity-80 mt-2">שפות תכנות</div>
+            </div>
+            <div>
+                <div class="text-5xl font-bold text-white">24/7</div>
+                <div class="text-white opacity-80 mt-2">זמינות</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- CTA Section -->
+    <div class="text-center mt-20 mb-10">
+        <h2 class="text-4xl font-bold text-white mb-6">מוכן להתחיל?</h2>
+        <p class="text-xl text-white opacity-90 mb-8">
+            הצטרף לקהילת המפתחים שלנו וקבל גישה לכל הכלים שאתה צריך
+        </p>
+        <a href="/login" class="bg-white text-purple-600 px-10 py-4 rounded-full font-bold text-xl hover-scale shadow-xl inline-block">
+            <i class="fas fa-rocket"></i> התחל עכשיו בחינם
+        </a>
+    </div>
+</div>
+{% endblock %}

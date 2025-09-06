@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}לוח בקרה - Code Keeper{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- Welcome Section -->
+    <div class="glass-morphism p-8 rounded-2xl mb-8">
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-4xl font-bold text-white mb-2">
+                    שלום, {{ username }}! 👋
+                </h1>
+                <p class="text-white opacity-80">
+                    ברוך הבא ללוח הבקרה שלך
+                </p>
+            </div>
+            <div class="text-left">
+                <a href="https://t.me/CodeKeeperBot" target="_blank" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale inline-block">
+                    <i class="fab fa-telegram"></i> פתח את הבוט
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Statistics Cards -->
+    <div class="grid md:grid-cols-4 gap-6 mb-8">
+        <div class="glass-morphism p-6 rounded-2xl hover-scale">
+            <div class="flex items-center justify-between mb-4">
+                <div class="text-3xl text-white">
+                    <i class="fas fa-file-code"></i>
+                </div>
+                <div class="text-left">
+                    <div class="text-3xl font-bold text-white">{{ stats.total_files|default(0) }}</div>
+                    <div class="text-white opacity-70">קבצים</div>
+                </div>
+            </div>
+            <div class="text-white opacity-60 text-sm">
+                מתוך {{ 1000 }} מותרים
+            </div>
+            <div class="w-full bg-white bg-opacity-20 rounded-full h-2 mt-2">
+                <div class="bg-white rounded-full h-2" style="width: {{ (stats.total_files|default(0) / 10)|round|int }}%"></div>
+            </div>
+        </div>
+        
+        <div class="glass-morphism p-6 rounded-2xl hover-scale">
+            <div class="flex items-center justify-between mb-4">
+                <div class="text-3xl text-white">
+                    <i class="fas fa-code-branch"></i>
+                </div>
+                <div class="text-left">
+                    <div class="text-3xl font-bold text-white">{{ stats.total_versions|default(0) }}</div>
+                    <div class="text-white opacity-70">גרסאות</div>
+                </div>
+            </div>
+            <div class="text-white opacity-60 text-sm">
+                ממוצע {{ (stats.total_versions|default(0) / (stats.total_files|default(1)))|round(1) }} לקובץ
+            </div>
+        </div>
+        
+        <div class="glass-morphism p-6 rounded-2xl hover-scale">
+            <div class="flex items-center justify-between mb-4">
+                <div class="text-3xl text-white">
+                    <i class="fas fa-language"></i>
+                </div>
+                <div class="text-left">
+                    <div class="text-3xl font-bold text-white">{{ stats.languages|length|default(0) }}</div>
+                    <div class="text-white opacity-70">שפות</div>
+                </div>
+            </div>
+            <div class="text-white opacity-60 text-sm">
+                {% if stats.languages %}
+                    {{ stats.languages[:3]|join(', ') }}
+                {% else %}
+                    טרם נוספו קבצים
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="glass-morphism p-6 rounded-2xl hover-scale">
+            <div class="flex items-center justify-between mb-4">
+                <div class="text-3xl text-white">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="text-left">
+                    <div class="text-2xl font-bold text-white">
+                        {% if stats.latest_activity %}
+                            {{ stats.latest_activity.strftime('%d/%m') }}
+                        {% else %}
+                            --/--
+                        {% endif %}
+                    </div>
+                    <div class="text-white opacity-70">עדכון אחרון</div>
+                </div>
+            </div>
+            <div class="text-white opacity-60 text-sm">
+                {% if stats.latest_activity %}
+                    {{ stats.latest_activity.strftime('%H:%M') }}
+                {% else %}
+                    אין פעילות
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="glass-morphism p-8 rounded-2xl mb-8">
+        <h2 class="text-2xl font-bold text-white mb-6">פעולות מהירות</h2>
+        <div class="grid md:grid-cols-4 gap-4">
+            <a href="/files" class="bg-white bg-opacity-20 hover:bg-opacity-30 transition p-4 rounded-xl text-center">
+                <i class="fas fa-folder-open text-3xl text-white mb-2"></i>
+                <p class="text-white font-semibold">עיין בקבצים</p>
+            </a>
+            <a href="/files?language=python" class="bg-white bg-opacity-20 hover:bg-opacity-30 transition p-4 rounded-xl text-center">
+                <i class="fab fa-python text-3xl text-white mb-2"></i>
+                <p class="text-white font-semibold">קבצי Python</p>
+            </a>
+            <a href="/files?language=javascript" class="bg-white bg-opacity-20 hover:bg-opacity-30 transition p-4 rounded-xl text-center">
+                <i class="fab fa-js text-3xl text-white mb-2"></i>
+                <p class="text-white font-semibold">קבצי JavaScript</p>
+            </a>
+            <a href="https://t.me/CodeKeeperBot" target="_blank" class="bg-white bg-opacity-20 hover:bg-opacity-30 transition p-4 rounded-xl text-center">
+                <i class="fas fa-plus-circle text-3xl text-white mb-2"></i>
+                <p class="text-white font-semibold">הוסף קובץ חדש</p>
+            </a>
+        </div>
+    </div>
+    
+    <!-- Recent Files -->
+    {% if recent_files %}
+    <div class="glass-morphism p-8 rounded-2xl">
+        <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-bold text-white">קבצים אחרונים</h2>
+            <a href="/files" class="text-white opacity-80 hover:opacity-100 transition">
+                ראה הכל <i class="fas fa-arrow-left"></i>
+            </a>
+        </div>
+        
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {% for file in recent_files[:6] %}
+            <div class="file-card bg-white bg-opacity-10 rounded-xl p-4 hover:bg-opacity-20 transition">
+                <a href="/file/{{ file._id }}" class="block">
+                    <div class="flex items-start justify-between mb-2">
+                        <h3 class="text-white font-semibold truncate flex-1">
+                            {{ file.file_name }}
+                        </h3>
+                        <span class="language-badge mr-2">
+                            {{ file.programming_language }}
+                        </span>
+                    </div>
+                    <p class="text-white opacity-70 text-sm mb-2">
+                        {% if file.description %}
+                            {{ file.description[:50] }}{% if file.description|length > 50 %}...{% endif %}
+                        {% else %}
+                            ללא תיאור
+                        {% endif %}
+                    </p>
+                    <div class="flex justify-between items-center">
+                        <span class="text-white opacity-60 text-xs">
+                            <i class="fas fa-clock"></i> {{ file.updated_at.strftime('%d/%m %H:%M') }}
+                        </span>
+                        <span class="text-white opacity-60 text-xs">
+                            <i class="fas fa-code"></i> {{ file.code|length if file.code else 0 }} תווים
+                        </span>
+                    </div>
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="glass-morphism p-12 rounded-2xl text-center">
+        <i class="fas fa-inbox text-6xl text-white opacity-50 mb-4"></i>
+        <h3 class="text-2xl font-bold text-white mb-2">אין קבצים עדיין</h3>
+        <p class="text-white opacity-70 mb-6">התחל לשמור קטעי קוד דרך הבוט בטלגרם</p>
+        <a href="https://t.me/CodeKeeperBot" target="_blank" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale inline-block">
+            <i class="fab fa-telegram"></i> התחל עכשיו
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
