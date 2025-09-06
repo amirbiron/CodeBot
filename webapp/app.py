@@ -372,6 +372,8 @@ def files():
     
     # רשימת שפות לפילטר
     languages = db.code_snippets.distinct('programming_language', {'user_id': user_id})
+    # סינון None וערכים ריקים ומיון
+    languages = sorted([lang for lang in languages if lang]) if languages else []
     
     # חישוב עמודים
     total_pages = (total_count + per_page - 1) // per_page
@@ -380,7 +382,7 @@ def files():
                          user=session['user_data'],
                          files=files_list,
                          total_count=total_count,
-                         languages=sorted(languages) if languages else [],
+                         languages=languages,
                          search_query=search_query,
                          language_filter=language_filter,
                          sort_by=sort_by,
