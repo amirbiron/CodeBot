@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}500 - שגיאת שרת{% endblock %}
+
+{% block content %}
+<div class="error-page" style="text-align: center; padding: 4rem 0;">
+    <div class="glass-card" style="max-width: 600px; margin: 0 auto;">
+        <div style="font-size: 6rem; margin-bottom: 2rem;">⚠️</div>
+        <h1 class="page-title">500</h1>
+        <h2 style="margin-bottom: 2rem;">אופס! משהו השתבש</h2>
+        <p style="font-size: 1.2rem; margin-bottom: 3rem; opacity: 0.9;">
+            אירעה שגיאה בשרת. אנחנו עובדים על פתרון הבעיה.
+            <br>
+            נסה שוב בעוד כמה רגעים.
+        </p>
+        
+        <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+            <button onclick="location.reload()" class="btn btn-primary btn-icon">
+                <i class="fas fa-redo"></i>
+                נסה שוב
+            </a>
+            <a href="/" class="btn btn-secondary btn-icon">
+                <i class="fas fa-home"></i>
+                לדף הבית
+            </a>
+            <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-secondary btn-icon">
+                <i class="fab fa-telegram"></i>
+                דווח על בעיה
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}דשבורד - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<h1 class="page-title">דשבורד</h1>
+
+<div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-bottom: 3rem;">
+    <div class="glass-card stat-card">
+        <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem;">📁</div>
+        <div class="stat-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">{{ stats.total_files }}</div>
+        <div class="stat-label" style="opacity: 0.8;">סך הכל קבצים</div>
+    </div>
+    
+    <div class="glass-card stat-card">
+        <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem;">💾</div>
+        <div class="stat-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">{{ stats.total_size }}</div>
+        <div class="stat-label" style="opacity: 0.8;">נפח כולל</div>
+    </div>
+    
+    <div class="glass-card stat-card">
+        <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem;">🏆</div>
+        <div class="stat-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">
+            {% if stats.top_languages %}
+                {{ stats.top_languages[0].icon }} {{ stats.top_languages[0].name }}
+            {% else %}
+                -
+            {% endif %}
+        </div>
+        <div class="stat-label" style="opacity: 0.8;">השפה הפופולרית ביותר</div>
+    </div>
+    
+    <div class="glass-card stat-card">
+        <div class="stat-icon" style="font-size: 2.5rem; margin-bottom: 1rem;">⏰</div>
+        <div class="stat-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">
+            {% if stats.recent_files %}
+                היום
+            {% else %}
+                -
+            {% endif %}
+        </div>
+        <div class="stat-label" style="opacity: 0.8;">פעילות אחרונה</div>
+    </div>
+</div>
+
+<div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+    <div class="glass-card">
+        <h2 class="section-title">
+            <i class="fas fa-code"></i>
+            שפות תכנות
+        </h2>
+        {% if stats.top_languages %}
+        <div class="languages-list">
+            {% for lang in stats.top_languages %}
+            <div class="language-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span style="font-size: 1.5rem;">{{ lang.icon }}</span>
+                    <span style="font-weight: 500;">{{ lang.name }}</span>
+                </div>
+                <div class="badge">{{ lang.count }} קבצים</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="opacity: 0.7;">אין עדיין קבצים</p>
+        {% endif %}
+    </div>
+    
+    <div class="glass-card">
+        <h2 class="section-title">
+            <i class="fas fa-clock"></i>
+            קבצים אחרונים
+        </h2>
+        {% if stats.recent_files %}
+        <div class="recent-files-list">
+            {% for file in stats.recent_files %}
+            <div class="file-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span style="font-size: 1.5rem;">{{ file.icon }}</span>
+                    <div>
+                        <div style="font-weight: 500;">{{ file.file_name }}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.7;">{{ file.created_at_formatted }}</div>
+                    </div>
+                </div>
+                <a href="/file/{{ file._id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;">
+                    <i class="fas fa-eye"></i>
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+        <div style="margin-top: 1.5rem;">
+            <a href="/files" class="btn btn-primary btn-icon">
+                <i class="fas fa-folder-open"></i>
+                צפה בכל הקבצים
+            </a>
+        </div>
+        {% else %}
+        <p style="opacity: 0.7;">אין עדיין קבצים</p>
+        <div style="margin-top: 1.5rem;">
+            <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-primary btn-icon">
+                <i class="fab fa-telegram"></i>
+                התחל לשמור קבצים בבוט
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="glass-card" style="margin-top: 2rem;">
+    <h2 class="section-title">
+        <i class="fas fa-chart-line"></i>
+        גרף פעילות
+    </h2>
+    <div id="activityChart" style="height: 200px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border-radius: 10px;">
+        <p style="opacity: 0.7;">בקרוב: גרף פעילות שבועי</p>
+    </div>
+</div>
+
+<div class="quick-actions glass-card" style="margin-top: 2rem; text-align: center;">
+    <h2 class="section-title">פעולות מהירות</h2>
+    <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+        <a href="https://t.me/{{ bot_username }}" target="_blank" class="btn btn-primary btn-icon">
+            <i class="fab fa-telegram"></i>
+            פתח את הבוט
+        </a>
+        <a href="/files" class="btn btn-secondary btn-icon">
+            <i class="fas fa-folder"></i>
+            כל הקבצים
+        </a>
+        <button onclick="refreshStats()" class="btn btn-secondary btn-icon">
+            <i class="fas fa-sync"></i>
+            רענן נתונים
+        </button>
+    </div>
+</div>
+
+<style>
+.stat-card {
+    text-align: center;
+    transition: transform 0.3s;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+}
+
+.language-item:hover,
+.file-item:hover {
+    background: rgba(255,255,255,0.1) !important;
+}
+
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+</style>
+
+<script>
+function refreshStats() {
+    const btn = event.target;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> מרענן...';
+    btn.disabled = true;
+    
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            // בעתיד: עדכון הנתונים בדף
+            location.reload();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            btn.innerHTML = '<i class="fas fa-sync"></i> רענן נתונים';
+            btn.disabled = false;
+        });
+}
+</script>
+{% endblock %}

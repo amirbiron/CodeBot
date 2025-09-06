@@ -590,6 +590,36 @@ class CodeKeeperBot:
 
         # פקודה /drive
         self.application.add_handler(CommandHandler("drive", show_drive_menu))
+        
+        # כפתור Web App
+        async def show_webapp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            webapp_url = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
+            keyboard = [
+                [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)],
+                [InlineKeyboardButton("🔐 התחבר ל-Web App", url=f"{webapp_url}/login")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "🌐 <b>Web App - ממשק ניהול מתקדם</b>\n\n"
+                "צפה ונהל את כל הקבצים שלך דרך הדפדפן:\n"
+                "• 📊 דשבורד עם סטטיסטיקות\n"
+                "• 🔍 חיפוש וסינון מתקדם\n"
+                "• 👁️ צפייה בקבצים עם הדגשת syntax\n"
+                "• 📥 הורדת קבצים\n"
+                "• 📱 עובד בכל מכשיר\n\n"
+                "לחץ על הכפתור למטה כדי לפתוח:",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+        
+        self.application.add_handler(MessageHandler(
+            filters.Regex("^🌐 Web App$"),
+            show_webapp
+        ))
+        
+        # פקודה /webapp
+        self.application.add_handler(CommandHandler("webapp", show_webapp))
+        
         # כפתור חדש לתפריט גיבוי/שחזור
 
         # פקודה /docs – שליחת קישור לתיעוד
