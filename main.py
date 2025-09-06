@@ -1827,6 +1827,49 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         
         reporter.report_activity(user_id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
+        
+        # בדיקה אם המשתמש הגיע מה-Web App
+        if context.args and len(context.args) > 0:
+            if context.args[0] == "webapp_login":
+                # יצירת קישור התחברות אישי
+                webapp_url = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
+                
+                # יצירת טוקן זמני לאימות (אפשר להשתמש ב-JWT או hash פשוט)
+                import hashlib
+                import time
+                timestamp = int(time.time())
+                secret = os.getenv('SECRET_KEY', 'dev-secret-key')
+                token_data = f"{user_id}:{timestamp}:{secret}"
+                auth_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+                
+                # שמירת הטוקן במסד נתונים עם תוקף של 5 דקות
+                db = db_manager.get_db()
+                db.webapp_tokens.insert_one({
+                    'token': auth_token,
+                    'user_id': user_id,
+                    'username': username,
+                    'created_at': datetime.now(timezone.utc),
+                    'expires_at': datetime.now(timezone.utc) + timedelta(minutes=5)
+                })
+                
+                # יצירת קישור התחברות
+                login_url = f"{webapp_url}/auth/token?token={auth_token}&user_id={user_id}"
+                
+                keyboard = [
+                    [InlineKeyboardButton("🔐 התחבר ל-Web App", url=login_url)],
+                    [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)]
+                ]
+                reply_markup_inline = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
+                    "לחץ על הכפתור למטה כדי להתחבר:\n\n"
+                    "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
+                    reply_markup=reply_markup_inline,
+                    parse_mode=ParseMode.HTML
+                )
+                return
+        
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text(
             "👋 שלום! הבוט מוכן לשימוש.\n\n"

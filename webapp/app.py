@@ -40,8 +40,16 @@ def get_db():
     """מחזיר חיבור למסד הנתונים"""
     global client, db
     if client is None:
-        client = MongoClient(MONGODB_URL)
-        db = client[DATABASE_NAME]
+        if not MONGODB_URL:
+            raise Exception("MONGODB_URL is not configured")
+        try:
+            client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            # בדיקת חיבור
+            client.server_info()
+            db = client[DATABASE_NAME]
+        except Exception as e:
+            print(f"Failed to connect to MongoDB: {e}")
+            raise
     return db
 
 # Telegram Login Widget Verification
@@ -159,6 +167,60 @@ def telegram_auth():
     
     return redirect(url_for('dashboard'))
 
+@app.route('/auth/token')
+def token_auth():
+    """טיפול באימות עם טוקן מהבוט"""
+    token = request.args.get('token')
+    user_id = request.args.get('user_id')
+    
+    if not token or not user_id:
+        return render_template('404.html'), 404
+    
+    try:
+        db = get_db()
+        # חיפוש הטוקן במסד נתונים
+        token_doc = db.webapp_tokens.find_one({
+            'token': token,
+            'user_id': int(user_id)
+        })
+        
+        if not token_doc:
+            return render_template('login.html', 
+                                 bot_username=BOT_USERNAME,
+                                 error="קישור ההתחברות לא תקף או פג תוקפו")
+        
+        # בדיקת תוקף
+        if token_doc['expires_at'] < datetime.now(timezone.utc):
+            # מחיקת טוקן שפג תוקפו
+            db.webapp_tokens.delete_one({'_id': token_doc['_id']})
+            return render_template('login.html', 
+                                 bot_username=BOT_USERNAME,
+                                 error="קישור ההתחברות פג תוקף. אנא בקש קישור חדש מהבוט.")
+        
+        # מחיקת הטוקן לאחר שימוש (חד פעמי)
+        db.webapp_tokens.delete_one({'_id': token_doc['_id']})
+        
+        # שליפת פרטי המשתמש
+        user = db.users.find_one({'user_id': int(user_id)})
+        
+        # שמירת נתוני המשתמש בסשן
+        session['user_id'] = int(user_id)
+        session['user_data'] = {
+            'id': int(user_id),
+            'first_name': user.get('first_name', ''),
+            'last_name': user.get('last_name', ''),
+            'username': token_doc.get('username', ''),
+            'photo_url': ''
+        }
+        
+        return redirect(url_for('dashboard'))
+        
+    except Exception as e:
+        print(f"Error in token auth: {e}")
+        return render_template('login.html', 
+                             bot_username=BOT_USERNAME,
+                             error="שגיאה בהתחברות. אנא נסה שנית.")
+
 @app.route('/logout')
 def logout():
     """התנתקות"""
@@ -169,65 +231,93 @@ def logout():
 @login_required
 def dashboard():
     """דשבורד עם סטטיסטיקות"""
-    db = get_db()
-    user_id = session['user_id']
-    
-    # שליפת סטטיסטיקות
-    total_files = db.code_snippets.count_documents({'user_id': user_id})
-    
-    # חישוב נפח כולל
-    pipeline = [
-        {'$match': {'user_id': user_id}},
-        {'$group': {
-            '_id': None,
-            'total_size': {'$sum': {'$strLenBytes': '$code'}}
-        }}
-    ]
-    size_result = list(db.code_snippets.aggregate(pipeline))
-    total_size = size_result[0]['total_size'] if size_result else 0
-    
-    # שפות פופולריות
-    languages_pipeline = [
-        {'$match': {'user_id': user_id}},
-        {'$group': {
-            '_id': '$programming_language',
-            'count': {'$sum': 1}
-        }},
-        {'$sort': {'count': -1}},
-        {'$limit': 5}
-    ]
-    top_languages = list(db.code_snippets.aggregate(languages_pipeline))
-    
-    # פעילות אחרונה
-    recent_files = list(db.code_snippets.find(
-        {'user_id': user_id},
-        {'file_name': 1, 'programming_language': 1, 'created_at': 1}
-    ).sort('created_at', DESCENDING).limit(5))
-    
-    # עיבוד הנתונים לתצוגה
-    for file in recent_files:
-        file['_id'] = str(file['_id'])
-        file['icon'] = get_language_icon(file.get('programming_language', ''))
-        if 'created_at' in file:
-            file['created_at_formatted'] = file['created_at'].strftime('%d/%m/%Y %H:%M')
-    
-    stats = {
-        'total_files': total_files,
-        'total_size': format_file_size(total_size),
-        'top_languages': [
-            {
-                'name': lang['_id'] or 'לא מוגדר',
-                'count': lang['count'],
-                'icon': get_language_icon(lang['_id'] or '')
-            }
-            for lang in top_languages
-        ],
-        'recent_files': recent_files
-    }
-    
-    return render_template('dashboard.html', 
-                         user=session['user_data'],
-                         stats=stats)
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        
+        # שליפת סטטיסטיקות
+        total_files = db.code_snippets.count_documents({'user_id': user_id})
+        
+        # חישוב נפח כולל
+        pipeline = [
+            {'$match': {'user_id': user_id}},
+            {'$project': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$group': {
+                '_id': None,
+                'total_size': {'$sum': '$code_size'}
+            }}
+        ]
+        size_result = list(db.code_snippets.aggregate(pipeline))
+        total_size = size_result[0]['total_size'] if size_result else 0
+        
+        # שפות פופולריות
+        languages_pipeline = [
+            {'$match': {'user_id': user_id}},
+            {'$group': {
+                '_id': '$programming_language',
+                'count': {'$sum': 1}
+            }},
+            {'$sort': {'count': -1}},
+            {'$limit': 5}
+        ]
+        top_languages = list(db.code_snippets.aggregate(languages_pipeline))
+        
+        # פעילות אחרונה
+        recent_files = list(db.code_snippets.find(
+            {'user_id': user_id},
+            {'file_name': 1, 'programming_language': 1, 'created_at': 1}
+        ).sort('created_at', DESCENDING).limit(5))
+        
+        # עיבוד הנתונים לתצוגה
+        for file in recent_files:
+            file['_id'] = str(file['_id'])
+            file['icon'] = get_language_icon(file.get('programming_language', ''))
+            if 'created_at' in file:
+                file['created_at_formatted'] = file['created_at'].strftime('%d/%m/%Y %H:%M')
+        
+        stats = {
+            'total_files': total_files,
+            'total_size': format_file_size(total_size),
+            'top_languages': [
+                {
+                    'name': lang['_id'] or 'לא מוגדר',
+                    'count': lang['count'],
+                    'icon': get_language_icon(lang['_id'] or '')
+                }
+                for lang in top_languages
+            ],
+            'recent_files': recent_files
+        }
+        
+        return render_template('dashboard.html', 
+                             user=session['user_data'],
+                             stats=stats)
+                             
+    except Exception as e:
+        print(f"Error in dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        # נסה להציג דשבורד ריק במקרה של שגיאה
+        return render_template('dashboard.html', 
+                             user=session.get('user_data', {}),
+                             stats={
+                                 'total_files': 0,
+                                 'total_size': '0 B',
+                                 'top_languages': [],
+                                 'recent_files': []
+                             },
+                             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.")
 
 @app.route('/files')
 @login_required
@@ -452,21 +542,41 @@ def api_stats():
 @app.route('/health')
 def health():
     """בדיקת תקינות"""
-    try:
-        # בדיקת חיבור ל-MongoDB
-        db = get_db()
-        db.command('ping')
-        db_status = 'connected'
-    except:
-        db_status = 'disconnected'
-    
-    return jsonify({
-        'status': 'healthy' if db_status == 'connected' else 'degraded',
+    health_data = {
+        'status': 'checking',
         'message': 'Web app is running!',
         'version': '2.0.0',
-        'database': db_status,
+        'database': 'unknown',
+        'config': {},
         'timestamp': datetime.now(timezone.utc).isoformat()
-    })
+    }
+    
+    # בדיקת משתני סביבה
+    health_data['config'] = {
+        'MONGODB_URL': 'configured' if MONGODB_URL else 'missing',
+        'BOT_TOKEN': 'configured' if BOT_TOKEN else 'missing',
+        'BOT_USERNAME': BOT_USERNAME or 'missing',
+        'DATABASE_NAME': DATABASE_NAME,
+        'WEBAPP_URL': WEBAPP_URL
+    }
+    
+    # בדיקת חיבור למסד נתונים
+    try:
+        if not MONGODB_URL:
+            health_data['database'] = 'not configured'
+            health_data['status'] = 'unhealthy'
+            health_data['error'] = 'MONGODB_URL is not configured'
+        else:
+            db = get_db()
+            db.command('ping')
+            health_data['database'] = 'connected'
+            health_data['status'] = 'healthy'
+    except Exception as e:
+        health_data['database'] = 'error'
+        health_data['status'] = 'unhealthy'
+        health_data['error'] = str(e)
+    
+    return jsonify(health_data)
 
 # Error handlers
 @app.errorhandler(404)
@@ -475,8 +585,58 @@ def not_found(e):
 
 @app.errorhandler(500)
 def server_error(e):
+    print(f"Server error: {e}")
     return render_template('500.html'), 500
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """טיפול בכל שגיאה אחרת"""
+    print(f"Unhandled exception: {e}")
+    import traceback
+    traceback.print_exc()
+    return render_template('500.html'), 500
+
+# בדיקת קונפיגורציה בהפעלה
+def check_configuration():
+    """בדיקת משתני סביבה נדרשים"""
+    required_vars = {
+        'MONGODB_URL': MONGODB_URL,
+        'BOT_TOKEN': BOT_TOKEN,
+        'BOT_USERNAME': BOT_USERNAME
+    }
+    
+    missing = []
+    for var_name, var_value in required_vars.items():
+        if not var_value:
+            missing.append(var_name)
+            print(f"WARNING: {var_name} is not configured!")
+    
+    if missing:
+        print(f"Missing required environment variables: {', '.join(missing)}")
+        print("Please configure them in Render Dashboard or .env file")
+    
+    # בדיקת חיבור ל-MongoDB
+    if MONGODB_URL:
+        try:
+            test_client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            test_client.server_info()
+            print("✓ MongoDB connection successful")
+            test_client.close()
+        except Exception as e:
+            print(f"✗ MongoDB connection failed: {e}")
+    
+    return len(missing) == 0
+
 if __name__ == '__main__':
+    print("Starting Code Keeper Web App...")
+    print(f"BOT_USERNAME: {BOT_USERNAME}")
+    print(f"DATABASE_NAME: {DATABASE_NAME}")
+    print(f"WEBAPP_URL: {WEBAPP_URL}")
+    
+    if check_configuration():
+        print("Configuration check passed ✓")
+    else:
+        print("WARNING: Configuration issues detected!")
+    
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'false').lower() == 'true')

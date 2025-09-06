@@ -11,6 +11,13 @@
             התחבר באמצעות חשבון הטלגרם שלך
         </p>
         
+        {% if error %}
+        <div class="alert alert-error" style="background: rgba(255, 59, 48, 0.1); border: 1px solid rgba(255, 59, 48, 0.3); border-radius: 10px; padding: 1rem; margin-bottom: 2rem;">
+            <i class="fas fa-exclamation-triangle" style="color: #ff3b30; margin-right: 0.5rem;"></i>
+            {{ error }}
+        </div>
+        {% endif %}
+        
         <div class="telegram-login-widget" style="margin: 2rem 0;">
             <script async src="https://telegram.org/js/telegram-widget.js?22" 
                     data-telegram-login="{{ bot_username }}" 
