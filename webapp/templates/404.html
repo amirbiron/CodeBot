@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}404 - הדף לא נמצא{% endblock %}
+
+{% block content %}
+<div class="flex justify-center items-center min-h-[60vh] fade-in">
+    <div class="text-center">
+        <div class="text-9xl font-bold text-white opacity-50 mb-4">404</div>
+        <h1 class="text-4xl font-bold text-white mb-4">אופס! הדף לא נמצא</h1>
+        <p class="text-xl text-white opacity-80 mb-8">
+            נראה שהקוד שחיפשת ברח מהמערכת... 🏃‍♂️
+        </p>
+        <div class="flex justify-center gap-4">
+            <a href="/" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale">
+                <i class="fas fa-home"></i> חזרה לדף הבית
+            </a>
+            <a href="/dashboard" class="glass-morphism text-white px-6 py-3 rounded-full font-semibold hover-scale">
+                <i class="fas fa-th-large"></i> ללוח הבקרה
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

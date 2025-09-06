@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}{{ file.file_name }} - Code Keeper{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- File Header -->
+    <div class="glass-morphism p-8 rounded-2xl mb-8">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+            <div class="flex-1">
+                <div class="flex items-center gap-3 mb-3">
+                    <h1 class="text-3xl font-bold text-white">
+                        <i class="fas fa-file-code opacity-70"></i> {{ file.file_name }}
+                    </h1>
+                    <span class="language-badge text-lg">
+                        {{ language_emoji }} {{ file.programming_language }}
+                    </span>
+                </div>
+                
+                {% if file.description %}
+                <p class="text-white opacity-80 mb-3">{{ file.description }}</p>
+                {% endif %}
+                
+                {% if file.tags %}
+                <div class="mb-3">
+                    {% for tag in file.tags %}
+                    <span class="inline-block bg-white bg-opacity-20 text-white text-sm px-3 py-1 rounded-full mr-2 mb-2">
+                        #{{ tag }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <div class="flex flex-wrap gap-4 text-white opacity-70 text-sm">
+                    <span><i class="fas fa-calendar"></i> נוצר: {{ file.created_at.strftime('%d/%m/%Y %H:%M') if file.created_at else 'לא ידוע' }}</span>
+                    <span><i class="fas fa-clock"></i> עודכן: {{ file.updated_at.strftime('%d/%m/%Y %H:%M') if file.updated_at else 'לא ידוע' }}</span>
+                    <span><i class="fas fa-code"></i> {{ file.code|length if file.code else 0 }} תווים</span>
+                    <span><i class="fas fa-list-ol"></i> {{ file.code.count('\n') + 1 if file.code else 0 }} שורות</span>
+                    <span><i class="fas fa-history"></i> גרסה {{ file.version|default(1) }}</span>
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="mt-4 md:mt-0 flex gap-3">
+                <a href="/file/{{ file._id }}/download" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale">
+                    <i class="fas fa-download"></i> הורד
+                </a>
+                <button onclick="copyCode()" class="glass-morphism text-white px-6 py-3 rounded-full font-semibold hover-scale">
+                    <i class="fas fa-copy"></i> העתק
+                </button>
+                <button onclick="shareFile()" class="glass-morphism text-white px-6 py-3 rounded-full font-semibold hover-scale">
+                    <i class="fas fa-share-alt"></i> שתף
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Code Display -->
+    <div class="glass-morphism p-8 rounded-2xl mb-8">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold text-white">קוד</h2>
+            <div class="flex gap-2">
+                <button onclick="toggleLineNumbers()" class="text-white opacity-70 hover:opacity-100 transition text-sm">
+                    <i class="fas fa-list-ol"></i> מספרי שורות
+                </button>
+                <button onclick="toggleWrap()" class="text-white opacity-70 hover:opacity-100 transition text-sm">
+                    <i class="fas fa-text-width"></i> גלישת שורות
+                </button>
+                <button onclick="toggleFullscreen()" class="text-white opacity-70 hover:opacity-100 transition text-sm">
+                    <i class="fas fa-expand"></i> מסך מלא
+                </button>
+            </div>
+        </div>
+        
+        <div id="code-container" class="code-container bg-gray-900 rounded-lg p-4 overflow-auto">
+            <pre class="line-numbers"><code class="language-{{ file.programming_language|lower }}">{{ file.code }}</code></pre>
+        </div>
+        
+        <div class="mt-4 flex justify-between items-center text-white opacity-60 text-sm">
+            <span id="copy-status"></span>
+            <span>{{ file.code|length }} תווים • {{ file.code.count('\n') + 1 }} שורות</span>
+        </div>
+    </div>
+    
+    <!-- Version History -->
+    {% if versions and versions|length > 1 %}
+    <div class="glass-morphism p-8 rounded-2xl">
+        <h2 class="text-2xl font-bold text-white mb-6">היסטוריית גרסאות</h2>
+        <div class="space-y-3">
+            {% for version in versions %}
+            <div class="bg-white bg-opacity-10 rounded-lg p-4 hover:bg-opacity-20 transition">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <span class="text-white font-semibold">גרסה {{ version.version }}</span>
+                        <span class="text-white opacity-70 text-sm mr-4">
+                            {{ version.updated_at.strftime('%d/%m/%Y %H:%M') if version.updated_at else '' }}
+                        </span>
+                        {% if version.description %}
+                        <p class="text-white opacity-60 text-sm mt-1">{{ version.description }}</p>
+                        {% endif %}
+                    </div>
+                    <button onclick="loadVersion({{ version.version }})" class="text-white opacity-70 hover:opacity-100 transition">
+                        <i class="fas fa-eye"></i> צפה
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Copy code to clipboard
+function copyCode() {
+    const code = document.querySelector('code').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        document.getElementById('copy-status').innerHTML = '<i class="fas fa-check text-green-400"></i> הקוד הועתק!';
+        setTimeout(() => {
+            document.getElementById('copy-status').innerHTML = '';
+        }, 3000);
+    });
+}
+
+// Share file
+function shareFile() {
+    if (navigator.share) {
+        navigator.share({
+            title: '{{ file.file_name }}',
+            text: 'Check out this code snippet',
+            url: window.location.href
+        });
+    } else {
+        // Fallback - copy link
+        navigator.clipboard.writeText(window.location.href).then(() => {
+            document.getElementById('copy-status').innerHTML = '<i class="fas fa-check text-green-400"></i> הקישור הועתק!';
+            setTimeout(() => {
+                document.getElementById('copy-status').innerHTML = '';
+            }, 3000);
+        });
+    }
+}
+
+// Toggle line numbers
+let showLineNumbers = true;
+function toggleLineNumbers() {
+    showLineNumbers = !showLineNumbers;
+    const pre = document.querySelector('pre');
+    if (showLineNumbers) {
+        pre.classList.add('line-numbers');
+    } else {
+        pre.classList.remove('line-numbers');
+    }
+    Prism.highlightAll();
+}
+
+// Toggle word wrap
+let wordWrap = false;
+function toggleWrap() {
+    wordWrap = !wordWrap;
+    const pre = document.querySelector('pre');
+    if (wordWrap) {
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.style.wordBreak = 'break-word';
+    } else {
+        pre.style.whiteSpace = 'pre';
+        pre.style.wordBreak = 'normal';
+    }
+}
+
+// Toggle fullscreen
+function toggleFullscreen() {
+    const container = document.getElementById('code-container');
+    if (!document.fullscreenElement) {
+        container.requestFullscreen().catch(err => {
+            console.error('Error attempting to enable fullscreen:', err);
+        });
+    } else {
+        document.exitFullscreen();
+    }
+}
+
+// Load specific version
+function loadVersion(versionNumber) {
+    // This would typically make an API call to load the specific version
+    console.log('Loading version:', versionNumber);
+    // For now, just show a message
+    document.getElementById('copy-status').innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען גרסה ' + versionNumber + '...';
+}
+
+// Initialize syntax highlighting
+document.addEventListener('DOMContentLoaded', () => {
+    Prism.highlightAll();
+});
+</script>
+{% endblock %}

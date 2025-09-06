@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}500 - שגיאת שרת{% endblock %}
+
+{% block content %}
+<div class="flex justify-center items-center min-h-[60vh] fade-in">
+    <div class="text-center">
+        <div class="text-9xl font-bold text-white opacity-50 mb-4">500</div>
+        <h1 class="text-4xl font-bold text-white mb-4">שגיאת שרת</h1>
+        <p class="text-xl text-white opacity-80 mb-8">
+            משהו השתבש... הקוד שלנו צריך דיבאג! 🐛
+        </p>
+        <div class="flex justify-center gap-4">
+            <a href="/" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale">
+                <i class="fas fa-home"></i> חזרה לדף הבית
+            </a>
+            <button onclick="window.location.reload()" class="glass-morphism text-white px-6 py-3 rounded-full font-semibold hover-scale">
+                <i class="fas fa-redo"></i> נסה שוב
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

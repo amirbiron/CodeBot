@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}התחברות - Code Keeper{% endblock %}
+
+{% block extra_head %}
+<!-- Telegram widget script loaded here -->
+{% endblock %}
+
+{% block content %}
+<div class="flex justify-center items-center min-h-[60vh] fade-in">
+    <div class="glass-morphism p-10 rounded-2xl max-w-md w-full">
+        <div class="text-center mb-8">
+            <i class="fas fa-user-lock text-6xl text-white mb-4"></i>
+            <h2 class="text-3xl font-bold text-white">התחברות לחשבון</h2>
+            <p class="text-white opacity-80 mt-2">השתמש בחשבון הטלגרם שלך כדי להתחבר</p>
+        </div>
+        
+        <!-- Telegram Login Widget -->
+        <div class="flex justify-center mb-6">
+            <script async src="https://telegram.org/js/telegram-widget.js?22" 
+                    data-telegram-login="{{ bot_username }}"
+                    data-size="large"
+                    data-radius="10"
+                    data-onauth="onTelegramAuth(user)"
+                    data-request-access="write"></script>
+        </div>
+        
+        <div class="text-center">
+            <div class="text-white opacity-70 text-sm mb-4">
+                <i class="fas fa-shield-alt"></i> החיבור מאובטח ומוצפן
+            </div>
+            
+            <hr class="border-white border-opacity-20 my-6">
+            
+            <div class="text-white">
+                <p class="mb-4">למה להתחבר עם טלגרם?</p>
+                <ul class="text-right space-y-2 text-sm opacity-80">
+                    <li><i class="fas fa-check-circle text-green-400"></i> ללא צורך בסיסמה נוספת</li>
+                    <li><i class="fas fa-check-circle text-green-400"></i> סנכרון אוטומטי עם הבוט</li>
+                    <li><i class="fas fa-check-circle text-green-400"></i> אבטחה מקסימלית</li>
+                    <li><i class="fas fa-check-circle text-green-400"></i> גישה מכל מקום</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="mt-8 text-center">
+            <p class="text-white opacity-70 text-sm">
+                עדיין אין לך את הבוט?
+                <a href="https://t.me/{{ bot_username }}" target="_blank" class="text-white font-bold hover:underline">
+                    התחל שיחה עם הבוט <i class="fas fa-external-link-alt text-xs"></i>
+                </a>
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+// Show error message with Glass Morphism style
+function showLoginError(message) {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.innerHTML = `
+            <div class="glass-morphism p-8 rounded-2xl text-center">
+                <i class="fas fa-exclamation-triangle text-4xl text-red-400 mb-4"></i>
+                <p class="text-white text-xl mb-4">${message}</p>
+                <button onclick="document.getElementById('loading-overlay').remove()" 
+                        class="mt-2 px-6 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30 text-white font-bold transition">
+                    סגור
+                </button>
+            </div>
+        `;
+    }
+}
+
+function onTelegramAuth(user) {
+    // Create loading overlay
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loading-overlay';
+    loadingDiv.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    loadingDiv.innerHTML = `
+        <div class="glass-morphism p-8 rounded-2xl text-center">
+            <i class="fas fa-spinner fa-spin text-4xl text-white mb-4"></i>
+            <p class="text-white text-xl">מתחבר...</p>
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+    
+    // Send authentication data to server
+    fetch('/auth/telegram', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            auth_data: user
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Store token in localStorage
+            localStorage.setItem('jwt_token', data.token);
+            localStorage.setItem('user_data', JSON.stringify(data.user));
+            
+            // Redirect to dashboard
+            window.location.href = '/dashboard';
+        } else {
+            showLoginError('שגיאה בהתחברות. אנא נסה שוב.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showLoginError('שגיאה בהתחברות. אנא נסה שוב.');
+    });
+}
+</script>
+{% endblock %}

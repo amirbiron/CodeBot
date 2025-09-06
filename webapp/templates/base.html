@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Code Keeper - שומר קבצי קוד{% endblock %}</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Custom styles -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Heebo', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .glass-morphism {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hover-scale {
+            transition: transform 0.3s ease;
+        }
+        
+        .hover-scale:hover {
+            transform: scale(1.05);
+        }
+        
+        .code-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .code-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .code-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        
+        .code-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+        }
+        
+        .file-card {
+            transition: all 0.3s ease;
+        }
+        
+        .file-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        .language-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+    </style>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="glass-morphism sticky top-0 z-50 shadow-lg">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4 space-x-reverse">
+                    <a href="/" class="text-white text-2xl font-bold hover-scale">
+                        <i class="fas fa-code"></i> Code Keeper
+                    </a>
+                </div>
+                
+                <div class="flex items-center space-x-6 space-x-reverse">
+                    {% if session.user_id %}
+                    <a href="/dashboard" class="text-white hover:text-gray-200 transition">
+                        <i class="fas fa-home"></i> לוח בקרה
+                    </a>
+                    <a href="/files" class="text-white hover:text-gray-200 transition">
+                        <i class="fas fa-folder"></i> הקבצים שלי
+                    </a>
+                    <div class="relative group">
+                        <button class="text-white hover:text-gray-200 transition flex items-center space-x-2 space-x-reverse">
+                            <i class="fas fa-user-circle"></i>
+                            <span>{{ session.username }}</span>
+                            <i class="fas fa-chevron-down text-xs"></i>
+                        </button>
+                        <div class="absolute left-0 mt-2 w-48 glass-morphism rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
+                            <a href="/profile" class="block px-4 py-2 text-white hover:bg-white hover:bg-opacity-20 transition">
+                                <i class="fas fa-user"></i> הפרופיל שלי
+                            </a>
+                            <a href="/settings" class="block px-4 py-2 text-white hover:bg-white hover:bg-opacity-20 transition">
+                                <i class="fas fa-cog"></i> הגדרות
+                            </a>
+                            <hr class="my-2 border-gray-400 border-opacity-30">
+                            <a href="/logout" class="block px-4 py-2 text-white hover:bg-white hover:bg-opacity-20 transition">
+                                <i class="fas fa-sign-out-alt"></i> יציאה
+                            </a>
+                        </div>
+                    </div>
+                    {% else %}
+                    <a href="/login" class="bg-white text-purple-600 px-6 py-2 rounded-full font-semibold hover-scale">
+                        <i class="fab fa-telegram"></i> התחבר עם טלגרם
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="glass-morphism mt-16">
+        <div class="container mx-auto px-6 py-8">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="text-white text-center md:text-right mb-4 md:mb-0">
+                    <p>&copy; 2024 Code Keeper Bot</p>
+                    <p class="text-sm opacity-75">נוצר עם ❤️ על ידי הקהילה</p>
+                </div>
+                
+                <div class="flex space-x-4 space-x-reverse">
+                    <a href="https://t.me/CodeKeeperBot" target="_blank" class="text-white hover:text-gray-200 transition">
+                        <i class="fab fa-telegram text-2xl"></i>
+                    </a>
+                    <a href="https://github.com" target="_blank" class="text-white hover:text-gray-200 transition">
+                        <i class="fab fa-github text-2xl"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- Prism.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

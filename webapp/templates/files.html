@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}הקבצים שלי - Code Keeper{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- Header -->
+    <div class="glass-morphism p-8 rounded-2xl mb-8">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center">
+            <div>
+                <h1 class="text-4xl font-bold text-white mb-2">הקבצים שלי</h1>
+                <p class="text-white opacity-80">נהל וחפש בקטעי הקוד שלך</p>
+            </div>
+            
+            <!-- Search and Filter -->
+            <div class="mt-4 md:mt-0 flex flex-col md:flex-row gap-4">
+                <form method="get" action="/files" class="flex gap-2">
+                    <input type="text" name="search" value="{{ search }}" 
+                           placeholder="חפש קבצים..." 
+                           class="px-4 py-2 rounded-lg bg-white bg-opacity-20 text-white placeholder-white placeholder-opacity-60 focus:outline-none focus:bg-opacity-30">
+                    
+                    <select name="language" class="px-4 py-2 rounded-lg bg-white bg-opacity-20 text-white focus:outline-none focus:bg-opacity-30">
+                        <option value="">כל השפות</option>
+                        <option value="python" {% if language == 'python' %}selected{% endif %}>Python</option>
+                        <option value="javascript" {% if language == 'javascript' %}selected{% endif %}>JavaScript</option>
+                        <option value="html" {% if language == 'html' %}selected{% endif %}>HTML</option>
+                        <option value="css" {% if language == 'css' %}selected{% endif %}>CSS</option>
+                        <option value="sql" {% if language == 'sql' %}selected{% endif %}>SQL</option>
+                        <option value="java" {% if language == 'java' %}selected{% endif %}>Java</option>
+                        <option value="cpp" {% if language == 'cpp' %}selected{% endif %}>C++</option>
+                        <option value="php" {% if language == 'php' %}selected{% endif %}>PHP</option>
+                    </select>
+                    
+                    <button type="submit" class="px-6 py-2 bg-white text-purple-600 rounded-lg font-semibold hover-scale">
+                        <i class="fas fa-search"></i> חפש
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Files Grid -->
+    {% if files %}
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for file in files %}
+        <div class="file-card glass-morphism p-6 rounded-2xl">
+            <div class="flex items-start justify-between mb-4">
+                <h3 class="text-xl font-bold text-white truncate flex-1">
+                    <i class="fas fa-file-code opacity-70"></i> {{ file.file_name }}
+                </h3>
+                <span class="language-badge">
+                    {{ file.programming_language }}
+                </span>
+            </div>
+            
+            {% if file.description %}
+            <p class="text-white opacity-80 text-sm mb-4">
+                {{ file.description[:100] }}{% if file.description|length > 100 %}...{% endif %}
+            </p>
+            {% endif %}
+            
+            {% if file.tags %}
+            <div class="mb-4">
+                {% for tag in file.tags[:5] %}
+                <span class="inline-block bg-white bg-opacity-20 text-white text-xs px-2 py-1 rounded-full mr-1 mb-1">
+                    #{{ tag }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <!-- File Stats -->
+            <div class="grid grid-cols-2 gap-2 mb-4 text-white opacity-70 text-sm">
+                <div><i class="fas fa-code"></i> {{ file.code|length if file.code else 0 }} תווים</div>
+                <div><i class="fas fa-history"></i> גרסה {{ file.version|default(1) }}</div>
+                <div><i class="fas fa-calendar"></i> {{ file.created_at.strftime('%d/%m/%Y') if file.created_at else '' }}</div>
+                <div><i class="fas fa-clock"></i> {{ file.updated_at.strftime('%H:%M') if file.updated_at else '' }}</div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="flex gap-2">
+                <a href="/file/{{ file._id }}" class="flex-1 bg-white bg-opacity-20 hover:bg-opacity-30 text-white text-center py-2 rounded-lg transition">
+                    <i class="fas fa-eye"></i> צפה
+                </a>
+                <a href="/file/{{ file._id }}/download" class="flex-1 bg-white bg-opacity-20 hover:bg-opacity-30 text-white text-center py-2 rounded-lg transition">
+                    <i class="fas fa-download"></i> הורד
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="flex justify-center mt-8">
+        <div class="glass-morphism px-6 py-3 rounded-full">
+            <div class="flex gap-2">
+                {% if page > 1 %}
+                <a href="?page={{ page - 1 }}&search={{ search }}&language={{ language }}" 
+                   class="px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition">
+                    <i class="fas fa-chevron-right"></i>
+                </a>
+                {% endif %}
+                
+                {% for p in range(1, total_pages + 1) %}
+                    {% if p == page %}
+                    <span class="px-4 py-2 bg-white text-purple-600 rounded-lg font-semibold">{{ p }}</span>
+                    {% elif p == 1 or p == total_pages or (p > page - 3 and p < page + 3) %}
+                    <a href="?page={{ p }}&search={{ search }}&language={{ language }}" 
+                       class="px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition">
+                        {{ p }}
+                    </a>
+                    {% elif p == page - 3 or p == page + 3 %}
+                    <span class="px-2 text-white">...</span>
+                    {% endif %}
+                {% endfor %}
+                
+                {% if page < total_pages %}
+                <a href="?page={{ page + 1 }}&search={{ search }}&language={{ language }}" 
+                   class="px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition">
+                    <i class="fas fa-chevron-left"></i>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <!-- No Files -->
+    <div class="glass-morphism p-12 rounded-2xl text-center">
+        <i class="fas fa-search text-6xl text-white opacity-50 mb-4"></i>
+        <h3 class="text-2xl font-bold text-white mb-2">
+            {% if search or language %}
+                לא נמצאו תוצאות
+            {% else %}
+                אין קבצים עדיין
+            {% endif %}
+        </h3>
+        <p class="text-white opacity-70 mb-6">
+            {% if search or language %}
+                נסה לשנות את מילות החיפוש או הסינון
+            {% else %}
+                התחל לשמור קטעי קוד דרך הבוט בטלגרם
+            {% endif %}
+        </p>
+        {% if search or language %}
+        <a href="/files" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale inline-block">
+            <i class="fas fa-times"></i> נקה חיפוש
+        </a>
+        {% else %}
+        <a href="https://t.me/CodeKeeperBot" target="_blank" class="bg-white text-purple-600 px-6 py-3 rounded-full font-semibold hover-scale inline-block">
+            <i class="fab fa-telegram"></i> התחל עכשיו
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
