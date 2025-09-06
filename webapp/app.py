@@ -40,8 +40,16 @@ def get_db():
     """מחזיר חיבור למסד הנתונים"""
     global client, db
     if client is None:
-        client = MongoClient(MONGODB_URL)
-        db = client[DATABASE_NAME]
+        if not MONGODB_URL:
+            raise Exception("MONGODB_URL is not configured")
+        try:
+            client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            # בדיקת חיבור
+            client.server_info()
+            db = client[DATABASE_NAME]
+        except Exception as e:
+            print(f"Failed to connect to MongoDB: {e}")
+            raise
     return db
 
 # Telegram Login Widget Verification
@@ -506,21 +514,41 @@ def api_stats():
 @app.route('/health')
 def health():
     """בדיקת תקינות"""
-    try:
-        # בדיקת חיבור ל-MongoDB
-        db = get_db()
-        db.command('ping')
-        db_status = 'connected'
-    except:
-        db_status = 'disconnected'
-    
-    return jsonify({
-        'status': 'healthy' if db_status == 'connected' else 'degraded',
+    health_data = {
+        'status': 'checking',
         'message': 'Web app is running!',
         'version': '2.0.0',
-        'database': db_status,
+        'database': 'unknown',
+        'config': {},
         'timestamp': datetime.now(timezone.utc).isoformat()
-    })
+    }
+    
+    # בדיקת משתני סביבה
+    health_data['config'] = {
+        'MONGODB_URL': 'configured' if MONGODB_URL else 'missing',
+        'BOT_TOKEN': 'configured' if BOT_TOKEN else 'missing',
+        'BOT_USERNAME': BOT_USERNAME or 'missing',
+        'DATABASE_NAME': DATABASE_NAME,
+        'WEBAPP_URL': WEBAPP_URL
+    }
+    
+    # בדיקת חיבור למסד נתונים
+    try:
+        if not MONGODB_URL:
+            health_data['database'] = 'not configured'
+            health_data['status'] = 'unhealthy'
+            health_data['error'] = 'MONGODB_URL is not configured'
+        else:
+            db = get_db()
+            db.command('ping')
+            health_data['database'] = 'connected'
+            health_data['status'] = 'healthy'
+    except Exception as e:
+        health_data['database'] = 'error'
+        health_data['status'] = 'unhealthy'
+        health_data['error'] = str(e)
+    
+    return jsonify(health_data)
 
 # Error handlers
 @app.errorhandler(404)
@@ -529,8 +557,58 @@ def not_found(e):
 
 @app.errorhandler(500)
 def server_error(e):
+    print(f"Server error: {e}")
     return render_template('500.html'), 500
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """טיפול בכל שגיאה אחרת"""
+    print(f"Unhandled exception: {e}")
+    import traceback
+    traceback.print_exc()
+    return render_template('500.html'), 500
+
+# בדיקת קונפיגורציה בהפעלה
+def check_configuration():
+    """בדיקת משתני סביבה נדרשים"""
+    required_vars = {
+        'MONGODB_URL': MONGODB_URL,
+        'BOT_TOKEN': BOT_TOKEN,
+        'BOT_USERNAME': BOT_USERNAME
+    }
+    
+    missing = []
+    for var_name, var_value in required_vars.items():
+        if not var_value:
+            missing.append(var_name)
+            print(f"WARNING: {var_name} is not configured!")
+    
+    if missing:
+        print(f"Missing required environment variables: {', '.join(missing)}")
+        print("Please configure them in Render Dashboard or .env file")
+    
+    # בדיקת חיבור ל-MongoDB
+    if MONGODB_URL:
+        try:
+            test_client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            test_client.server_info()
+            print("✓ MongoDB connection successful")
+            test_client.close()
+        except Exception as e:
+            print(f"✗ MongoDB connection failed: {e}")
+    
+    return len(missing) == 0
+
 if __name__ == '__main__':
+    print("Starting Code Keeper Web App...")
+    print(f"BOT_USERNAME: {BOT_USERNAME}")
+    print(f"DATABASE_NAME: {DATABASE_NAME}")
+    print(f"WEBAPP_URL: {WEBAPP_URL}")
+    
+    if check_configuration():
+        print("Configuration check passed ✓")
+    else:
+        print("WARNING: Configuration issues detected!")
+    
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'false').lower() == 'true')
