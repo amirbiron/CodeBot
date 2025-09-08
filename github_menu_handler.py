@@ -9,6 +9,8 @@ import re
 import time
 import zipfile
 from datetime import datetime, timezone
+import tempfile
+import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
@@ -42,6 +44,32 @@ REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
+
+# מגבלות ייבוא ריפו (ייבוא תוכן, לא גיבוי)
+IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
+IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
+IMPORT_MAX_FILES = 2000  # הגבלה סבירה למספר קבצים
+IMPORT_SKIP_DIRS = {".git", ".github", "__pycache__", "node_modules", "dist", "build"}
+
+
+def _safe_rmtree_tmp(target_path: str) -> None:
+    """מחיקה בטוחה של תיקייה תחת /tmp בלבד, עם סורגי בטיחות.
+
+    יזרוק חריגה אם הנתיב אינו תחת /tmp או שגוי.
+    """
+    try:
+        if not target_path:
+            return
+        rp_target = os.path.realpath(target_path)
+        rp_base = os.path.realpath("/tmp")
+        if not rp_target.startswith(rp_base + os.sep):
+            raise RuntimeError(f"Refusing to delete non-tmp path: {rp_target}")
+        if rp_target in {"/", os.path.expanduser("~"), os.getcwd()}:
+            raise RuntimeError(f"Refusing to delete unsafe path: {rp_target}")
+        shutil.rmtree(rp_target, ignore_errors=True)
+    except Exception:
+        # לא מפסיק את הזרימה במקרה של שגיאה בניקוי
+        pass
 
 
 def safe_html_escape(text):
@@ -163,6 +191,202 @@ class GitHubMenuHandler:
 
         return token
 
+    async def show_import_branch_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג בחירת ענף לייבוא ריפו (עימוד)."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo") or ""
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        g = Github(token)
+        try:
+            repo = g.get_repo(repo_full)
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
+            return
+        try:
+            branches = list(repo.get_branches())
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בשליפת ענפים: {e}")
+            return
+        page = int(context.user_data.get("import_branches_page", 0))
+        page_size = 8
+        total_pages = max(1, (len(branches) + page_size - 1) // page_size)
+        start = page * page_size
+        end = min(start + page_size, len(branches))
+        keyboard = []
+        for br in branches[start:end]:
+            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"import_repo_select_branch:{br.name}")])
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"import_repo_branches_page_{page-1}"))
+        nav.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"import_repo_branches_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
+        await query.edit_message_text(
+            "⬇️ בחר/י ענף לייבוא קבצים מהריפו:", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def _confirm_import_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch: str):
+        """מסך אישור לייבוא עם הסבר קצר כדי למנוע בלבול עם גיבויים."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        repo_full = session.get("selected_repo") or ""
+        text = (
+            f"⬇️ ייבוא ריפו מ-GitHub\n\n"
+            f"זהו <b>ייבוא קבצים</b> ולא יצירת גיבוי ZIP.\n"
+            f"נוריד ZIP רשמי, נחלץ ל-/tmp, נקלט לקבצים במסד עם תגיות:\n"
+            f"<code>repo:{repo_full}</code>, <code>source:github</code>\n\n"
+            f"נכבד מגבלות גודל/כמות, נדלג על בינאריים ו-<code>.git</code> ותיקיות מיותרות.\n"
+            f"ענף: <code>{branch}</code>\n\n"
+            f"להמשיך?"
+        )
+        kb = [
+            [InlineKeyboardButton("✅ כן, ייבא", callback_data="import_repo_start")],
+            [InlineKeyboardButton("❌ ביטול", callback_data="import_repo_cancel")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+
+    async def import_repo_from_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE, repo_full: str, branch: str):
+        """מוריד ZIP רשמי של GitHub (zipball) לענף, מחלץ ל-tmp, ומקליט קבצים ל-DB עם תגיות repo/source.
+
+        שמירה: CodeSnippet לקבצים טקסטואליים קטנים (עד IMPORT_MAX_FILE_BYTES) עד סך IMPORT_MAX_TOTAL_BYTES ומקס' IMPORT_MAX_FILES.
+        מדלג על בינאריים, קבצי ענק, ותיקיות מיותרות. מנקה tmp בסוף.
+        """
+        query = update.callback_query
+        user_id = query.from_user.id
+        token = self.get_user_token(user_id)
+        if not token:
+            await query.edit_message_text("❌ חסר טוקן GitHub")
+            return
+        g = Github(token)
+        try:
+            repo = g.get_repo(repo_full)
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
+            return
+        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת עד דקה.")
+        import requests
+        import zipfile as _zip
+        tmp_dir = None
+        zip_path = None
+        extracted_dir = None
+        saved = 0
+        total_bytes = 0
+        skipped = 0
+        try:
+            # קבלת קישור zipball עבור branch
+            try:
+                url = repo.get_archive_link("zipball", ref=branch)
+            except TypeError:
+                # גרסאות PyGithub ישנות לא מקבלות ref; ננסה ללא ref
+                url = repo.get_archive_link("zipball")
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+            # עבודה ב-/tmp בלבד
+            tmp_dir = tempfile.mkdtemp(prefix="codebot-gh-import-")
+            zip_path = os.path.join(tmp_dir, "repo.zip")
+            with open(zip_path, "wb") as f:
+                f.write(resp.content)
+            # חליצה לתת-תיקייה ייעודית
+            extracted_dir = os.path.join(tmp_dir, "repo")
+            os.makedirs(extracted_dir, exist_ok=True)
+            with _zip.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(extracted_dir)
+            # מצא שורש (github zip מוסיף תיקיית prefix)
+            # נבחר תיקייה הראשונה מתחת extracted_dir
+            roots = [os.path.join(extracted_dir, d) for d in os.listdir(extracted_dir)]
+            root = None
+            for p in roots:
+                if os.path.isdir(p):
+                    root = p
+                    break
+            if not root:
+                await query.edit_message_text("❌ לא נמצאו קבצים לאחר חליצה")
+                return
+            from database import db
+            from utils import detect_language_from_filename
+            repo_tag = f"repo:{repo_full}"
+            source_tag = "source:github"
+            # מעבר על קבצים
+            for cur_dir, dirnames, filenames in os.walk(root):
+                # סינון תיקיות מיותרות
+                dirnames[:] = [d for d in dirnames if d not in IMPORT_SKIP_DIRS]
+                for name in filenames:
+                    # דלג על קבצי ZIP עצמם או קבצים מוסתרים ענקיים
+                    if name.endswith('.zip'):
+                        skipped += 1
+                        continue
+                    file_path = os.path.join(cur_dir, name)
+                    rel_path = os.path.relpath(file_path, root)
+                    # דלג על נתיבים חשודים
+                    if rel_path.startswith('.'):
+                        skipped += 1
+                        continue
+                    try:
+                        # קרא כ-bytes ובדוק בינארי/גודל
+                        with open(file_path, 'rb') as fh:
+                            raw = fh.read(IMPORT_MAX_FILE_BYTES + 1)
+                        if len(raw) > IMPORT_MAX_FILE_BYTES:
+                            skipped += 1
+                            continue
+                        # heuristic: אם יש אפס-בייטים רבים → כנראה בינארי
+                        if b"\x00" in raw:
+                            skipped += 1
+                            continue
+                        try:
+                            text = raw.decode('utf-8')
+                        except Exception:
+                            try:
+                                text = raw.decode('latin-1')
+                            except Exception:
+                                skipped += 1
+                                continue
+                        if total_bytes + len(raw) > IMPORT_MAX_TOTAL_BYTES:
+                            continue
+                        if saved >= IMPORT_MAX_FILES:
+                            continue
+                        lang = detect_language_from_filename(rel_path)
+                        ok = db.save_file(
+                            user_id=user_id,
+                            file_name=rel_path,
+                            code=text,
+                            programming_language=lang,
+                            extra_tags=[repo_tag, source_tag],
+                        )
+                        if ok:
+                            saved += 1
+                            total_bytes += len(raw)
+                        else:
+                            skipped += 1
+                    except Exception:
+                        skipped += 1
+            await query.edit_message_text(
+                f"✅ ייבוא הושלם: {saved} קבצים נשמרו, {skipped} דילוגים.\n"
+                f"🔖 תיוג: <code>{repo_tag}</code> (ו-<code>{source_tag}</code>)\n\n"
+                f"ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.\n"
+                f"תוכל למצוא את הקבצים ב׳🗂 לפי ריפו׳.",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בייבוא: {e}")
+        finally:
+            # ניקוי בטוח של tmp ושל קובץ ה-ZIP
+            try:
+                if zip_path and os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except Exception:
+                pass
+            _safe_rmtree_tmp(extracted_dir or "")
+            _safe_rmtree_tmp(tmp_dir or "")
+
     async def github_menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
@@ -212,6 +436,10 @@ class GitHubMenuHandler:
             # פעולות נוספות בטוחות
             keyboard.append(
                 [InlineKeyboardButton("📥 הורד קובץ מהריפו", callback_data="download_file_menu")]
+            )
+            # כפתור ייבוא ריפו (ZIP רשמי → ייבוא קבצים ל-DB)
+            keyboard.append(
+                [InlineKeyboardButton("⬇️ הורד ריפו", callback_data="github_import_repo")]
             )
             # ריכוז פעולות מחיקה בתפריט משנה
             keyboard.append(
@@ -827,6 +1055,39 @@ class GitHubMenuHandler:
             else:
                 await query.edit_message_text("ℹ️ לא נמצא טוקן או שאירעה שגיאה.⏳ מרענן תפריט...")
             # refresh the menu after logout
+            await self.github_menu_command(update, context)
+            return
+        elif query.data == "github_import_repo":
+            # פתיחת זרימת ייבוא ריפו (בחירת ענף → ייבוא)
+            repo_full = session.get("selected_repo")
+            if not repo_full:
+                await query.edit_message_text("❌ קודם בחר ריפו!\nשלח /github ובחר 'בחר ריפו'")
+                return
+            await self.show_import_branch_menu(update, context)
+            return
+        elif query.data.startswith("import_repo_branches_page_"):
+            try:
+                p = int(query.data.rsplit("_", 1)[-1])
+            except Exception:
+                p = 0
+            context.user_data["import_branches_page"] = max(0, p)
+            await self.show_import_branch_menu(update, context)
+            return
+        elif query.data.startswith("import_repo_select_branch:"):
+            branch = query.data.split(":", 1)[1]
+            context.user_data["import_repo_branch"] = branch
+            await self._confirm_import_repo(update, context, branch)
+            return
+        elif query.data == "import_repo_start":
+            # התחלת ייבוא בפועל
+            repo_full = session.get("selected_repo") or ""
+            branch = context.user_data.get("import_repo_branch")
+            if not repo_full or not branch:
+                await query.edit_message_text("❌ חסרים נתונים ליבוא. בחר ריפו וענף מחדש.")
+                return
+            await self.import_repo_from_zip(update, context, repo_full, branch)
+            return
+        elif query.data == "import_repo_cancel":
             await self.github_menu_command(update, context)
             return
 
