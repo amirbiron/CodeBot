@@ -142,6 +142,39 @@ def format_file_size(size_bytes: int) -> str:
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
 
+def is_binary_file(content: str, filename: str = "") -> bool:
+    """בודק אם קובץ הוא בינארי"""
+    # רשימת סיומות בינאריות
+    binary_extensions = {
+        '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
+        '.mp3', '.mp4', '.avi', '.mov', '.wav',
+        '.zip', '.rar', '.7z', '.tar', '.gz',
+        '.pyc', '.pyo', '.class', '.o', '.a'
+    }
+    
+    # בדיקה לפי סיומת
+    if filename:
+        ext = os.path.splitext(filename.lower())[1]
+        if ext in binary_extensions:
+            return True
+    
+    # בדיקה לפי תוכן
+    if content:
+        try:
+            # נסיון לקרוא כ-UTF-8
+            if isinstance(content, bytes):
+                content.decode('utf-8')
+            # בדיקת תווים בינאריים
+            null_count = content.count('\0') if isinstance(content, str) else content.count(b'\0')
+            if null_count > 0:
+                return True
+        except UnicodeDecodeError:
+            return True
+    
+    return False
+
 def get_language_icon(language: str) -> str:
     """מחזיר אייקון עבור שפת תכנות"""
     icons = {
@@ -521,6 +554,47 @@ def view_file(file_id):
     # הדגשת syntax
     code = file.get('code', '')
     language = file.get('programming_language', 'text')
+    
+    # הגבלת גודל תצוגה - 1MB
+    MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
+    if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
+        return render_template('view_file.html',
+                             user=session['user_data'],
+                             file={
+                                 'id': str(file['_id']),
+                                 'file_name': file['file_name'],
+                                 'language': language,
+                                 'icon': get_language_icon(language),
+                                 'description': file.get('description', ''),
+                                 'tags': file.get('tags', []),
+                                 'size': format_file_size(len(code.encode('utf-8'))),
+                                 'lines': len(code.split('\n')),
+                                 'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'version': file.get('version', 1)
+                             },
+                             highlighted_code='<div class="alert alert-info" style="text-align: center; padding: 3rem;"><i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>הקובץ גדול מדי לתצוגה (' + format_file_size(len(code.encode('utf-8'))) + ')<br><br>ניתן להוריד את הקובץ לצפייה מקומית</div>',
+                             syntax_css='')
+    
+    # בדיקה אם הקובץ בינארי
+    if is_binary_file(code, file.get('file_name', '')):
+        return render_template('view_file.html',
+                             user=session['user_data'],
+                             file={
+                                 'id': str(file['_id']),
+                                 'file_name': file['file_name'],
+                                 'language': 'binary',
+                                 'icon': '🔒',
+                                 'description': 'קובץ בינארי - לא ניתן להציג',
+                                 'tags': file.get('tags', []),
+                                 'size': format_file_size(len(code.encode('utf-8')) if code else 0),
+                                 'lines': 0,
+                                 'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'version': file.get('version', 1)
+                             },
+                             highlighted_code='<div class="alert alert-warning" style="text-align: center; padding: 3rem;"><i class="fas fa-lock" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>קובץ בינארי - לא ניתן להציג את התוכן<br><br>ניתן להוריד את הקובץ בלבד</div>',
+                             syntax_css='')
     
     try:
         lexer = get_lexer_by_name(language, stripall=True)

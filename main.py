@@ -1834,9 +1834,24 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         reporter.report_activity(user_id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         
-        # בדיקה אם המשתמש הגיע מה-Web App
+        # בדיקה אם המשתמש הגיע מה-Web App או רוצה להוסיף קובץ
         if context.args and len(context.args) > 0:
-            if context.args[0] == "webapp_login":
+            if context.args[0] == "add_file":
+                # המשתמש רוצה להוסיף קובץ חדש
+                reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                await update.message.reply_text(
+                    "📁 <b>הוספת קובץ חדש</b>\n\n"
+                    "שלח לי קובץ קוד או טקסט כדי לשמור אותו.\n"
+                    "אפשר לשלוח:\n"
+                    "• קובץ בודד או מספר קבצים\n"
+                    "• קובץ ZIP עם מספר קבצים\n"
+                    "• הודעת טקסט עם קוד\n\n"
+                    "💡 טיפ: אפשר להוסיף תיאור לקובץ בכיתוב (caption)",
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML
+                )
+                return
+            elif context.args[0] == "webapp_login":
                 # יצירת קישור התחברות אישי
                 webapp_url = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
                 
