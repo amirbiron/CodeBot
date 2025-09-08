@@ -1972,15 +1972,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 name = f.get('file_name', 'ללא שם')
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
-            # פעולת מחיקה לריפו הנוכחי
-            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"repo_delete_confirm:{tag}")])
+            # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
+            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
                 f"📂 קבצים עם {tag}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        elif data.startswith("repo_delete_confirm:"):
+        elif data.startswith("byrepo_delete_confirm:"):
             # שלב אישור ראשון למחיקת כל הקבצים תחת תגית ריפו
             tag = data.split(":", 1)[1]
             from database import db
@@ -1993,11 +1993,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "אם זה בטעות, חזור אחורה."
             )
             kb = [
-                [InlineKeyboardButton("✅ אני מאשר/ת", callback_data=f"repo_delete_double_confirm:{tag}")],
+                [InlineKeyboardButton("✅ אני מאשר/ת", callback_data=f"byrepo_delete_double_confirm:{tag}")],
                 [InlineKeyboardButton("🔙 חזרה", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(warn_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
-        elif data.startswith("repo_delete_double_confirm:"):
+        elif data.startswith("byrepo_delete_double_confirm:"):
             # שלב אישור שני
             tag = data.split(":", 1)[1]
             text2 = (
@@ -2006,11 +2006,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "הפעולה בלתי הפיכה."
             )
             kb = [
-                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"repo_delete_do:{tag}")],
+                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"byrepo_delete_do:{tag}")],
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
-        elif data.startswith("repo_delete_do:"):
+        elif data.startswith("byrepo_delete_do:"):
             # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
             tag = data.split(":", 1)[1]
             from database import db
