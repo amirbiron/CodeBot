@@ -616,7 +616,7 @@ def files():
                          total_pages=total_pages,
                          has_prev=page > 1,
                          has_next=page < total_pages,
-                         bot_username=BOT_USERNAME)
+                         bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/file/<file_id>')
 @login_required
