@@ -35,6 +35,15 @@ BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
 BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 
+# Activity reporter (optional)
+REPORT_ACTIVITY = os.getenv('REPORT_ACTIVITY', 'true').lower() == 'true'
+SERVICE_ID = os.getenv('RENDER_SERVICE_ID') or os.getenv('SERVICE_ID') or 'webapp'
+try:
+    from activity_reporter import create_reporter as _create_reporter
+    _activity = _create_reporter(MONGODB_URL, SERVICE_ID, service_name='CodeKeeper WebApp') if (REPORT_ACTIVITY and MONGODB_URL) else None
+except Exception:
+    _activity = None
+
 # חיבור ל-MongoDB
 client = None
 db = None
@@ -44,6 +53,16 @@ def inject_globals():
     return {
         'bot_username': BOT_USERNAME_CLEAN,
     }
+
+@app.before_request
+def _report_user_activity():
+    """דיווח פעילות לכל בקשה (ללא זיהוי משתמש אם אין סשן)."""
+    try:
+        if _activity is not None:
+            uid = session.get('user_id') or 0
+            _activity.report_activity(uid)
+    except Exception:
+        pass
 
 
 def get_db():
@@ -868,6 +887,11 @@ def health():
         health_data['status'] = 'unhealthy'
         health_data['error'] = str(e)
     
+    try:
+        if _activity is not None:
+            _activity.report_activity(0)
+    except Exception:
+        pass
     return jsonify(health_data)
 
 # --- Public share route ---
