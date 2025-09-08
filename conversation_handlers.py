@@ -2145,7 +2145,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
             total = len(files)
             deleted = 0
-            # הודעת התקדמות ראשונית + אנימציית ספינר
+            # הודעת התקדמות ראשונית + אימוג׳י קבוע
             try:
                 spinner_emoji = "⏳"
                 percent = 0
