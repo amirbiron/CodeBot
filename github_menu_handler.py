@@ -79,28 +79,18 @@ def _safe_rmtree_tmp(target_path: str) -> None:
 
 
 def safe_html_escape(text):
-    """Safely escape text for HTML parsing in Telegram"""
-    if not text:
+    """Safely escape text for HTML parsing in Telegram.
+
+    שומר על \n/\r/\t ואינו משנה ישויות כמו &lt; &gt; &amp; לאחר escape.
+    """
+    if text is None:
         return ""
-
-    # Convert to string and escape HTML
-    text = str(text)
-    text = escape(text)
-
-    # Remove any problematic characters that might break HTML parsing
-    # Replace common problematic patterns
-    text = text.replace("&lt;", "(")
-    text = text.replace("&gt;", ")")
-    text = text.replace("&amp;", "&")
-
-    # Remove any zero-width characters and control characters
-    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
-    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
-
-    # Ensure no unclosed tags by removing < and > that weren't escaped
-    text = text.replace("<", "(").replace(">", ")")
-
-    return text.strip()
+    s = escape(str(text))
+    # נקה תווים בלתי נראים
+    s = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", s)
+    # נקה תווי בקרה אך השאר \n, \r, \t
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", s)
+    return s
 
 
 def format_bytes(num: int) -> str:
@@ -1787,9 +1777,17 @@ class GitHubMenuHandler:
         elif query.data == "browse_search":
             # בקש מהמשתמש להזין מחרוזת חיפוש לשמות קבצים
             context.user_data["browse_search_mode"] = True
-            await query.edit_message_text(
-                "🔎 הזן/י מחרוזת לחיפוש בשם קובץ (לדוגמה: README או app.py)",
-            )
+            try:
+                await query.answer("הקלד עכשיו את השם לחיפוש (למשל: README)")
+            except Exception:
+                pass
+            try:
+                await query.edit_message_text(
+                    "🔎 הזן/י מחרוזת לחיפוש בשם קובץ (לדוגמה: README או app.py)",
+                )
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
         elif query.data.startswith("browse_search_page:"):
             try:
                 page = int(query.data.split(":", 1)[1])
