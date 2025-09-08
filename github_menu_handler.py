@@ -242,6 +242,7 @@ class GitHubMenuHandler:
         start = page * page_size
         end = min(start + page_size, len(branches))
         keyboard = []
+        # מיפוי אסימונים קצרים לשמות ענפים כדי לעמוד במגבלת 64 בתים של Telegram
         token_map = context.user_data.setdefault("import_branch_token_map", {})
         # תצוגה אחידה: main ראשון (כבר מוקפץ למעלה במיון) ואז כל הענפים – ממוינים מהחדש לישן
         for idx, br in enumerate(branches[start:end]):
