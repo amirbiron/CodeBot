@@ -1384,11 +1384,17 @@ class GitHubMenuHandler:
                                 except Exception:
                                     v_text = ""
                                 summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
+                                try:
+                                    from database import db as _db
+                                    existing_note = _db.get_backup_note(user_id, backup_id) or ""
+                                except Exception:
+                                    existing_note = ""
+                                note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
                                 kb = [
                                     [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
                                     [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
                                     [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
-                                    [InlineKeyboardButton("📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
+                                    [InlineKeyboardButton(note_btn_text, callback_data=f"backup_add_note:{backup_id}")],
                                 ]
                                 msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
                                 try:
@@ -1517,11 +1523,17 @@ class GitHubMenuHandler:
                     except Exception:
                         v_text = ""
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
+                    try:
+                        from database import db as _db
+                        existing_note = _db.get_backup_note(user_id, backup_id) or ""
+                    except Exception:
+                        existing_note = ""
+                    note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
                     kb = [
                         [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
                         [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
                         [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
-                        [InlineKeyboardButton("📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
+                        [InlineKeyboardButton(note_btn_text, callback_data=f"backup_add_note:{backup_id}")],
                     ]
                     msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
                     try:

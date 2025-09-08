@@ -569,7 +569,7 @@ class BackupMenuHandler:
 			[InlineKeyboardButton("⬇️ הורדה", callback_data=f"backup_download_id:{backup_id}")],
 			[InlineKeyboardButton("🗑 מחק", callback_data=f"backup_delete_one_confirm:{backup_id}")],
 			[InlineKeyboardButton("🏷 ערוך תיוג", callback_data=f"backup_rate_menu:{backup_id}")],
-			[InlineKeyboardButton("📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
+			[InlineKeyboardButton("📝 ערוך הערה" if note_text else "📝 הוסף הערה", callback_data=f"backup_add_note:{backup_id}")],
 			[InlineKeyboardButton("🔙 חזור לרשימה", callback_data="backup_list")],
 		]
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb))
