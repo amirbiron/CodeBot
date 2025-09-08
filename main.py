@@ -1209,7 +1209,9 @@ class CodeKeeperBot:
                                 repo.create_file(path=path, message="Initial import from ZIP via bot (binary)", content=raw, branch=target_branch)
                             created_count += 1
                         except Exception as e_file:
-                            logger.warning(f"[create_repo_from_zip] Failed to create file {path}: {e_file}")
+                            logger.warning(
+                                f"[create_repo_from_zip] Failed to create file {path}: {e_file}"
+                            )
                     await update.message.reply_text(
                         f"✅ נוצר ריפו חדש והוזנו {created_count} קבצים\n🔗 <a href=\"https://github.com/{repo_full}\">{repo_full}</a>",
                         parse_mode=ParseMode.HTML

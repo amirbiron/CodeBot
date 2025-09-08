@@ -58,7 +58,7 @@ class RepoAnalyzer:
                 raise ValueError("Invalid GitHub URL format")
         except Exception as e:
             logger.error(f"Error parsing GitHub URL: {e}")
-            raise ValueError(f"לא הצלחתי לנתח את ה-URL: {url}")
+            raise ValueError(f"לא הצלחתי לנתח את ה-URL: {url}") from e
     
     async def fetch_and_analyze_repo(self, repo_url: str) -> Dict[str, Any]:
         """שולף ומנתח ריפוזיטורי מ-GitHub"""
@@ -216,10 +216,14 @@ class RepoAnalyzer:
             
         except GithubException as e:
             logger.error(f"GitHub API error: {e}")
-            raise ValueError(f"שגיאה בגישה לריפוזיטורי: {e.data.get('message', str(e))}")
+            raise ValueError(
+                f"שגיאה בגישה לריפוזיטורי: {e.data.get('message', str(e))}"
+            ) from e
         except Exception as e:
             logger.error(f"Error analyzing repo: {e}")
-            raise ValueError(f"שגיאה בניתוח הריפוזיטורי: {str(e)}")
+            raise ValueError(
+                f"שגיאה בניתוח הריפוזיטורי: {str(e)}"
+            ) from e
     
     def _find_long_functions(self, code: str, ext: str) -> List[Dict[str, Any]]:
         """מוצא פונקציות ארוכות בקוד"""

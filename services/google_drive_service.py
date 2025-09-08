@@ -61,7 +61,7 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
             raise RuntimeError(f"Device auth start failed: {msg}")
         data = response.json()
     except requests.RequestException as e:
-        raise RuntimeError(f"Device auth request error: {e}")
+        raise RuntimeError("Device auth request error") from e
     # Persist device flow state in memory is handled by caller; tokens saved on success.
     return {
         "verification_url": data.get("verification_url") or data.get("verification_uri"),
@@ -102,10 +102,13 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
             logging.getLogger(__name__).debug("Drive auth pending/slow_down")
             return None
         # Access denied / expired / invalid_grant are user-facing errors
-        if err in {"access_denied", "expired_token", "invalid_grant", "invalid_request", "invalid_client"}:
+        if err in {"access_denied", "expired_token", "invalid_grant",
+                    "invalid_request", "invalid_client"}:
             return {"error": err or "bad_request", "error_description": desc}
         # Unknown 400 – return a generic error record
-        logging.getLogger(__name__).warning(f"Drive auth error: {err} {desc}")
+        logging.getLogger(__name__).warning(
+            f"Drive auth error: {err} {desc}"
+        )
         return {"error": err or f"http_{resp.status_code}", "error_description": desc or "token endpoint error"}
     # Success
     tokens = resp.json()
