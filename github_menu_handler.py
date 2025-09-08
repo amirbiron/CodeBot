@@ -2430,6 +2430,28 @@ class GitHubMenuHandler:
             # השאר בדפדפן
             await self.show_repo_browser(update, context)
 
+        elif query.data.startswith("share_selected_links_single:"):
+            # שיתוף קישור לקובץ יחיד מתצוגה רגילה
+            path = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get("selected_repo")
+            if not (token and repo_name):
+                await query.answer("❌ חסרים נתונים", show_alert=True)
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            branch = repo.default_branch or "main"
+            clean = str(path).strip("/")
+            url = f"https://github.com/{repo.full_name}/blob/{branch}/{clean}"
+            try:
+                await query.message.reply_text(f"🔗 קישור לקובץ:\n{url}")
+            except Exception as e:
+                logger.error(f"share_single_link error: {e}")
+                await query.answer("שגיאה בשיתוף קישור", show_alert=True)
+            await self.show_repo_browser(update, context, only_keyboard=True)
+
         elif query.data == "notifications_menu":
             await self.show_notifications_menu(update, context)
         elif query.data == "notifications_toggle":
@@ -4274,7 +4296,10 @@ class GitHubMenuHandler:
                             [
                                 InlineKeyboardButton(
                                     f"👁️ {f.name}", callback_data=f"browse_select_view:{f.path}"
-                                )
+                                ),
+                                InlineKeyboardButton(
+                                    "🔗 שתף קישור", callback_data=f"share_selected_links_single:{f.path}"
+                                ),
                             ]
                         )
                     else:
@@ -4413,14 +4438,18 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
             else:
-                await query.edit_message_text(
-                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-                    f"🔀 ref: <code>{current_ref}</code>\n"
-                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-                    f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="HTML",
-                )
+                try:
+                    await query.edit_message_text(
+                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                        f"🔀 ref: <code>{current_ref}</code>\n"
+                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                        f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="HTML",
+                    )
+                except BadRequest as br:
+                    if "message is not modified" not in str(br).lower():
+                        raise
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""
