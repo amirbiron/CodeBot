@@ -4325,7 +4325,10 @@ class GitHubMenuHandler:
                             [
                                 InlineKeyboardButton(
                                     f"👁️ {f.name}", callback_data=f"browse_select_view:{f.path}"
-                                )
+                                ),
+                                InlineKeyboardButton(
+                                    "🔗 שתף קישור", callback_data=f"share_selected_links_single:{f.path}"
+                                ),
                             ]
                         )
                     else:
