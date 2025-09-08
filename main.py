@@ -456,6 +456,8 @@ class CodeKeeperBot:
                             "✅ ההערה נשמרה!",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"backup_details:{backup_id}")]])
                         )
+                        # מנע הודעת "נראה שזה קטע קוד!" עבור ההודעה הזו
+                        context.user_data['suppress_code_hint_once'] = True
                     else:
                         await update.message.reply_text("❌ שמירת ההערה נכשלה")
                 except Exception as e:
@@ -1601,6 +1603,10 @@ class CodeKeeperBot:
         await log_user_activity(update, context)
         user_id = update.effective_user.id
         text = update.message.text
+
+        # ביטול חד-פעמי של הודעת "נראה שזה קטע קוד!" (למשל אחרי שמירת הערה לגיבוי)
+        if context.user_data.pop('suppress_code_hint_once', False):
+            return
         
         # בדיקה אם המשתמש בתהליך שמירה
         if 'saving_file' in context.user_data:
