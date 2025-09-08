@@ -51,6 +51,9 @@ IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
 IMPORT_MAX_FILES = 2000  # הגבלה סבירה למספר קבצים
 IMPORT_SKIP_DIRS = {".git", ".github", "__pycache__", "node_modules", "dist", "build"}
 
+# מגבלות עזר לשליפת תאריכי ענפים למיון
+MAX_BRANCH_DATE_FETCH = 120  # אם יש יותר מזה — נוותר על מיון לפי תאריך (למעט ברירת המחדל)
+
 
 def _safe_rmtree_tmp(target_path: str) -> None:
     """מחיקה בטוחה של תיקייה תחת /tmp בלבד, עם סורגי בטיחות.
@@ -209,6 +212,27 @@ class GitHubMenuHandler:
             return
         try:
             branches = list(repo.get_branches())
+            # מיין: main ראשון; אחריו לפי עדכון commit אחרון (חדש→ישן)
+            def _branch_sort_key(br):
+                try:
+                    # commit.last_modified לא קיים תמיד; ניקח commit.commit.author.date
+                    return br.commit.commit.author.date
+                except Exception:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+            # רשימת ענפים מלאה
+            if len(branches) <= MAX_BRANCH_DATE_FETCH:
+                try:
+                    branches_sorted = sorted(branches, key=_branch_sort_key, reverse=True)
+                except Exception:
+                    branches_sorted = branches
+            else:
+                branches_sorted = branches
+            # הוצא main לראש (אם קיים)
+            main_idx = next((i for i, b in enumerate(branches_sorted) if (b.name == 'main' or b.name == 'master')), None)
+            if main_idx is not None:
+                main_br = branches_sorted.pop(main_idx)
+                branches_sorted.insert(0, main_br)
+            branches = branches_sorted
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בשליפת ענפים: {e}")
             return
@@ -218,12 +242,27 @@ class GitHubMenuHandler:
         start = page * page_size
         end = min(start + page_size, len(branches))
         keyboard = []
-        # מיפוי אסימונים קצרים לשמות ענפים כדי לעמוד במגבלת 64 בתים של Telegram
+        # כפתור מהיר ל-main אם קיים
         token_map = context.user_data.setdefault("import_branch_token_map", {})
+        if branches and (branches[0].name == 'main' or branches[0].name == 'master'):
+            main_name = branches[0].name
+            token_map['i_main'] = main_name
+            keyboard.append([InlineKeyboardButton("🌿 main", callback_data="import_repo_select_branch:i_main")])
+            # אפשרות: להציג כפתור 'ענפים' כדי לפתוח את רשימת הענפים
+            keyboard.append([InlineKeyboardButton("📂 ענפים", callback_data="import_repo_show_branches")])
+            # אם המשתמש עוד לא לחץ 'ענפים', הצג רק main וחזרה
+            if context.user_data.get('import_show_branches') != True:
+                keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
+                await query.edit_message_text(
+                    "⬇️ בחר/י ענף לייבוא קבצים מהריפו:", reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+        # אם צריכים להראות את כל הענפים (או אין main)
         for idx, br in enumerate(branches[start:end]):
             token = f"i{start + idx}"
             token_map[token] = br.name
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"import_repo_select_branch:{token}")])
+            label = f"🌿 {br.name}"
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"import_repo_select_branch:{token}")])
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"import_repo_branches_page_{page-1}"))
@@ -283,6 +322,7 @@ class GitHubMenuHandler:
         zip_path = None
         extracted_dir = None
         saved = 0
+        updated = 0
         total_bytes = 0
         skipped = 0
         try:
@@ -358,22 +398,21 @@ class GitHubMenuHandler:
                         if saved >= IMPORT_MAX_FILES:
                             continue
                         lang = detect_language_from_filename(rel_path)
-                        ok = db.save_file(
-                            user_id=user_id,
-                            file_name=rel_path,
-                            code=text,
-                            programming_language=lang,
-                            extra_tags=[repo_tag, source_tag],
-                        )
+                        # בדוק אם קיים כבר — אם כן, שמירה תיצור גרסה חדשה ונחשב זאת כ"עודכן"
+                        existed = bool(db.get_latest_version(user_id, rel_path))
+                        ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
-                            saved += 1
+                            if existed:
+                                updated += 1
+                            else:
+                                saved += 1
                             total_bytes += len(raw)
                         else:
                             skipped += 1
                     except Exception:
                         skipped += 1
             await query.edit_message_text(
-                f"✅ ייבוא הושלם: {saved} קבצים נשמרו, {skipped} דילוגים.\n"
+                f"✅ ייבוא הושלם: {saved} חדשים, {updated} עודכנו, {skipped} דילוגים.\n"
                 f"🔖 תיוג: <code>{repo_tag}</code> (ו-<code>{source_tag}</code>)\n\n"
                 f"ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.\n"
                 f"תוכל למצוא את הקבצים ב׳🗂 לפי ריפו׳.",
@@ -1075,6 +1114,11 @@ class GitHubMenuHandler:
             except Exception:
                 p = 0
             context.user_data["import_branches_page"] = max(0, p)
+            await self.show_import_branch_menu(update, context)
+            return
+        elif query.data == "import_repo_show_branches":
+            # מציג את רשימת הענפים המלאה (לא רק main)
+            context.user_data['import_show_branches'] = True
             await self.show_import_branch_menu(update, context)
             return
         elif query.data.startswith("import_repo_select_branch:"):
