@@ -375,19 +375,19 @@ class GitHubMenuHandler:
                 lower_path = (path or '').lower()
                 force_pre_exts = ('.md', '.markdown', '.yml', '.yaml', '.py')
                 if lower_path.endswith(force_pre_exts):
-                    body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                    body = f"<pre><code>{safe_html_escape(chunk)}</code></pre>"
                 else:
                     # נסה היילייט; אם יוצרת בלגן, fallback ל-pre
                     try:
                         highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
                         if not highlighted_html or '\n' not in chunk:
-                            body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                            body = f"<pre><code>{safe_html_escape(chunk)}</code></pre>"
                         else:
                             body = highlighted_html
                     except Exception:
-                        body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                        body = f"<pre><code>{safe_html_escape(chunk)}</code></pre>"
             except Exception:
-                body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                body = f"<pre><code>{safe_html_escape(chunk)}</code></pre>"
             await query.edit_message_text(header + body, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
         except BadRequest as br:
             if "message is not modified" not in str(br).lower():
@@ -1787,6 +1787,11 @@ class GitHubMenuHandler:
         elif query.data == "browse_search":
             # בקש מהמשתמש להזין מחרוזת חיפוש לשמות קבצים
             context.user_data["browse_search_mode"] = True
+            # ענה מיד כדי לתת פידבק וודא שהמסר הבא יופנה
+            try:
+                await query.answer("הקלד עכשיו את השם לחיפוש (למשל: README)")
+            except Exception:
+                pass
             await query.edit_message_text(
                 "🔎 הזן/י מחרוזת לחיפוש בשם קובץ (לדוגמה: README או app.py)",
             )
