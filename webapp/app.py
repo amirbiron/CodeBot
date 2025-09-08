@@ -307,12 +307,25 @@ def dashboard():
         db = get_db()
         user_id = session['user_id']
         
-        # שליפת סטטיסטיקות
-        total_files = db.code_snippets.count_documents({'user_id': user_id})
+        # שליפת סטטיסטיקות - רק קבצים פעילים
+        active_query = {
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        total_files = db.code_snippets.count_documents(active_query)
         
         # חישוב נפח כולל
         pipeline = [
-            {'$match': {'user_id': user_id}},
+            {'$match': {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }},
             {'$project': {
                 'code_size': {
                     '$cond': {
@@ -335,7 +348,13 @@ def dashboard():
         
         # שפות פופולריות
         languages_pipeline = [
-            {'$match': {'user_id': user_id}},
+            {'$match': {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }},
             {'$group': {
                 '_id': '$programming_language',
                 'count': {'$sum': 1}
@@ -347,7 +366,13 @@ def dashboard():
         
         # פעילות אחרונה
         recent_files = list(db.code_snippets.find(
-            {'user_id': user_id},
+            {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            },
             {'file_name': 1, 'programming_language': 1, 'created_at': 1}
         ).sort('created_at', DESCENDING).limit(5))
         
@@ -411,25 +436,24 @@ def files():
     # בניית שאילתה - כולל סינון קבצים פעילים בלבד
     query = {
         'user_id': user_id,
-        '$or': [
-            {'deleted': {'$exists': False}},
-            {'deleted': False}
+        '$and': [
+            {
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}  # תמיכה בקבצים ישנים ללא השדה
+                ]
+            }
         ]
     }
     
     if search_query:
-        query['$and'] = [
-            {'$or': [
-                {'deleted': {'$exists': False}},
-                {'deleted': False}
-            ]},
+        query['$and'].append(
             {'$or': [
                 {'file_name': {'$regex': search_query, '$options': 'i'}},
                 {'description': {'$regex': search_query, '$options': 'i'}},
                 {'tags': {'$in': [search_query.lower()]}}
             ]}
-        ]
-        del query['$or']
+        )
     
     if language_filter:
         query['programming_language'] = language_filter
@@ -705,14 +729,22 @@ def api_stats():
     db = get_db()
     user_id = session['user_id']
     
+    active_query = {
+        'user_id': user_id,
+        '$or': [
+            {'is_active': True},
+            {'is_active': {'$exists': False}}
+        ]
+    }
+    
     stats = {
-        'total_files': db.code_snippets.count_documents({'user_id': user_id}),
-        'languages': list(db.code_snippets.distinct('programming_language', {'user_id': user_id})),
+        'total_files': db.code_snippets.count_documents(active_query),
+        'languages': list(db.code_snippets.distinct('programming_language', active_query)),
         'recent_activity': []
     }
     
     recent = db.code_snippets.find(
-        {'user_id': user_id},
+        active_query,
         {'file_name': 1, 'created_at': 1}
     ).sort('created_at', DESCENDING).limit(10)
     
