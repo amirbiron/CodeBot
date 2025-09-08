@@ -645,7 +645,7 @@ class GitHubMenuHandler:
             # העבר את "בחר תיקיית יעד" למעלה, ישירות אחרי "בחר ריפו"
             keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
             # ניווט בריפו
-            keyboard.append([InlineKeyboardButton("🧭 עיין בריפו", callback_data="browse_repo")])
+            keyboard.append([InlineKeyboardButton("🗃️ עיין בריפו", callback_data="browse_repo")])
             # כפתור העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             # פעולות נוספות בטוחות
