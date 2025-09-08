@@ -25,6 +25,7 @@ from datetime import timedelta
 # יצירת האפליקציה
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.permanent_session_lifetime = timedelta(days=30)  # סשן נשמר ל-30 יום
 
 # הגדרות
 MONGODB_URL = os.getenv('MONGODB_URL')
@@ -134,6 +135,30 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def admin_required(f):
+    """דקורטור לבדיקת הרשאות אדמין"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        
+        # בדיקה אם המשתמש הוא אדמין
+        admin_ids = os.getenv('ADMIN_USER_IDS', '').split(',')
+        admin_ids = [int(id.strip()) for id in admin_ids if id.strip().isdigit()]
+        
+        if session['user_id'] not in admin_ids:
+            abort(403)  # Forbidden
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+def is_admin(user_id: int) -> bool:
+    """בודק אם משתמש הוא אדמין"""
+    admin_ids = os.getenv('ADMIN_USER_IDS', '').split(',')
+    admin_ids = [int(id.strip()) for id in admin_ids if id.strip().isdigit()]
+    return user_id in admin_ids
+
+
 def format_file_size(size_bytes: int) -> str:
     """מעצב גודל קובץ לתצוגה ידידותית"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -141,6 +166,39 @@ def format_file_size(size_bytes: int) -> str:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
+
+def is_binary_file(content: str, filename: str = "") -> bool:
+    """בודק אם קובץ הוא בינארי"""
+    # רשימת סיומות בינאריות
+    binary_extensions = {
+        '.exe', '.dll', '.so', '.dylib', '.bin', '.dat',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico',
+        '.mp3', '.mp4', '.avi', '.mov', '.wav',
+        '.zip', '.rar', '.7z', '.tar', '.gz',
+        '.pyc', '.pyo', '.class', '.o', '.a'
+    }
+    
+    # בדיקה לפי סיומת
+    if filename:
+        ext = os.path.splitext(filename.lower())[1]
+        if ext in binary_extensions:
+            return True
+    
+    # בדיקה לפי תוכן
+    if content:
+        try:
+            # נסיון לקרוא כ-UTF-8
+            if isinstance(content, bytes):
+                content.decode('utf-8')
+            # בדיקת תווים בינאריים
+            null_count = content.count('\0') if isinstance(content, str) else content.count(b'\0')
+            if null_count > 0:
+                return True
+        except UnicodeDecodeError:
+            return True
+    
+    return False
 
 def get_language_icon(language: str) -> str:
     """מחזיר אייקון עבור שפת תכנות"""
@@ -195,14 +253,20 @@ def telegram_auth():
         return jsonify({'error': 'Invalid authentication'}), 401
     
     # שמירת נתוני המשתמש בסשן
-    session['user_id'] = int(auth_data['id'])
+    user_id = int(auth_data['id'])
+    session['user_id'] = user_id
     session['user_data'] = {
-        'id': int(auth_data['id']),
+        'id': user_id,
         'first_name': auth_data.get('first_name', ''),
         'last_name': auth_data.get('last_name', ''),
         'username': auth_data.get('username', ''),
         'photo_url': auth_data.get('photo_url', '')
     }
+    
+    # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
+    session.permanent = True
+    
+    # אפשר להוסיף כאן הגדרות נוספות לאדמינים בעתיד
     
     return redirect(url_for('dashboard'))
 
@@ -243,14 +307,20 @@ def token_auth():
         user = db.users.find_one({'user_id': int(user_id)})
         
         # שמירת נתוני המשתמש בסשן
-        session['user_id'] = int(user_id)
+        user_id_int = int(user_id)
+        session['user_id'] = user_id_int
         session['user_data'] = {
-            'id': int(user_id),
+            'id': user_id_int,
             'first_name': user.get('first_name', ''),
             'last_name': user.get('last_name', ''),
             'username': token_doc.get('username', ''),
             'photo_url': ''
         }
+        
+        # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
+        session.permanent = True
+        
+        # אפשר להוסיף כאן הגדרות נוספות לאדמינים בעתיד
         
         return redirect(url_for('dashboard'))
         
@@ -274,12 +344,25 @@ def dashboard():
         db = get_db()
         user_id = session['user_id']
         
-        # שליפת סטטיסטיקות
-        total_files = db.code_snippets.count_documents({'user_id': user_id})
+        # שליפת סטטיסטיקות - רק קבצים פעילים
+        active_query = {
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        total_files = db.code_snippets.count_documents(active_query)
         
         # חישוב נפח כולל
         pipeline = [
-            {'$match': {'user_id': user_id}},
+            {'$match': {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }},
             {'$project': {
                 'code_size': {
                     '$cond': {
@@ -302,7 +385,13 @@ def dashboard():
         
         # שפות פופולריות
         languages_pipeline = [
-            {'$match': {'user_id': user_id}},
+            {'$match': {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }},
             {'$group': {
                 '_id': '$programming_language',
                 'count': {'$sum': 1}
@@ -314,7 +403,13 @@ def dashboard():
         
         # פעילות אחרונה
         recent_files = list(db.code_snippets.find(
-            {'user_id': user_id},
+            {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            },
             {'file_name': 1, 'programming_language': 1, 'created_at': 1}
         ).sort('created_at', DESCENDING).limit(5))
         
@@ -341,7 +436,8 @@ def dashboard():
         
         return render_template('dashboard.html', 
                              user=session['user_data'],
-                             stats=stats)
+                             stats=stats,
+                             bot_username=BOT_USERNAME)
                              
     except Exception as e:
         print(f"Error in dashboard: {e}")
@@ -356,7 +452,8 @@ def dashboard():
                                  'top_languages': [],
                                  'recent_files': []
                              },
-                             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.")
+                             error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
+                             bot_username=BOT_USERNAME)
 
 @app.route('/files')
 @login_required
@@ -368,31 +465,96 @@ def files():
     # פרמטרים לחיפוש ומיון
     search_query = request.args.get('q', '')
     language_filter = request.args.get('lang', '')
+    category_filter = request.args.get('category', '')
     sort_by = request.args.get('sort', 'created_at')
     page = int(request.args.get('page', 1))
     per_page = 20
     
-    # בניית שאילתה
-    query = {'user_id': user_id}
+    # בניית שאילתה - כולל סינון קבצים פעילים בלבד
+    query = {
+        'user_id': user_id,
+        '$and': [
+            {
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}  # תמיכה בקבצים ישנים ללא השדה
+                ]
+            }
+        ]
+    }
     
     if search_query:
-        query['$or'] = [
-            {'file_name': {'$regex': search_query, '$options': 'i'}},
-            {'description': {'$regex': search_query, '$options': 'i'}},
-            {'tags': {'$in': [search_query.lower()]}}
-        ]
+        query['$and'].append(
+            {'$or': [
+                {'file_name': {'$regex': search_query, '$options': 'i'}},
+                {'description': {'$regex': search_query, '$options': 'i'}},
+                {'tags': {'$in': [search_query.lower()]}}
+            ]}
+        )
     
     if language_filter:
         query['programming_language'] = language_filter
     
-    # ספירת סך הכל
-    total_count = db.code_snippets.count_documents(query)
+    # סינון לפי קטגוריה
+    if category_filter:
+        if category_filter == 'repo':
+            # קבצים שהועלו מ-GitHub
+            query['source'] = 'github'
+        elif category_filter == 'zip':
+            # קבצי ZIP
+            query['$or'] = [
+                {'file_name': {'$regex': r'\.zip$', '$options': 'i'}},
+                {'is_archive': True}
+            ]
+        elif category_filter == 'large':
+            # קבצים גדולים (מעל 100KB)
+            # נצטרך להוסיף שדה size אם אין
+            pipeline = [
+                {'$match': query},
+                {'$addFields': {
+                    'code_size': {
+                        '$cond': {
+                            'if': {'$and': [
+                                {'$ne': ['$code', None]},
+                                {'$eq': [{'$type': '$code'}, 'string']}
+                            ]},
+                            'then': {'$strLenBytes': '$code'},
+                            'else': 0
+                        }
+                    }
+                }},
+                {'$match': {'code_size': {'$gte': 102400}}}  # 100KB
+            ]
+            # נשתמש ב-aggregation במקום find רגיל
+            files_cursor = db.code_snippets.aggregate(pipeline + [
+                {'$sort': {sort_by.lstrip('-'): -1 if sort_by.startswith('-') else 1}},
+                {'$skip': (page - 1) * per_page},
+                {'$limit': per_page}
+            ])
+            total_count = len(list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}])))
+            total_count = total_count[0]['total'] if total_count else 0
+        elif category_filter == 'other':
+            # שאר הקבצים (לא מ-GitHub, לא ZIP, לא גדולים)
+            query['$and'] = [
+                {'$or': [
+                    {'source': {'$ne': 'github'}},
+                    {'source': {'$exists': False}}
+                ]},
+                {'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}},
+                {'is_archive': {'$ne': True}}
+            ]
+    
+    # ספירת סך הכל (אם לא חושב כבר)
+    if category_filter != 'large':
+        total_count = db.code_snippets.count_documents(query)
     
     # שליפת הקבצים
     sort_order = DESCENDING if sort_by.startswith('-') else 1
     sort_field = sort_by.lstrip('-')
     
-    files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
+    # אם לא עשינו aggregation כבר (בקטגוריית large)
+    if category_filter != 'large':
+        files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     
     files_list = []
     for file in files_cursor:
@@ -424,11 +586,13 @@ def files():
                          languages=languages,
                          search_query=search_query,
                          language_filter=language_filter,
+                         category_filter=category_filter,
                          sort_by=sort_by,
                          page=page,
                          total_pages=total_pages,
                          has_prev=page > 1,
-                         has_next=page < total_pages)
+                         has_next=page < total_pages,
+                         bot_username=BOT_USERNAME)
 
 @app.route('/file/<file_id>')
 @login_required
@@ -451,6 +615,47 @@ def view_file(file_id):
     # הדגשת syntax
     code = file.get('code', '')
     language = file.get('programming_language', 'text')
+    
+    # הגבלת גודל תצוגה - 1MB
+    MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
+    if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
+        return render_template('view_file.html',
+                             user=session['user_data'],
+                             file={
+                                 'id': str(file['_id']),
+                                 'file_name': file['file_name'],
+                                 'language': language,
+                                 'icon': get_language_icon(language),
+                                 'description': file.get('description', ''),
+                                 'tags': file.get('tags', []),
+                                 'size': format_file_size(len(code.encode('utf-8'))),
+                                 'lines': len(code.split('\n')),
+                                 'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'version': file.get('version', 1)
+                             },
+                             highlighted_code='<div class="alert alert-info" style="text-align: center; padding: 3rem;"><i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>הקובץ גדול מדי לתצוגה (' + format_file_size(len(code.encode('utf-8'))) + ')<br><br>ניתן להוריד את הקובץ לצפייה מקומית</div>',
+                             syntax_css='')
+    
+    # בדיקה אם הקובץ בינארי
+    if is_binary_file(code, file.get('file_name', '')):
+        return render_template('view_file.html',
+                             user=session['user_data'],
+                             file={
+                                 'id': str(file['_id']),
+                                 'file_name': file['file_name'],
+                                 'language': 'binary',
+                                 'icon': '🔒',
+                                 'description': 'קובץ בינארי - לא ניתן להציג',
+                                 'tags': file.get('tags', []),
+                                 'size': format_file_size(len(code.encode('utf-8')) if code else 0),
+                                 'lines': 0,
+                                 'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'version': file.get('version', 1)
+                             },
+                             highlighted_code='<div class="alert alert-warning" style="text-align: center; padding: 3rem;"><i class="fas fa-lock" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>קובץ בינארי - לא ניתן להציג את התוכן<br><br>ניתן להוריד את הקובץ בלבד</div>',
+                             syntax_css='')
     
     try:
         lexer = get_lexer_by_name(language, stripall=True)
@@ -561,14 +766,22 @@ def api_stats():
     db = get_db()
     user_id = session['user_id']
     
+    active_query = {
+        'user_id': user_id,
+        '$or': [
+            {'is_active': True},
+            {'is_active': {'$exists': False}}
+        ]
+    }
+    
     stats = {
-        'total_files': db.code_snippets.count_documents({'user_id': user_id}),
-        'languages': list(db.code_snippets.distinct('programming_language', {'user_id': user_id})),
+        'total_files': db.code_snippets.count_documents(active_query),
+        'languages': list(db.code_snippets.distinct('programming_language', active_query)),
         'recent_activity': []
     }
     
     recent = db.code_snippets.find(
-        {'user_id': user_id},
+        active_query,
         {'file_name': 1, 'created_at': 1}
     ).sort('created_at', DESCENDING).limit(10)
     
@@ -579,6 +792,19 @@ def api_stats():
         })
     
     return jsonify(stats)
+
+@app.route('/settings')
+@login_required
+def settings():
+    """דף הגדרות"""
+    user_id = session['user_id']
+    
+    # בדיקה אם המשתמש הוא אדמין
+    user_is_admin = is_admin(user_id)
+    
+    return render_template('settings.html',
+                         user=session['user_data'],
+                         is_admin=user_is_admin)
 
 @app.route('/health')
 def health():

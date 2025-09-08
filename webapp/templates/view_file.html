@@ -203,19 +203,77 @@
 <script>
 function copyCode() {
     // מציאת הקוד ללא מספרי שורות
-    const codeElement = document.querySelector('.source .highlight pre');
-    const code = codeElement ? codeElement.textContent : '';
+    const codeLines = document.querySelectorAll('.source .highlight pre span');
+    let code = '';
     
-    navigator.clipboard.writeText(code).then(() => {
-        const feedback = document.getElementById('copyFeedback');
-        feedback.classList.add('show');
-        setTimeout(() => {
-            feedback.classList.remove('show');
-        }, 2000);
-    }).catch(err => {
-        console.error('Failed to copy:', err);
-        alert('לא הצלחנו להעתיק את הקוד');
-    });
+    if (codeLines.length > 0) {
+        // אם יש spans, נאסוף רק את התוכן שלהם
+        codeLines.forEach(span => {
+            // מדלגים על מספרי שורות
+            if (!span.classList.contains('linenos')) {
+                code += span.textContent;
+            }
+        });
+    } else {
+        // נסיון חלופי - לקחת את כל הטקסט ולהסיר מספרי שורות
+        const codeElement = document.querySelector('.source .highlight pre');
+        if (codeElement) {
+            const fullText = codeElement.textContent;
+            // הסרת מספרי שורות (בהנחה שהם בתחילת כל שורה)
+            const lines = fullText.split('\n');
+            code = lines.map(line => {
+                // הסרת מספרים בתחילת השורה
+                return line.replace(/^\s*\d+\s*/, '');
+            }).join('\n');
+        }
+    }
+    
+    if (!code) {
+        // נסיון אחרון - לקחת את כל הטקסט מה-highlight div
+        const highlightDiv = document.querySelector('.source .highlight');
+        if (highlightDiv) {
+            // יצירת clone זמני
+            const tempDiv = highlightDiv.cloneNode(true);
+            // הסרת אלמנט מספרי השורות
+            const linenosDiv = tempDiv.querySelector('.linenodiv');
+            if (linenosDiv) {
+                linenosDiv.remove();
+            }
+            code = tempDiv.textContent || tempDiv.innerText;
+        }
+    }
+    
+    if (code) {
+        navigator.clipboard.writeText(code).then(() => {
+            const feedback = document.getElementById('copyFeedback');
+            feedback.classList.add('show');
+            setTimeout(() => {
+                feedback.classList.remove('show');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            // נסיון חלופי עם textarea זמני
+            const textarea = document.createElement('textarea');
+            textarea.value = code;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                const feedback = document.getElementById('copyFeedback');
+                feedback.classList.add('show');
+                setTimeout(() => {
+                    feedback.classList.remove('show');
+                }, 2000);
+            } catch (err2) {
+                alert('לא הצלחנו להעתיק את הקוד');
+            }
+            document.body.removeChild(textarea);
+        });
+    } else {
+        alert('לא נמצא קוד להעתקה');
+    }
 }
 
 function copyLink() {
