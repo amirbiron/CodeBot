@@ -54,6 +54,9 @@ IMPORT_SKIP_DIRS = {".git", ".github", "__pycache__", "node_modules", "dist", "b
 # מגבלות עזר לשליפת תאריכי ענפים למיון
 MAX_BRANCH_DATE_FETCH = 120  # אם יש יותר מזה — נוותר על מיון לפי תאריך (למעט ברירת המחדל)
 
+# תצוגת קובץ חלקית
+VIEW_LINES_PER_PAGE = 80
+
 
 def _safe_rmtree_tmp(target_path: str) -> None:
     """מחיקה בטוחה של תיקייה תחת /tmp בלבד, עם סורגי בטיחות.
@@ -131,6 +134,139 @@ class GitHubMenuHandler:
             }
         return self.user_sessions[user_id]
 
+    async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        g = Github(token)
+        repo = g.get_repo(repo_full)
+        current_ref = context.user_data.get("browse_ref") or (getattr(repo, "default_branch", None) or "main")
+        tab = context.user_data.get("browse_ref_tab") or "branches"
+        kb = []
+        # טאבים
+        tabs = [
+            InlineKeyboardButton("🌿 ענפים", callback_data="browse_refs_branches_page_0"),
+            InlineKeyboardButton("🏷 תגיות", callback_data="browse_refs_tags_page_0"),
+        ]
+        kb.append(tabs)
+        if tab == "branches":
+            page = int(context.user_data.get("browse_refs_branches_page", 0))
+            try:
+                items = list(repo.get_branches())
+            except Exception:
+                items = []
+            page_size = 10
+            start = page * page_size
+            end = min(start + page_size, len(items))
+            for br in items[start:end]:
+                label = "✅ " + br.name if br.name == current_ref else br.name
+                kb.append([InlineKeyboardButton(label, callback_data=f"browse_select_ref:{br.name}")])
+            # עימוד
+            nav = []
+            if page > 0:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"browse_refs_branches_page_{page-1}"))
+            if end < len(items):
+                nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"browse_refs_branches_page_{page+1}"))
+            if nav:
+                kb.append(nav)
+        else:
+            page = int(context.user_data.get("browse_refs_tags_page", 0))
+            try:
+                items = list(repo.get_tags())
+            except Exception:
+                items = []
+            page_size = 10
+            start = page * page_size
+            end = min(start + page_size, len(items))
+            for tg in items[start:end]:
+                name = getattr(tg, "name", "")
+                label = "✅ " + name if name == current_ref else name
+                kb.append([InlineKeyboardButton(label, callback_data=f"browse_select_ref:{name}")])
+            nav = []
+            if page > 0:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"browse_refs_tags_page_{page-1}"))
+            if end < len(items):
+                nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"browse_refs_tags_page_{page+1}"))
+            if nav:
+                kb.append(nav)
+        # תחתית
+        kb.append([InlineKeyboardButton("🔙 חזרה", callback_data="github_menu")])
+        await query.edit_message_text(
+            f"בחר/י ref לדפדוף (נוכחי: <code>{safe_html_escape(current_ref)}</code>)",
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="HTML",
+        )
+
+    async def show_browse_search_results(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """חיפוש לפי שם קובץ (prefix/contains) עם עימוד ותוצאות לפתיחה."""
+        # שימוש ב-Contents API: אין חיפוש שמות ישיר; נשתמש ב-Search API code:in:path/name
+        query = update.callback_query if hasattr(update, "callback_query") else None
+        user_id = (query.from_user.id if query else update.message.from_user.id)
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        q = (context.user_data.get("browse_search_query") or "").strip()
+        page = int(context.user_data.get("browse_search_page", 1))
+        if not (token and repo_full and q):
+            if query:
+                await query.edit_message_text("❌ חסרים נתונים לחיפוש")
+            else:
+                await update.message.reply_text("❌ חסרים נתונים לחיפוש")
+            return
+        g = Github(token)
+        # הפורמט: repo:owner/name in:path filename query
+        try:
+            owner, name = repo_full.split("/", 1)
+        except ValueError:
+            owner, name = repo_full, ""
+        # בניית שאילתה: נחפש במחרוזת השם/הנתיב
+        gh_query = f"repo:{owner}/{name} {q} in:path"
+        try:
+            results = g.search_code(query=gh_query, order="desc")
+        except Exception as e:
+            if query:
+                await query.edit_message_text(f"❌ שגיאה בחיפוש: {safe_html_escape(str(e))}", parse_mode="HTML")
+            else:
+                await update.message.reply_text(f"❌ שגיאה בחיפוש: {str(e)}")
+            return
+        # עימוד ידני
+        per_page = 10
+        items = list(results)  # PyGithub מחזיר iterable
+        total = len(items)
+        start = (page - 1) * per_page
+        end = min(start + per_page, total)
+        shown = items[start:end]
+        kb = []
+        for it in shown:
+            try:
+                path = getattr(it, "path", None) or getattr(it, "name", "")
+                if not path:
+                    continue
+                kb.append([InlineKeyboardButton(path, callback_data=f"browse_open:{path.rsplit('/', 1)[0]}" if '/' in path else "browse_open:")])
+                kb.append([InlineKeyboardButton(f"👁️ פתח {path}", callback_data=f"browse_select_view:{path}")])
+            except Exception:
+                continue
+        nav = []
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"browse_search_page:{page-1}"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"browse_search_page:{page+1}"))
+        if nav:
+            kb.append(nav)
+        kb.append([InlineKeyboardButton("🔙 חזרה", callback_data="github_menu")])
+        text = f"🔎 תוצאות חיפוש עבור <code>{safe_html_escape(q)}</code> — מציג {len(shown)} מתוך {total}"
+        if query:
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        else:
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+
     async def check_rate_limit(self, github_client: Github, update_or_query) -> bool:
         """בודק את מגבלת ה-API של GitHub"""
         try:
@@ -193,6 +329,49 @@ class GitHubMenuHandler:
             session["github_token"] = token
 
         return token
+
+    async def _render_file_view(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """מציג דף תצוגה חלקית של קובץ עם כפתורי 'הצג עוד', 'הורד', 'חזרה'."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        repo_name = session.get("selected_repo") or "repo"
+        path = context.user_data.get("view_file_path") or ""
+        data = context.user_data.get("view_file_text") or ""
+        page = int(context.user_data.get("view_page_index", 0))
+        # חישוב חלוקה לשורות
+        lines = data.splitlines()
+        total_lines = len(lines)
+        start = page * VIEW_LINES_PER_PAGE
+        end = min(start + VIEW_LINES_PER_PAGE, total_lines)
+        chunk = "\n".join(lines[start:end])
+        # טקסט לתצוגה + גודל ושפה מזוהה
+        size_bytes = int(context.user_data.get("view_file_size", 0) or 0)
+        lang = context.user_data.get("view_detected_language") or "text"
+        header = (
+            f"📄 תצוגת קובץ\n"
+            f"📁 <code>{safe_html_escape(repo_name)}</code>\n"
+            f"📄 <code>{safe_html_escape(path)}</code>\n"
+            f"🔤 שפה: <code>{safe_html_escape(lang)}</code> | 💾 גודל: <code>{format_bytes(size_bytes)}</code>\n"
+            f"שורות {start+1}-{end} מתוך {total_lines}\n\n"
+        )
+        # בניית מקלדת
+        rows = [[InlineKeyboardButton("🔙 חזרה", callback_data="view_back")],
+                [InlineKeyboardButton("⬇️ הורד", callback_data=f"browse_select_download:{path}")]]
+        if end < total_lines:
+            rows.append([InlineKeyboardButton("הצג עוד ⤵️", callback_data="view_more")])
+        try:
+            # הדגשת תחביר קיימת במודול code_processor.highlight_code; נשתמש בה ואז ננקה ל-Telegram
+            try:
+                from services import code_service as code_processor
+                highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                body = highlighted_html
+            except Exception:
+                body = f"<pre>{safe_html_escape(chunk)}</pre>"
+            await query.edit_message_text(header + body, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
+        except BadRequest as br:
+            if "message is not modified" not in str(br).lower():
+                raise
 
     async def show_import_branch_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג בחירת ענף לייבוא ריפו (עימוד)."""
@@ -461,6 +640,8 @@ class GitHubMenuHandler:
         if token and session.get("selected_repo"):
             # העבר את "בחר תיקיית יעד" למעלה, ישירות אחרי "בחר ריפו"
             keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
+            # ניווט בריפו
+            keyboard.append([InlineKeyboardButton("📂 עיין בריפו", callback_data="browse_repo")])
             # כפתור העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             # פעולות נוספות בטוחות
@@ -524,6 +705,15 @@ class GitHubMenuHandler:
 
         if query.data == "select_repo":
             await self.show_repo_selection(query, context)
+
+        elif query.data == "browse_repo":
+            # מצב עיון בריפו עם תצוגת קבצים
+            context.user_data["browse_action"] = "view"
+            context.user_data["browse_path"] = ""
+            context.user_data["browse_page"] = 0
+            context.user_data["multi_mode"] = False
+            context.user_data["multi_selection"] = []
+            await self.show_repo_browser(update, context)
 
         elif query.data == "upload_file":
             if not session.get("selected_repo"):
@@ -1550,6 +1740,43 @@ class GitHubMenuHandler:
             # מצב מרובה ומחיקה בטוחה לאיפוס
             context.user_data["multi_selection"] = []
             await self.show_repo_browser(update, context)
+        elif query.data == "browse_ref_menu":
+            await self.show_browse_ref_menu(update, context)
+        elif query.data.startswith("browse_refs_branches_page_"):
+            try:
+                p = int(query.data.rsplit('_', 1)[1])
+            except Exception:
+                p = 0
+            context.user_data["browse_refs_branches_page"] = max(0, p)
+            context.user_data["browse_ref_tab"] = "branches"
+            await self.show_browse_ref_menu(update, context)
+        elif query.data.startswith("browse_refs_tags_page_"):
+            try:
+                p = int(query.data.rsplit('_', 1)[1])
+            except Exception:
+                p = 0
+            context.user_data["browse_refs_tags_page"] = max(0, p)
+            context.user_data["browse_ref_tab"] = "tags"
+            await self.show_browse_ref_menu(update, context)
+        elif query.data.startswith("browse_select_ref:"):
+            # עדכון ref נוכחי והחזרה לדפדפן
+            ref = query.data.split(":", 1)[1]
+            context.user_data["browse_ref"] = ref
+            context.user_data["browse_page"] = 0
+            await self.show_repo_browser(update, context)
+        elif query.data == "browse_search":
+            # בקש מהמשתמש להזין מחרוזת חיפוש לשמות קבצים
+            context.user_data["browse_search_mode"] = True
+            await query.edit_message_text(
+                "🔎 הזן/י מחרוזת לחיפוש בשם קובץ (לדוגמה: README או app.py)",
+            )
+        elif query.data.startswith("browse_search_page:"):
+            try:
+                page = int(query.data.split(":", 1)[1])
+            except Exception:
+                page = 1
+            context.user_data["browse_search_page"] = max(1, page)
+            await self.show_browse_search_results(update, context)
         elif query.data.startswith("browse_select_download:"):
             path = query.data.split(":", 1)[1]
             context.user_data.pop("waiting_for_download_file_path", None)
@@ -1583,6 +1810,51 @@ class GitHubMenuHandler:
                 filename = base.basename(contents.path) or "downloaded_file"
                 await query.message.reply_document(document=BytesIO(data), filename=filename)
             await self.github_menu_command(update, context)
+        elif query.data.startswith("browse_select_view:"):
+            # מצב תצוגת קובץ חלקית עם "הצג עוד"
+            path = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get("selected_repo")
+            if not (token and repo_name):
+                await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            # כבדוק ref נוכחי
+            try:
+                current_ref = (context.user_data.get("browse_ref") or getattr(repo, "default_branch", None) or "main")
+            except Exception:
+                current_ref = getattr(repo, "default_branch", None) or "main"
+            try:
+                contents = repo.get_contents(path, ref=current_ref)
+                data = contents.decoded_content.decode("utf-8", errors="replace")
+                # שמירת נתוני עזר: גודל ושפה מזוהה
+                try:
+                    from utils import detect_language_from_filename
+                    detected_lang = detect_language_from_filename(path)
+                except Exception:
+                    detected_lang = "text"
+                context.user_data["view_file_size"] = int(getattr(contents, "size", 0) or 0)
+                context.user_data["view_detected_language"] = detected_lang
+            except Exception as e:
+                await query.edit_message_text(f"❌ שגיאה בטעינת קובץ: {safe_html_escape(str(e))}", parse_mode="HTML")
+                return
+            # שימור טקסט בזיכרון קצר (user_data) + אינדקס עמוד
+            context.user_data["view_file_path"] = path
+            context.user_data["view_file_text"] = data
+            context.user_data["view_page_index"] = 0
+            await self._render_file_view(update, context)
+        elif query.data == "view_more":
+            # הצג עוד עמוד
+            page = int(context.user_data.get("view_page_index", 0)) + 1
+            context.user_data["view_page_index"] = page
+            await self._render_file_view(update, context)
+        elif query.data == "view_back":
+            # חזרה לעץ הריפו (שומר path)
+            context.user_data["browse_action"] = "view"
+            await self.show_repo_browser(update, context)
         elif query.data.startswith("browse_select_delete:"):
             path = query.data.split(":", 1)[1]
             # דרוש אישור לפני מחיקה
@@ -3090,6 +3362,18 @@ class GitHubMenuHandler:
                 await update.message.reply_text(f"❌ שגיאה בשמירת הקובץ הזמני: {safe_html_escape(str(e))}", parse_mode="HTML")
             return True
 
+        # חיפוש בשם קובץ מתוך דפדפן הריפו
+        if context.user_data.get("browse_search_mode"):
+            context.user_data["browse_search_mode"] = False
+            query = (text or "").strip()
+            if not query:
+                await update.message.reply_text("❌ שאילתת חיפוש ריקה. נסה שוב דרך הכפתור.")
+                return True
+            context.user_data["browse_search_query"] = query
+            context.user_data["browse_search_page"] = 1
+            await self.show_browse_search_results(update, context)
+            return True
+
         # בחירת תיקייה (מתוך "בחר תיקיית יעד" הכללי)
         if context.user_data.get("waiting_for_selected_folder"):
             context.user_data["waiting_for_selected_folder"] = False
@@ -3863,7 +4147,7 @@ class GitHubMenuHandler:
         context.user_data["multi_selection"] = []
         await self.show_repo_browser(update, context)
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False):
-        """מציג דפדפן ריפו לפי נתיב ושימוש (download/delete)"""
+        """מציג דפדפן ריפו לפי נתיב ושימוש (view/download/delete), כולל breadcrumbs ועימוד."""
         query = update.callback_query
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
@@ -3875,8 +4159,16 @@ class GitHubMenuHandler:
         g = Github(token)
         repo = g.get_repo(repo_name)
         path = context.user_data.get("browse_path", "")
+        # קביעת ref נוכחי לניווט (ענף/תג)
+        try:
+            current_ref = context.user_data.get("browse_ref") or (getattr(repo, "default_branch", None) or "main")
+        except Exception:
+            current_ref = getattr(repo, "default_branch", None) or "main"
         # קבלת תוכן התיקייה
-        contents = repo.get_contents(path or "")
+        try:
+            contents = repo.get_contents(path or "", ref=current_ref)
+        except Exception:
+            contents = repo.get_contents(path or "")
         if not isinstance(contents, list):
             # אם זה קובץ יחיד, הפוך לרשימה לצורך תצוגה
             contents = [contents]
@@ -3899,6 +4191,12 @@ class GitHubMenuHandler:
                 )
         if crumbs_row:
             entry_rows.append(crumbs_row)
+        # שורת כלים: חיפוש ובחירת ref
+        tools_row = [
+            InlineKeyboardButton("🔎 חפש בשם קובץ", callback_data="browse_search"),
+            InlineKeyboardButton(f"🌿 ref: {current_ref}", callback_data="browse_ref_menu"),
+        ]
+        entry_rows.append(tools_row)
         for folder in folders:
             # לכל תיקייה נוסיף שתי אופציות: פתיחה ובחירה כיעד
             select_cb = (
@@ -3930,7 +4228,8 @@ class GitHubMenuHandler:
                         ]
                     )
                 else:
-                    if context.user_data.get("browse_action") == "download":
+                    mode = context.user_data.get("browse_action")
+                    if mode == "download":
                         size_val = getattr(f, "size", 0) or 0
                         large_flag = " ⚠️" if size_val and size_val > MAX_INLINE_FILE_BYTES else ""
                         entry_rows.append(
@@ -3938,6 +4237,14 @@ class GitHubMenuHandler:
                                 InlineKeyboardButton(
                                     f"⬇️ {f.name}{large_flag}",
                                     callback_data=f"browse_select_download:{f.path}",
+                                )
+                            ]
+                        )
+                    elif mode == "view":
+                        entry_rows.append(
+                            [
+                                InlineKeyboardButton(
+                                    f"👁️ {f.name}", callback_data=f"browse_select_view:{f.path}"
                                 )
                             ]
                         )
@@ -4042,7 +4349,8 @@ class GitHubMenuHandler:
         if bottom:
             keyboard.append(bottom)
         # טקסט
-        action = "הורדה" if context.user_data.get("browse_action") == "download" else "מחיקה"
+        _mode = context.user_data.get("browse_action")
+        action = "תצוגה" if _mode == "view" else ("הורדה" if _mode == "download" else "מחיקה")
         if only_keyboard:
             try:
                 await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
@@ -4050,6 +4358,7 @@ class GitHubMenuHandler:
                 if folder_selecting:
                     await query.edit_message_text(
                         f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                        f"🔀 ref: <code>{current_ref}</code>\n"
                         f"📂 נתיב: <code>/{path or ''}</code>\n\n"
                         f"בחר תיקייה יעד או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
                         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -4058,6 +4367,7 @@ class GitHubMenuHandler:
                 else:
                     await query.edit_message_text(
                         f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                        f"🔀 ref: <code>{current_ref}</code>\n"
                         f"📂 נתיב: <code>/{path or ''}</code>\n\n"
                         f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
                         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -4067,6 +4377,7 @@ class GitHubMenuHandler:
             if folder_selecting:
                 await query.edit_message_text(
                     f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"🔀 ref: <code>{current_ref}</code>\n"
                     f"📂 נתיב: <code>/{path or ''}</code>\n\n"
                     f"בחר תיקייה יעד או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
                     reply_markup=InlineKeyboardMarkup(keyboard),
@@ -4075,6 +4386,7 @@ class GitHubMenuHandler:
             else:
                 await query.edit_message_text(
                     f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"🔀 ref: <code>{current_ref}</code>\n"
                     f"📂 נתיב: <code>/{path or ''}</code>\n\n"
                     f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
                     reply_markup=InlineKeyboardMarkup(keyboard),
