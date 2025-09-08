@@ -32,11 +32,19 @@ MONGODB_URL = os.getenv('MONGODB_URL')
 DATABASE_NAME = os.getenv('DATABASE_NAME', 'code_keeper_bot')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
+BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 
 # חיבור ל-MongoDB
 client = None
 db = None
+@app.context_processor
+def inject_globals():
+    """הזרקת משתנים גלובליים לכל התבניות"""
+    return {
+        'bot_username': BOT_USERNAME_CLEAN,
+    }
+
 
 def get_db():
     """מחזיר חיבור למסד הנתונים"""
@@ -235,14 +243,14 @@ def get_language_icon(language: str) -> str:
 def index():
     """דף הבית"""
     return render_template('index.html', 
-                         bot_username=BOT_USERNAME,
+                         bot_username=BOT_USERNAME_CLEAN,
                          logged_in='user_id' in session,
                          user=session.get('user_data', {}))
 
 @app.route('/login')
 def login():
     """דף התחברות"""
-    return render_template('login.html', bot_username=BOT_USERNAME)
+    return render_template('login.html', bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/auth/telegram', methods=['GET', 'POST'])
 def telegram_auth():
@@ -289,7 +297,7 @@ def token_auth():
         
         if not token_doc:
             return render_template('login.html', 
-                                 bot_username=BOT_USERNAME,
+                                 bot_username=BOT_USERNAME_CLEAN,
                                  error="קישור ההתחברות לא תקף או פג תוקפו")
         
         # בדיקת תוקף
@@ -297,7 +305,7 @@ def token_auth():
             # מחיקת טוקן שפג תוקפו
             db.webapp_tokens.delete_one({'_id': token_doc['_id']})
             return render_template('login.html', 
-                                 bot_username=BOT_USERNAME,
+                                 bot_username=BOT_USERNAME_CLEAN,
                                  error="קישור ההתחברות פג תוקף. אנא בקש קישור חדש מהבוט.")
         
         # מחיקת הטוקן לאחר שימוש (חד פעמי)
@@ -327,7 +335,7 @@ def token_auth():
     except Exception as e:
         print(f"Error in token auth: {e}")
         return render_template('login.html', 
-                             bot_username=BOT_USERNAME,
+                             bot_username=BOT_USERNAME_CLEAN,
                              error="שגיאה בהתחברות. אנא נסה שנית.")
 
 @app.route('/logout')
@@ -437,7 +445,7 @@ def dashboard():
         return render_template('dashboard.html', 
                              user=session['user_data'],
                              stats=stats,
-                             bot_username=BOT_USERNAME)
+                             bot_username=BOT_USERNAME_CLEAN)
                              
     except Exception as e:
         print(f"Error in dashboard: {e}")
@@ -453,7 +461,7 @@ def dashboard():
                                  'recent_files': []
                              },
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
-                             bot_username=BOT_USERNAME)
+                             bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/files')
 @login_required
@@ -498,14 +506,21 @@ def files():
     # סינון לפי קטגוריה
     if category_filter:
         if category_filter == 'repo':
-            # קבצים שהועלו מ-GitHub
-            query['source'] = 'github'
+            # קבצים מסומנים כריפו/גיטהאב: תגיות 'source:github' או תגית שמתחילה ב-'repo:'
+            query['$and'].append({
+                '$or': [
+                    {'tags': 'source:github'},
+                    {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}
+                ]
+            })
         elif category_filter == 'zip':
             # קבצי ZIP
-            query['$or'] = [
-                {'file_name': {'$regex': r'\.zip$', '$options': 'i'}},
-                {'is_archive': True}
-            ]
+            query['$and'].append({
+                '$or': [
+                    {'file_name': {'$regex': r'\.zip$', '$options': 'i'}},
+                    {'is_archive': True}
+                ]
+            })
         elif category_filter == 'large':
             # קבצים גדולים (מעל 100KB)
             # נצטרך להוסיף שדה size אם אין
@@ -531,18 +546,18 @@ def files():
                 {'$skip': (page - 1) * per_page},
                 {'$limit': per_page}
             ])
-            total_count = len(list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}])))
-            total_count = total_count[0]['total'] if total_count else 0
+            count_result = list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}]))
+            total_count = count_result[0]['total'] if count_result else 0
         elif category_filter == 'other':
-            # שאר הקבצים (לא מ-GitHub, לא ZIP, לא גדולים)
-            query['$and'] = [
-                {'$or': [
-                    {'source': {'$ne': 'github'}},
-                    {'source': {'$exists': False}}
-                ]},
-                {'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}},
-                {'is_archive': {'$ne': True}}
-            ]
+            # שאר הקבצים (לא מסומנים כריפו/גיטהאב, לא ZIP)
+            query['$and'].append({
+                '$nor': [
+                    {'tags': 'source:github'},
+                    {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}
+                ]
+            })
+            query['$and'].append({'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}})
+            query['$and'].append({'is_archive': {'$ne': True}})
     
     # ספירת סך הכל (אם לא חושב כבר)
     if category_filter != 'large':
@@ -571,8 +586,17 @@ def files():
             'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M')
         })
     
-    # רשימת שפות לפילטר
-    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id})
+    # רשימת שפות לפילטר - רק מקבצים פעילים
+    languages = db.code_snippets.distinct(
+        'programming_language',
+        {
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+    )
     # סינון None וערכים ריקים ומיון
     languages = sorted([lang for lang in languages if lang]) if languages else []
     
@@ -694,7 +718,8 @@ def view_file(file_id):
                          user=session['user_data'],
                          file=file_data,
                          highlighted_code=highlighted_code,
-                         syntax_css=css)
+                         syntax_css=css,
+                         raw_code=code)
 
 @app.route('/download/<file_id>')
 @login_required
