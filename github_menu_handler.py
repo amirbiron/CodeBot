@@ -345,11 +345,14 @@ class GitHubMenuHandler:
         start = page * VIEW_LINES_PER_PAGE
         end = min(start + VIEW_LINES_PER_PAGE, total_lines)
         chunk = "\n".join(lines[start:end])
-        # טקסט לתצוגה
+        # טקסט לתצוגה + גודל ושפה מזוהה
+        size_bytes = int(context.user_data.get("view_file_size", 0) or 0)
+        lang = context.user_data.get("view_detected_language") or "text"
         header = (
             f"📄 תצוגת קובץ\n"
             f"📁 <code>{safe_html_escape(repo_name)}</code>\n"
             f"📄 <code>{safe_html_escape(path)}</code>\n"
+            f"🔤 שפה: <code>{safe_html_escape(lang)}</code> | 💾 גודל: <code>{format_bytes(size_bytes)}</code>\n"
             f"שורות {start+1}-{end} מתוך {total_lines}\n\n"
         )
         # בניית מקלדת
@@ -358,11 +361,14 @@ class GitHubMenuHandler:
         if end < total_lines:
             rows.append([InlineKeyboardButton("הצג עוד ⤵️", callback_data="view_more")])
         try:
-            await query.edit_message_text(
-                header + f"<pre>{safe_html_escape(chunk)}</pre>",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(rows),
-            )
+            # הדגשת תחביר קיימת במודול code_processor.highlight_code; נשתמש בה ואז ננקה ל-Telegram
+            try:
+                from services import code_service as code_processor
+                highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                body = highlighted_html
+            except Exception:
+                body = f"<pre>{safe_html_escape(chunk)}</pre>"
+            await query.edit_message_text(header + body, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
         except BadRequest as br:
             if "message is not modified" not in str(br).lower():
                 raise
@@ -1824,6 +1830,14 @@ class GitHubMenuHandler:
             try:
                 contents = repo.get_contents(path, ref=current_ref)
                 data = contents.decoded_content.decode("utf-8", errors="replace")
+                # שמירת נתוני עזר: גודל ושפה מזוהה
+                try:
+                    from utils import detect_language_from_filename
+                    detected_lang = detect_language_from_filename(path)
+                except Exception:
+                    detected_lang = "text"
+                context.user_data["view_file_size"] = int(getattr(contents, "size", 0) or 0)
+                context.user_data["view_detected_language"] = detected_lang
             except Exception as e:
                 await query.edit_message_text(f"❌ שגיאה בטעינת קובץ: {safe_html_escape(str(e))}", parse_mode="HTML")
                 return
