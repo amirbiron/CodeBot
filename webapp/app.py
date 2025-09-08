@@ -290,14 +290,12 @@ def telegram_auth():
         'photo_url': auth_data.get('photo_url', '')
     }
     
-    # אם המשתמש אדמין, הפוך את הסשן לקבוע (30 יום)
+    # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
+    session.permanent = True
+    
+    # אם המשתמש אדמין, טען הגדרות נוספות אם יש
     if is_admin(user_id):
-        session.permanent = True
         load_github_token_for_admin(user_id)
-    else:
-        # למשתמשים רגילים - סשן של 24 שעות
-        session.permanent = True
-        app.permanent_session_lifetime = timedelta(hours=24)
     
     return redirect(url_for('dashboard'))
 
@@ -348,13 +346,12 @@ def token_auth():
             'photo_url': ''
         }
         
-        # אם המשתמש אדמין, הפוך את הסשן לקבוע (30 יום)
+        # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
+        session.permanent = True
+        
+        # אם המשתמש אדמין, טען הגדרות נוספות אם יש
         if is_admin(user_id_int):
-            session.permanent = True
             load_github_token_for_admin(user_id_int)
-        else:
-            # למשתמשים רגילים - סשן רגיל
-            session.permanent = True
         
         return redirect(url_for('dashboard'))
         
