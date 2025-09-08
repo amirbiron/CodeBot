@@ -329,6 +329,9 @@
                                 {{ session.user_data.first_name[0] if session.user_data.first_name else 'U' }}
                             </div>
                             <span>{{ session.user_data.first_name }}</span>
+                            <a href="/settings" class="nav-link" title="הגדרות">
+                                <i class="fas fa-cog"></i>
+                            </a>
                             <a href="/logout" class="btn btn-secondary btn-icon">
                                 <i class="fas fa-sign-out-alt"></i>
                                 יציאה
