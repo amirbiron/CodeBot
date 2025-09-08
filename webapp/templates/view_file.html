@@ -181,6 +181,9 @@
     <div class="code-container">
         {{ highlighted_code|safe }}
     </div>
+    {% if raw_code is defined %}
+    <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>
+    {% endif %}
 </div>
 
 <div class="glass-card" style="margin-top: 2rem;">
@@ -202,29 +205,25 @@
 
 <script>
 function copyCode() {
-    // מציאת הקוד ללא מספרי שורות
-    const codeLines = document.querySelectorAll('.source .highlight pre span');
-    let code = '';
-    
-    if (codeLines.length > 0) {
-        // אם יש spans, נאסוף רק את התוכן שלהם
-        codeLines.forEach(span => {
-            // מדלגים על מספרי שורות
-            if (!span.classList.contains('linenos')) {
-                code += span.textContent;
+    // אם יש rawCode שנשלח מהשרת — נשתמש בו כדי להימנע ממספרי שורות/HTML
+    const rawArea = document.getElementById('rawCode');
+    let code = rawArea ? rawArea.value : '';
+    if (!code) {
+        // fallback ישן
+        const codeLines = document.querySelectorAll('.source .highlight pre span');
+        if (codeLines.length > 0) {
+            codeLines.forEach(span => {
+                if (!span.classList.contains('linenos')) {
+                    code += span.textContent;
+                }
+            });
+        } else {
+            const codeElement = document.querySelector('.source .highlight pre');
+            if (codeElement) {
+                const fullText = codeElement.textContent;
+                const lines = fullText.split('\n');
+                code = lines.map(line => line.replace(/^\s*\d+\s*/, '')).join('\n');
             }
-        });
-    } else {
-        // נסיון חלופי - לקחת את כל הטקסט ולהסיר מספרי שורות
-        const codeElement = document.querySelector('.source .highlight pre');
-        if (codeElement) {
-            const fullText = codeElement.textContent;
-            // הסרת מספרי שורות (בהנחה שהם בתחילת כל שורה)
-            const lines = fullText.split('\n');
-            code = lines.map(line => {
-                // הסרת מספרים בתחילת השורה
-                return line.replace(/^\s*\d+\s*/, '');
-            }).join('\n');
         }
     }
     
