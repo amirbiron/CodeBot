@@ -2143,8 +2143,28 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             from database import db
             user_id = update.effective_user.id
             files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            total = len(files)
             deleted = 0
-            for f in files:
+            # הודעת התקדמות ראשונית + אנימציית ספינר
+            try:
+                spinner_frames = ["⏳", "🔄", "🌀", "⌛"]
+                frame_index = 0
+                percent = 0
+                progress_text = (
+                    f"{spinner_frames[frame_index]} מוחק קבצים… 0/{total} (0%)\n"
+                    "זה עלול להימשך עד דקה."
+                )
+                await query.edit_message_text(progress_text)
+            except Exception:
+                pass
+
+            # מחיקה עם עדכוני התקדמות מתונים (Rate-limit ידידותי)
+            try:
+                import time as _time
+                last_edit_ts = 0.0
+            except Exception:
+                last_edit_ts = 0.0
+            for idx, f in enumerate(files, start=1):
                 name = f.get('file_name')
                 if not name:
                     continue
@@ -2153,6 +2173,29 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         deleted += 1
                 except Exception:
                     continue
+                # עדכון התקדמות כל ~0.8 שניות או כל 25 קבצים
+                now_ts = 0.0
+                try:
+                    now_ts = _time.time()
+                except Exception:
+                    pass
+                should_update = False
+                if idx % 25 == 0:
+                    should_update = True
+                if last_edit_ts == 0.0 or (now_ts and (now_ts - last_edit_ts) >= 0.8):
+                    should_update = True
+                if should_update:
+                    frame_index = (frame_index + 1) % 4
+                    try:
+                        percent = int((deleted / total) * 100) if total > 0 else 100
+                        progress_text = (
+                            f"{spinner_frames[frame_index]} מוחק קבצים… {deleted}/{total} ({percent}%)\n"
+                            "זה עלול להימשך עד דקה."
+                        )
+                        await query.edit_message_text(progress_text)
+                        last_edit_ts = now_ts or last_edit_ts
+                    except Exception:
+                        pass
             msg = (
                 f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code> מהמסד של הבוט בלבד.\n"
                 "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
