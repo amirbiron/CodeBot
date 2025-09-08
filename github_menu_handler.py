@@ -218,16 +218,29 @@ class GitHubMenuHandler:
         # בניית שאילתה: נחפש במחרוזת השם/הנתיב
         gh_query = f"repo:{owner}/{name} {q} in:path,name"
         try:
-            results = g.search_code(query=gh_query, order="desc")
+            # PyGithub מחזיר PaginatedList; נהפוך לרשימה בטוחה עם הגבלה כדי למנוע 403/timeout
+            results = list(g.search_code(query=gh_query, order="desc"))
+        except BadRequest as br:
+            # ננהל את טלגרם "message is not modified" בעדינות
+            if "message is not modified" in str(br).lower():
+                try:
+                    await query.answer("אין שינוי בתוצאה")
+                except Exception:
+                    pass
+                return
+            raise
         except Exception as e:
-            if query:
-                await query.edit_message_text(f"❌ שגיאה בחיפוש: {safe_html_escape(str(e))}", parse_mode="HTML")
-            else:
-                await update.message.reply_text(f"❌ שגיאה בחיפוש: {str(e)}")
+            try:
+                if hasattr(update, "callback_query") and update.callback_query:
+                    await update.callback_query.answer(f"שגיאה בחיפוש: {str(e)}", show_alert=True)
+                else:
+                    await update.message.reply_text(f"❌ שגיאה בחיפוש: {str(e)}")
+            except Exception:
+                pass
             return
         # עימוד ידני
         per_page = 10
-        items = list(results)  # PyGithub מחזיר iterable
+        items = results  # כבר רשימה
         if not items:
             msg = f"🔎 אין תוצאות עבור <code>{safe_html_escape(q)}</code> ב-<code>{safe_html_escape(repo_full)}</code>"
             if query:
@@ -355,6 +368,8 @@ class GitHubMenuHandler:
         # בניית מקלדת
         rows = [[InlineKeyboardButton("🔙 חזרה", callback_data="view_back")],
                 [InlineKeyboardButton("⬇️ הורד", callback_data=f"browse_select_download:{path}")]]
+        # כפתור שיתוף קישור לקובץ – רק במסך התצוגה (לא ברשימה)
+        rows.append([InlineKeyboardButton("🔗 שתף קישור", callback_data=f"share_selected_links_single:{path}")])
         if end < total_lines:
             rows.append([InlineKeyboardButton("הצג עוד ⤵️", callback_data="view_more")])
         try:
@@ -363,19 +378,28 @@ class GitHubMenuHandler:
                 from services import code_service as code_processor
                 # פורמט שמירת שורות כברירת מחדל
                 lower_path = (path or '').lower()
-                force_pre_exts = ('.md', '.markdown', '.yml', '.yaml', '.py')
-                if lower_path.endswith(force_pre_exts):
-                    body = f"<pre>{safe_html_escape(chunk)}</pre>"
-                else:
-                    # נסה היילייט; אם יוצרת בלגן, fallback ל-pre
+                # אם YAML – נסה צביעה ישירה, אחרת כללי
+                if lower_path.endswith('.yml') or lower_path.endswith('.yaml'):
                     try:
-                        highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
-                        if not highlighted_html or '\n' not in chunk:
-                            body = f"<pre>{safe_html_escape(chunk)}</pre>"
-                        else:
-                            body = highlighted_html
+                        highlighted_html = code_processor.highlight_code(chunk, 'yaml', 'html')
+                        body = highlighted_html or f"<pre>{safe_html_escape(chunk)}</pre>"
                     except Exception:
                         body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                else:
+                    # שמירת שורות בכוח עבור סוגי קבצים רגישים לעיצוב
+                    force_pre_exts = ('.md', '.markdown', '.py')
+                    if lower_path.endswith(force_pre_exts):
+                        body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                    else:
+                        # נסה היילייט; אם יוצרת בלגן, fallback ל-pre
+                        try:
+                            highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                            if not highlighted_html or '\n' not in chunk:
+                                body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                            else:
+                                body = highlighted_html
+                        except Exception:
+                            body = f"<pre>{safe_html_escape(chunk)}</pre>"
             except Exception:
                 body = f"<pre>{safe_html_escape(chunk)}</pre>"
             await query.edit_message_text(header + body, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
@@ -1866,13 +1890,18 @@ class GitHubMenuHandler:
             context.user_data["view_page_index"] = 0
             await self._render_file_view(update, context)
         elif query.data == "view_more":
-            # הצג עוד עמוד
-            page = int(context.user_data.get("view_page_index", 0)) + 1
-            context.user_data["view_page_index"] = page
+            # הצג עוד עמוד; נגן מפני None/מחרוזת
+            try:
+                current_index = int(context.user_data.get("view_page_index", 0) or 0)
+            except Exception:
+                current_index = 0
+            context.user_data["view_page_index"] = current_index + 1
             await self._render_file_view(update, context)
         elif query.data == "view_back":
-            # חזרה לעץ הריפו (שומר path)
+            # חזרה לעץ הריפו (שומר path) ומאפס עמוד לדיפולט
             context.user_data["browse_action"] = "view"
+            if context.user_data.get("browse_page") is None:
+                context.user_data["browse_page"] = 0
             await self.show_repo_browser(update, context)
         elif query.data.startswith("browse_select_delete:"):
             path = query.data.split(":", 1)[1]
@@ -4296,10 +4325,7 @@ class GitHubMenuHandler:
                             [
                                 InlineKeyboardButton(
                                     f"👁️ {f.name}", callback_data=f"browse_select_view:{f.path}"
-                                ),
-                                InlineKeyboardButton(
-                                    "🔗 שתף קישור", callback_data=f"share_selected_links_single:{f.path}"
-                                ),
+                                )
                             ]
                         )
                     else:
@@ -4310,6 +4336,11 @@ class GitHubMenuHandler:
                                 )
                             ]
                         )
+        # ודא דגלים ברירת מחדל כדי למנוע שגיאות בניווט
+        if context.user_data.get("browse_page") is None:
+            context.user_data["browse_page"] = 0
+        if context.user_data.get("multi_mode") is None:
+            context.user_data["multi_mode"] = False
         # עימוד
         page_size = 10
         total_items = len(entry_rows)
