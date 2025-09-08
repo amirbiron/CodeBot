@@ -364,8 +364,12 @@ class GitHubMenuHandler:
             # הדגשת תחביר קיימת במודול code_processor.highlight_code; נשתמש בה ואז ננקה ל-Telegram
             try:
                 from services import code_service as code_processor
-                highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
-                body = highlighted_html
+                # טיפול מיוחד ל-Markdown: הצג כטקסט עם שמירת שורות, בלי המרה שתבטל \n
+                if (path or '').lower().endswith(('.md', '.markdown')):
+                    body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                else:
+                    highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                    body = highlighted_html
             except Exception:
                 body = f"<pre>{safe_html_escape(chunk)}</pre>"
             await query.edit_message_text(header + body, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
@@ -641,7 +645,7 @@ class GitHubMenuHandler:
             # העבר את "בחר תיקיית יעד" למעלה, ישירות אחרי "בחר ריפו"
             keyboard.append([InlineKeyboardButton("📂 בחר תיקיית יעד", callback_data="set_folder")])
             # ניווט בריפו
-            keyboard.append([InlineKeyboardButton("📂 עיין בריפו", callback_data="browse_repo")])
+            keyboard.append([InlineKeyboardButton("🧭 עיין בריפו", callback_data="browse_repo")])
             # כפתור העלאה
             keyboard.append([InlineKeyboardButton("📤 העלה קובץ חדש", callback_data="upload_file")])
             # פעולות נוספות בטוחות
@@ -1809,7 +1813,8 @@ class GitHubMenuHandler:
                 base = __import__('os').path
                 filename = base.basename(contents.path) or "downloaded_file"
                 await query.message.reply_document(document=BytesIO(data), filename=filename)
-            await self.github_menu_command(update, context)
+            # הישאר בדפדפן במקום לחזור לתפריט
+            await self.show_repo_browser(update, context, only_keyboard=True)
         elif query.data.startswith("browse_select_view:"):
             # מצב תצוגת קובץ חלקית עם "הצג עוד"
             path = query.data.split(":", 1)[1]
