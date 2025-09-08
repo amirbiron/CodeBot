@@ -1989,8 +1989,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             total = len(files)
             warn_text = (
                 f"⚠️ עומד/ת למחוק <b>{total}</b> קבצים תחת התגית <code>{tag}</code>\n"
-                "פעולה זו תסמן את הקבצים כלא־פעילים ולא תימחק פיזית קבצי ZIP/גדולים.\n\n"
-                "אם זה בטעות, חזור אחורה."
+                "פעולה זו תסמן את הקבצים כלא־פעילים במסד של הבוט בלבד, \n"
+                "ולא תמחוק דבר ב‑GitHub. \n"
+                "לא תימחק פיזית גם אף קובץ ZIP/גדול.\n\n"
+                "אם זה בטעות, חזור/י אחורה."
             )
             kb = [
                 [InlineKeyboardButton("✅ אני מאשר/ת", callback_data=f"byrepo_delete_double_confirm:{tag}")],
@@ -2002,7 +2004,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             tag = data.split(":", 1)[1]
             text2 = (
                 "🧨 אישור סופי למחיקה\n"
-                f"כל הקבצים תחת <code>{tag}</code> יימחקו (יוגדרו כלא־פעילים).\n"
+                f"כל הקבצים תחת <code>{tag}</code> יוגדרו כלא־פעילים במסד של הבוט בלבד.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
                 "הפעולה בלתי הפיכה."
             )
             kb = [
@@ -2026,7 +2029,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         deleted += 1
                 except Exception:
                     continue
-            msg = f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code>."
+            msg = (
+                f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code> מהמסד של הבוט בלבד.\n"
+                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+            )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לתפריט ריפו", callback_data="by_repo_menu")],
                 [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
