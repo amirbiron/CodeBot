@@ -51,6 +51,9 @@ IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
 IMPORT_MAX_FILES = 2000  # הגבלה סבירה למספר קבצים
 IMPORT_SKIP_DIRS = {".git", ".github", "__pycache__", "node_modules", "dist", "build"}
 
+# מגבלות עזר לשליפת תאריכי ענפים למיון
+MAX_BRANCH_DATE_FETCH = 120  # אם יש יותר מזה — נוותר על מיון לפי תאריך (למעט ברירת המחדל)
+
 
 def _safe_rmtree_tmp(target_path: str) -> None:
     """מחיקה בטוחה של תיקייה תחת /tmp בלבד, עם סורגי בטיחות.
@@ -209,6 +212,27 @@ class GitHubMenuHandler:
             return
         try:
             branches = list(repo.get_branches())
+            # מיין: main ראשון; אחריו לפי עדכון commit אחרון (חדש→ישן)
+            def _branch_sort_key(br):
+                try:
+                    # commit.last_modified לא קיים תמיד; ניקח commit.commit.author.date
+                    return br.commit.commit.author.date
+                except Exception:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+            # רשימת ענפים מלאה
+            if len(branches) <= MAX_BRANCH_DATE_FETCH:
+                try:
+                    branches_sorted = sorted(branches, key=_branch_sort_key, reverse=True)
+                except Exception:
+                    branches_sorted = branches
+            else:
+                branches_sorted = branches
+            # הוצא main לראש (אם קיים)
+            main_idx = next((i for i, b in enumerate(branches_sorted) if (b.name == 'main' or b.name == 'master')), None)
+            if main_idx is not None:
+                main_br = branches_sorted.pop(main_idx)
+                branches_sorted.insert(0, main_br)
+            branches = branches_sorted
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בשליפת ענפים: {e}")
             return
@@ -220,10 +244,12 @@ class GitHubMenuHandler:
         keyboard = []
         # מיפוי אסימונים קצרים לשמות ענפים כדי לעמוד במגבלת 64 בתים של Telegram
         token_map = context.user_data.setdefault("import_branch_token_map", {})
+        # תצוגה אחידה: main ראשון (כבר מוקפץ למעלה במיון) ואז כל הענפים – ממוינים מהחדש לישן
         for idx, br in enumerate(branches[start:end]):
             token = f"i{start + idx}"
             token_map[token] = br.name
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"import_repo_select_branch:{token}")])
+            label = f"🌿 {br.name}"
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"import_repo_select_branch:{token}")])
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"import_repo_branches_page_{page-1}"))
@@ -283,6 +309,7 @@ class GitHubMenuHandler:
         zip_path = None
         extracted_dir = None
         saved = 0
+        updated = 0
         total_bytes = 0
         skipped = 0
         try:
@@ -358,22 +385,21 @@ class GitHubMenuHandler:
                         if saved >= IMPORT_MAX_FILES:
                             continue
                         lang = detect_language_from_filename(rel_path)
-                        ok = db.save_file(
-                            user_id=user_id,
-                            file_name=rel_path,
-                            code=text,
-                            programming_language=lang,
-                            extra_tags=[repo_tag, source_tag],
-                        )
+                        # בדוק אם קיים כבר — אם כן, שמירה תיצור גרסה חדשה ונחשב זאת כ"עודכן"
+                        existed = bool(db.get_latest_version(user_id, rel_path))
+                        ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
-                            saved += 1
+                            if existed:
+                                updated += 1
+                            else:
+                                saved += 1
                             total_bytes += len(raw)
                         else:
                             skipped += 1
                     except Exception:
                         skipped += 1
             await query.edit_message_text(
-                f"✅ ייבוא הושלם: {saved} קבצים נשמרו, {skipped} דילוגים.\n"
+                f"✅ ייבוא הושלם: {saved} חדשים, {updated} עודכנו, {skipped} דילוגים.\n"
                 f"🔖 תיוג: <code>{repo_tag}</code> (ו-<code>{source_tag}</code>)\n\n"
                 f"ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.\n"
                 f"תוכל למצוא את הקבצים ב׳🗂 לפי ריפו׳.",
@@ -429,7 +455,7 @@ class GitHubMenuHandler:
         if token:
             keyboard.append([InlineKeyboardButton("📁 בחר ריפו", callback_data="select_repo")])
             # יצירת ריפו חדש מ-ZIP גם ללא ריפו נבחר
-            keyboard.append([InlineKeyboardButton("🆕 צור ריפו חדש מ‑ZIP", callback_data="github_create_repo_from_zip")])
+            keyboard.append([InlineKeyboardButton("🆕 צור ריפו חדש מּZIP", callback_data="github_create_repo_from_zip")])
 
         # כפתורי העלאה - מוצגים רק אם יש ריפו נבחר
         if token and session.get("selected_repo"):
@@ -485,7 +511,6 @@ class GitHubMenuHandler:
             await update.message.reply_text(
                 status_msg, reply_markup=reply_markup, parse_mode="HTML"
             )
-
     async def handle_menu_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle menu button clicks"""
         query = update.callback_query
@@ -881,11 +906,11 @@ class GitHubMenuHandler:
                 [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
             ]
             help_txt = (
-                "🆕 <b>יצירת ריפו חדש מ‑ZIP</b>\n\n"
+                "🆕 <b>יצירת ריפו חדש מּZIP</b>\n\n"
                 "1) ניתן להקליד שם לריפו (ללא רווחים)\n"
                 "2) בחר אם הריפו יהיה <b>פרטי</b> או <b>ציבורי</b>\n"
                 "3) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
-                "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
+                "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס בּZIP או משם הקובץ.\n"
                 "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
                 f"נראות נוכחית: <b>{vis_text}</b>\n"
                 "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
@@ -921,11 +946,11 @@ class GitHubMenuHandler:
                 [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
             ]
             help_txt = (
-                "🆕 <b>יצירת ריפו חדש מ‑ZIP</b>\n\n"
+                "🆕 <b>יצירת ריפו חדש מּZIP</b>\n\n"
                 "1) ניתן להקליד שם לריפו (ללא רווחים)\n"
                 "2) בחר אם הריפו יהיה <b>פרטי</b> או <b>ציבורי</b>\n"
                 "3) שלח עכשיו קובץ ZIP עם כל הקבצים\n\n"
-                "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס ב‑ZIP או משם הקובץ.\n"
+                "אם לא תוקלד שם, ננסה לחלץ שם מתיקיית-הבסיס בּZIP או משם הקובץ.\n"
                 "ברירת מחדל: <code>repo-&lt;timestamp&gt;</code>\n\n"
                 f"נראות נוכחית: <b>{vis_text}</b>\n"
                 "לאחר השליחה, ניצור ריפו לפי בחירתך ונפרוס את התוכן ב-commit אחד."
@@ -1126,7 +1151,6 @@ class GitHubMenuHandler:
 
         elif query.data == "github_backup_menu":
             await self.show_github_backup_menu(update, context)
-
         elif query.data == "github_backup_db_list":
             # מעבר לרשימת "גיבויי DB אחרונים" מתוך תפריט GitHub, עם חזרה ל-GitHub
             try:
@@ -1572,7 +1596,6 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML",
             )
-
         elif query.data.startswith("download_zip:"):
             # הורדת התיקייה הנוכחית כקובץ ZIP
             current_path = query.data.split(":", 1)[1]
@@ -1686,7 +1709,7 @@ class GitHubMenuHandler:
                             from backup_menu_handler import BackupMenuHandler
                             backup_handler = BackupMenuHandler()
                             context.bot_data['backup_handler'] = backup_handler
-                        # הגדר הקשר חזרה לסאב‑תפריט GitHub וגבילת הרשימה לריפו הנוכחי
+                        # הגדר הקשר חזרה לסאב־תפריט GitHub וגבילת הרשימה לריפו הנוכחי
                         try:
                             context.user_data['zip_back_to'] = 'github'
                             context.user_data['github_backup_context_repo'] = repo.full_name
@@ -2151,7 +2174,6 @@ class GitHubMenuHandler:
             await self.show_confirm_merge_pr(update, context)
         elif query.data == "confirm_merge_pr":
             await self.confirm_merge_pr(update, context)
-
         elif query.data == "validate_repo":
             try:
                 await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
@@ -4486,7 +4508,6 @@ class GitHubMenuHandler:
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML",
         )
-
     async def show_create_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         user_id = query.from_user.id
@@ -5058,7 +5079,6 @@ class GitHubMenuHandler:
             await self.show_pre_upload_check(update, context)
         except Exception as e:
             await query.edit_message_text(f"❌ נכשל ביצירת קובץ הוראות: {safe_html_escape(str(e))}")
-
     async def show_restore_checkpoint_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג רשימת תגיות נקודות שמירה לבחירה לשחזור"""
         query = update.callback_query
