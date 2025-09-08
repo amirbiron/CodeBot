@@ -2149,8 +2149,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             try:
                 spinner_frames = ["⏳", "🔄", "🌀", "⌛"]
                 frame_index = 0
+                percent = 0
                 progress_text = (
-                    f"{spinner_frames[frame_index]} מוחק קבצים… 0/{total}\n"
+                    f"{spinner_frames[frame_index]} מוחק קבצים… 0/{total} (0%)\n"
                     "זה עלול להימשך עד דקה."
                 )
                 await query.edit_message_text(progress_text)
@@ -2186,8 +2187,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 if should_update:
                     frame_index = (frame_index + 1) % 4
                     try:
+                        percent = int((deleted / total) * 100) if total > 0 else 100
                         progress_text = (
-                            f"{spinner_frames[frame_index]} מוחק קבצים… {deleted}/{total}\n"
+                            f"{spinner_frames[frame_index]} מוחק קבצים… {deleted}/{total} ({percent}%)\n"
                             "זה עלול להימשך עד דקה."
                         )
                         await query.edit_message_text(progress_text)
