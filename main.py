@@ -470,7 +470,8 @@ class CodeKeeperBot:
                context.user_data.get('waiting_for_selected_folder') or \
                context.user_data.get('waiting_for_new_folder_path') or \
                context.user_data.get('waiting_for_paste_content') or \
-               context.user_data.get('waiting_for_paste_filename'):
+               context.user_data.get('waiting_for_paste_filename') or \
+               context.user_data.get('browse_search_mode'):
                 logger.info(f"🔗 Routing GitHub-related text input from user {update.effective_user.id}")
                 return await github_handler.handle_text_input(update, context)
             return False

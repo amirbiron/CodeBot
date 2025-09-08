@@ -79,28 +79,18 @@ def _safe_rmtree_tmp(target_path: str) -> None:
 
 
 def safe_html_escape(text):
-    """Safely escape text for HTML parsing in Telegram"""
-    if not text:
+    """Safely escape text for HTML parsing in Telegram.
+
+    שומר על \n/\r/\t ואינו משנה ישויות כמו &lt; &gt; &amp; לאחר escape.
+    """
+    if text is None:
         return ""
-
-    # Convert to string and escape HTML
-    text = str(text)
-    text = escape(text)
-
-    # Remove any problematic characters that might break HTML parsing
-    # Replace common problematic patterns
-    text = text.replace("&lt;", "(")
-    text = text.replace("&gt;", ")")
-    text = text.replace("&amp;", "&")
-
-    # Remove any zero-width characters and control characters
-    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
-    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
-
-    # Ensure no unclosed tags by removing < and > that weren't escaped
-    text = text.replace("<", "(").replace(">", ")")
-
-    return text.strip()
+    s = escape(str(text))
+    # נקה תווים בלתי נראים
+    s = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", s)
+    # נקה תווי בקרה אך השאר \n, \r, \t
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", s)
+    return s
 
 
 def format_bytes(num: int) -> str:
@@ -1787,9 +1777,17 @@ class GitHubMenuHandler:
         elif query.data == "browse_search":
             # בקש מהמשתמש להזין מחרוזת חיפוש לשמות קבצים
             context.user_data["browse_search_mode"] = True
-            await query.edit_message_text(
-                "🔎 הזן/י מחרוזת לחיפוש בשם קובץ (לדוגמה: README או app.py)",
-            )
+            try:
+                await query.answer("הקלד עכשיו את השם לחיפוש (למשל: README)")
+            except Exception:
+                pass
+            try:
+                await query.edit_message_text(
+                    "🔎 הזן/י מחרוזת לחיפוש בשם קובץ (לדוגמה: README או app.py)",
+                )
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
         elif query.data.startswith("browse_search_page:"):
             try:
                 page = int(query.data.split(":", 1)[1])
@@ -2431,6 +2429,28 @@ class GitHubMenuHandler:
                 await query.answer("שגיאה בשיתוף קישורים", show_alert=True)
             # השאר בדפדפן
             await self.show_repo_browser(update, context)
+
+        elif query.data.startswith("share_selected_links_single:"):
+            # שיתוף קישור לקובץ יחיד מתצוגה רגילה
+            path = query.data.split(":", 1)[1]
+            user_id = query.from_user.id
+            session = self.get_user_session(user_id)
+            token = self.get_user_token(user_id)
+            repo_name = session.get("selected_repo")
+            if not (token and repo_name):
+                await query.answer("❌ חסרים נתונים", show_alert=True)
+                return
+            g = Github(token)
+            repo = g.get_repo(repo_name)
+            branch = repo.default_branch or "main"
+            clean = str(path).strip("/")
+            url = f"https://github.com/{repo.full_name}/blob/{branch}/{clean}"
+            try:
+                await query.message.reply_text(f"🔗 קישור לקובץ:\n{url}")
+            except Exception as e:
+                logger.error(f"share_single_link error: {e}")
+                await query.answer("שגיאה בשיתוף קישור", show_alert=True)
+            await self.show_repo_browser(update, context, only_keyboard=True)
 
         elif query.data == "notifications_menu":
             await self.show_notifications_menu(update, context)
@@ -4276,7 +4296,10 @@ class GitHubMenuHandler:
                             [
                                 InlineKeyboardButton(
                                     f"👁️ {f.name}", callback_data=f"browse_select_view:{f.path}"
-                                )
+                                ),
+                                InlineKeyboardButton(
+                                    "🔗 שתף קישור", callback_data=f"share_selected_links_single:{f.path}"
+                                ),
                             ]
                         )
                     else:
@@ -4415,14 +4438,18 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
             else:
-                await query.edit_message_text(
-                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-                    f"🔀 ref: <code>{current_ref}</code>\n"
-                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-                    f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="HTML",
-                )
+                try:
+                    await query.edit_message_text(
+                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                        f"🔀 ref: <code>{current_ref}</code>\n"
+                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                        f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="HTML",
+                    )
+                except BadRequest as br:
+                    if "message is not modified" not in str(br).lower():
+                        raise
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""
