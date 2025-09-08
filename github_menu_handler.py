@@ -220,13 +220,13 @@ class GitHubMenuHandler:
                 await update.message.reply_text("❌ חסרים נתונים לחיפוש")
             return
         g = Github(token)
-        # הפורמט: repo:owner/name in:path filename query
+        # הפורמט: repo:owner/name in:path,name <query>
         try:
             owner, name = repo_full.split("/", 1)
         except ValueError:
             owner, name = repo_full, ""
         # בניית שאילתה: נחפש במחרוזת השם/הנתיב
-        gh_query = f"repo:{owner}/{name} {q} in:path"
+        gh_query = f"repo:{owner}/{name} {q} in:path,name"
         try:
             results = g.search_code(query=gh_query, order="desc")
         except Exception as e:
@@ -238,6 +238,13 @@ class GitHubMenuHandler:
         # עימוד ידני
         per_page = 10
         items = list(results)  # PyGithub מחזיר iterable
+        if not items:
+            msg = f"🔎 אין תוצאות עבור <code>{safe_html_escape(q)}</code> ב-<code>{safe_html_escape(repo_full)}</code>"
+            if query:
+                await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data="github_menu")]]))
+            else:
+                await update.message.reply_text(msg, parse_mode="HTML")
+            return
         total = len(items)
         start = (page - 1) * per_page
         end = min(start + per_page, total)
@@ -364,12 +371,21 @@ class GitHubMenuHandler:
             # הדגשת תחביר קיימת במודול code_processor.highlight_code; נשתמש בה ואז ננקה ל-Telegram
             try:
                 from services import code_service as code_processor
-                # טיפול מיוחד ל-Markdown: הצג כטקסט עם שמירת שורות, בלי המרה שתבטל \n
-                if (path or '').lower().endswith(('.md', '.markdown')):
+                # פורמט שמירת שורות כברירת מחדל
+                lower_path = (path or '').lower()
+                force_pre_exts = ('.md', '.markdown', '.yml', '.yaml', '.py')
+                if lower_path.endswith(force_pre_exts):
                     body = f"<pre>{safe_html_escape(chunk)}</pre>"
                 else:
-                    highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
-                    body = highlighted_html
+                    # נסה היילייט; אם יוצרת בלגן, fallback ל-pre
+                    try:
+                        highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                        if not highlighted_html or '\n' not in chunk:
+                            body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                        else:
+                            body = highlighted_html
+                    except Exception:
+                        body = f"<pre>{safe_html_escape(chunk)}</pre>"
             except Exception:
                 body = f"<pre>{safe_html_escape(chunk)}</pre>"
             await query.edit_message_text(header + body, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
@@ -2191,6 +2207,15 @@ class GitHubMenuHandler:
             context.user_data["multi_mode"] = not current
             if not context.user_data["multi_mode"]:
                 context.user_data["multi_selection"] = []
+                try:
+                    await query.answer("מצב בחירה מרובה בוטל", show_alert=False)
+                except Exception:
+                    pass
+            else:
+                try:
+                    await query.answer("מצב בחירה מרובה הופעל — סמן קבצים מהרשימה", show_alert=False)
+                except Exception:
+                    pass
             context.user_data["browse_page"] = 0
             await self.show_repo_browser(update, context, only_keyboard=True)
 
@@ -2212,7 +2237,12 @@ class GitHubMenuHandler:
 
         elif query.data == "safe_toggle":
             # החלף מצב מחיקה בטוחה
-            context.user_data["safe_delete"] = not context.user_data.get("safe_delete", True)
+            new_state = not context.user_data.get("safe_delete", True)
+            context.user_data["safe_delete"] = new_state
+            try:
+                await query.answer("מחיקה בטוחה " + ("פעילה (PR)" if new_state else "כבויה — מוחק ישירות"), show_alert=False)
+            except Exception:
+                pass
             await self.show_repo_browser(update, context, only_keyboard=True)
         elif query.data == "multi_execute":
             # בצע פעולה על הבחירה (ZIP בהורדה | מחיקה במצב מחיקה)
@@ -4203,22 +4233,18 @@ class GitHubMenuHandler:
         ]
         entry_rows.append(tools_row)
         for folder in folders:
-            # לכל תיקייה נוסיף שתי אופציות: פתיחה ובחירה כיעד
-            select_cb = (
-                f"folder_set_session:{folder.path}"
-                if context.user_data.get("folder_select_mode") == "session"
-                else f"upload_select_folder:{folder.path}"
-            )
-            entry_rows.append(
-                [
-                    InlineKeyboardButton(
-                        f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}"
-                    ),
-                    InlineKeyboardButton(
-                        "📌 בחר כיעד", callback_data=select_cb
-                    ),
-                ]
-            )
+            # תמיד מציגים פתיחת תיקייה; "בחר כיעד" מוצג רק במצב בחירת תיקייה מפורש
+            row = [InlineKeyboardButton(
+                f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}"
+            )]
+            if context.user_data.get("folder_select_mode"):
+                select_cb = (
+                    f"folder_set_session:{folder.path}"
+                    if context.user_data.get("folder_select_mode") == "session"
+                    else f"upload_select_folder:{folder.path}"
+                )
+                row.append(InlineKeyboardButton("📌 בחר כיעד", callback_data=select_cb))
+            entry_rows.append(row)
         multi_mode = context.user_data.get("multi_mode", False)
         selection = set(context.user_data.get("multi_selection", []))
         if not folder_selecting:
