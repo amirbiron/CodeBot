@@ -522,6 +522,10 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             page = 1
             context.user_data['files_last_page'] = page
             context.user_data['files_origin'] = { 'type': 'regular' }
+            # אתחול מצב מחיקה מרובה
+            context.user_data['rf_all_files'] = files
+            context.user_data['rf_multi_delete'] = False
+            context.user_data['rf_selected_ids'] = []
             start_index = (page - 1) * FILES_PAGE_SIZE
             end_index = min(start_index + FILES_PAGE_SIZE, total_files)
 
@@ -540,6 +544,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             if pagination_row:
                 keyboard.append(pagination_row)
 
+            # כפתור מחיקה מרובה
+            keyboard.append([InlineKeyboardButton("🗑️ מחיקה מרובה", callback_data="rf_multi_start")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -588,7 +594,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         try:
             page = int(data.split("_")[-1])
         except Exception:
-            page = 1
+            page = context.user_data.get('files_last_page') or 1
         context.user_data['files_last_page'] = page
         context.user_data['files_origin'] = { 'type': 'regular' }
         if page < 1:
@@ -604,21 +610,38 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
 
         # בנה מקלדת לדף המבוקש
         keyboard = []
+        multi_on = bool(context.user_data.get('rf_multi_delete'))
+        selected_ids = set(context.user_data.get('rf_selected_ids') or [])
         context.user_data['files_cache'] = {}
         for i in range(start_index, end_index):
             file = files[i]
             file_name = file.get('file_name', 'קובץ ללא שם')
             language = file.get('programming_language', 'text')
-            context.user_data['files_cache'][str(i)] = file
             emoji = get_file_emoji(language)
-            button_text = f"{emoji} {file_name}"
-            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+            if multi_on:
+                file_id = str(file.get('_id') or '')
+                checked = "☑️" if file_id in selected_ids else "⬜️"
+                button_text = f"{checked} {file_name}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page}:{file_id}")])
+            else:
+                context.user_data['files_cache'][str(i)] = file
+                button_text = f"{emoji} {file_name}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
             keyboard.append(pagination_row)
 
-        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        if multi_on:
+            count_sel = len(selected_ids)
+            # כפתורי מחיקה/ביטול במצב מחיקה מרובה
+            keyboard.append([InlineKeyboardButton(f"🗑️ מחק נבחרים ({count_sel})", callback_data="rf_delete_confirm")])
+            keyboard.append([InlineKeyboardButton("❌ בטל מחיקה מרובה", callback_data="rf_multi_cancel")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        else:
+            # כפתור מחיקה מרובה במצב רגיל
+            keyboard.append([InlineKeyboardButton("🗑️ מחיקה מרובה", callback_data="rf_multi_start")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         header_text = (
@@ -1715,6 +1738,107 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await start_long_collect(update, context)
         elif data.startswith("files_page_"):
             return await show_regular_files_page_callback(update, context)
+        elif data == "rf_multi_start":
+            # כניסה למצב מחיקה מרובה
+            context.user_data['rf_multi_delete'] = True
+            context.user_data.setdefault('rf_selected_ids', [])
+            return await show_regular_files_page_callback(update, context)
+        elif data == "rf_multi_cancel":
+            # יציאה ממצב מחיקה מרובה
+            context.user_data['rf_multi_delete'] = False
+            context.user_data['rf_selected_ids'] = []
+            return await show_regular_files_page_callback(update, context)
+        elif data.startswith("rf_toggle:"):
+            # פורמט: rf_toggle:<page>:<file_id>
+            parts = data.split(":", 2)
+            try:
+                page = int(parts[1])
+            except Exception:
+                page = context.user_data.get('files_last_page') or 1
+            file_id = parts[2] if len(parts) > 2 else ''
+            selected = set(context.user_data.get('rf_selected_ids') or [])
+            if file_id in selected:
+                selected.remove(file_id)
+            else:
+                if file_id:
+                    selected.add(file_id)
+            context.user_data['rf_selected_ids'] = list(selected)
+            context.user_data['rf_multi_delete'] = True
+            context.user_data['files_last_page'] = page
+            return await show_regular_files_page_callback(update, context)
+        elif data == "rf_delete_confirm":
+            # הודעת אימות ראשונה למחיקה מרובה
+            user_id = update.effective_user.id
+            selected = list(context.user_data.get('rf_selected_ids') or [])
+            count_sel = len(selected)
+            if count_sel == 0:
+                await query.answer("לא נבחרו קבצים", show_alert=True)
+                return ConversationHandler.END
+            last_page = context.user_data.get('files_last_page') or 1
+            warn = (
+                f"⚠️ עומד/ת למחוק <b>{count_sel}</b> קבצים שנבחרו.\n"
+                "המחיקה היא מקומית במסד של הבוט בלבד — אין שום פעולה מול GitHub,\n"
+                "ולא נמחקים קבצי ZIP/גדולים.\n\n"
+                "אם זה בטעות, חזור/י אחורה."
+            )
+            kb = [
+                [InlineKeyboardButton("✅ אני מאשר/ת", callback_data="rf_delete_double_confirm")],
+                [InlineKeyboardButton("🔙 חזרה", callback_data=f"files_page_{last_page}")],
+            ]
+            await query.edit_message_text(warn, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        elif data == "rf_delete_double_confirm":
+            # אישור שני
+            last_page = context.user_data.get('files_last_page') or 1
+            text2 = (
+                "🧨 אישור סופי למחיקה\n"
+                "הקבצים הנבחרים יימחקו מהמסד של הבוט בלבד.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
+                "הפעולה בלתי הפיכה."
+            )
+            kb = [
+                [InlineKeyboardButton("🧨 כן, מחק", callback_data="rf_delete_do")],
+                [InlineKeyboardButton("🔙 בטל", callback_data=f"files_page_{last_page}")],
+            ]
+            await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        elif data == "rf_delete_do":
+            # מחיקה בפועל לפי מזהי קבצים
+            from database import db
+            user_id = update.effective_user.id
+            selected = list(context.user_data.get('rf_selected_ids') or [])
+            deleted = 0
+            for fid in selected:
+                try:
+                    res = db.delete_file_by_id(fid)
+                    if res:
+                        deleted += 1
+                except Exception:
+                    continue
+            # רענון רשימת הקבצים ושחזור מצב רגיל
+            try:
+                all_files = db.get_user_files(user_id, limit=10000)
+                files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
+            except Exception:
+                files = []
+            context.user_data['rf_all_files'] = files
+            context.user_data['rf_selected_ids'] = []
+            context.user_data['rf_multi_delete'] = False
+            # עדכן עמוד אחרון בהתאם לסה"כ אחרי מחיקה
+            total_files = len(files)
+            total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
+            last_page = context.user_data.get('files_last_page') or 1
+            if last_page > total_pages:
+                last_page = total_pages or 1
+            context.user_data['files_last_page'] = last_page
+            msg = (
+                f"✅ נמחקו {deleted} קבצים מהמסד של הבוט בלבד.\n"
+                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+            )
+            kb = [
+                [InlineKeyboardButton("🔙 חזור לשאר הקבצים", callback_data=f"files_page_{last_page}")],
+                [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
+            ]
+            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb))
+            return ConversationHandler.END
         elif data == "main" or data == "main_menu":
             await query.edit_message_text("🏠 חוזר לבית החכם:")
             await query.message.reply_text(
@@ -1972,15 +2096,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 name = f.get('file_name', 'ללא שם')
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
-            # פעולת מחיקה לריפו הנוכחי
-            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"repo_delete_confirm:{tag}")])
+            # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
+            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
                 f"📂 קבצים עם {tag}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-        elif data.startswith("repo_delete_confirm:"):
+        elif data.startswith("byrepo_delete_confirm:"):
             # שלב אישור ראשון למחיקת כל הקבצים תחת תגית ריפו
             tag = data.split(":", 1)[1]
             from database import db
@@ -1989,28 +2113,31 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             total = len(files)
             warn_text = (
                 f"⚠️ עומד/ת למחוק <b>{total}</b> קבצים תחת התגית <code>{tag}</code>\n"
-                "פעולה זו תסמן את הקבצים כלא־פעילים ולא תימחק פיזית קבצי ZIP/גדולים.\n\n"
-                "אם זה בטעות, חזור אחורה."
+                "פעולה זו תסמן את הקבצים כלא־פעילים במסד של הבוט בלבד, \n"
+                "ולא תמחוק דבר ב‑GitHub. \n"
+                "לא תימחק פיזית גם אף קובץ ZIP/גדול.\n\n"
+                "אם זה בטעות, חזור/י אחורה."
             )
             kb = [
-                [InlineKeyboardButton("✅ אני מאשר/ת", callback_data=f"repo_delete_double_confirm:{tag}")],
+                [InlineKeyboardButton("✅ אני מאשר/ת", callback_data=f"byrepo_delete_double_confirm:{tag}")],
                 [InlineKeyboardButton("🔙 חזרה", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(warn_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
-        elif data.startswith("repo_delete_double_confirm:"):
+        elif data.startswith("byrepo_delete_double_confirm:"):
             # שלב אישור שני
             tag = data.split(":", 1)[1]
             text2 = (
                 "🧨 אישור סופי למחיקה\n"
-                f"כל הקבצים תחת <code>{tag}</code> יימחקו (יוגדרו כלא־פעילים).\n"
+                f"כל הקבצים תחת <code>{tag}</code> יוגדרו כלא־פעילים במסד של הבוט בלבד.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
                 "הפעולה בלתי הפיכה."
             )
             kb = [
-                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"repo_delete_do:{tag}")],
+                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"byrepo_delete_do:{tag}")],
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
-        elif data.startswith("repo_delete_do:"):
+        elif data.startswith("byrepo_delete_do:"):
             # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
             tag = data.split(":", 1)[1]
             from database import db
@@ -2026,7 +2153,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         deleted += 1
                 except Exception:
                     continue
-            msg = f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code>."
+            msg = (
+                f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code> מהמסד של הבוט בלבד.\n"
+                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+            )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לתפריט ריפו", callback_data="by_repo_menu")],
                 [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
