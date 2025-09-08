@@ -158,33 +158,6 @@ def is_admin(user_id: int) -> bool:
     admin_ids = [int(id.strip()) for id in admin_ids if id.strip().isdigit()]
     return user_id in admin_ids
 
-def load_github_token_for_admin(user_id: int):
-    """טוען טוקן GitHub מוצפן לסשן עבור אדמין"""
-    if not is_admin(user_id):
-        return
-    
-    try:
-        db = get_db()
-        user_settings = db.user_settings.find_one({'user_id': user_id})
-        
-        if user_settings and user_settings.get('github_token_encrypted'):
-            # פענוח הטוקן
-            from cryptography.fernet import Fernet
-            
-            encryption_key = os.getenv('ENCRYPTION_KEY')
-            if not encryption_key:
-                print("WARNING: No ENCRYPTION_KEY found, cannot decrypt GitHub token")
-                return
-            
-            try:
-                fernet = Fernet(encryption_key.encode() if isinstance(encryption_key, str) else encryption_key)
-                decrypted_token = fernet.decrypt(user_settings['github_token_encrypted'].encode()).decode()
-                session['github_token'] = decrypted_token
-                print(f"Loaded GitHub token for admin user {user_id}")
-            except Exception as e:
-                print(f"Error decrypting GitHub token: {e}")
-    except Exception as e:
-        print(f"Error loading GitHub token: {e}")
 
 def format_file_size(size_bytes: int) -> str:
     """מעצב גודל קובץ לתצוגה ידידותית"""
@@ -293,9 +266,7 @@ def telegram_auth():
     # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
     session.permanent = True
     
-    # אם המשתמש אדמין, טען הגדרות נוספות אם יש
-    if is_admin(user_id):
-        load_github_token_for_admin(user_id)
+    # אפשר להוסיף כאן הגדרות נוספות לאדמינים בעתיד
     
     return redirect(url_for('dashboard'))
 
@@ -349,9 +320,7 @@ def token_auth():
         # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
         session.permanent = True
         
-        # אם המשתמש אדמין, טען הגדרות נוספות אם יש
-        if is_admin(user_id_int):
-            load_github_token_for_admin(user_id_int)
+        # אפשר להוסיף כאן הגדרות נוספות לאדמינים בעתיד
         
         return redirect(url_for('dashboard'))
         
@@ -827,104 +796,15 @@ def api_stats():
 @app.route('/settings')
 @login_required
 def settings():
-    """דף הגדרות - עם אפשרויות מיוחדות לאדמינים"""
+    """דף הגדרות"""
     user_id = session['user_id']
-    db = get_db()
     
     # בדיקה אם המשתמש הוא אדמין
     user_is_admin = is_admin(user_id)
     
-    # שליפת הגדרות המשתמש
-    user_settings = db.user_settings.find_one({'user_id': user_id}) or {}
-    
-    # אם אדמין, בדוק אם יש טוקן GitHub מוצפן
-    github_token_exists = False
-    if user_is_admin and user_settings.get('github_token_encrypted'):
-        github_token_exists = True
-    
     return render_template('settings.html',
                          user=session['user_data'],
-                         is_admin=user_is_admin,
-                         github_token_exists=github_token_exists,
-                         settings=user_settings)
-
-@app.route('/api/settings/github-token', methods=['POST'])
-@admin_required
-def save_github_token():
-    """שמירת טוקן GitHub מוצפן - רק לאדמינים"""
-    user_id = session['user_id']
-    data = request.get_json()
-    token = data.get('token', '').strip()
-    
-    if not token:
-        return jsonify({'error': 'טוקן ריק'}), 400
-    
-    # בדיקה בסיסית של פורמט הטוקן
-    if not (token.startswith('ghp_') or token.startswith('github_pat_')):
-        return jsonify({'error': 'פורמט טוקן לא תקין'}), 400
-    
-    try:
-        # הצפנת הטוקן
-        from cryptography.fernet import Fernet
-        
-        # מפתח הצפנה מ-ENV או יצירת מפתח חדש
-        encryption_key = os.getenv('ENCRYPTION_KEY')
-        if not encryption_key:
-            # אם אין מפתח, צור אחד (רק לפיתוח!)
-            encryption_key = Fernet.generate_key().decode()
-            print(f"WARNING: Generated new encryption key. Add to ENV: ENCRYPTION_KEY={encryption_key}")
-        
-        fernet = Fernet(encryption_key.encode() if isinstance(encryption_key, str) else encryption_key)
-        encrypted_token = fernet.encrypt(token.encode()).decode()
-        
-        # שמירה ב-DB
-        db = get_db()
-        db.user_settings.update_one(
-            {'user_id': user_id},
-            {
-                '$set': {
-                    'github_token_encrypted': encrypted_token,
-                    'github_token_updated_at': datetime.now(timezone.utc)
-                }
-            },
-            upsert=True
-        )
-        
-        # שמירה גם בסשן לשימוש מיידי
-        session['github_token'] = token
-        
-        return jsonify({'success': True, 'message': 'הטוקן נשמר בהצלחה'})
-        
-    except Exception as e:
-        print(f"Error saving GitHub token: {e}")
-        return jsonify({'error': 'שגיאה בשמירת הטוקן'}), 500
-
-@app.route('/api/settings/github-token', methods=['DELETE'])
-@admin_required
-def delete_github_token():
-    """מחיקת טוקן GitHub"""
-    user_id = session['user_id']
-    
-    try:
-        db = get_db()
-        db.user_settings.update_one(
-            {'user_id': user_id},
-            {
-                '$unset': {
-                    'github_token_encrypted': '',
-                    'github_token_updated_at': ''
-                }
-            }
-        )
-        
-        # מחיקה מהסשן
-        session.pop('github_token', None)
-        
-        return jsonify({'success': True, 'message': 'הטוקן נמחק בהצלחה'})
-        
-    except Exception as e:
-        print(f"Error deleting GitHub token: {e}")
-        return jsonify({'error': 'שגיאה במחיקת הטוקן'}), 500
+                         is_admin=user_is_admin)
 
 @app.route('/health')
 def health():
