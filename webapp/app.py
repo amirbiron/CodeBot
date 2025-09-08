@@ -25,6 +25,7 @@ from datetime import timedelta
 # יצירת האפליקציה
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.permanent_session_lifetime = timedelta(days=30)  # סשן נשמר ל-30 יום
 
 # הגדרות
 MONGODB_URL = os.getenv('MONGODB_URL')
@@ -289,9 +290,14 @@ def telegram_auth():
         'photo_url': auth_data.get('photo_url', '')
     }
     
-    # אם המשתמש אדמין, טען את הטוקן המוצפן אם קיים
+    # אם המשתמש אדמין, הפוך את הסשן לקבוע (30 יום)
     if is_admin(user_id):
+        session.permanent = True
         load_github_token_for_admin(user_id)
+    else:
+        # למשתמשים רגילים - סשן של 24 שעות
+        session.permanent = True
+        app.permanent_session_lifetime = timedelta(hours=24)
     
     return redirect(url_for('dashboard'))
 
@@ -342,9 +348,13 @@ def token_auth():
             'photo_url': ''
         }
         
-        # אם המשתמש אדמין, טען את הטוקן המוצפן אם קיים
+        # אם המשתמש אדמין, הפוך את הסשן לקבוע (30 יום)
         if is_admin(user_id_int):
+            session.permanent = True
             load_github_token_for_admin(user_id_int)
+        else:
+            # למשתמשים רגילים - סשן רגיל
+            session.permanent = True
         
         return redirect(url_for('dashboard'))
         
