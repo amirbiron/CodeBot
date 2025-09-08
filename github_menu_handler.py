@@ -218,8 +218,12 @@ class GitHubMenuHandler:
         start = page * page_size
         end = min(start + page_size, len(branches))
         keyboard = []
-        for br in branches[start:end]:
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"import_repo_select_branch:{br.name}")])
+        # מיפוי אסימונים קצרים לשמות ענפים כדי לעמוד במגבלת 64 בתים של Telegram
+        token_map = context.user_data.setdefault("import_branch_token_map", {})
+        for idx, br in enumerate(branches[start:end]):
+            token = f"i{start + idx}"
+            token_map[token] = br.name
+            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"import_repo_select_branch:{token}")])
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"import_repo_branches_page_{page-1}"))
@@ -1074,7 +1078,9 @@ class GitHubMenuHandler:
             await self.show_import_branch_menu(update, context)
             return
         elif query.data.startswith("import_repo_select_branch:"):
-            branch = query.data.split(":", 1)[1]
+            token = query.data.split(":", 1)[1]
+            token_map = context.user_data.get("import_branch_token_map", {})
+            branch = token_map.get(token, token)
             context.user_data["import_repo_branch"] = branch
             await self._confirm_import_repo(update, context, branch)
             return
