@@ -262,10 +262,7 @@ class GitHubMenuHandler:
                 path = getattr(it, "path", None) or getattr(it, "name", "")
                 if not path:
                     continue
-                parent_path = path.rsplit('/', 1)[0] if '/' in path else ""
-                open_cb = self._mk_cb(context, "browse_open", parent_path)
                 view_cb = self._mk_cb(context, "browse_select_view", path)
-                kb.append([InlineKeyboardButton(path, callback_data=open_cb)])
                 kb.append([InlineKeyboardButton(f"👁️ פתח {path}", callback_data=view_cb)])
             except Exception:
                 continue
@@ -415,15 +412,22 @@ class GitHubMenuHandler:
             # הדגשת תחביר קיימת במודול code_processor.highlight_code; נשתמש בה ואז ננקה ל-Telegram
             try:
                 from services import code_service as code_processor
-                # פורמט שמירת שורות כברירת מחדל
                 lower_path = (path or '').lower()
-                # אם YAML – נסה צביעה ישירה, אחרת כללי
+                # YAML: Telegram לא תמיד צובע — ניישם HTML ידני לשיפור קריאות
                 if lower_path.endswith('.yml') or lower_path.endswith('.yaml'):
+                    import re as _re, html as _html
+                    def _format_yaml_html(content: str) -> str:
+                        c = _html.escape(content)
+                        c = _re.sub(r'^(\s*)([A-Za-z_][\w-]*):', r'\1<b>\2</b>:', c, flags=_re.MULTILINE)
+                        c = _re.sub(r': (&quot;[^&quot;]*&quot;|\'[^\']*\')', r': <code>\1</code>', c)
+                        c = _re.sub(r'\b(true|false|null)\b', r'<i>\1</i>', c)
+                        return f"<pre>{c}</pre>"
                     try:
+                        # ניסיון צביעה רגילה קודם
                         highlighted_html = code_processor.highlight_code(chunk, 'yaml', 'html')
-                        body = highlighted_html or f"<pre>{safe_html_escape(chunk)}</pre>"
+                        body = highlighted_html or _format_yaml_html(chunk)
                     except Exception:
-                        body = f"<pre>{safe_html_escape(chunk)}</pre>"
+                        body = _format_yaml_html(chunk)
                 else:
                     # שמירת שורות בכוח עבור סוגי קבצים רגישים לעיצוב
                     force_pre_exts = ('.md', '.markdown', '.py')
