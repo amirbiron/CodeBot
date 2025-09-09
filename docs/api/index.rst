@@ -14,39 +14,5 @@ API Reference
    database
    services
    handlers
-   utilities
+   utils
    modules
-
-Main Application
-----------------
-
-.. automodule:: main
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :private-members:
-
-Configuration
--------------
-
-.. automodule:: config
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :noindex:
-
-Bot Handlers
-------------
-
-.. automodule:: bot_handlers
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Conversation Handlers
---------------------
-
-.. automodule:: conversation_handlers
-   :members:
-   :undoc-members:
-   :show-inheritance:

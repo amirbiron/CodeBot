@@ -5,6 +5,7 @@ handlers package
    :members:
    :show-inheritance:
    :undoc-members:
+   :noindex:
 
 Subpackages
 -----------

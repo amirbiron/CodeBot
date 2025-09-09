@@ -5,6 +5,7 @@ database package
    :members:
    :show-inheritance:
    :undoc-members:
+   :noindex:
 
 Submodules
 ----------

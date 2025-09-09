@@ -73,7 +73,7 @@ autodoc_mock_imports = [
     # GitHub API
     'github', 'PyGithub',
     # Missing/optional libs used by modules that break autodoc on RTD
-    'cairosvg', 'aiohttp', 'textstat', 'search_engine', 'code_processor', 'integrations',
+    'cairosvg', 'aiohttp', 'textstat', 'langdetect', 'pytest', 'search_engine', 'code_processor', 'integrations',
 ]
 
 # Todo extension settings
@@ -83,7 +83,7 @@ todo_include_todos = True
 templates_path = ['_templates']
 
 # List of patterns to exclude
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'api/get-pip.rst']
 
 # The language for content
 language = 'he'
@@ -113,6 +113,13 @@ html_sidebars = {
         'versions.html',
     ]
 }
+
+# Suppress noisy autodoc warnings for mocked imports
+suppress_warnings = [
+    'autodoc',
+    'autodoc.import_object',
+    'autodoc.mocked',
+]
 
 # -- Options for intersphinx extension ---------------------------------------
 intersphinx_mapping = {

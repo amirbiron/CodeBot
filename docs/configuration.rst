@@ -11,6 +11,7 @@
 .. automodule:: config
    :members:
    :undoc-members:
+   :noindex:
 
 משתני סביבה
 -----------
