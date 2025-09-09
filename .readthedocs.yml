@@ -15,7 +15,3 @@ python:
 
 formats:
   - htmlzip
-
-environment:
-  variables:
-    READTHEDOCS: "True"
