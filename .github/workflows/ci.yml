@@ -24,7 +24,7 @@ concurrency:
 jobs:
 
   code-quality:
-    name: "Code Quality"
+    name: "🔍 Code Quality & Security"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -170,7 +170,7 @@ jobs:
             });
 
   unit-tests:
-    name: "Unit Tests (${{ matrix.python-version }})"
+    name: "🧪 Unit Tests (${{ matrix.python-version }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
