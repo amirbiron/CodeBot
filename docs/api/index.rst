@@ -15,6 +15,7 @@ API Reference
    services
    handlers
    utilities
+   modules
 
 Main Application
 ----------------
