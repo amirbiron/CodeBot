@@ -25,9 +25,9 @@ Code Keeper Bot - תיעוד API
    contributing
    changelog
    user/share_code
-    user/github_browse
-    user/download_repo
-    webapp/overview
+   user/github_browse
+   user/download_repo
+   webapp/overview
 
 סקירה כללית
 ------------
