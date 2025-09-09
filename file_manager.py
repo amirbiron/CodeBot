@@ -364,6 +364,7 @@ class BackupManager:
 
         - purge=True: מסמן את כל הקבצים הקיימים של המשתמש כלא פעילים לפני השחזור
         - overwrite=True: שמירה תמיד כגרסה חדשה עבור אותו שם (כברירת מחדל)
+
         החזרה: dict עם restored_files ו-errors
         """
         results: Dict[str, Any] = {"restored_files": 0, "errors": []}
