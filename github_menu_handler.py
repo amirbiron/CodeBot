@@ -82,6 +82,7 @@ def safe_html_escape(text):
     """Safely escape text for HTML parsing in Telegram.
 
     שומר על \n/\r/\t ואינו משנה ישויות כמו &lt; &gt; &amp; לאחר escape.
+
     """
     if text is None:
         return ""

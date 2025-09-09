@@ -12,7 +12,6 @@ Code Keeper Bot - תיעוד API
    :maxdepth: 2
    :caption: תוכן עניינים:
 
-   introduction
    installation
    configuration
    api/index
@@ -20,10 +19,6 @@ Code Keeper Bot - תיעוד API
    handlers/index
    services/index
    database/index
-   utilities/index
-   examples
-   contributing
-   changelog
    user/share_code
    user/github_browse
    user/download_repo

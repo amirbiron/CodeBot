@@ -72,6 +72,8 @@ autodoc_mock_imports = [
     'google', 'googleapiclient', 'googleapiclient.discovery', 'google.oauth2',
     # GitHub API
     'github', 'PyGithub',
+    # Missing/optional libs used by modules that break autodoc on RTD
+    'cairosvg', 'aiohttp',
 ]
 
 # Todo extension settings
