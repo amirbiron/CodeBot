@@ -10,6 +10,7 @@ Code Service
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 GitHub Service
 --------------
@@ -18,6 +19,7 @@ GitHub Service
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Backup Service
 --------------
@@ -26,6 +28,7 @@ Backup Service
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Google Drive Service
 --------------------

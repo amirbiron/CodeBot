@@ -21,4 +21,5 @@ API (autodoc)
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
