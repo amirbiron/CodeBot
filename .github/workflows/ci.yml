@@ -262,7 +262,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: `${ver}`,
+              context: `Unit Tests (${ver})`,
               description: 'Tests passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -303,7 +303,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `${ver}`,
+              context: `Unit Tests (${ver})`,
               description: 'Tests failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });

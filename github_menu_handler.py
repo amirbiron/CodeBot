@@ -79,11 +79,7 @@ def _safe_rmtree_tmp(target_path: str) -> None:
 
 
 def safe_html_escape(text):
-    """Safely escape text for HTML parsing in Telegram.
-
-    שומר על \n/\r/\t ואינו משנה ישויות כמו &lt; &gt; &amp; לאחר escape.
-
-    """
+    """Escape text for Telegram HTML; preserves \n/\r/\t and keeps existing HTML entities."""
     if text is None:
         return ""
     s = escape(str(text))
