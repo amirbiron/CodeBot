@@ -332,6 +332,13 @@ async def save_file_final(update, context, filename, user_id):
         )
         success = db.save_code_snippet(snippet)
         if success:
+            # שליפת ה-_id כדי לאפשר תפריט שיתוף לפי מזהה מסד
+            try:
+                saved_doc = db.get_latest_version(user_id, filename) or {}
+                fid = str(saved_doc.get('_id') or '')
+            except Exception:
+                fid = ''
+
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{filename}"),
@@ -344,6 +351,9 @@ async def save_file_final(update, context, filename, user_id):
                 [
                     InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
                     InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}"),
+                ],
+                [
+                    InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")
                 ],
                 [
                     InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{filename}"),
@@ -361,6 +371,16 @@ async def save_file_final(update, context, filename, user_id):
                 reply_markup=reply_markup,
                 parse_mode='Markdown',
             )
+            # שמור הקשר לחזרה למסך ההצלחה לאחר צפייה בקוד
+            try:
+                context.user_data['last_save_success'] = {
+                    'file_name': filename,
+                    'language': detected_language,
+                    'note': note or '',
+                    'file_id': fid,
+                }
+            except Exception:
+                pass
         else:
             await update.message.reply_text(
                 "💥 אופס! קרתה שגיאה טכנית.\n"
@@ -374,6 +394,20 @@ async def save_file_final(update, context, filename, user_id):
             "⚡ ננסה שוב בקרוב!",
             reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True),
         )
-    context.user_data.clear()
+    # נקה רק מפתחות רלוונטיים לזרימת שמירה, כדי לשמר הקשר לחזרה למסך ההצלחה
+    for k in [
+        'filename_to_save',
+        'code_to_save',
+        'note_to_save',
+        'pending_filename',
+        'long_collect_parts',
+        'long_collect_active',
+        'long_collect_locked',
+        'long_collect_job',
+    ]:
+        try:
+            context.user_data.pop(k, None)
+        except Exception:
+            pass
     return ConversationHandler.END
 

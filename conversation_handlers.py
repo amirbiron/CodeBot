@@ -1767,6 +1767,67 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_versions_history(update, context)
         elif data.startswith("dl_") or data.startswith("download_"):
             return await handle_download_file(update, context)
+        elif data.startswith("back_after_view:"):
+            # חזרה למסך ההצלחה לאחר צפייה בקוד שנשמר זה עתה
+            try:
+                file_name = data.split(":", 1)[1]
+            except Exception:
+                file_name = ''
+            saved = context.user_data.get('last_save_success') or {}
+            # ננסה לעדכן מהמסד אם חסר
+            if not saved:
+                try:
+                    from database import db
+                    doc = db.get_latest_version(update.effective_user.id, file_name)
+                    saved = {
+                        'file_name': file_name or (doc.get('file_name') if doc else ''),
+                        'language': (doc.get('programming_language') if doc else 'text'),
+                        'note': (doc.get('description') if doc else ''),
+                        'file_id': str(doc.get('_id') or '') if doc else ''
+                    }
+                except Exception:
+                    saved = {'file_name': file_name, 'language': 'text', 'note': '', 'file_id': ''}
+            # בנה מקלדת כמו בהודעת ההצלחה לאחר שמירה
+            fname = saved.get('file_name') or file_name or 'file.txt'
+            lang = saved.get('language') or 'text'
+            note = saved.get('note') or ''
+            fid = saved.get('file_id') or ''
+            keyboard = [
+                [
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{fname}"),
+                    InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{fname}")
+                ],
+                [
+                    InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{fname}"),
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{fname}")
+                ],
+                [
+                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{fname}"),
+                    InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{fname}")
+                ],
+                [
+                    InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")
+                ],
+                [
+                    InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{fname}"),
+                    InlineKeyboardButton("🔙 לרשימה", callback_data="files")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            note_display = note if note else '—'
+            try:
+                await query.edit_message_text(
+                    f"🎉 *קובץ נשמר בהצלחה!*\n\n"
+                    f"📄 **שם:** `{fname}`\n"
+                    f"🧠 **שפה זוהתה:** {lang}\n"
+                    f"📝 **הערה:** {note_display}\n\n"
+                    f"🎮 בחר פעולה מהכפתורים החכמים:",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            except Exception:
+                await query.edit_message_text("🎉 קובץ נשמר בהצלחה!", reply_markup=reply_markup)
+            return ConversationHandler.END
         elif data.startswith("share_menu_id:"):
             # תפריט שיתוף לפי ObjectId
             fid = data.split(":", 1)[1]

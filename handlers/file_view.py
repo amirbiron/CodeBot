@@ -685,6 +685,11 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         version = file_data.get('version', 1)
         max_length = 3500
         code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
+        # נסה להשיג ObjectId לצורך שיתוף
+        try:
+            fid = str(file_data.get('_id') or '')
+        except Exception:
+            fid = ''
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
@@ -698,7 +703,10 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"),
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}"),
             ],
-            [InlineKeyboardButton("🔙 לרשימה", callback_data="files")],
+            [
+                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")
+            ],
+            [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
