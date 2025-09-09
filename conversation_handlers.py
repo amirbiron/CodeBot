@@ -25,6 +25,7 @@ from html import escape as html_escape
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
+from config import config
 
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
@@ -538,7 +539,12 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
+                # כפתור "שתף קוד" — תפריט שיתוף עבור קובץ זה לפי ObjectId
+                fid = str(file.get('_id') or '')
+                if fid:
+                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+                keyboard.append(row)
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
@@ -626,7 +632,11 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             else:
                 context.user_data['files_cache'][str(i)] = file
                 button_text = f"{emoji} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
+                fid = str(file.get('_id') or '')
+                if fid:
+                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+                keyboard.append(row)
 
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
@@ -674,6 +684,51 @@ from handlers.save_flow import get_note as get_note
 
 from handlers.save_flow import save_file_final as save_file_final
 
+async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, service: str, file_id: str) -> int:
+    """שיתוף קובץ יחיד לפי ObjectId בשירות מבוקש (gist/pastebin)."""
+    query = update.callback_query
+    await query.answer()
+    try:
+        from database import db
+        from bson import ObjectId
+        user_id = update.effective_user.id
+        # ודא שהקובץ שייך למשתמש
+        doc = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+        if not doc:
+            await query.edit_message_text("❌ קובץ לא נמצא או אין הרשאה")
+            return ConversationHandler.END
+        file_name = doc.get('file_name') or 'file.txt'
+        code = doc.get('code') or doc.get('content') or doc.get('data') or ''
+        language = doc.get('programming_language') or 'text'
+        if not code:
+            await query.edit_message_text("❌ תוכן הקובץ ריק או חסר")
+            return ConversationHandler.END
+        from integrations import code_sharing
+        if service == 'gist':
+            if not config.GITHUB_TOKEN:
+                await query.edit_message_text("❌ Gist לא זמין (חסר GITHUB_TOKEN)")
+                return ConversationHandler.END
+            result = await code_sharing.share_code('gist', file_name, code, language, description=f"שיתוף דרך CodeBot — {file_name}")
+            if not result or not result.get('url'):
+                await query.edit_message_text("❌ יצירת Gist נכשלה")
+                return ConversationHandler.END
+            await query.edit_message_text(
+                f"🐙 **שותף ב-GitHub Gist!**\n\n📄 `{file_name}`\n🔗 {result['url']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        elif service == 'pastebin':
+            result = await code_sharing.share_code('pastebin', file_name, code, language, private=True, expire='1M')
+            if not result or not result.get('url'):
+                await query.edit_message_text("❌ יצירת Pastebin נכשלה")
+                return ConversationHandler.END
+            await query.edit_message_text(
+                f"📋 **שותף ב-Pastebin!**\n\n📄 `{file_name}`\n🔗 {result['url']}",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except Exception as e:
+        logger.error(f"Error in share_single_by_id: {e}")
+        await query.edit_message_text("❌ שגיאה בשיתוף הקובץ")
+    return ConversationHandler.END
 async def handle_duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """טיפול בכפתורי הכפילות"""
     query = update.callback_query
@@ -1714,6 +1769,24 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_versions_history(update, context)
         elif data.startswith("dl_") or data.startswith("download_"):
             return await handle_download_file(update, context)
+        elif data.startswith("share_menu_id:"):
+            # תפריט שיתוף לפי ObjectId
+            fid = data.split(":", 1)[1]
+            kb = [
+                [
+                    InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_id:{fid}"),
+                    InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_id:{fid}")
+                ],
+                [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
+            ]
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            return ConversationHandler.END
+        elif data.startswith("share_gist_id:"):
+            fid = data.split(":", 1)[1]
+            return await share_single_by_id(update, context, service="gist", file_id=fid)
+        elif data.startswith("share_pastebin_id:"):
+            fid = data.split(":", 1)[1]
+            return await share_single_by_id(update, context, service="pastebin", file_id=fid)
         elif data.startswith("del_") or data.startswith("delete_"):
             return await handle_delete_confirmation(update, context)
         elif data.startswith("confirm_del_"):
@@ -2094,7 +2167,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
+                row = [InlineKeyboardButton(name, callback_data=f"file_{i}")]
+                fid = str(f.get('_id') or '')
+                if fid:
+                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+                keyboard.append(row)
                 context.user_data['files_cache'][str(i)] = f
             # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])

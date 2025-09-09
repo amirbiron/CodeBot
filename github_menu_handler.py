@@ -265,8 +265,11 @@ class GitHubMenuHandler:
                 parent_path = path.rsplit('/', 1)[0] if '/' in path else ""
                 open_cb = self._mk_cb(context, "browse_open", parent_path)
                 view_cb = self._mk_cb(context, "browse_select_view", path)
-                kb.append([InlineKeyboardButton(path, callback_data=open_cb)])
-                kb.append([InlineKeyboardButton(f"👁️ פתח {path}", callback_data=view_cb)])
+                # מיזוג לשורה אחת: כפתור לפתיחת התיקייה + כפתור לצפייה בקובץ
+                kb.append([
+                    InlineKeyboardButton(path, callback_data=open_cb),
+                    InlineKeyboardButton("👁️ פתח", callback_data=view_cb)
+                ])
             except Exception:
                 continue
         nav = []
@@ -4378,12 +4381,33 @@ class GitHubMenuHandler:
             context.user_data["multi_mode"] = False
         # עימוד
         page_size = 10
-        total_items = len(entry_rows)
+        # ודא ששורת הכלים (חיפוש/בחירת ref) תמיד נשמרת בראש כל עמוד
+        # נבנה את המטריצה כך שהשורה הראשונה תהיה תמיד הכלים, ולא תיספר לעימוד
+        # מצא אינדקס תחילת הפריטים לעימוד אחרי breadcrumbs ושורת כלים
+        # breadcrumbs נמצאת ב-entry_rows[0] (אם קיימת), ושורת כלים ב-entry_rows[1]
+        start_items_index = 0
+        if entry_rows:
+            # אם יש breadcrumbs, הם באינדקס 0
+            start_items_index = 1
+            # אם יש גם שורת כלים, היא באינדקס 1
+            if len(entry_rows) > 1 and any(
+                isinstance(btn, InlineKeyboardButton) and getattr(btn, 'callback_data', '') == 'browse_search'
+                for btn in entry_rows[1]
+            ):
+                start_items_index = 2
+        paginable_rows = entry_rows[start_items_index:]
+        total_items = len(paginable_rows)
         total_pages = max(1, (total_items + page_size - 1) // page_size)
         current_page = min(max(0, context.user_data.get("browse_page", 0)), total_pages - 1)
         start_index = current_page * page_size
         end_index = start_index + page_size
-        keyboard = entry_rows[start_index:end_index]
+        # בנה מקלדת: breadcrumbs (אם קיימת) + שורת כלים + פריטי העמוד
+        keyboard = []
+        if entry_rows and start_items_index >= 1:
+            keyboard.append(entry_rows[0])  # breadcrumbs
+        if entry_rows and start_items_index >= 2:
+            keyboard.append(entry_rows[1])  # tools row (כולל חיפוש)
+        keyboard.extend(paginable_rows[start_index:end_index])
         # ניווט עמודים
         if total_pages > 1:
             nav_row = []

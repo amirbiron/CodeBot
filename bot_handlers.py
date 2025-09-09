@@ -554,7 +554,8 @@ class AdvancedBotHandlers:
                 "- **מספר קבצים:** `/share app.py utils.py README.md`\n"
                 "- **עם כוכביות (wildcards):** `/share *.py` או `/share main.*`\n\n"
                 "### ⚠️ חשוב לזכור:\n"
-                "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n\n"
+                "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n"
+                "- **אם יש כמה קבצים עם אותו שם בבוט – ישותף האחרון שנשמר.**\n\n"
                 "## איזה סוגי קישורים אפשר לקבל?\n\n"
                 "### 🐙 GitHub Gist\n"
                 "- **מתאים לכל סוג קובץ ומספר קבצים**\n"
@@ -580,7 +581,8 @@ class AdvancedBotHandlers:
                 "- **מספר קבצים:** `/share app.py utils.py README.md`\n"
                 "- **עם כוכביות (wildcards):** `/share *.py` או `/share main.*`\n\n"
                 "### ⚠️ חשוב לזכור:\n"
-                "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n\n"
+                "שמות הקבצים הם **case sensitive** - כלומר, צריך להקפיד על אותיות קטנות וגדולות בדיוק כמו שהן מופיעות בשם הקובץ המקורי.\n"
+                "- **אם יש כמה קבצים עם אותו שם בבוט – ישותף האחרון שנשמר.**\n\n"
                 "## איזה סוגי קישורים אפשר לקבל?\n\n"
                 "### 🐙 GitHub Gist\n"
                 "- **מתאים לכל סוג קובץ ומספר קבצים**\n"
@@ -731,6 +733,17 @@ class AdvancedBotHandlers:
             
             elif data == "cancel_delete":
                 await query.edit_message_text("❌ מחיקה בוטלה.")
+            
+            elif data == "cancel_share":
+                # ביטול תיבת השיתוף (יחיד/מרובה)
+                await query.edit_message_text("❌ השיתוף בוטל.")
+                try:
+                    # ניקוי הקשר מרובה אם נשמר
+                    ms = context.user_data.get('multi_share')
+                    if isinstance(ms, dict) and not ms:
+                        context.user_data.pop('multi_share', None)
+                except Exception:
+                    pass
             
             elif data.startswith("highlight_"):
                 file_name = data.replace("highlight_", "")
