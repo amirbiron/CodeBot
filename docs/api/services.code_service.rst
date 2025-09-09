@@ -5,3 +5,4 @@ services.code\_service module
    :members:
    :show-inheritance:
    :undoc-members:
+   :no-index:

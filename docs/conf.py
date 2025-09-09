@@ -61,7 +61,7 @@ autodoc_mock_imports = [
     'fuzzywuzzy', 'python_levenshtein', 'Levenshtein',
     'redis', 'aioredis', 'celery', 'psutil', 'sentry_sdk',
     # Web frameworks and servers (not needed for docs)
-    'flask', 'uvicorn', 'gunicorn',
+    'flask', 'uvicorn', 'gunicorn', 'telegram', 'telegram.ext',
     # Google APIs
     'google', 'googleapiclient', 'googleapiclient.discovery', 'google.oauth2',
     # GitHub API
