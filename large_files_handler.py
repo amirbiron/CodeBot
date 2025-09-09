@@ -78,10 +78,15 @@ class LargeFilesHandler:
             size_kb = file_size / 1024
             button_text = f"{emoji} {file_name} ({size_kb:.1f}KB)"
             
-            keyboard.append([InlineKeyboardButton(
+            # הוסף גם כפתור "שתף קוד" לתפריט מהרשימה (ObjectId מצוי במסמך)
+            row = [InlineKeyboardButton(
                 button_text,
                 callback_data=f"large_file_{file_index}"
-            )])
+            )]
+            fid = str(file.get('_id') or '')
+            if fid:
+                row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+            keyboard.append(row)
         
         # כפתורי ניווט
         nav_buttons = []
