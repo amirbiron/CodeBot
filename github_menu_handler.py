@@ -262,6 +262,7 @@ class GitHubMenuHandler:
                 path = getattr(it, "path", None) or getattr(it, "name", "")
                 if not path:
                     continue
+                # מציג רק כפתור תצוגה כדי למנוע כפילות (ללא כפתור פתיחת תיקייה)
                 view_cb = self._mk_cb(context, "browse_select_view", path)
                 kb.append([InlineKeyboardButton(f"👁️ פתח {path}", callback_data=view_cb)])
             except Exception:
