@@ -1992,37 +1992,22 @@ def main() -> None:
 # A minimal post_init stub to comply with the PTB builder chain
 async def setup_bot_data(application: Application) -> None:  # noqa: D401
     """A post_init function to setup application-wide data."""
-    # מחיקת כל הפקודות הציבוריות
+    # מחיקת כל הפקודות הציבוריות (אין להגדיר /share /share_help — שיתוף דרך הכפתורים)
     await application.bot.delete_my_commands()
-    logger.info("✅ All public commands removed")
-    
-    # הגדרת פקודות ציבוריות: share, share_help
-    try:
-        await application.bot.set_my_commands(
-            commands=[
-                BotCommand("share", "שיתוף קבצים"),
-                BotCommand("share_help", "הסבר על פקודת השיתוף"),
-            ]
-        )
-        logger.info("✅ Public commands set: share, share_help")
-    except Exception as e:
-        logger.error(f"⚠️ Error setting public commands: {e}")
+    logger.info("✅ Public commands cleared (no /share, /share_help)")
     
     # הגדרת פקודת stats רק למנהל (אמיר בירון)
     AMIR_ID = 6865105071  # ה-ID של אמיר בירון
     
     try:
-        # הגדר את פקודת stats רק לאמיר
+        # הגדר רק את פקודת stats לאמיר
         await application.bot.set_my_commands(
             commands=[
-                BotCommand("share", "שיתוף קבצים"),
-                BotCommand("share_help", "הסבר על פקודת השיתוף"),
                 BotCommand("stats", "📊 סטטיסטיקות שימוש"),
             ],
             scope=BotCommandScopeChat(chat_id=AMIR_ID)
         )
-        logger.info(f"✅ Commands set for Amir (ID: {AMIR_ID}): share, share_help, stats")
-        
+        logger.info(f"✅ Commands set for Amir (ID: {AMIR_ID}): stats only")
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
     
