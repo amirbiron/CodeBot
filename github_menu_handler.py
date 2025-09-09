@@ -256,19 +256,18 @@ class GitHubMenuHandler:
         shown = items[start:end]
         # אפס מיפוי אינדקסים למסך זה (ל-callback קצרים)
         context.user_data["browse_idx_map"] = {}
+        # סימון מצב: תצוגת תוצאות חיפוש פעילה (לצורך חזרה אחורה מתצוגת קובץ)
+        context.user_data["last_results_were_search"] = True
         kb = []
         for it in shown:
             try:
                 path = getattr(it, "path", None) or getattr(it, "name", "")
                 if not path:
                     continue
-                parent_path = path.rsplit('/', 1)[0] if '/' in path else ""
-                open_cb = self._mk_cb(context, "browse_open", parent_path)
                 view_cb = self._mk_cb(context, "browse_select_view", path)
-                # מיזוג לשורה אחת: כפתור לפתיחת התיקייה + כפתור לצפייה בקובץ
+                # כפתור יחיד: "path 👁️" לצפייה בקובץ
                 kb.append([
-                    InlineKeyboardButton(path, callback_data=open_cb),
-                    InlineKeyboardButton("👁️ פתח", callback_data=view_cb)
+                    InlineKeyboardButton(f"{path} 👁️", callback_data=view_cb)
                 ])
             except Exception:
                 continue
@@ -1941,11 +1940,19 @@ class GitHubMenuHandler:
             context.user_data["view_page_index"] = current_index + 1
             await self._render_file_view(update, context)
         elif query.data == "view_back":
-            # חזרה לעץ הריפו (שומר path) ומאפס עמוד לדיפולט
-            context.user_data["browse_action"] = "view"
-            if context.user_data.get("browse_page") is None:
-                context.user_data["browse_page"] = 0
-            await self.show_repo_browser(update, context)
+            # אם הגענו מתוצאות חיפוש – חזרה לעמוד החיפוש האחרון
+            if context.user_data.get("last_results_were_search"):
+                try:
+                    await self.show_browse_search_results(update, context)
+                finally:
+                    # ננקה את הדגל רק אחרי שחזרנו למסך החיפוש
+                    context.user_data.pop("last_results_were_search", None)
+            else:
+                # חזרה לעץ הריפו (שומר path)
+                context.user_data["browse_action"] = "view"
+                if context.user_data.get("browse_page") is None:
+                    context.user_data["browse_page"] = 0
+                await self.show_repo_browser(update, context)
         elif query.data.startswith("browse_select_delete:") or query.data.startswith("browse_select_delete_i:"):
             path = self._get_path_from_cb(context, query.data, "browse_select_delete")
             # דרוש אישור לפני מחיקה
