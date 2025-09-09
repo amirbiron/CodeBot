@@ -54,7 +54,19 @@ autodoc_default_options = {
     'show-inheritance': True,
 }
 autodoc_typehints = 'description'
-autodoc_mock_imports = []
+autodoc_mock_imports = [
+    # DB drivers and BSON
+    'pymongo', 'motor', 'bson',
+    # External services and heavy deps
+    'fuzzywuzzy', 'python_levenshtein', 'Levenshtein',
+    'redis', 'aioredis', 'celery', 'psutil', 'sentry_sdk',
+    # Web frameworks and servers (not needed for docs)
+    'flask', 'uvicorn', 'gunicorn',
+    # Google APIs
+    'google', 'googleapiclient', 'googleapiclient.discovery', 'google.oauth2',
+    # GitHub API
+    'github', 'PyGithub',
+]
 
 # Todo extension settings
 todo_include_todos = True
