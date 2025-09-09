@@ -10,6 +10,7 @@ Database Manager
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Models
 ------

@@ -73,7 +73,7 @@ autodoc_mock_imports = [
     # GitHub API
     'github', 'PyGithub',
     # Missing/optional libs used by modules that break autodoc on RTD
-    'cairosvg', 'aiohttp',
+    'cairosvg', 'aiohttp', 'textstat', 'search_engine', 'code_processor', 'integrations',
 ]
 
 # Todo extension settings
