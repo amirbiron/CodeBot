@@ -11,6 +11,12 @@ from datetime import datetime
 # Add the project root to the path
 sys.path.insert(0, os.path.abspath('..'))
 
+# Ensure safe environment defaults for docs builds (RTD / local)
+os.environ.setdefault('DISABLE_DB', 'true')
+os.environ.setdefault('SPHINX_MOCK_IMPORTS', 'true')
+os.environ.setdefault('BOT_TOKEN', 'dummy_bot_token_for_docs')
+os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
+
 # -- Project information -----------------------------------------------------
 project = 'Code Keeper Bot'
 copyright = f'{datetime.now().year}, Development Team'
