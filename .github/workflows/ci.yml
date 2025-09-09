@@ -63,6 +63,24 @@ jobs:
       - name: 🐶 Ruff (optional)
         run: ruff check . || true
 
+      - name: Report required status (legacy emoji pending)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'pending',
+              context: '🔍 Code Quality & Security',
+              description: 'Job queued/running',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+
       - name: Report required status (success)
         if: ${{ success() }}
         uses: actions/github-script@v7
@@ -113,6 +131,24 @@ jobs:
               state: 'failure',
               context: 'Code Quality',
               description: 'Checks failed',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+
+      - name: Report required status (legacy emoji cancelled)
+        if: ${{ cancelled() }}
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'failure',
+              context: '🔍 Code Quality & Security',
+              description: 'Job cancelled',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
       - name: Report required status (legacy emoji failure)
@@ -179,6 +215,27 @@ jobs:
           pip install pytest pytest-asyncio pytest-cov pytest-mock
       - name: 🔎 Dependency integrity (pip check)
         run: pip check || true
+
+      - name: Report required status (legacy emoji pending)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            const ver = process.env.PYV || '${{ matrix.python-version }}';
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'pending',
+              context: `🧪 Unit Tests (${ver})`,
+              description: 'Job queued/running',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+        env:
+          PYV: ${{ matrix.python-version }}
       - name: 🧪 Smoke compile (exclude .restore)
         run: |
           find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
@@ -248,6 +305,27 @@ jobs:
               state: 'failure',
               context: `${ver}`,
               description: 'Tests failed',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+        env:
+          PYV: ${{ matrix.python-version }}
+
+      - name: Report required status (legacy emoji cancelled)
+        if: ${{ cancelled() }}
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            const ver = process.env.PYV || '${{ matrix.python-version }}';
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'failure',
+              context: `🧪 Unit Tests (${ver})`,
+              description: 'Job cancelled',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
         env:
