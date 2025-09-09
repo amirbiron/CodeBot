@@ -539,7 +539,12 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
+                # כפתור "שתף קוד" — תפריט שיתוף עבור קובץ זה לפי ObjectId
+                fid = str(file.get('_id') or '')
+                if fid:
+                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+                keyboard.append(row)
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
@@ -627,7 +632,11 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             else:
                 context.user_data['files_cache'][str(i)] = file
                 button_text = f"{emoji} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
+                fid = str(file.get('_id') or '')
+                if fid:
+                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+                keyboard.append(row)
 
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
@@ -2183,7 +2192,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
+                row = [InlineKeyboardButton(name, callback_data=f"file_{i}")]
+                fid = str(f.get('_id') or '')
+                if fid:
+                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
+                keyboard.append(row)
                 context.user_data['files_cache'][str(i)] = f
             # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
