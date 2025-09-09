@@ -9,15 +9,24 @@
 - Sphinx
 - sphinx-rtd-theme
 
-### התקנה
+### התקנה (venv מומלץ)
 ```bash
-pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints sphinxcontrib-napoleon
+python -m venv .venv-docs
+source .venv-docs/bin/activate
+pip install -r docs/requirements.txt
 ```
 
 ### בניית התיעוד
 ```bash
-cd docs
-make html
+make -C docs html
+# או:
+sphinx-build -b html docs docs/_build/html
+```
+
+### תצוגה מקומית
+```bash
+python -m http.server -d docs/_build/html 8000
+# ואז לגלוש ל: http://localhost:8000
 ```
 
 התיעוד יהיה זמין ב: `docs/_build/html/index.html`
