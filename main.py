@@ -1540,8 +1540,17 @@ class CodeKeeperBot:
                     from utils import get_language_emoji
                     emoji = get_language_emoji(language)
                     
+                    # שלוף את ה-ObjectId האחרון של הקובץ הגדול כדי לאפשר שיתוף
+                    try:
+                        from bson import ObjectId
+                        # נסה לאחזר לפי שם — הפונקציה של ה-repo לקבצים גדולים קיימת
+                        saved_large = db.get_large_file(user_id, file_name) or {}
+                        fid = str(saved_large.get('_id') or '')
+                    except Exception:
+                        fid = ''
                     keyboard = [
-                        [InlineKeyboardButton("📚 הצג קבצים גדולים", callback_data="show_large_files")],
+                        [InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{file_name}"), InlineKeyboardButton("📚 הצג קבצים גדולים", callback_data="show_large_files")],
+                        [InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")],
                         [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
                     ]
                     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1554,10 +1563,19 @@ class CodeKeeperBot:
                         f"🔤 **קידוד:** {detected_encoding}\n"
                         f"💾 **גודל:** {len(content):,} תווים\n"
                         f"📏 **שורות:** {lines_count:,}\n\n"
-                        "💡 הקובץ נשמר במערכת הקבצים הגדולים",
+                        f"🎮 בחר פעולה מהכפתורים החכמים:",
                         reply_markup=reply_markup,
                         parse_mode='Markdown'
                     )
+                    try:
+                        context.user_data['last_save_success'] = {
+                            'file_name': file_name,
+                            'language': language,
+                            'note': '',
+                            'file_id': fid,
+                        }
+                    except Exception:
+                        pass
                 else:
                     await update.message.reply_text("❌ שגיאה בשמירת הקובץ")
             else:
@@ -1576,7 +1594,16 @@ class CodeKeeperBot:
                     from utils import get_language_emoji
                     emoji = get_language_emoji(language)
                     
+                    # שלוף את ה-ObjectId האחרון כדי לאפשר שיתוף
+                    try:
+                        saved_doc = db.get_latest_version(user_id, file_name) or {}
+                        fid = str(saved_doc.get('_id') or '')
+                    except Exception:
+                        fid = ''
                     keyboard = [
+                        [InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{file_name}"), InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{file_name}")],
+                        [InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")],
+                        [InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")],
                         [InlineKeyboardButton("📚 הצג את כל הקבצים", callback_data="files")],
                         [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
                     ]
@@ -1587,10 +1614,20 @@ class CodeKeeperBot:
                         f"📄 **שם:** `{file_name}`\n"
                         f"{emoji} **שפה:** {language}\n"
                         f"🔤 **קידוד:** {detected_encoding}\n"
-                        f"💾 **גודל:** {len(content)} תווים\n",
+                        f"💾 **גודל:** {len(content)} תווים\n\n"
+                        f"🎮 בחר פעולה מהכפתורים החכמים:",
                         reply_markup=reply_markup,
                         parse_mode='Markdown'
                     )
+                    try:
+                        context.user_data['last_save_success'] = {
+                            'file_name': file_name,
+                            'language': language,
+                            'note': '',
+                            'file_id': fid,
+                        }
+                    except Exception:
+                        pass
                 else:
                     await update.message.reply_text("❌ שגיאה בשמירת הקובץ")
             
