@@ -210,13 +210,15 @@ class GitHubMenuHandler:
                 await update.message.reply_text("❌ חסרים נתונים לחיפוש")
             return
         g = Github(token)
-        # הפורמט: repo:owner/name in:path,name <query>
+        # הפורמט: repo:owner/name in:path <query>
         try:
             owner, name = repo_full.split("/", 1)
         except ValueError:
             owner, name = repo_full, ""
-        # בניית שאילתה: נחפש במחרוזת השם/הנתיב
-        gh_query = f"repo:{owner}/{name} {q} in:path,name"
+        # בניית שאילתה: נחפש במחרוזת הנתיב בלבד (in:name לא נתמך ב-code search)
+        q_safe = (q or "").replace('"', ' ').strip()
+        term = f'"{q_safe}"' if (" " in q_safe) else q_safe
+        gh_query = f"repo:{owner}/{name} in:path {term}"
         try:
             # PyGithub מחזיר PaginatedList; נהפוך לרשימה בטוחה עם הגבלה כדי למנוע 403/timeout
             results = list(g.search_code(query=gh_query, order="desc"))
@@ -252,14 +254,19 @@ class GitHubMenuHandler:
         start = (page - 1) * per_page
         end = min(start + per_page, total)
         shown = items[start:end]
+        # אפס מיפוי אינדקסים למסך זה (ל-callback קצרים)
+        context.user_data["browse_idx_map"] = {}
         kb = []
         for it in shown:
             try:
                 path = getattr(it, "path", None) or getattr(it, "name", "")
                 if not path:
                     continue
-                kb.append([InlineKeyboardButton(path, callback_data=f"browse_open:{path.rsplit('/', 1)[0]}" if '/' in path else "browse_open:")])
-                kb.append([InlineKeyboardButton(f"👁️ פתח {path}", callback_data=f"browse_select_view:{path}")])
+                parent_path = path.rsplit('/', 1)[0] if '/' in path else ""
+                open_cb = self._mk_cb(context, "browse_open", parent_path)
+                view_cb = self._mk_cb(context, "browse_select_view", path)
+                kb.append([InlineKeyboardButton(path, callback_data=open_cb)])
+                kb.append([InlineKeyboardButton(f"👁️ פתח {path}", callback_data=view_cb)])
             except Exception:
                 continue
         nav = []
@@ -340,6 +347,38 @@ class GitHubMenuHandler:
 
         return token
 
+    # --- Helpers to keep Telegram callback_data <= 64 bytes ---
+    def _mk_cb(self, context: ContextTypes.DEFAULT_TYPE, prefix: str, path: str) -> str:
+        """יוצר callback_data בטוח. אם ארוך מדי, משתמש באינדקס זמני במפה ב-context.user_data."""
+        safe_path = path or ""
+        data = f"{prefix}:{safe_path}"
+        try:
+            if len(data.encode('utf-8')) <= 64:
+                return data
+        except Exception:
+            if len(data) <= 64:
+                return data
+        idx_map = context.user_data.get("browse_idx_map")
+        if not isinstance(idx_map, dict):
+            idx_map = {}
+            context.user_data["browse_idx_map"] = idx_map
+        idx = str(len(idx_map) + 1)
+        idx_map[idx] = safe_path
+        return f"{prefix}_i:{idx}"
+
+    def _get_path_from_cb(self, context: ContextTypes.DEFAULT_TYPE, data: str, prefix: str) -> str:
+        """שחזור נתיב מתוך callback_data רגיל או ממופה (_i:)."""
+        try:
+            if data.startswith(prefix + ":"):
+                return data.split(":", 1)[1]
+            if data.startswith(prefix + "_i:"):
+                idx = data.split(":", 1)[1]
+                m = context.user_data.get("browse_idx_map") or {}
+                return m.get(idx, "")
+        except Exception:
+            return ""
+        return ""
+
     async def _render_file_view(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """מציג דף תצוגה חלקית של קובץ עם כפתורי 'הצג עוד', 'הורד', 'חזרה'."""
         query = update.callback_query
@@ -367,9 +406,9 @@ class GitHubMenuHandler:
         )
         # בניית מקלדת
         rows = [[InlineKeyboardButton("🔙 חזרה", callback_data="view_back")],
-                [InlineKeyboardButton("⬇️ הורד", callback_data=f"browse_select_download:{path}")]]
+                [InlineKeyboardButton("⬇️ הורד", callback_data=self._mk_cb(context, "browse_select_download", path))]]
         # כפתור שיתוף קישור לקובץ – רק במסך התצוגה (לא ברשימה)
-        rows.append([InlineKeyboardButton("🔗 שתף קישור", callback_data=f"share_selected_links_single:{path}")])
+        rows.append([InlineKeyboardButton("🔗 שתף קישור", callback_data=self._mk_cb(context, "share_selected_links_single", path))])
         if end < total_lines:
             rows.append([InlineKeyboardButton("הצג עוד ⤵️", callback_data="view_more")])
         try:
@@ -1768,8 +1807,9 @@ class GitHubMenuHandler:
         elif query.data == "download_file_menu":
             await self.show_download_file_menu(update, context)
 
-        elif query.data.startswith("browse_open:"):
-            context.user_data["browse_path"] = query.data.split(":", 1)[1]
+        elif query.data.startswith("browse_open:") or query.data.startswith("browse_open_i:"):
+            path = self._get_path_from_cb(context, query.data, "browse_open")
+            context.user_data["browse_path"] = path
             context.user_data["browse_page"] = 0
             # מצב מרובה ומחיקה בטוחה לאיפוס
             context.user_data["multi_selection"] = []
@@ -1819,8 +1859,8 @@ class GitHubMenuHandler:
                 page = 1
             context.user_data["browse_search_page"] = max(1, page)
             await self.show_browse_search_results(update, context)
-        elif query.data.startswith("browse_select_download:"):
-            path = query.data.split(":", 1)[1]
+        elif query.data.startswith("browse_select_download:") or query.data.startswith("browse_select_download_i:"):
+            path = self._get_path_from_cb(context, query.data, "browse_select_download")
             context.user_data.pop("waiting_for_download_file_path", None)
             context.user_data.pop("browse_action", None)
             context.user_data.pop("browse_path", None)
@@ -1853,9 +1893,9 @@ class GitHubMenuHandler:
                 await query.message.reply_document(document=BytesIO(data), filename=filename)
             # הישאר בדפדפן במקום לחזור לתפריט
             await self.show_repo_browser(update, context, only_keyboard=True)
-        elif query.data.startswith("browse_select_view:"):
+        elif query.data.startswith("browse_select_view:") or query.data.startswith("browse_select_view_i:"):
             # מצב תצוגת קובץ חלקית עם "הצג עוד"
-            path = query.data.split(":", 1)[1]
+            path = self._get_path_from_cb(context, query.data, "browse_select_view")
             user_id = query.from_user.id
             session = self.get_user_session(user_id)
             token = self.get_user_token(user_id)
@@ -1903,8 +1943,8 @@ class GitHubMenuHandler:
             if context.user_data.get("browse_page") is None:
                 context.user_data["browse_page"] = 0
             await self.show_repo_browser(update, context)
-        elif query.data.startswith("browse_select_delete:"):
-            path = query.data.split(":", 1)[1]
+        elif query.data.startswith("browse_select_delete:") or query.data.startswith("browse_select_delete_i:"):
+            path = self._get_path_from_cb(context, query.data, "browse_select_delete")
             # דרוש אישור לפני מחיקה
             context.user_data["pending_delete_file_path"] = path
             keyboard = [
@@ -1916,9 +1956,9 @@ class GitHubMenuHandler:
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML",
             )
-        elif query.data.startswith("download_zip:"):
+        elif query.data.startswith("download_zip:") or query.data.startswith("download_zip_i:"):
             # הורדת התיקייה הנוכחית כקובץ ZIP
-            current_path = query.data.split(":", 1)[1]
+            current_path = self._get_path_from_cb(context, query.data, "download_zip")
             user_id = query.from_user.id
             session = self.get_user_session(user_id)
             token = self.get_user_token(user_id)
@@ -2867,7 +2907,7 @@ class GitHubMenuHandler:
  
 
     async def show_upload_other_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים, לבחירת קובץ יחיד להעלאה (עם עימוד)."""
+        """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים, עם עימוד ואימוג'י לפי שפה."""
         user_id = update.effective_user.id
         from database import db
         query = update.callback_query
@@ -2893,7 +2933,7 @@ class GitHubMenuHandler:
                 page = int(context.user_data.get("other_files_page", 1))
             except Exception:
                 page = 1
-            per_page = 50
+            per_page = 20
             total = len(other_files)
             pages = max(1, (total + per_page - 1) // per_page)
             if page > pages:
@@ -2905,10 +2945,13 @@ class GitHubMenuHandler:
 
             # בניית מקלדת לבחירת קובץ יחיד להעלאה
             keyboard = []
+            from utils import get_language_emoji, detect_language_from_filename
             for f in page_items:
                 fid = str(f.get('_id'))
                 name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(f"📄 {name}", callback_data=f"upload_saved_{fid}")])
+                lang = detect_language_from_filename(name)
+                emoji = get_language_emoji(lang)
+                keyboard.append([InlineKeyboardButton(f"{emoji} {name}", callback_data=f"upload_saved_{fid}")])
 
             # ניווט עמודים
             nav = []
@@ -4264,15 +4307,13 @@ class GitHubMenuHandler:
         entry_rows = []
         # Breadcrumbs
         crumbs_row = []
-        crumbs_row.append(InlineKeyboardButton("🏠 root", callback_data="browse_open:"))
+        crumbs_row.append(InlineKeyboardButton("🏠 root", callback_data=self._mk_cb(context, "browse_open", "")))
         if path:
             parts = path.split("/")
             accum = []
             for part in parts:
                 accum.append(part)
-                crumbs_row.append(
-                    InlineKeyboardButton(part, callback_data=f"browse_open:{'/'.join(accum)}")
-                )
+                crumbs_row.append(InlineKeyboardButton(part, callback_data=self._mk_cb(context, "browse_open", '/'.join(accum))))
         if crumbs_row:
             entry_rows.append(crumbs_row)
         # שורת כלים: חיפוש ובחירת ref
@@ -4282,17 +4323,10 @@ class GitHubMenuHandler:
         ]
         entry_rows.append(tools_row)
         for folder in folders:
-            # תמיד מציגים פתיחת תיקייה; "בחר כיעד" מוצג רק במצב בחירת תיקייה מפורש
+            # תמיד מציגים פתיחת תיקייה; אין צורך בכפתור "בחר כיעד" (הוסרה דרישתך)
             row = [InlineKeyboardButton(
-                f"📂 {folder.name}", callback_data=f"browse_open:{folder.path}"
+                f"📂 {folder.name}", callback_data=self._mk_cb(context, "browse_open", folder.path)
             )]
-            if context.user_data.get("folder_select_mode"):
-                select_cb = (
-                    f"folder_set_session:{folder.path}"
-                    if context.user_data.get("folder_select_mode") == "session"
-                    else f"upload_select_folder:{folder.path}"
-                )
-                row.append(InlineKeyboardButton("📌 בחר כיעד", callback_data=select_cb))
             entry_rows.append(row)
         multi_mode = context.user_data.get("multi_mode", False)
         selection = set(context.user_data.get("multi_selection", []))
@@ -4316,26 +4350,24 @@ class GitHubMenuHandler:
                             [
                                 InlineKeyboardButton(
                                     f"⬇️ {f.name}{large_flag}",
-                                    callback_data=f"browse_select_download:{f.path}",
+                                    callback_data=self._mk_cb(context, "browse_select_download", f.path),
                                 )
                             ]
                         )
                     elif mode == "view":
+                        # הסר כפתור "שתף קישור" מרשימה; נשאיר רק במסך התצוגה
                         entry_rows.append(
                             [
                                 InlineKeyboardButton(
-                                    f"👁️ {f.name}", callback_data=f"browse_select_view:{f.path}"
-                                ),
-                                InlineKeyboardButton(
-                                    "🔗 שתף קישור", callback_data=f"share_selected_links_single:{f.path}"
-                                ),
+                                    f"👁️ {f.name}", callback_data=self._mk_cb(context, "browse_select_view", f.path)
+                                )
                             ]
                         )
                     else:
                         entry_rows.append(
                             [
                                 InlineKeyboardButton(
-                                    f"🗑️ {f.name}", callback_data=f"browse_select_delete:{f.path}"
+                                    f"🗑️ {f.name}", callback_data=self._mk_cb(context, "browse_select_delete", f.path)
                                 )
                             ]
                         )
@@ -4372,7 +4404,7 @@ class GitHubMenuHandler:
         if path:
             # חזרה למעלה
             parent = "/".join(path.split("/")[:-1])
-            bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=f"browse_open:{parent}"))
+            bottom.append(InlineKeyboardButton("⬆️ למעלה", callback_data=self._mk_cb(context, "browse_open", parent)))
         # כפתור חזרה/סיום לבחירת תיקייה
         if context.user_data.get("folder_select_mode") == "session":
             bottom.append(InlineKeyboardButton("✅ סיום בחירה", callback_data="folder_select_done"))
@@ -4382,20 +4414,12 @@ class GitHubMenuHandler:
         # סדר כפתורים לשורות כדי למנוע צפיפות
         row = []
         if (not folder_selecting) and context.user_data.get("browse_action") == "download":
-            row.append(
-                InlineKeyboardButton(
-                    "📦 הורד תיקייה כ־ZIP", callback_data=f"download_zip:{path or ''}"
-                )
-            )
+            row.append(InlineKeyboardButton("📦 הורד תיקייה כ־ZIP", callback_data=self._mk_cb(context, "download_zip", path or "")))
         if len(row) >= 1:
             keyboard.append(row)
         row = []
         if (not folder_selecting) and context.user_data.get("browse_action") == "download":
-            row.append(
-                InlineKeyboardButton(
-                    "🔗 שתף קישור לתיקייה", callback_data=f"share_folder_link:{path or ''}"
-                )
-            )
+            row.append(InlineKeyboardButton("🔗 שתף קישור לתיקייה", callback_data=self._mk_cb(context, "share_folder_link", path or "")))
         if not folder_selecting:
             if not multi_mode:
                 row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
