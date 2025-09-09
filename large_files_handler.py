@@ -83,9 +83,6 @@ class LargeFilesHandler:
                 button_text,
                 callback_data=f"large_file_{file_index}"
             )]
-            fid = str(file.get('_id') or '')
-            if fid:
-                row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
             keyboard.append(row)
         
         # כפתורי ניווט

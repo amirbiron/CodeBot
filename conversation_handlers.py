@@ -695,7 +695,8 @@ async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE,
         # ודא שהקובץ שייך למשתמש
         doc = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
         if not doc:
-            await query.edit_message_text("❌ קובץ לא נמצא או אין הרשאה")
+            # במקום להציג שגיאה שגויה ואז הצלחה, נציג התראה קצרה בלבד ונפסיק
+            await query.answer("קובץ לא נמצא", show_alert=False)
             return ConversationHandler.END
         file_name = doc.get('file_name') or 'file.txt'
         code = doc.get('code') or doc.get('content') or doc.get('data') or ''
@@ -873,6 +874,9 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             [
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")
+            ],
+            [
+                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)]
         ]
@@ -1787,6 +1791,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("share_pastebin_id:"):
             fid = data.split(":", 1)[1]
             return await share_single_by_id(update, context, service="pastebin", file_id=fid)
+        elif data.startswith("share_menu_idx:"):
+            # תפריט שתף לפי אינדקס קובץ מה-cache
+            idx = data.split(":", 1)[1]
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(idx)
+            if not file_data:
+                await query.answer("קובץ לא נמצא", show_alert=True)
+                return ConversationHandler.END
+            fid = str(file_data.get('_id') or '')
+            if not fid:
+                await query.answer("קובץ לא תקין", show_alert=True)
+                return ConversationHandler.END
+            kb = [
+                [
+                    InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_id:{fid}"),
+                    InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_id:{fid}")
+                ],
+                [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
+            ]
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            return ConversationHandler.END
         elif data.startswith("del_") or data.startswith("delete_"):
             return await handle_delete_confirmation(update, context)
         elif data.startswith("confirm_del_"):
