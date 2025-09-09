@@ -539,12 +539,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
-                # כפתור "שתף קוד" — תפריט שיתוף עבור קובץ זה לפי ObjectId
-                fid = str(file.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
@@ -632,11 +627,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             else:
                 context.user_data['files_cache'][str(i)] = file
                 button_text = f"{emoji} {file_name}"
-                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
-                fid = str(file.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
@@ -695,7 +686,8 @@ async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE,
         # ודא שהקובץ שייך למשתמש
         doc = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
         if not doc:
-            await query.edit_message_text("❌ קובץ לא נמצא או אין הרשאה")
+            # במקום להציג שגיאה שגויה ואז הצלחה, נציג התראה קצרה בלבד ונפסיק
+            await query.answer("קובץ לא נמצא", show_alert=False)
             return ConversationHandler.END
         file_name = doc.get('file_name') or 'file.txt'
         code = doc.get('code') or doc.get('content') or doc.get('data') or ''
@@ -873,6 +865,9 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             [
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")
+            ],
+            [
+                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)]
         ]
@@ -1787,6 +1782,27 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("share_pastebin_id:"):
             fid = data.split(":", 1)[1]
             return await share_single_by_id(update, context, service="pastebin", file_id=fid)
+        elif data.startswith("share_menu_idx:"):
+            # תפריט שתף לפי אינדקס קובץ מה-cache
+            idx = data.split(":", 1)[1]
+            files_cache = context.user_data.get('files_cache', {})
+            file_data = files_cache.get(idx)
+            if not file_data:
+                await query.answer("קובץ לא נמצא", show_alert=True)
+                return ConversationHandler.END
+            fid = str(file_data.get('_id') or '')
+            if not fid:
+                await query.answer("קובץ לא תקין", show_alert=True)
+                return ConversationHandler.END
+            kb = [
+                [
+                    InlineKeyboardButton("🐙 GitHub Gist", callback_data=f"share_gist_id:{fid}"),
+                    InlineKeyboardButton("📋 Pastebin", callback_data=f"share_pastebin_id:{fid}")
+                ],
+                [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
+            ]
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            return ConversationHandler.END
         elif data.startswith("del_") or data.startswith("delete_"):
             return await handle_delete_confirmation(update, context)
         elif data.startswith("confirm_del_"):
@@ -2167,11 +2183,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
-                row = [InlineKeyboardButton(name, callback_data=f"file_{i}")]
-                fid = str(f.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
             # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
