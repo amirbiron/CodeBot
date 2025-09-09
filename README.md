@@ -7,6 +7,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/Docs-Website-blueviolet.svg)](https://amirbiron.github.io/CodeBot/)
+[![RTD](https://readthedocs.org/projects/codebot/badge/?version=latest)](https://codebot.readthedocs.io/en/latest/?badge=latest)
 
 <!-- CI/CD Badges -->
 [![CI](https://github.com/amirbiron/CodeBot/actions/workflows/ci.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/ci.yml)
