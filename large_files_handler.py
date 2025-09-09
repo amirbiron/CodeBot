@@ -158,6 +158,9 @@ class LargeFilesHandler:
                 InlineKeyboardButton("📊 מידע מפורט", callback_data=f"lf_info_{file_index}")
             ],
             [
+                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{str(file_data.get('_id') or '')}")
+            ],
+            [
                 InlineKeyboardButton("🔙 חזרה לרשימה", callback_data="show_large_files")
             ]
         ]
