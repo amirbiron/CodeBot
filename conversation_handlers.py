@@ -539,12 +539,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {file_name}"
-                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
-                # כפתור "שתף קוד" — תפריט שיתוף עבור קובץ זה לפי ObjectId
-                fid = str(file.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
@@ -632,11 +627,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             else:
                 context.user_data['files_cache'][str(i)] = file
                 button_text = f"{emoji} {file_name}"
-                row = [InlineKeyboardButton(button_text, callback_data=f"file_{i}")]
-                fid = str(file.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
@@ -694,6 +685,12 @@ async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE,
         user_id = update.effective_user.id
         # ודא שהקובץ שייך למשתמש
         doc = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+        # אם לא נמצא בקולקשן הרגיל, נסה בקבצים גדולים
+        is_large = False
+        if not doc:
+            doc = db.large_files_collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+            if doc:
+                is_large = True
         if not doc:
             # במקום להציג שגיאה שגויה ואז הצלחה, נציג התראה קצרה בלבד ונפסיק
             await query.answer("קובץ לא נמצא", show_alert=False)
