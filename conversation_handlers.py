@@ -851,14 +851,8 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             code_preview = code
         
         # כפתורים מתקדמים לעריכה
-        last_page = context.user_data.get('files_last_page')
-        origin = context.user_data.get('files_origin') or {}
-        if origin.get('type') == 'by_repo' and origin.get('tag'):
-            back_cb = f"by_repo:{origin.get('tag')}"
-        elif origin.get('type') == 'regular':
-            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
-        else:
-            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+        # חזרה צריכה להחזיר למסך "מרכז בקרה מתקדם" (file menu), לא לרשימה
+        back_to_file_menu_cb = f"file_{file_index}"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
@@ -875,7 +869,7 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             [
                 InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)]
+            [InlineKeyboardButton("🔙 חזרה", callback_data=back_to_file_menu_cb)]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -2189,11 +2183,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
-                row = [InlineKeyboardButton(name, callback_data=f"file_{i}")]
-                fid = str(f.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
             # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
