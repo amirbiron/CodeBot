@@ -5,6 +5,7 @@ services package
    :members:
    :show-inheritance:
    :undoc-members:
+   :noindex:
 
 Submodules
 ----------

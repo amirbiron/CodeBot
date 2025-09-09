@@ -24,7 +24,7 @@ concurrency:
 jobs:
 
   code-quality:
-    name: "🔍 Code Quality & Security"
+    name: "Code Quality"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -76,24 +76,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: '🔍 Code Quality & Security',
-              description: 'Checks passed',
-              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            });
-      - name: Report required status (success - plain)
-        if: ${{ success() }}
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha,
-              state: 'success',
-              context: 'Code Quality & Security',
+              context: 'Code Quality',
               description: 'Checks passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -111,30 +94,13 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: '🔍 Code Quality & Security',
-              description: 'Checks failed',
-              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            });
-      - name: Report required status (failure - plain)
-        if: ${{ failure() }}
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha,
-              state: 'failure',
-              context: 'Code Quality & Security',
+              context: 'Code Quality',
               description: 'Checks failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
 
   unit-tests:
-    name: "🧪 Unit Tests (${{ matrix.python-version }})"
+    name: "Unit Tests (${{ matrix.python-version }})"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -205,27 +171,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: `🧪 Unit Tests (${ver})`,
-              description: 'Tests passed',
-              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            });
-        env:
-          PYV: ${{ matrix.python-version }}
-      - name: Report required status (success - plain)
-        if: ${{ success() }}
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            const ver = process.env.PYV || '${{ matrix.python-version }}';
-            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha,
-              state: 'success',
-              context: `Unit Tests (${ver})`,
+              context: `${ver}`,
               description: 'Tests passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -246,27 +192,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `🧪 Unit Tests (${ver})`,
-              description: 'Tests failed',
-              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            });
-        env:
-          PYV: ${{ matrix.python-version }}
-      - name: Report required status (failure - plain)
-        if: ${{ failure() }}
-        uses: actions/github-script@v7
-        continue-on-error: true
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
-            const ver = process.env.PYV || '${{ matrix.python-version }}';
-            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha,
-              state: 'failure',
-              context: `Unit Tests (${ver})`,
+              context: `${ver}`,
               description: 'Tests failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
