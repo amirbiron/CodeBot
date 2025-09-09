@@ -5,4 +5,3 @@ services.github\_service module
    :members:
    :show-inheritance:
    :undoc-members:
-   :noindex:
