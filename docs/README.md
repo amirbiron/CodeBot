@@ -90,6 +90,14 @@ docs/
 
 ## 🌐 פרסום התיעוד
 
+### Read the Docs (מומלץ)
+1. ודא שקובץ `.readthedocs.yml` קיים בשורש הריפו (נוסף ב-PR זה).
+2. חבר את הריפו לחשבון שלך ב-Read the Docs ובחר את הסניף `main`.
+3. ההגדרה מצביעה על `docs/conf.py` ותשתמש בתלויות מ-`docs/requirements.txt`.
+4. אחרי merge ל-main, האתר ייבנה ויתעדכן אוטומטית.
+
+> קישור (לאחר הפעלה): הוסף כאן את ה-URL של הפרויקט ב-Read the Docs.
+
 ### GitHub Pages
 ```bash
 # העתק את התיעוד לענף gh-pages
