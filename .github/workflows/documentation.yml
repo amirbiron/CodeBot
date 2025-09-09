@@ -70,11 +70,11 @@ jobs:
         BOT_TOKEN: dummy_token_for_docs
         MONGODB_URL: mongodb://localhost:27017/test
 
-    - name: 🔨 Build multi-version docs (main/release/PR)
+    - name: 🔨 Build docs (single-version for stability)
       if: github.ref == 'refs/heads/main' && github.event_name == 'push' || github.event_name == 'pull_request'
       run: |
         cd docs
-        DISABLE_DB=1 sphinx-multiversion . _build/html
+        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going
     
     - name: 📊 Generate documentation coverage report
       if: github.event_name == 'pull_request'
