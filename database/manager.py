@@ -233,6 +233,57 @@ class DatabaseManager:
         self.close()
 
     # --- Backward-compatible CRUD API delegating to Repository ---
+    # התאמות שמיות כדי להתאים לדוקס הישנים: שמרנו שמות מתודות היסטוריים
+    # שממפות למימושים בפועל ב-Repository.
+
+    # --- Aliases for "snippet" nomenclature ---
+    def save_snippet(self, snippet) -> bool:
+        return self._get_repo().save_code_snippet(snippet)
+
+    def search_snippets(self, user_id: int, search_term: str = "", programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
+        return self._get_repo().search_code(user_id, search_term, programming_language, tags, limit)
+
+    def get_snippet(self, user_id: int, file_name: str) -> Optional[Dict]:
+        return self._get_repo().get_file(user_id, file_name)
+
+    def get_user_snippets(self, user_id: int, limit: int = 50) -> List[Dict]:
+        return self._get_repo().get_user_files(user_id, limit)
+
+    def delete_snippet(self, user_id: int, file_name: str) -> bool:
+        return self._get_repo().delete_file(user_id, file_name)
+
+    def delete_all_user_snippets(self, user_id: int) -> int:
+        # מממש כמחיקה רכה של כל הקבצים הפעילים של המשתמש
+        try:
+            files = [doc.get('file_name') for doc in (self._get_repo().get_user_files(user_id, limit=1000) or []) if isinstance(doc, dict)]
+            if not files:
+                return 0
+            return int(self._get_repo().soft_delete_files_by_names(user_id, files) or 0)
+        except Exception:
+            return 0
+
+    def get_user_statistics(self, user_id: int) -> Dict[str, Any]:
+        return self._get_repo().get_user_stats(user_id)
+
+    def get_global_statistics(self) -> Dict[str, Any]:
+        # מימוש בסיסי: אגרגציה גלובלית על כל הקבצים הפעילים
+        try:
+            pipeline = [
+                {"$match": {"is_active": True}},
+                {"$group": {
+                    "_id": None,
+                    "total_files": {"$sum": 1},
+                    "languages": {"$addToSet": "$programming_language"},
+                }},
+            ]
+            res = list(self.collection.aggregate(pipeline, allowDiskUse=True)) if self.collection else []
+            if res:
+                out = dict(res[0])
+                out.pop('_id', None)
+                return out
+            return {"total_files": 0, "languages": []}
+        except Exception:
+            return {"total_files": 0, "languages": []}
     def save_code_snippet(self, snippet) -> bool:
         return self._get_repo().save_code_snippet(snippet)
 
