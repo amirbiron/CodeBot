@@ -2189,11 +2189,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
-                row = [InlineKeyboardButton(name, callback_data=f"file_{i}")]
-                fid = str(f.get('_id') or '')
-                if fid:
-                    row.append(InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}"))
-                keyboard.append(row)
+                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
             # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
