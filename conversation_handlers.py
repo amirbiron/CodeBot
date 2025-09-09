@@ -27,6 +27,18 @@ from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
 from config import config
 
+async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mode=None) -> None:
+    """עורך הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
+    try:
+        if parse_mode is None:
+            await query.edit_message_text(text=text, reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except telegram.error.BadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return
+        raise
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
@@ -812,7 +824,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        await query.edit_message_text(
+        await _safe_edit_message_text(
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
             f"🧠 **שפה:** {language}{note_line}"
@@ -879,7 +891,7 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        await query.edit_message_text(
+        await _safe_edit_message_text(
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
@@ -911,7 +923,7 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         file_name = file_data.get('file_name', 'קובץ')
         
-        await query.edit_message_text(
+        await _safe_edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",

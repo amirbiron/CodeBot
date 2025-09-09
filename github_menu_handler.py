@@ -4273,12 +4273,14 @@ class GitHubMenuHandler:
         if not repo:
             await query.edit_message_text("❌ לא נבחר ריפו")
             return
-        # התחל בדפדוף מה-root
+        # התחל בדפדוף מה-root במצב הורדה בלבד
         context.user_data["browse_action"] = "download"
         context.user_data["browse_path"] = ""
         context.user_data["browse_page"] = 0
+        # אפס מצב מחיקה אם הופעל קודם
         context.user_data["multi_mode"] = False
         context.user_data["multi_selection"] = []
+        context.user_data["safe_delete"] = True
         await self.show_repo_browser(update, context)
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False):
         """מציג דפדפן ריפו לפי נתיב ושימוש (view/download/delete), כולל breadcrumbs ועימוד."""
@@ -4371,6 +4373,7 @@ class GitHubMenuHandler:
                             ]
                         )
                     else:
+                        # במצב שאינו download ואינו view — זה מצב delete בלבד
                         entry_rows.append(
                             [
                                 InlineKeyboardButton(
@@ -4449,42 +4452,37 @@ class GitHubMenuHandler:
         if (not folder_selecting) and context.user_data.get("browse_action") == "download":
             row.append(InlineKeyboardButton("🔗 שתף קישור לתיקייה", callback_data=self._mk_cb(context, "share_folder_link", path or "")))
         if not folder_selecting:
-            if not multi_mode:
-                row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
-                keyboard.append(row)
-            else:
-                keyboard.append(row)
-                row = []
-                if context.user_data.get("browse_action") == "download":
-                    row.append(
-                        InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute")
-                    )
-                    row.append(
-                        InlineKeyboardButton(
-                            "🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"
-                        )
-                    )
+            # במצב הורדה לא מציגים כלל כפתורי מחיקה/בחירה מרובה למחיקה
+            if context.user_data.get("browse_action") == "download":
+                if multi_mode:
+                    # הורדה מרובה בלבד
+                    keyboard.append(row)
+                    row = []
+                    row.append(InlineKeyboardButton("📦 הורד נבחרים כ־ZIP", callback_data="multi_execute"))
+                    row.append(InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"))
+                    keyboard.append(row)
+                    row = [InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"), InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle")]
                     keyboard.append(row)
                 else:
+                    row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
+                    keyboard.append(row)
+            else:
+                # מצב delete/view – התנהגות קיימת
+                if not multi_mode:
+                    row.append(InlineKeyboardButton("✅ בחר מרובים", callback_data="multi_toggle"))
+                    keyboard.append(row)
+                else:
+                    keyboard.append(row)
+                    row = []
                     safe_label = (
-                        "מצב מחיקה בטוח: פעיל"
-                        if context.user_data.get("safe_delete", True)
-                        else "מצב מחיקה בטוח: כבוי"
+                        "מצב מחיקה בטוח: פעיל" if context.user_data.get("safe_delete", True) else "מצב מחיקה בטוח: כבוי"
                     )
                     row.append(InlineKeyboardButton(safe_label, callback_data="safe_toggle"))
                     keyboard.append(row)
-                    row = [
-                        InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"),
-                        InlineKeyboardButton(
-                            "🔗 שתף קישורים לנבחרים", callback_data="share_selected_links"
-                        ),
-                    ]
+                    row = [InlineKeyboardButton("🗑️ מחק נבחרים", callback_data="multi_execute"), InlineKeyboardButton("🔗 שתף קישורים לנבחרים", callback_data="share_selected_links")]
                     keyboard.append(row)
-                row = [
-                    InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"),
-                    InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle"),
-                ]
-                keyboard.append(row)
+                    row = [InlineKeyboardButton("♻️ נקה בחירה", callback_data="multi_clear"), InlineKeyboardButton("🚫 בטל מצב מרובה", callback_data="multi_toggle")]
+                    keyboard.append(row)
         keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data="github_menu")])
         if bottom:
             keyboard.append(bottom)
