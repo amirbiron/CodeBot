@@ -788,6 +788,9 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}")
             ],
             [
+                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
+            ],
+            [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}")
             ]
@@ -2183,7 +2186,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['files_cache'] = {}
             for i, f in enumerate(files[:20]):
                 name = f.get('file_name', 'ללא שם')
-                keyboard.append([InlineKeyboardButton(name, callback_data=f"file_{i}")])
+                language = f.get('programming_language', 'text')
+                emoji = get_file_emoji(language)
+                button_text = f"{emoji} {name}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
             # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])

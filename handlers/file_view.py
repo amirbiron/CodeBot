@@ -84,6 +84,9 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
             ],
             [
+                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
+            ],
+            [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}"),
             ],
