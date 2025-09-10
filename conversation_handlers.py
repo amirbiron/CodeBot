@@ -22,6 +22,7 @@ from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
+from utils import TelegramUtils
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
@@ -824,7 +825,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        await _safe_edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
             f"🧠 **שפה:** {language}{note_line}"
@@ -891,7 +892,7 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        await _safe_edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
@@ -923,7 +924,7 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         file_name = file_data.get('file_name', 'קובץ')
         
-        await _safe_edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",

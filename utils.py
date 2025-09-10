@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import telegram.error
 
 try:
     import aiofiles  # type: ignore
@@ -433,6 +434,29 @@ class TelegramUtils:
             parts.append(current_part.rstrip())
         
         return parts
+
+    @staticmethod
+    async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode: Optional[str] = None) -> None:
+        """עריכת טקסט הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
+        try:
+            if parse_mode is None:
+                await query.edit_message_text(text=text, reply_markup=reply_markup)
+            else:
+                await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except telegram.error.BadRequest as e:
+            if "message is not modified" in str(e).lower():
+                return
+            raise
+
+    @staticmethod
+    async def safe_edit_message_reply_markup(query, reply_markup=None) -> None:
+        """עריכת מקלדת הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
+        try:
+            await query.edit_message_reply_markup(reply_markup=reply_markup)
+        except telegram.error.BadRequest as e:
+            if "message is not modified" in str(e).lower():
+                return
+            raise
 
 class AsyncUtils:
     """כלים לעבודה אסינכרונית"""
