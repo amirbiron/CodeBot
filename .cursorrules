@@ -126,3 +126,27 @@ safe_rmrf() {
 }
 ```
 
+# Docs/RTD
+- :noindex: לעמודי סקירה חופפים (api, database, handlers, services, configuration).
+- autodoc_mock_imports: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations.
+- fail_on_warning: true חובה; אין להכניס imports כבדים/קוד ריצה בטופ-לבל.
+- examples.rst מוחרג אלא אם נוסף ל-toctree.
+
+# CI/Required checks
+- לשמור שמות סטטוסים בדיוק: “🔍 Code Quality & Security”, “🧪 Unit Tests (3.11)”, “🧪 Unit Tests (3.12)”.
+- לדווח גם legacy context במידת הצורך; אין לשנות שמות jobs הנדרשים.
+
+# Telegram Bot
+- תמיד להשתמש ב-wrapper בטוח ל-edit_message_text שמתעלם מ-“Message is not modified”.
+- לקרוא await query.answer() לפני כל עריכה; לא לערוך אם אין שינוי בתוכן/markup.
+
+# GitHub “📥 הורד קובץ מריפו”
+- בכניסה: browse_action=download, לאפס multi_mode/safe_delete.
+- במצב הורדה לא להציג כפתורי מחיקה.
+
+# בטיחות קבצים
+- מחיקות/ניקויים רק תחת /tmp; אין rm -rf מחוץ ל-allowlist; ללא sudo.
+
+# PRs
+- שמות ענפים fix/..., chore/...; תיאור PR ב-HTML קצר (מה השתנה/בדיקות).
+- אם משנים סטטוס/שם job – לעדכן Branch protection.
