@@ -142,8 +142,10 @@ safe_rmrf() {
 - לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
 
 # Telegram Bot – מניעת "Message is not modified"
+- כשנערכת רק המקלדת: להשתמש ב-safe_edit_message_reply_markup (אותו טיפול חריגים).
 - תמיד לקרוא query.answer() לפני עריכה.
 - לעטוף edit_message_text / edit_message_reply_markup ב-wrapper שמתעלם מהשגיאה הזו בלבד:
+- לא משתיקים BadRequest אחרים; רק המקרה "message is not modified" נבלם.
 
     ```python
     import telegram.error
