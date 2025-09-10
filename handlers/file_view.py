@@ -17,6 +17,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional
 from html import escape as html_escape
+from utils import TelegramUtils
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -66,7 +67,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ החכם")
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ החכם")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
@@ -103,7 +104,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
             f"🧠 **שפה:** {language}{note_line}"
@@ -113,7 +114,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
     except Exception as e:
         logger.error(f"Error in handle_file_menu: {e}")
-        await query.edit_message_text("💥 שגיאה במרכז הבקרה המתקדם")
+        await TelegramUtils.safe_edit_message_text(query, "💥 שגיאה במרכז הבקרה המתקדם")
     return ConversationHandler.END
 
 
@@ -126,7 +127,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+            await TelegramUtils.safe_edit_message_text(query, "⚠️ הקובץ נעלם מהמערכת החכמה")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         code = file_data.get('code', '')
@@ -160,7 +161,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
@@ -168,7 +169,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
     except Exception as e:
         logger.error(f"Error in handle_view_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהצגת הקוד המתקדם")
     return ConversationHandler.END
 
 
@@ -180,12 +181,12 @@ async def handle_edit_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         context.user_data['editing_file_index'] = file_index
         context.user_data['editing_file_data'] = file_data
         file_name = file_data.get('file_name', 'קובץ')
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
@@ -195,7 +196,7 @@ async def handle_edit_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_CODE
     except Exception as e:
         logger.error(f"Error in handle_edit_code: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכה\n\n🔄 אנא נסה שוב או חזור לתפריט הראשי\n📞 אם הבעיה נמשכת, פנה לתמיכה")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהתחלת עריכה\n\n🔄 אנא נסה שוב או חזור לתפריט הראשי\n📞 אם הבעיה נמשכת, פנה לתמיכה")
     return ConversationHandler.END
 
 
@@ -352,12 +353,12 @@ async def handle_edit_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         context.user_data['editing_file_index'] = file_index
         context.user_data['editing_file_data'] = file_data
         current_name = file_data.get('file_name', 'קובץ')
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{current_name}`\n\n"
             f"✏️ שלח שם חדש לקובץ:",
@@ -367,7 +368,7 @@ async def handle_edit_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_NAME
     except Exception as e:
         logger.error(f"Error in handle_edit_name: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכת שם")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהתחלת עריכת שם")
     return ConversationHandler.END
 
 
@@ -379,12 +380,12 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         current_note = file_data.get('description', '') or '—'
         context.user_data['editing_note_file'] = file_name
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
             f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
@@ -395,7 +396,7 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_CODE
     except Exception as e:
         logger.error(f"Error in handle_edit_note: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכת הערה")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהתחלת עריכת הערה")
     return ConversationHandler.END
 
 
