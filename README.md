@@ -1,5 +1,5 @@
 # 🤖 Code Keeper Bot - בוט שומר קבצי קוד
-
+ 
 בוט טלגרם חכם ומתקדם לשמירה, ניהול ושיתוף קטעי קוד בצורה מסודרת ונוחה.
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
