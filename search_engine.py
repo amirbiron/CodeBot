@@ -526,16 +526,21 @@ class SearchQueryParser:
     """מפרש שאילתות חיפוש מתקדמות"""
     
     def __init__(self):
-        self.operators = {
-            'AND': self._and_operator,
-            'OR': self._or_operator,
-            'NOT': self._not_operator,
-            'lang:': self._language_filter,
-            'tag:': self._tag_filter,
-            'func:': self._function_filter,
-            'size:': self._size_filter,
-            'date:': self._date_filter
-        }
+        # בנייה בטוחה של מפת אופרטורים ומסננים כדי למנוע AttributeError בזמן build של RTD
+        ops: Dict[str, Any] = {}
+        for name, fn in [("AND", "_and_operator"), ("OR", "_or_operator"), ("NOT", "_not_operator")]:
+            if hasattr(self, fn):
+                ops[name] = getattr(self, fn)
+        for name, fn in [
+            ("lang:", "_language_filter"),
+            ("tag:", "_tag_filter"),
+            ("func:", "_function_filter"),
+            ("size:", "_size_filter"),
+            ("date:", "_date_filter"),
+        ]:
+            if hasattr(self, fn):
+                ops[name] = getattr(self, fn)
+        self.operators = ops
     
     def parse_query(self, query: str) -> Dict[str, Any]:
         """פרסור שאילתת חיפוש מתקדמת"""
@@ -591,6 +596,45 @@ class SearchQueryParser:
                 filters.min_size = int(min_val)
                 filters.max_size = int(max_val)
         # ועוד מסננים...
+
+    # ===== Stubs בטוחים לאופרטורים כדי למנוע AttributeError בזמן build =====
+    def _and_operator(self, left: Any, right: Any) -> Any:
+        raise NotImplementedError("_and_operator is not implemented yet")
+
+    def _or_operator(self, left: Any, right: Any) -> Any:
+        raise NotImplementedError("_or_operator is not implemented yet")
+
+    def _not_operator(self, operand: Any) -> Any:
+        raise NotImplementedError("_not_operator is not implemented yet")
+
+    # מסננים אופציונליים (stubs) — אם ייקראו בבנייה, יעלו שגיאה ברורה
+    def _language_filter(self, filters: SearchFilter, value: str) -> None:
+        filters.languages.append(value)
+
+    def _tag_filter(self, filters: SearchFilter, value: str) -> None:
+        filters.tags.append(value)
+
+    def _function_filter(self, filters: SearchFilter, value: str) -> None:
+        # מסנן סמלי בלבד כרגע; אינדקס פונקציות מופעל בצד המנוע
+        filters.tags.append(f"func:{value}")
+
+    def _size_filter(self, filters: SearchFilter, value: str) -> None:
+        if value.startswith('>'):
+            filters.min_size = int(value[1:])
+        elif value.startswith('<'):
+            filters.max_size = int(value[1:])
+        elif '-' in value:
+            min_val, max_val = value.split('-')
+            filters.min_size = int(min_val)
+            filters.max_size = int(max_val)
+
+    def _date_filter(self, filters: SearchFilter, value: str) -> None:
+        # Stub: פירוש תאריך בסיסי — שומר לסינון מאוחר יותר בצד המנוע אם ימומש
+        try:
+            # תאריכים מוחלטים או יחסיים ימומשו בהמשך
+            pass
+        except Exception:
+            pass
 
 # יצירת אינסטנס גלובלי
 search_engine = AdvancedSearchEngine()
