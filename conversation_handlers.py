@@ -1758,6 +1758,22 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     """מרכז בקרה מתקדם לכל הכפתורים"""
     query = update.callback_query
     
+    # Guard נגד לחיצות כפולות: חלון קצר למניעת ריצות מקבילות
+    try:
+        import time as _time
+        busy_until = float(context.user_data.get("_cb_busy_until", 0.0) or 0.0)
+        now_ts = _time.time()
+        if busy_until and now_ts < busy_until:
+            try:
+                await query.answer("עובד…", show_alert=False)
+            except Exception:
+                pass
+            return ConversationHandler.END
+        # קבע חלון חסימה קצר (~1.2s)
+        context.user_data["_cb_busy_until"] = now_ts + 1.2
+    except Exception:
+        pass
+
     try:
         data = query.data
         
@@ -2404,6 +2420,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             raise
     except Exception as e:
         logger.error(f"Error in smart callback handler: {e}")
+    finally:
+        # שחרור ה-guard בזמן יציאה
+        try:
+            context.user_data.pop("_cb_busy_until", None)
+        except Exception:
+            pass
     
     return ConversationHandler.END
 
