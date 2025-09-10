@@ -83,7 +83,7 @@ todo_include_todos = True
 templates_path = ['_templates']
 
 # List of patterns to exclude
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'api/get-pip.rst', 'examples.rst']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'api/get-pip.rst']
 
 # The language for content
 language = 'he'
