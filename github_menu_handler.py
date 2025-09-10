@@ -33,6 +33,7 @@ from telegram.ext import (
 from repo_analyzer import RepoAnalyzer
 from config import config
 from file_manager import backup_manager
+from utils import TelegramUtils
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -4500,26 +4501,30 @@ class GitHubMenuHandler:
         action = "תצוגה" if _mode == "view" else ("הורדה" if _mode == "download" else "מחיקה")
         if only_keyboard:
             try:
-                await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+                await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                return
             except Exception:
-                if folder_selecting:
-                    await query.edit_message_text(
-                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-                        f"🔀 ref: <code>{current_ref}</code>\n"
-                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-                        f"בחר תיקייה יעד או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode="HTML",
-                    )
-                else:
-                    await query.edit_message_text(
-                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-                        f"🔀 ref: <code>{current_ref}</code>\n"
-                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-                        f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode="HTML",
-                    )
+                pass
+            if folder_selecting:
+                await TelegramUtils.safe_edit_message_text(
+                    query,
+                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"🔀 ref: <code>{current_ref}</code>\n"
+                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                    f"בחר תיקייה יעד או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                )
+            else:
+                await TelegramUtils.safe_edit_message_text(
+                    query,
+                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"🔀 ref: <code>{current_ref}</code>\n"
+                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                    f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                )
         else:
             if folder_selecting:
                 await query.edit_message_text(
