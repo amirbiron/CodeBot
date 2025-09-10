@@ -3,13 +3,11 @@ name: CI
 on:
   push:
     branches: [ 'main', 'rollback/**' ]
-    paths-ignore:
-      - ".cursorrules"
+    # אל תתעלם משינויים ב-.cursorrules כדי שה-CI ירוץ גם על PRים שמעדכנים אותו
   pull_request:
     branches: [ '**' ]
     types: [opened, synchronize, reopened, ready_for_review]
-    paths-ignore:
-      - ".cursorrules"
+    # אל תתעלם מ-.cursorrules גם כאן
   workflow_dispatch:
 
 permissions:
