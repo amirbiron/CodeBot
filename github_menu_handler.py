@@ -1860,9 +1860,19 @@ class GitHubMenuHandler:
             await self.show_browse_search_results(update, context)
         elif query.data.startswith("browse_select_download:") or query.data.startswith("browse_select_download_i:"):
             path = self._get_path_from_cb(context, query.data, "browse_select_download")
+            # שמור על browse_action=download כדי שלא ייחשפו כפתורי מחיקה לאחר ההורדה
             context.user_data.pop("waiting_for_download_file_path", None)
-            context.user_data.pop("browse_action", None)
-            context.user_data.pop("browse_path", None)
+            # אל תאפס את browse_action; נשמור אותו כ-download
+            try:
+                if context.user_data.get("browse_action") != "download":
+                    context.user_data["browse_action"] = "download"
+            except Exception:
+                context.user_data["browse_action"] = "download"
+            # שמור את הנתיב האחרון כדי שהדפדפן יישאר באותו מיקום
+            try:
+                context.user_data["browse_path"] = context.user_data.get("browse_path") or "/".join((path or "").split("/")[:-1])
+            except Exception:
+                pass
             # הורדה מיידית
             token = self.get_user_token(user_id)
             repo_name = session.get("selected_repo")
@@ -1890,7 +1900,7 @@ class GitHubMenuHandler:
                 base = __import__('os').path
                 filename = base.basename(contents.path) or "downloaded_file"
                 await query.message.reply_document(document=BytesIO(data), filename=filename)
-            # הישאר בדפדפן במקום לחזור לתפריט
+            # הישאר בדפדפן במצב הורדה בלבד, עדכן מקלדת בלי להחליף טקסט
             await self.show_repo_browser(update, context, only_keyboard=True)
         elif query.data.startswith("browse_select_view:") or query.data.startswith("browse_select_view_i:"):
             # מצב תצוגת קובץ חלקית עם "הצג עוד"

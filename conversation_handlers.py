@@ -569,11 +569,15 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
             )
 
-            await query.edit_message_text(
-                header_text,
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML
-            )
+            try:
+                await query.edit_message_text(
+                    header_text,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
             
         reporter.report_activity(user_id)
         
@@ -664,11 +668,15 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
         )
 
-        await query.edit_message_text(
-            header_text,
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML
-        )
+        try:
+            await query.edit_message_text(
+                header_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+        except telegram.error.BadRequest as br:
+            if "message is not modified" not in str(br).lower():
+                raise
     except Exception as e:
         logger.error(f"Error in show_regular_files_page_callback: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת עמוד הקבצים")
