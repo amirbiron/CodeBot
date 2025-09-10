@@ -526,16 +526,9 @@ class SearchQueryParser:
     """מפרש שאילתות חיפוש מתקדמות"""
     
     def __init__(self):
-        self.operators = {
-            'AND': self._and_operator,
-            'OR': self._or_operator,
-            'NOT': self._not_operator,
-            'lang:': self._language_filter,
-            'tag:': self._tag_filter,
-            'func:': self._function_filter,
-            'size:': self._size_filter,
-            'date:': self._date_filter
-        }
+        # רשימת אופרטורים נתמכים (יוגדרו בעתיד)
+        self.supported_operators = ['AND', 'OR', 'NOT']
+        self.supported_filters = ['lang:', 'tag:', 'func:', 'size:', 'date:']
     
     def parse_query(self, query: str) -> Dict[str, Any]:
         """פרסור שאילתת חיפוש מתקדמת"""
