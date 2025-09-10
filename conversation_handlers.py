@@ -393,13 +393,14 @@ async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAU
             if t.startswith('repo:'):
                 repo_to_count[t] = repo_to_count.get(t, 0) + 1
     if not repo_to_count:
-        await query.edit_message_text("ℹ️ אין קבצים עם תגית ריפו.")
+        await TelegramUtils.safe_edit_message_text(query, "ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
     keyboard = []
     for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
-    await query.edit_message_text(
+    await TelegramUtils.safe_edit_message_text(
+        query,
         "בחר/י ריפו להצגת קבצים:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -493,14 +494,18 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
+            query,
             "בחר/י דרך להצגת הקבצים:",
             reply_markup=reply_markup
         )
         reporter.report_activity(update.effective_user.id)
     except Exception as e:
-        logger.error(f"Error in show_all_files_callback: {e}")
-        await query.edit_message_text("❌ שגיאה בטעינת התפריט")
+        # אל תרשום ERROR אם זו רק הודעה שלא השתנתה
+        msg = str(e)
+        if "message is not modified" not in msg.lower():
+            logger.error(f"Error in show_all_files_callback: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בטעינת התפריט")
     
     return ConversationHandler.END
 
