@@ -126,27 +126,53 @@ safe_rmrf() {
 }
 ```
 
-# Docs/RTD
-- :noindex: לעמודי סקירה חופפים (api, database, handlers, services, configuration).
-- autodoc_mock_imports: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations.
-- fail_on_warning: true חובה; אין להכניס imports כבדים/קוד ריצה בטופ-לבל.
-- examples.rst מוחרג אלא אם נוסף ל-toctree.
+# Sphinx/RTD (תיעוד)
+- אין להריץ קוד בטופ־לבל בזמן build (importים חייבים להיות בטוחים).
+- RTD נחשב נכשל על אזהרות (fail_on_warning: true) – לשמור 0 warnings.
+- להשתמש ב-:noindex: בעמודי סקירה חופפים: api, database, handlers, services, configuration.
+- להגדיר autodoc_mock_imports: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations.
+- docs/examples.rst מוחרג עד שהעמוד יתווסף ל-toctree (ואז להסיר מה-exclude).
 
-# CI/Required checks
-- לשמור שמות סטטוסים בדיוק: “🔍 Code Quality & Security”, “🧪 Unit Tests (3.11)”, “🧪 Unit Tests (3.12)”.
-- לדווח גם legacy context במידת הצורך; אין לשנות שמות jobs הנדרשים.
+# CI / Required Checks
+- ה־PR חייב להציג בדיוק את הסטטוסים הבאים:
+  - "🔍 Code Quality & Security"
+  - "🧪 Unit Tests (3.11)"
+  - "🧪 Unit Tests (3.12)"
+- אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
+- לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
 
-# Telegram Bot
-- תמיד להשתמש ב-wrapper בטוח ל-edit_message_text שמתעלם מ-“Message is not modified”.
-- לקרוא await query.answer() לפני כל עריכה; לא לערוך אם אין שינוי בתוכן/markup.
+# Telegram Bot – מניעת "Message is not modified"
+- תמיד לקרוא query.answer() לפני עריכה.
+- לעטוף edit_message_text / edit_message_reply_markup ב-wrapper שמתעלם מהשגיאה הזו בלבד:
 
-# GitHub “📥 הורד קובץ מריפו”
-- בכניסה: browse_action=download, לאפס multi_mode/safe_delete.
-- במצב הורדה לא להציג כפתורי מחיקה.
+    ```python
+    import telegram.error
 
-# בטיחות קבצים
-- מחיקות/ניקויים רק תחת /tmp; אין rm -rf מחוץ ל-allowlist; ללא sudo.
+    async def safe_edit(query, text, reply_markup=None, parse_mode=None):
+        try:
+            await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        except telegram.error.BadRequest as e:
+            if "message is not modified" in str(e).lower():
+                return
+            raise
+    ```
 
-# PRs
-- שמות ענפים fix/..., chore/...; תיאור PR ב-HTML קצר (מה השתנה/בדיקות).
-- אם משנים סטטוס/שם job – לעדכן Branch protection.
+# GitHub – "📥 הורד קובץ מריפו"
+- בכניסה לפלואו: browse_action=download, לאפס multi_mode/safe_delete.
+- במצב הורדה לא מציגים כפתורי מחיקה או מצב מחיקה.
+- חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש).
+
+# CI Gates (Python)
+- חובה ירוקים ב־CI:
+  - "🔍 Code Quality & Security"
+  - "🧪 Unit Tests (3.11)"
+  - "🧪 Unit Tests (3.12)"
+- אין git clean/reset על ה־workspace; עבודה רק על תיקיות זמניות.
+
+# PR/תיעוד שינויים
+- שמות ענפים: fix/..., chore/..., feat/...
+- תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
