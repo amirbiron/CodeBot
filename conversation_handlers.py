@@ -826,6 +826,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
             f"🧠 **שפה:** {language}{note_line}"
@@ -893,6 +894,7 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
@@ -925,6 +927,7 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         file_name = file_data.get('file_name', 'קובץ')
         
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",

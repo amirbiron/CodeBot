@@ -105,6 +105,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
             f"🧠 **שפה:** {language}{note_line}"
@@ -162,6 +163,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
@@ -187,6 +189,7 @@ async def handle_edit_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         context.user_data['editing_file_data'] = file_data
         file_name = file_data.get('file_name', 'קובץ')
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
@@ -359,6 +362,7 @@ async def handle_edit_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         context.user_data['editing_file_data'] = file_data
         current_name = file_data.get('file_name', 'קובץ')
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{current_name}`\n\n"
             f"✏️ שלח שם חדש לקובץ:",
@@ -386,6 +390,7 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         current_note = file_data.get('description', '') or '—'
         context.user_data['editing_note_file'] = file_name
         await TelegramUtils.safe_edit_message_text(
+            query,
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
             f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
