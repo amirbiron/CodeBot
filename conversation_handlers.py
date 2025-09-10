@@ -28,6 +28,18 @@ from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
 from config import config
 
+async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mode=None) -> None:
+    """עורך הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
+    try:
+        if parse_mode is None:
+            await query.edit_message_text(text=text, reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except telegram.error.BadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return
+        raise
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
