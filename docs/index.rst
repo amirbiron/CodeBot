@@ -19,6 +19,7 @@ Code Keeper Bot - תיעוד API
    handlers/index
    services/index
    database/index
+   dev_notes
    user/share_code
    user/github_browse
    user/download_repo
