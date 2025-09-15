@@ -246,6 +246,16 @@ jobs:
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
         run: pytest -v -o addopts="" --cov=. --cov-report=xml --cov-report=term
 
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Report required status (success)
         if: ${{ success() }}
         uses: actions/github-script@v7

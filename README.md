@@ -16,7 +16,7 @@
 [![Performance Tests](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml)
 
 [![Coverage](https://codecov.io/gh/amirbiron/CodeBot/branch/main/graph/badge.svg)](https://codecov.io/gh/amirbiron/CodeBot)
-[![Dependencies](https://img.shields.io/librariesio/github/amirbiron/CodeBot)](https://libraries.io/github/amirbiron/CodeBot)
+[![Requirements Status](https://requires.io/github/amirbiron/CodeBot/requirements.svg?branch=main)](https://requires.io/github/amirbiron/CodeBot/requirements/?branch=main)
 
 ## 📋 תוכן עניינים
 
