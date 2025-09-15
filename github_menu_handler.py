@@ -463,6 +463,11 @@ class GitHubMenuHandler:
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
         try:
+            # חיווי טעינה בעת שליפת ענפים
+            try:
+                await TelegramUtils.safe_edit_message_text(query, "⏳ טוען רשימת ענפים…")
+            except Exception:
+                pass
             branches = list(repo.get_branches())
             # מיין: main ראשון; אחריו לפי עדכון commit אחרון (חדש→ישן)
             def _branch_sort_key(br):
@@ -511,8 +516,18 @@ class GitHubMenuHandler:
         if nav:
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
-        await query.edit_message_text(
-            "⬇️ בחר/י ענף לייבוא קבצים מהריפו:", reply_markup=InlineKeyboardMarkup(keyboard)
+        # הצג חיווי טוען בזמן שליפת ענפים
+        try:
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                "⏳ טוען רשימת ענפים…",
+            )
+        except Exception:
+            pass
+        await TelegramUtils.safe_edit_message_text(
+            query,
+            "⬇️ בחר/י ענף לייבוא קבצים מהריפו:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
 
     async def _confirm_import_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, branch: str):
@@ -554,7 +569,8 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
-        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת עד דקה.")
+        # חיווי התקדמות מדורג במהלך הייבוא
+        await TelegramUtils.safe_edit_message_text(query, "⏳ מוריד ZIP רשמי ומייבא קבצים… 0%")
         import requests
         import zipfile as _zip
         tmp_dir = None
@@ -578,6 +594,10 @@ class GitHubMenuHandler:
             zip_path = os.path.join(tmp_dir, "repo.zip")
             with open(zip_path, "wb") as f:
                 f.write(resp.content)
+            try:
+                await TelegramUtils.safe_edit_message_text(query, "📦 חילוץ קבצים… 20%")
+            except Exception:
+                pass
             # חליצה לתת-תיקייה ייעודית
             extracted_dir = os.path.join(tmp_dir, "repo")
             os.makedirs(extracted_dir, exist_ok=True)
@@ -599,10 +619,18 @@ class GitHubMenuHandler:
             repo_tag = f"repo:{repo_full}"
             source_tag = "source:github"
             # מעבר על קבצים
+            processed = 0
+            estimated_total = 0
+            try:
+                for _d, _dirs, _files in os.walk(root):
+                    estimated_total += len(_files)
+            except Exception:
+                estimated_total = 0
             for cur_dir, dirnames, filenames in os.walk(root):
                 # סינון תיקיות מיותרות
                 dirnames[:] = [d for d in dirnames if d not in IMPORT_SKIP_DIRS]
                 for name in filenames:
+                    processed += 1
                     # דלג על קבצי ZIP עצמם או קבצים מוסתרים ענקיים
                     if name.endswith('.zip'):
                         skipped += 1
@@ -637,8 +665,9 @@ class GitHubMenuHandler:
                         if saved >= IMPORT_MAX_FILES:
                             continue
                         lang = detect_language_from_filename(rel_path)
-                        # בדוק אם קיים כבר — אם כן, שמירה תיצור גרסה חדשה ונחשב זאת כ"עודכן"
-                        existed = bool(db.get_latest_version(user_id, rel_path))
+                        # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית). אם קיים ללא תגית הריפו, נחשב כ"חדש".
+                        latest = db.get_latest_version(user_id, rel_path)
+                        existed = bool(latest and repo_tag in (latest.get('tags') or []))
                         ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
                             if existed:
@@ -650,7 +679,14 @@ class GitHubMenuHandler:
                             skipped += 1
                     except Exception:
                         skipped += 1
-            await query.edit_message_text(
+                    # עדכון התקדמות כל כמה קבצים
+                    if processed % 25 == 0 and estimated_total:
+                        try:
+                            pct = min(99, int((processed / max(1, estimated_total)) * 100))
+                            await TelegramUtils.safe_edit_message_text(query, f"🛠️ מייבא קבצים… {pct}%")
+                        except Exception:
+                            pass
+            await TelegramUtils.safe_edit_message_text(
                 f"✅ ייבוא הושלם: {saved} חדשים, {updated} עודכנו, {skipped} דילוגים.\n"
                 f"🔖 תיוג: <code>{repo_tag}</code> (ו-<code>{source_tag}</code>)\n\n"
                 f"ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.\n"
@@ -1985,6 +2021,10 @@ class GitHubMenuHandler:
                 await query.edit_message_text("❌ חסרים נתונים")
                 return
             try:
+                try:
+                    await TelegramUtils.safe_edit_message_text(query, "⏳ מכין ZIP… 0%")
+                except Exception:
+                    pass
                 await query.answer(
                     "מוריד תיקייה כ־ZIP, התהליך עשוי להימשך 1–2 דקות.", show_alert=True
                 )
@@ -1997,6 +2037,10 @@ class GitHubMenuHandler:
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
+                        try:
+                            await TelegramUtils.safe_edit_message_text(query, "⏳ מוריד zipball… 20%")
+                        except Exception:
+                            pass
                         r = requests.get(url, timeout=60)
                         r.raise_for_status()
                         # בנה ZIP חדש עם metadata.json משולב כדי לאפשר רישום בגיבויים
@@ -2024,6 +2068,10 @@ class GitHubMenuHandler:
                                 for name in file_names:
                                     zout.writestr(name, zin.read(name))
                             out_buf.seek(0)
+                            try:
+                                await TelegramUtils.safe_edit_message_text(query, "📦 אורז קבצים… 70%")
+                            except Exception:
+                                pass
                             # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
                             backup_manager.save_backup_bytes(out_buf.getvalue(), metadata)
                             # שלח למשתמש
@@ -2040,6 +2088,10 @@ class GitHubMenuHandler:
                             await query.message.reply_document(
                                 document=out_buf, filename=filename, caption=caption
                             )
+                            try:
+                                await TelegramUtils.safe_edit_message_text(query, "✅ ZIP הוכן ונשלח! 100%")
+                            except Exception:
+                                pass
                             # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
                             try:
                                 backup_id = metadata.get("backup_id")
@@ -2155,6 +2207,10 @@ class GitHubMenuHandler:
                     zipf.writestr("metadata.json", json.dumps(metadata, indent=2))
 
                 zip_buffer.seek(0)
+                try:
+                    await TelegramUtils.safe_edit_message_text(query, "📦 אורז קבצים… 80%")
+                except Exception:
+                    pass
                 # שם ידידותי ל-folder/repo
                 try:
                     infos = backup_manager.list_backups(user_id)
@@ -2180,6 +2236,10 @@ class GitHubMenuHandler:
                 await query.message.reply_document(
                     document=zip_buffer, filename=filename, caption=caption
                 )
+                try:
+                    await TelegramUtils.safe_edit_message_text(query, "✅ ZIP הוכן ונשלח! 100%")
+                except Exception:
+                    pass
                 # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
                 try:
                     backup_id = metadata.get("backup_id")
@@ -2590,7 +2650,7 @@ class GitHubMenuHandler:
             await self.confirm_merge_pr(update, context)
         elif query.data == "validate_repo":
             try:
-                await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
+                await TelegramUtils.safe_edit_message_text(query, "⏳ מוריד את הריפו ובודק תקינות… 0%")
                 import tempfile, requests, zipfile
                 token_opt = self.get_user_token(user_id)
                 g = Github(login_or_token=(token_opt or ""))
@@ -2599,7 +2659,7 @@ class GitHubMenuHandler:
                     await query.edit_message_text("❌ קודם בחר ריפו!")
                     return
 
-                def do_validate():
+                def do_validate(progress_cb=None):
                     repo = g.get_repo(repo_full)
                     url = repo.get_archive_link("zipball")
                     with tempfile.TemporaryDirectory(prefix="repo_val_") as tmp:
@@ -2608,10 +2668,14 @@ class GitHubMenuHandler:
                         r.raise_for_status()
                         with open(zip_path, "wb") as f:
                             f.write(r.content)
+                        if progress_cb:
+                            progress_cb(20)
                         extract_dir = os.path.join(tmp, "repo")
                         os.makedirs(extract_dir, exist_ok=True)
                         with zipfile.ZipFile(zip_path, "r") as zf:
                             zf.extractall(extract_dir)
+                        if progress_cb:
+                            progress_cb(35)
                         # GitHub zip יוצר תיקיית-שורש יחידה
                         entries = [os.path.join(extract_dir, d) for d in os.listdir(extract_dir)]
                         root = next((p for p in entries if os.path.isdir(p)), extract_dir)
@@ -2662,14 +2726,33 @@ class GitHubMenuHandler:
                                 return rc, out
                             return 127, "Tool not installed"
                         results = {}
+                        if progress_cb:
+                            progress_cb(50)
                         results["flake8"] = _run_any("flake8", ["."])
+                        if progress_cb:
+                            progress_cb(65)
                         results["mypy"] = _run_any("mypy", ["."])
+                        if progress_cb:
+                            progress_cb(78)
                         results["bandit"] = _run_any("bandit", ["-q", "-r", "."]) 
+                        if progress_cb:
+                            progress_cb(90)
                         results["black"] = _run_any("black", ["--check", "."]) 
+                        if progress_cb:
+                            progress_cb(95)
                         return results, repo_full
 
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
-                results, repo_name_for_msg = await asyncio.to_thread(do_validate)
+                loop = asyncio.get_running_loop()
+                def _progress(pct: int):
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            TelegramUtils.safe_edit_message_text(query, f"🧪 בודק תקינות… {pct}%"),
+                            loop,
+                        )
+                    except Exception:
+                        pass
+                results, repo_name_for_msg = await asyncio.to_thread(do_validate, _progress)
 
                 # פורמט תוצאות מעוצב
                 def status_label(rc):
@@ -2751,10 +2834,10 @@ class GitHubMenuHandler:
 
                 # הוסף כפתור חזרה לתפריט GitHub
                 kb = [[InlineKeyboardButton("🔙 חזרה לתפריט GitHub", callback_data="github_menu")]]
-                await query.edit_message_text(message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+                await TelegramUtils.safe_edit_message_text(query, message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
             except Exception as e:
                 logger.exception("Repo validation failed")
-                await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
+                await TelegramUtils.safe_edit_message_text(query, f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
 
     async def show_repo_selection(self, query, context: ContextTypes.DEFAULT_TYPE):
         """Show repository selection menu"""
@@ -3691,17 +3774,29 @@ class GitHubMenuHandler:
         session = self.get_user_session(user_id)
         logger.info(f"👤 User {user_id} analyzing repo: {repo_url}")
 
-        # הצג הודעת המתנה
+        # הצג הודעת המתנה עם חיווי התקדמות
         status_message = await self._send_or_edit_message(
-            update, "🔍 מנתח את הריפו...\nזה עשוי לקחת מספר שניות..."
+            update, "🔍 מנתח את הריפו… 0%\nזה עשוי לקחת מספר שניות..."
         )
 
         try:
             # צור מנתח עם הטוקן
             analyzer = RepoAnalyzer(github_token=self.get_user_token(user_id))
 
-            # נתח את הריפו
+            # נתח את הריפו בחוט רקע והתקדם בחיווי
+            loop = asyncio.get_running_loop()
+            def _progress_analyze(pct: int):
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        status_message.edit_text(f"🔍 מנתח את הריפו… {pct}%\nזה עשוי לקחת מספר שניות..."),
+                        loop,
+                    )
+                except Exception:
+                    pass
+            # כרגע RepoAnalyzer לא מדווח התקדמות פנימית, נחלק לשלבים גסים
+            _progress_analyze(10)
             analysis = await analyzer.fetch_and_analyze_repo(repo_url)
+            _progress_analyze(95)
 
             # שמור את הניתוח ב-session
             session["last_analysis"] = analysis
