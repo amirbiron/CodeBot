@@ -15,6 +15,9 @@
 [![Security Scan](https://github.com/amirbiron/CodeBot/actions/workflows/security-scan.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/security-scan.yml)
 [![Performance Tests](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml)
 
+[![Coverage](https://codecov.io/gh/amirbiron/CodeBot/branch/main/graph/badge.svg)](https://codecov.io/gh/amirbiron/CodeBot)
+[![Dependencies](https://img.shields.io/librariesio/github/amirbiron/CodeBot)](https://libraries.io/github/amirbiron/CodeBot)
+
 ## 📋 תוכן עניינים
 
 - [✨ פיצ'רים עיקריים](#-פיצרים-עיקריים)
