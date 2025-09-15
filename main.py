@@ -118,6 +118,69 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_user.id,
             update.effective_user.username
         )
+        # הודעות ציון דרך לפי מספר פעולות (50/100/200/500/1000) — פעם אחת לכל יעד
+        try:
+            user_id = update.effective_user.id
+            users_collection = db.db.users if getattr(db, 'db', None) else None
+            if users_collection is not None:
+                doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
+                total_actions = int(doc.get("total_actions") or 0)
+                already_sent = set(doc.get("milestones_sent") or [])
+                milestones = [50, 100, 200, 500, 1000]
+                # בחר את היעד הגבוה ביותר שהושג ושעדיין לא נשלח
+                pending = [m for m in milestones if m <= total_actions and m not in already_sent]
+                if pending:
+                    milestone = max(pending)
+                    # עדכון אטומי: הוסף milestone אם עדיין לא קיים; שלח הודעה רק אם נוסף כעת
+                    res = users_collection.update_one(
+                        {"user_id": user_id, "milestones_sent": {"$ne": milestone}},
+                        {"$addToSet": {"milestones_sent": milestone}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+                    )
+                    if getattr(res, 'modified_count', 0) > 0:
+                        messages = {
+                            50: (
+                                "וואו! אתה בין המשתמשים המובילים בבוט 🔥\n"
+                                "הנוכחות שלך עושה לנו שמח 😊\n"
+                                "יש לך רעיונות או דברים שהיית רוצה לראות כאן?\n"
+                                "מוזמן לכתוב ל־@moominAmir"
+                            ),
+                            100: (
+                                "💯 פעולות!\n"
+                                "כנראה שאתה כבר יודע את הבוט יותר טוב ממני 😂\n"
+                                "יאללה, אולי נעשה לך תעודת משתמש ותיק? 🏆"
+                            ),
+                            200: (
+                                "וואו! 200 פעולות! 🚀\n"
+                                "אתה לגמרי בין המשתמשים הכי פעילים.\n"
+                                "יש פיצ'ר שהיית רוצה לראות בהמשך?\n"
+                                "ספר לנו ב־@moominAmir"
+                            ),
+                            500: (
+                                "500 פעולות! 🔥\n"
+                                "מגיע לך תודה ענקית על התמיכה! 🩵"
+                            ),
+                            1000: (
+                                "הגעת ל־1000 פעולות! 🎉\n"
+                                "אתה אגדה חיה של הבוט הזה 🙌\n"
+                                "תודה שאתה איתנו לאורך הדרך 💙\n"
+                                "הצעות לשיפור יתקבלו בברכה ❣️\n"
+                                "@moominAmir"
+                            ),
+                        }
+                        try:
+                            await context.bot.send_message(chat_id=user_id, text=messages.get(milestone, ""))
+                        except Exception:
+                            pass
+                        # Admin alert for major milestones
+                        try:
+                            if milestone in {200, 500, 1000}:
+                                uname = (update.effective_user.username or f"User_{user_id}")
+                                display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                                await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
 # =============================================================================
 # MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
@@ -2030,6 +2093,42 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             logger.error(f"⚠️ Failed to start internal web server: {e}")
     else:
         logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
+
+    # Reschedule Google Drive backup jobs for all users with an active schedule
+    try:
+        async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
+            try:
+                drive_handler = context.application.bot_data.get('drive_handler')
+                if not drive_handler:
+                    return
+                # Access users collection directly to find users with drive schedules
+                users_coll = db.db.users if getattr(db, 'db', None) else None
+                if users_coll is None:
+                    return
+                sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
+                cursor = None
+                try:
+                    cursor = users_coll.find({"drive_prefs.schedule": {"$in": list(sched_keys)}})
+                except Exception:
+                    cursor = []
+                for doc in cursor:
+                    try:
+                        uid = int(doc.get("user_id") or 0)
+                        if not uid:
+                            continue
+                        prefs = doc.get("drive_prefs") or {}
+                        key = prefs.get("schedule")
+                        if key in sched_keys:
+                            # Ensure a repeating job exists and is aligned to the next planned time
+                            await drive_handler._ensure_schedule_job(context, uid, key)  # type: ignore[attr-defined]
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        # Run once shortly after startup to restore jobs after restarts/deploys
+        application.job_queue.run_once(_reschedule_drive_jobs, when=1)
+    except Exception:
+        logger.warning("Failed to schedule Drive jobs rescan on startup")
 
 if __name__ == "__main__":
     main()

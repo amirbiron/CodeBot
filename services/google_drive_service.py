@@ -619,8 +619,68 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
 
 
 def perform_scheduled_backup(user_id: int) -> bool:
-    """Runs a scheduled full backup to Drive."""
-    fn, data = create_full_backup_zip_bytes(user_id, category="all")
-    fid = upload_bytes(user_id, fn, data)
-    return bool(fid)
+    """Runs a scheduled backup to Drive according to user's selected category.
+
+    Category resolution priority:
+    1) drive_prefs.schedule_category (explicit)
+    2) drive_prefs.last_selected_category (UI selection)
+    3) fallback to "all"
+
+    Updates last_backup_at on any successful scheduled upload.
+    Updates last_full_backup_at only if category == "all".
+    """
+    try:
+        prefs = db.get_drive_prefs(user_id) or {}
+    except Exception:
+        prefs = {}
+    category = str(prefs.get("schedule_category") or prefs.get("last_selected_category") or "all").strip() or "all"
+    allowed = {"zip", "all", "by_repo", "large", "other"}
+    if category not in allowed:
+        category = "all"
+
+    ok = False
+    try:
+        now_iso = _now_utc().isoformat()
+        if category == "zip":
+            # Upload any saved ZIP backups that were not uploaded yet
+            count, _ids = upload_all_saved_zip_backups(user_id)
+            ok = bool(count and count > 0)
+            if ok:
+                try:
+                    db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
+                except Exception:
+                    pass
+        elif category == "by_repo":
+            grouped = create_repo_grouped_zip_bytes(user_id)
+            ok_any = False
+            for repo_name, suggested, data_bytes in grouped:
+                # Use suggested friendly name and by_repo subpath
+                sub_path = compute_subpath("by_repo", repo_name)
+                fid = upload_bytes(user_id, suggested, data_bytes, sub_path=sub_path)
+                ok_any = ok_any or bool(fid)
+            ok = ok_any
+            if ok:
+                try:
+                    db.save_drive_prefs(user_id, {"last_backup_at": now_iso})
+                except Exception:
+                    pass
+        else:
+            # all / large / other -> single ZIP according to category
+            fn, data = create_full_backup_zip_bytes(user_id, category=category)
+            from config import config as _cfg
+            friendly = compute_friendly_name(user_id, category, getattr(_cfg, 'BOT_LABEL', 'CodeBot') or 'CodeBot', content_sample=data[:1024])
+            sub_path = compute_subpath(category)
+            fid = upload_bytes(user_id, friendly, data, sub_path=sub_path)
+            ok = bool(fid)
+            if ok:
+                update = {"last_backup_at": now_iso}
+                if category == "all":
+                    update["last_full_backup_at"] = now_iso
+                try:
+                    db.save_drive_prefs(user_id, update)
+                except Exception:
+                    pass
+    except Exception:
+        ok = False
+    return ok
 

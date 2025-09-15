@@ -695,7 +695,7 @@ class GoogleDriveMenuHandler:
             return
         if data.startswith("drive_set_schedule:"):
             key = data.split(":", 1)[1]
-            # Save preference
+            # Save preference (time interval only)
             if key == "off":
                 db.save_drive_prefs(user_id, {"schedule": None})
                 # cancel job if exists
@@ -708,7 +708,15 @@ class GoogleDriveMenuHandler:
                         pass
                 await query.edit_message_text("⛔ תזמון בוטל")
                 return
-            db.save_drive_prefs(user_id, {"schedule": key})
+            # Persist schedule key and also persist the category to be used by scheduler
+            try:
+                selected = (self._session(user_id).get("selected_category") or "").strip()
+            except Exception:
+                selected = ""
+            # Map invalid/empty to 'all' by default
+            if selected not in {"zip", "all", "by_repo", "large", "other"}:
+                selected = "all"
+            db.save_drive_prefs(user_id, {"schedule": key, "schedule_category": selected})
             # schedule/update job and persist next run time
             await self._ensure_schedule_job(context, user_id, key)
             # Re-render menu to reflect updated schedule label
