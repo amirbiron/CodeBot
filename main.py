@@ -633,6 +633,30 @@ class CodeKeeperBot:
         # הוספת פקודות batch (עיבוד מרובה קבצים) לאחר ה-guard כך שלא יעקוף אותו
         setup_batch_handlers(self.application)
         
+        # --- Guard גלובלי ללחיצות כפולות על CallbackQuery (קדימות גבוהה) ---
+        async def _global_callback_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                if getattr(update, 'callback_query', None):
+                    # בדיקת דופליקטים קצרה לכל הכפתורים
+                    try:
+                        from utils import CallbackQueryGuard
+                        if CallbackQueryGuard.should_block(update, context):
+                            try:
+                                await update.callback_query.answer("עובד…", show_alert=False)
+                            except Exception:
+                                pass
+                            # עצור עיבוד נוסף של ההודעה הנוכחית
+                            raise ApplicationHandlerStop()
+                    except Exception:
+                        pass
+            except ApplicationHandlerStop:
+                raise
+            except Exception:
+                pass
+
+        # הוסף את ה-guard בקבוצה בעלת עדיפות גבוהה מאוד, לפני כל ה-callback handlers הספציפיים
+        self.application.add_handler(CallbackQueryHandler(_global_callback_guard), group=-10)
+        
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
         from conversation_handlers import handle_callback_query
         self.application.add_handler(CallbackQueryHandler(handle_callback_query))
