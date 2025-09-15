@@ -1,11 +1,18 @@
 [run]
+branch = True
 omit =
     get-pip.py
     */site-packages/*
+    tests/*
+    docs/*
+    webapp/*
+    */_build/*
+    */.venv/*
+    */venv/*
 
 [report]
 exclude_lines =
-    if __name__ == .__main__.: 
+    if __name__ == "__main__":
     pragma: no cover
     nosec
 
