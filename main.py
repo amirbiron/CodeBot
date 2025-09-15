@@ -2031,5 +2031,41 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     else:
         logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
 
+    # Reschedule Google Drive backup jobs for all users with an active schedule
+    try:
+        async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
+            try:
+                drive_handler = context.application.bot_data.get('drive_handler')
+                if not drive_handler:
+                    return
+                # Access users collection directly to find users with drive schedules
+                users_coll = db.db.users if getattr(db, 'db', None) else None
+                if users_coll is None:
+                    return
+                sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
+                cursor = None
+                try:
+                    cursor = users_coll.find({"drive_prefs.schedule": {"$in": list(sched_keys)}})
+                except Exception:
+                    cursor = []
+                for doc in cursor:
+                    try:
+                        uid = int(doc.get("user_id") or 0)
+                        if not uid:
+                            continue
+                        prefs = doc.get("drive_prefs") or {}
+                        key = prefs.get("schedule")
+                        if key in sched_keys:
+                            # Ensure a repeating job exists and is aligned to the next planned time
+                            await drive_handler._ensure_schedule_job(context, uid, key)  # type: ignore[attr-defined]
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        # Run once shortly after startup to restore jobs after restarts/deploys
+        application.job_queue.run_once(_reschedule_drive_jobs, when=1)
+    except Exception:
+        logger.warning("Failed to schedule Drive jobs rescan on startup")
+
 if __name__ == "__main__":
     main()
