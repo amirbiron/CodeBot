@@ -2,7 +2,7 @@
 
 בוט טלגרם חכם ומתקדם לשמירה, ניהול ושיתוף קטעי קוד בצורה מסודרת ונוחה.
 
-[![Python](https://img.shields.io/badge/Python-3.11%20|%203.12-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
