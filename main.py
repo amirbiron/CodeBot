@@ -606,10 +606,7 @@ class CodeKeeperBot:
 
         self.application.add_handler(CommandHandler("github_logout", handle_github_logout))
 
-        # הוספת פקודות batch (עיבוד מרובה קבצים) לפני ההנדלר הגלובלי כדי שיתפוס את התבניות שלו
-        setup_batch_handlers(self.application)
-        
-        # --- Guard גלובלי ללחיצות כפולות על CallbackQuery (קדימות גבוהה) ---
+        # --- Guard גלובלי ללחיצות כפולות על CallbackQuery (קדימות גבוהה ביותר) ---
         async def _global_callback_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 if getattr(update, 'callback_query', None):
@@ -630,8 +627,11 @@ class CodeKeeperBot:
             except Exception:
                 pass
 
-        # הוסף את ה-guard בקבוצה בעלת עדיפות גבוהה מאוד, לפני כל ה-callback handlers הספציפיים
-        self.application.add_handler(CallbackQueryHandler(_global_callback_guard), group=-10)
+        # הוסף את ה-guard בקבוצה בעלת עדיפות הגבוהה ביותר, לפני כל ה-handlers (כולל batch/github/drive)
+        self.application.add_handler(CallbackQueryHandler(_global_callback_guard), group=-100)
+
+        # הוספת פקודות batch (עיבוד מרובה קבצים) לאחר ה-guard כך שלא יעקוף אותו
+        setup_batch_handlers(self.application)
         
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
         from conversation_handlers import handle_callback_query
