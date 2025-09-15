@@ -615,7 +615,7 @@ class CodeKeeperBot:
                         from utils import CallbackQueryGuard
                         if CallbackQueryGuard.should_block(update, context):
                             try:
-                                await update.callback_query.answer("עובד…", show_alert=False)
+                                await update.callback_query.answer()
                             except Exception:
                                 pass
                             # עצור עיבוד נוסף של ההודעה הנוכחית
@@ -642,7 +642,7 @@ class CodeKeeperBot:
                         from utils import CallbackQueryGuard
                         if CallbackQueryGuard.should_block(update, context):
                             try:
-                                await update.callback_query.answer("עובד…", show_alert=False)
+                                await update.callback_query.answer()
                             except Exception:
                                 pass
                             # עצור עיבוד נוסף של ההודעה הנוכחית

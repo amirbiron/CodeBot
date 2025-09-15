@@ -1770,7 +1770,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         now_ts = _time.time()
         if busy_until and now_ts < busy_until:
             try:
-                await query.answer("עובד…", show_alert=False)
+                await query.answer()
             except Exception:
                 pass
             return ConversationHandler.END
