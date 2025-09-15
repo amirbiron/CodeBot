@@ -118,6 +118,61 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_user.id,
             update.effective_user.username
         )
+        # הודעות ציון דרך לפי מספר פעולות (50/100/200/500/1000) — פעם אחת לכל יעד
+        try:
+            user_id = update.effective_user.id
+            users_collection = db.db.users if getattr(db, 'db', None) else None
+            if users_collection is not None:
+                doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
+                total_actions = int(doc.get("total_actions") or 0)
+                already_sent = set(doc.get("milestones_sent") or [])
+                milestones = [50, 100, 200, 500, 1000]
+                # בחר את היעד הגבוה ביותר שהושג ושעדיין לא נשלח
+                pending = [m for m in milestones if m <= total_actions and m not in already_sent]
+                if pending:
+                    milestone = max(pending)
+                    # עדכון אטומי: הוסף milestone אם עדיין לא קיים; שלח הודעה רק אם נוסף כעת
+                    res = users_collection.update_one(
+                        {"user_id": user_id, "milestones_sent": {"$ne": milestone}},
+                        {"$addToSet": {"milestones_sent": milestone}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+                    )
+                    if getattr(res, 'modified_count', 0) > 0:
+                        messages = {
+                            50: (
+                                "וואו! אתה בין המשתמשים המובילים בבוט 🔥\n"
+                                "הנוכחות שלך עושה לנו שמח 😊\n"
+                                "יש לך רעיונות או דברים שהיית רוצה לראות כאן?\n"
+                                "מוזמן לכתוב ל־@moominAmir"
+                            ),
+                            100: (
+                                "💯 פעולות!\n"
+                                "כנראה שאתה כבר יודע את הבוט יותר טוב ממני 😂\n"
+                                "יאללה, אולי נעשה לך תעודת משתמש ותיק? 🏆"
+                            ),
+                            200: (
+                                "וואו! 200 פעולות! 🚀\n"
+                                "אתה לגמרי בין המשתמשים הכי פעילים.\n"
+                                "יש פיצ'ר שהיית רוצה לראות בהמשך?\n"
+                                "ספר לנו ב־@moominAmir"
+                            ),
+                            500: (
+                                "500 פעולות! 🔥\n"
+                                "מגיע לך תודה ענקית על התמיכה! 🩵"
+                            ),
+                            1000: (
+                                "הגעת ל־1000 פעולות! 🎉\n"
+                                "אתה אגדה חיה של הבוט הזה 🙌\n"
+                                "תודה שאתה איתנו לאורך הדרך 💙\n"
+                                "הצעות לשיפור יתקבלו בברכה ❣️\n"
+                                "@moominAmir"
+                            ),
+                        }
+                        try:
+                            await context.bot.send_message(chat_id=user_id, text=messages.get(milestone, ""))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
 # =============================================================================
 # MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
