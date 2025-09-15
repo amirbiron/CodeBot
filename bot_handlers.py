@@ -16,6 +16,7 @@ from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
                       Update, ReplyKeyboardMarkup)
 from telegram.constants import ParseMode
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
 from config import config
@@ -71,6 +72,26 @@ class AdvancedBotHandlers:
         
         # Callback handlers לכפתורים
         # Handler כללי (תאימות לאחור)
+        # הוסף Guard גלובלי קודם בקדימות גבוהה כדי למנוע לחיצות כפולות
+        async def _guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                if getattr(update, 'callback_query', None):
+                    try:
+                        from utils import CallbackQueryGuard
+                        if CallbackQueryGuard.should_block(update, context):
+                            try:
+                                await update.callback_query.answer("עובד…", show_alert=False)
+                            except Exception:
+                                pass
+                            raise ApplicationHandlerStop()
+                    except Exception:
+                        pass
+            except ApplicationHandlerStop:
+                raise
+            except Exception:
+                pass
+
+        self.application.add_handler(CallbackQueryHandler(_guard), group=-10)
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
         try:
