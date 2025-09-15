@@ -466,6 +466,8 @@ class CallbackQueryGuard:
     """
 
     DEFAULT_WINDOW_SECONDS: float = 1.2
+    # נעילות פר-משתמש כדי למנוע מרוץ בין לחיצות מקבילות של אותו משתמש
+    _user_locks: Dict[int, asyncio.Lock] = {}
 
     @staticmethod
     def _fingerprint(update: Update) -> str:
@@ -504,6 +506,44 @@ class CallbackQueryGuard:
                 context.user_data["_last_cb_fp"] = fp
                 context.user_data["_cb_guard_until"] = now_ts + win
             return False
+        except Exception:
+            # אל תחסום אם guard נכשל
+            return False
+
+    @staticmethod
+    async def should_block_async(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
+        """בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.
+
+        חסימה מבוססת חלון זמן פר-משתמש, ללא תלות ב-message_id/data, כדי למנוע מרוץ.
+        """
+        try:
+            try:
+                win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
+            except Exception:
+                win = CallbackQueryGuard.DEFAULT_WINDOW_SECONDS
+
+            user_id = int(getattr(getattr(update, 'effective_user', None), 'id', 0) or 0)
+
+            # אם אין זיהוי משתמש, fallback להתנהגות הישנה ללא חסימה
+            if user_id <= 0:
+                return CallbackQueryGuard.should_block(update, context, window_seconds=win)
+
+            # קבל/צור נעילה למשתמש
+            lock = CallbackQueryGuard._user_locks.get(user_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                CallbackQueryGuard._user_locks[user_id] = lock
+
+            async with lock:
+                now_ts = time.time()
+                # השתמש באותו שדה זמן גלובלי שהיה בשימוש, אך ללא טביעת אצבע
+                busy_until = float(context.user_data.get("_cb_guard_until", 0.0) or 0.0) if hasattr(context, "user_data") else 0.0
+                if now_ts < busy_until:
+                    return True
+                # סמנו חלון זמן חסימה חדש
+                if hasattr(context, "user_data"):
+                    context.user_data["_cb_guard_until"] = now_ts + win
+                return False
         except Exception:
             # אל תחסום אם guard נכשל
             return False

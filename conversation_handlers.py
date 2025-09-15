@@ -1762,22 +1762,7 @@ async def handle_edit_note_direct(update: Update, context: ContextTypes.DEFAULT_
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מרכז בקרה מתקדם לכל הכפתורים"""
     query = update.callback_query
-    
-    # Guard נגד לחיצות כפולות: חלון קצר למניעת ריצות מקבילות
-    try:
-        import time as _time
-        busy_until = float(context.user_data.get("_cb_busy_until", 0.0) or 0.0)
-        now_ts = _time.time()
-        if busy_until and now_ts < busy_until:
-            try:
-                await query.answer("עובד…", show_alert=False)
-            except Exception:
-                pass
-            return ConversationHandler.END
-        # קבע חלון חסימה קצר (~1.2s)
-        context.user_data["_cb_busy_until"] = now_ts + 1.2
-    except Exception:
-        pass
+    # ה-guard הגלובלי מטופל ב-main.py; אין צורך בבקרת busy כאן
 
     try:
         data = query.data
