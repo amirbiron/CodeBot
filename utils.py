@@ -458,6 +458,56 @@ class TelegramUtils:
                 return
             raise
 
+class CallbackQueryGuard:
+    """Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
+
+    מבוסס על טביעת אצבע של המשתמש/הודעה/הנתון (callback_data) כדי לחסום
+    את אותה פעולה בחלון זמן קצר, בלי לחסום פעולות שונות.
+    """
+
+    DEFAULT_WINDOW_SECONDS: float = 1.2
+
+    @staticmethod
+    def _fingerprint(update: Update) -> str:
+        try:
+            q = getattr(update, "callback_query", None)
+            user_id = int(getattr(update.effective_user, "id", 0) or 0)
+            chat_id = int(getattr(update.effective_chat, "id", 0) or 0)
+            msg_id = int(getattr(getattr(q, "message", None), "message_id", 0) or 0)
+            data = str(getattr(q, "data", "") or "")
+            return f"{user_id}:{chat_id}:{msg_id}:{data}"
+        except Exception:
+            return "unknown"
+
+    @staticmethod
+    def should_block(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
+        """בודק האם יש לחסום את העדכון כלחיצה כפולה.
+
+        אם זו אותה טביעת אצבע בתוך חלון הזמן – נחסום; אחרת נסמן ונאפשר.
+        """
+        try:
+            win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
+        except Exception:
+            win = CallbackQueryGuard.DEFAULT_WINDOW_SECONDS
+
+        try:
+            fp = CallbackQueryGuard._fingerprint(update)
+            now_ts = time.time()
+            last_fp = context.user_data.get("_last_cb_fp") if hasattr(context, "user_data") else None
+            busy_until = float(context.user_data.get("_cb_guard_until", 0.0) or 0.0) if hasattr(context, "user_data") else 0.0
+
+            if last_fp == fp and now_ts < busy_until:
+                return True
+
+            # סמנו את הפעולה הנוכחית לחלון קצר
+            if hasattr(context, "user_data"):
+                context.user_data["_last_cb_fp"] = fp
+                context.user_data["_cb_guard_until"] = now_ts + win
+            return False
+        except Exception:
+            # אל תחסום אם guard נכשל
+            return False
+
 class AsyncUtils:
     """כלים לעבודה אסינכרונית"""
     

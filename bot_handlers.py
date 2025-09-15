@@ -16,6 +16,7 @@ from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
                       Update, ReplyKeyboardMarkup)
 from telegram.constants import ParseMode
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
 from config import config
@@ -70,7 +71,7 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         
         # Callback handlers לכפתורים
-        # Handler כללי (תאימות לאחור)
+        # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
         try:
