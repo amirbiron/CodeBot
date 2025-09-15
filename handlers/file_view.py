@@ -85,7 +85,10 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
             ],
             [
-                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
+                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
+            ],
+            [
+                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
@@ -710,7 +713,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}"),
             ],
             [
-                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")
+                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
         ]

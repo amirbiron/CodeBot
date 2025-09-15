@@ -353,7 +353,7 @@ async def save_file_final(update, context, filename, user_id):
                     InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}"),
                 ],
                 [
-                    InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")
+                    InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
                 ],
                 [
                     InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{filename}"),
