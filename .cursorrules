@@ -168,13 +168,6 @@ safe_rmrf() {
 - במצב הורדה לא מציגים כפתורי מחיקה או מצב מחיקה.
 - חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש).
 
-# CI Gates (Python)
-- חובה ירוקים ב־CI:
-  - "🔍 Code Quality & Security"
-  - "🧪 Unit Tests (3.11)"
-  - "🧪 Unit Tests (3.12)"
-- אין git clean/reset על ה־workspace; עבודה רק על תיקיות זמניות.
-
 # PR/תיעוד שינויים
 - שמות ענפים: fix/..., chore/..., feat/...
 - תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
