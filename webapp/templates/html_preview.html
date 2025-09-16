@@ -53,7 +53,7 @@
             <i class="fas fa-download"></i>
             הורד
         </a>
-        <a href="/files" class="btn btn-secondary btn-icon" title="חזור לרשימה">
+        <a href="#" onclick="return goBack(event)" class="btn btn-secondary btn-icon" title="חזור לרשימה">
             <i class="fas fa-arrow-right"></i>
             חזור
         </a>
@@ -124,6 +124,26 @@
     });
   }
 })();
+
+// חזרה אחורה שמכבדת את היסטוריית הניווט במסך אחד בלבד
+function goBack(ev){
+  try { if (ev) ev.preventDefault(); } catch(e){}
+  try {
+    if (window.history && window.history.length > 1) {
+      window.history.back();
+      return false;
+    }
+    if (document.referrer) {
+      const ref = new URL(document.referrer, window.location.origin);
+      if (ref.origin === window.location.origin) {
+        window.location.href = ref.toString();
+        return false;
+      }
+    }
+  } catch(e) {}
+  window.location.href = '/files';
+  return false;
+}
 </script>
 {% endblock %}
 
