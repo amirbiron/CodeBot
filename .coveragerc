@@ -1,18 +1,23 @@
 [run]
+source =
+    .
 branch = True
 omit =
     get-pip.py
     */site-packages/*
-    tests/*
-    docs/*
-    webapp/*
     */_build/*
+    */tests/*
+    */docs/*
+    */webapp/*
     */.venv/*
     */venv/*
 
 [report]
 exclude_lines =
-    if __name__ == "__main__":
     pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == "__main__":
+    raise NotImplementedError
+    except Exception:
     nosec
 
