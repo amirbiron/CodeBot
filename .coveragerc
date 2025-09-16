@@ -1,4 +1,24 @@
 [run]
+source = 
+    .
+branch = True
+omit =
+    */tests/*
+    */docs/*
+    */webapp/*
+    */.venv/*
+    */venv/*
+    */site-packages/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == "__main__":
+    raise NotImplementedError
+    except Exception:
+
+[run]
 branch = True
 omit =
     get-pip.py
