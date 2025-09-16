@@ -545,7 +545,7 @@ def files():
                 repo_pipeline = [
                     {'$match': base_active_query},
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
-                    {'$addFields': {
+                    {'$project': {
                         'repo_tags': {
                             '$filter': {
                                 'input': '$tags',
@@ -554,9 +554,8 @@ def files():
                             }
                         }
                     }},
-                    {'$project': {'repo': {'$arrayElemAt': ['$repo_tags', 0]}}},
-                    {'$match': {'repo': {'$ne': None}}},
-                    {'$group': {'_id': '$repo', 'count': {'$sum': 1}}},
+                    {'$unwind': '$repo_tags'},
+                    {'$group': {'_id': '$repo_tags', 'count': {'$sum': 1}}},
                     {'$sort': {'_id': 1}},
                 ]
                 repos_raw = list(db.code_snippets.aggregate(repo_pipeline))
@@ -564,6 +563,7 @@ def files():
                 for r in repos_raw:
                     try:
                         repo_full = str(r.get('_id') or '')
+                        # strip leading 'repo:' if present
                         name = repo_full.split(':', 1)[1] if ':' in repo_full else repo_full
                         repos_list.append({'name': name, 'count': int(r.get('count') or 0)})
                     except Exception:
