@@ -228,7 +228,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'pending',
-              context: `🧪 Unit Tests (${ver})`,
+              context: `Unit Tests (${ver})`,
               description: 'Job queued/running',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -290,7 +290,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: `🧪 Unit Tests (${ver})`,
+              context: `Unit Tests (${ver})`,
               description: 'Tests passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -332,7 +332,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `🧪 Unit Tests (${ver})`,
+              context: `Unit Tests (${ver})`,
               description: 'Job cancelled',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -352,7 +352,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `🧪 Unit Tests (${ver})`,
+              context: `Unit Tests (${ver})`,
               description: 'Tests failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
