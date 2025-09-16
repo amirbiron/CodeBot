@@ -556,20 +556,28 @@ def files():
                         {'is_active': {'$exists': False}}
                     ]
                 }
+                # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
                 repo_pipeline = [
                     {'$match': base_active_query},
+                    {'$sort': {'file_name': 1, 'version': -1}},
+                    {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+                    {'$replaceRoot': {'newRoot': '$latest'}},
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$project': {
-                        'repo_tags': {
-                            '$filter': {
-                                'input': '$tags',
-                                'as': 't',
-                                'cond': {'$regexMatch': {'input': '$$t', 'regex': '^repo:', 'options': 'i'}}
-                            }
+                        'repo_tag': {
+                            '$arrayElemAt': [
+                                {
+                                    '$filter': {
+                                        'input': '$tags',
+                                        'as': 't',
+                                        'cond': {'$regexMatch': {'input': '$$t', 'regex': '^repo:', 'options': 'i'}}
+                                    }
+                                },
+                                -1
+                            ]
                         }
                     }},
-                    {'$unwind': '$repo_tags'},
-                    {'$group': {'_id': '$repo_tags', 'count': {'$sum': 1}}},
+                    {'$group': {'_id': '$repo_tag', 'count': {'$sum': 1}}},
                     {'$sort': {'_id': 1}},
                 ]
                 repos_raw = list(db.code_snippets.aggregate(repo_pipeline))
