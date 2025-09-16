@@ -21,6 +21,7 @@ from pygments.formatters import HtmlFormatter
 from bson import ObjectId
 import requests
 from datetime import timedelta
+import re
 
 # יצירת האפליקציה
 app = Flask(__name__)
@@ -495,6 +496,7 @@ def files():
     language_filter = request.args.get('lang', '')
     category_filter = request.args.get('category', '')
     sort_by = request.args.get('sort', 'created_at')
+    repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
     per_page = 20
     
@@ -526,21 +528,117 @@ def files():
     # סינון לפי קטגוריה
     if category_filter:
         if category_filter == 'repo':
-            # קבצים מסומנים כריפו/גיטהאב: תגיות 'source:github' או תגית שמתחילה ב-'repo:'
-            query['$and'].append({
-                '$or': [
-                    {'tags': 'source:github'},
-                    {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}
+            # תצוגת "לפי ריפו":
+            # אם נבחר ריפו ספציפי -> מסנן לקבצים של אותו ריפו; אחרת -> נציג רשימת ריפואים ונחזור מיד
+            if repo_name:
+                query['$and'].append({'tags': f'repo:{repo_name}'})
+            else:
+                # הפקה של רשימת ריפואים מתוך תגיות שמתחילות ב- repo:
+                repo_pipeline = [
+                    {'$match': query},
+                    {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
+                    {'$addFields': {
+                        'repo_tags': {
+                            '$filter': {
+                                'input': '$tags',
+                                'as': 't',
+                                'cond': {'$regexMatch': {'input': '$$t', 'regex': '^repo:', 'options': 'i'}}
+                            }
+                        }
+                    }},
+                    {'$project': {'repo': {'$arrayElemAt': ['$repo_tags', 0]}}},
+                    {'$match': {'repo': {'$ne': None}}},
+                    {'$group': {'_id': '$repo', 'count': {'$sum': 1}}},
+                    {'$sort': {'_id': 1}},
                 ]
-            })
+                repos_raw = list(db.code_snippets.aggregate(repo_pipeline))
+                repos_list = []
+                for r in repos_raw:
+                    try:
+                        repo_full = str(r.get('_id') or '')
+                        name = repo_full.split(':', 1)[1] if ':' in repo_full else repo_full
+                        repos_list.append({'name': name, 'count': int(r.get('count') or 0)})
+                    except Exception:
+                        continue
+                # רשימת שפות לפילטר - רק מקבצים פעילים
+                languages = db.code_snippets.distinct(
+                    'programming_language',
+                    {
+                        'user_id': user_id,
+                        '$or': [
+                            {'is_active': True},
+                            {'is_active': {'$exists': False}}
+                        ]
+                    }
+                )
+                languages = sorted([lang for lang in languages if lang]) if languages else []
+                return render_template('files.html',
+                                     user=session['user_data'],
+                                     files=[],
+                                     repos=repos_list,
+                                     total_count=len(repos_list),
+                                     languages=languages,
+                                     search_query=search_query,
+                                     language_filter=language_filter,
+                                     category_filter=category_filter,
+                                     selected_repo='',
+                                     sort_by=sort_by,
+                                     page=1,
+                                     total_pages=1,
+                                     has_prev=False,
+                                     has_next=False,
+                                     bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'zip':
-            # קבצי ZIP
-            query['$and'].append({
-                '$or': [
-                    {'file_name': {'$regex': r'\.zip$', '$options': 'i'}},
-                    {'is_archive': True}
-                ]
-            })
+            # קבצי ZIP נשמרים בבוט כמסמכי גיבוי (Filesystem/GridFS) ולא בתוך code_snippets
+            # לכן נציג רשימת גיבויים מה-BackupManager
+            try:
+                from file_manager import backup_manager
+                backups = backup_manager.list_backups(user_id) or []
+            except Exception:
+                backups = []
+            zip_backups = []
+            for b in backups:
+                try:
+                    zip_backups.append({
+                        'backup_id': getattr(b, 'backup_id', ''),
+                        'created_at': format_datetime_display(getattr(b, 'created_at', None)),
+                        'file_count': int(getattr(b, 'file_count', 0) or 0),
+                        'total_size': format_file_size(int(getattr(b, 'total_size', 0) or 0)),
+                        'repo': getattr(b, 'repo', None) or '',
+                        'path': getattr(b, 'path', None) or '',
+                    })
+                except Exception:
+                    continue
+
+            # רשימת שפות לפילטר - כמו קודם
+            languages = db.code_snippets.distinct(
+                'programming_language',
+                {
+                    'user_id': user_id,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                }
+            )
+            languages = sorted([lang for lang in languages if lang]) if languages else []
+
+            return render_template('files.html',
+                                 user=session['user_data'],
+                                 files=[],
+                                 zip_backups=zip_backups,
+                                 total_count=len(zip_backups),
+                                 languages=languages,
+                                 search_query=search_query,
+                                 language_filter=language_filter,
+                                 category_filter=category_filter,
+                                 selected_repo='',
+                                 sort_by=sort_by,
+                                 page=1,
+                                 total_pages=1,
+                                 has_prev=False,
+                                 has_next=False,
+                                 bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'large':
             # קבצים גדולים (מעל 100KB)
             # נצטרך להוסיף שדה size אם אין
@@ -855,6 +953,71 @@ def download_file(file_id):
         download_name=filename,
         mimetype='text/plain'
     )
+
+@app.route('/upload', methods=['GET', 'POST'])
+@login_required
+def upload_file_web():
+    """העלאת קובץ חדש דרך הווב-אפליקציה."""
+    db = get_db()
+    user_id = session['user_id']
+    error = None
+    success = None
+    if request.method == 'POST':
+        try:
+            file_name = (request.form.get('file_name') or '').strip()
+            code = request.form.get('code') or ''
+            language = (request.form.get('language') or '').strip() or 'text'
+            description = (request.form.get('description') or '').strip()
+            raw_tags = (request.form.get('tags') or '').strip()
+            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
+
+            # אם הועלה קובץ — נקרא ממנו ונשתמש בשמו אם אין שם קובץ בשדה
+            try:
+                uploaded = request.files.get('code_file')
+            except Exception:
+                uploaded = None
+            if uploaded and hasattr(uploaded, 'filename') and uploaded.filename:
+                # הגבלת גודל בסיסית (עד ~2MB)
+                data = uploaded.read()
+                if data and len(data) > 2 * 1024 * 1024:
+                    error = 'קובץ גדול מדי (עד 2MB)'
+                else:
+                    try:
+                        code = data.decode('utf-8')
+                    except Exception:
+                        try:
+                            code = data.decode('latin-1')
+                        except Exception:
+                            code = ''
+                    if not file_name:
+                        file_name = uploaded.filename or ''
+
+            if not file_name:
+                error = 'יש להזין שם קובץ'
+            elif not code:
+                error = 'יש להזין תוכן קוד'
+            else:
+                # זיהוי שפה בסיסי אם לא סופק
+                if not language or language == 'text':
+                    try:
+                        from utils import detect_language_from_filename as _dl
+                        language = _dl(file_name) or 'text'
+                    except Exception:
+                        language = 'text'
+                # שמירה כגרסה חדשה (שומר תיאור ותגים קודמים)
+                from database import db as _db
+                ok = _db.save_file(user_id=user_id, file_name=file_name, code=code, programming_language=language, extra_tags=tags)
+                if ok:
+                    success = 'הקובץ נשמר בהצלחה'
+                    return redirect(url_for('files'))
+                else:
+                    error = 'שמירת הקובץ נכשלה'
+        except Exception as e:
+            error = f'שגיאה בהעלאה: {e}'
+    # שליפת שפות קיימות להצעה
+    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db else []
+    languages = sorted([l for l in languages if l]) if languages else []
+    return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
 
 @app.route('/api/stats')
 @login_required
