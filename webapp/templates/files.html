@@ -179,17 +179,21 @@
                 </div>
             </div>
             
-            <div style="display: flex; gap: 0.5rem;">
-                <a href="/file/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="צפה">
-                    <i class="fas fa-eye"></i>
-                </a>
-                <a href="/download/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="הורד">
-                    <i class="fas fa-download"></i>
-                </a>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start;">
+                <div style="display: flex; gap: 0.5rem;">
+                    <a href="/file/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="צפה">
+                        <i class="fas fa-eye"></i>
+                    </a>
+                    <a href="/download/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="הורד">
+                        <i class="fas fa-download"></i>
+                    </a>
+                </div>
                 {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
-                <a href="/html/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">
-                    🌐
-                </a>
+                <div>
+                    <a href="/html/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">
+                        🌐
+                    </a>
+                </div>
                 {% endif %}
             </div>
         </div>

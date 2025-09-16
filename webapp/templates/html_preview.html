@@ -66,6 +66,14 @@
             <input id="toggleJs" type="checkbox"> אפשר JS (מוגבל)
         </label>
         <small style="opacity:.8;">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
+        <button id="btnFullscreen" class="btn btn-secondary btn-icon" style="margin-inline-start:auto;">
+            <i class="fas fa-expand"></i>
+            מסך מלא
+        </button>
+        <a id="btnNewWindow" href="/raw_html/{{ file.id }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
+            <i class="fas fa-external-link-alt"></i>
+            חלון חדש
+        </a>
     </div>
     <iframe
         id="previewFrame"
@@ -82,15 +90,19 @@
 (function(){
   const cb = document.getElementById('toggleJs');
   const frame = document.getElementById('previewFrame');
+  const btnFs = document.getElementById('btnFullscreen');
+  const btnNew = document.getElementById('btnNewWindow');
   if (!cb || !frame) return;
   function update(){
     const url = new URL(frame.src, window.location.origin);
     if (cb.checked) {
       url.searchParams.set('allow', 'scripts');
       frame.setAttribute('sandbox', 'allow-scripts allow-modals');
+      if (btnNew) btnNew.href = url.toString();
     } else {
       url.searchParams.delete('allow');
       frame.setAttribute('sandbox', 'allow-modals');
+      if (btnNew) btnNew.href = url.toString();
     }
     if (frame.src !== url.toString()) {
       frame.src = url.toString();
@@ -99,6 +111,17 @@
     }
   }
   cb.addEventListener('change', update);
+  if (btnFs) {
+    btnFs.addEventListener('click', async function(){
+      try {
+        if (document.fullscreenElement === frame) {
+          await document.exitFullscreen();
+        } else {
+          await frame.requestFullscreen();
+        }
+      } catch(e) { console.error(e); }
+    });
+  }
 })();
 </script>
 {% endblock %}
