@@ -456,6 +456,11 @@ class GitHubMenuHandler:
         if not (token and repo_full):
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
+        # הודעת טעינה בזמן שליפת הענפים
+        try:
+            await TelegramUtils.safe_edit_message_text(query, "⏳ טוען רשימת ענפים…")
+        except Exception:
+            pass
         g = Github(token)
         try:
             repo = g.get_repo(repo_full)
@@ -2590,7 +2595,23 @@ class GitHubMenuHandler:
             await self.confirm_merge_pr(update, context)
         elif query.data == "validate_repo":
             try:
-                await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
+                status_message = await query.edit_message_text("⏳ בודק תקינות הריפו... 0%")
+                done_event = asyncio.Event()
+
+                async def _progress_updater():
+                    percent = 0
+                    try:
+                        while not done_event.is_set():
+                            percent = min(percent + 7, 90)
+                            try:
+                                await status_message.edit_text(f"⏳ בודק תקינות הריפו... {percent}%")
+                            except Exception:
+                                pass
+                            await asyncio.sleep(1.0)
+                    except Exception:
+                        pass
+
+                progress_task = asyncio.create_task(_progress_updater())
                 import tempfile, requests, zipfile
                 token_opt = self.get_user_token(user_id)
                 g = Github(login_or_token=(token_opt or ""))
@@ -2670,6 +2691,15 @@ class GitHubMenuHandler:
 
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
                 results, repo_name_for_msg = await asyncio.to_thread(do_validate)
+                try:
+                    done_event.set()
+                    await asyncio.sleep(0)
+                    try:
+                        await progress_task
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
 
                 # פורמט תוצאות מעוצב
                 def status_label(rc):
