@@ -22,6 +22,13 @@ from bson import ObjectId
 import requests
 from datetime import timedelta
 import re
+import sys
+from pathlib import Path
+
+# הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
+ROOT_DIR = str(Path(__file__).resolve().parents[1])
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 # יצירת האפליקציה
 app = Flask(__name__)
