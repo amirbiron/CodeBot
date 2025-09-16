@@ -1035,6 +1035,7 @@ def raw_html(file_id):
     scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
     if scripts_enabled:
         csp = \
+            "sandbox allow-scripts; " \
             "default-src 'none'; " \
             "base-uri 'none'; " \
             "form-action 'none'; " \
@@ -1048,6 +1049,7 @@ def raw_html(file_id):
         # שים לב: גם במצב זה ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin
     else:
         csp = \
+            "sandbox; " \
             "default-src 'none'; " \
             "base-uri 'none'; " \
             "form-action 'none'; " \

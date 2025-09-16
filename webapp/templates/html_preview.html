@@ -98,7 +98,8 @@
     if (cb.checked) {
       url.searchParams.set('allow', 'scripts');
       frame.setAttribute('sandbox', 'allow-scripts allow-modals');
-      if (btnNew) btnNew.href = url.toString();
+      // אל תשדרג את קישור החלון החדש למצב scripts – נשאירו ללא סקריפטים כדי להישאר מסונדבק גם בטופ-לבל
+      if (btnNew) btnNew.href = (new URL(frame.src, window.location.origin)).toString().replace(/([?&])allow=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
     } else {
       url.searchParams.delete('allow');
       frame.setAttribute('sandbox', 'allow-modals');
