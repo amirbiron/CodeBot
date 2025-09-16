@@ -44,7 +44,11 @@ BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
 BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
-PUBLIC_SHARE_TTL_DAYS = int(os.getenv('PUBLIC_SHARE_TTL_DAYS', '7'))
+_ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
+try:
+    PUBLIC_SHARE_TTL_DAYS = max(1, int(_ttl_env))
+except Exception:
+    PUBLIC_SHARE_TTL_DAYS = 7
 
  
 
