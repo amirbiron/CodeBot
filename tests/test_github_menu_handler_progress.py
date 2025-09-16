@@ -84,12 +84,12 @@ async def test_validate_repo_progress_success_path(monkeypatch):
 
     # Stub asyncio.to_thread to return a fake validation result immediately
     async def _fake_to_thread(fn, *args, **kwargs):
-        # Simulate tool results for flake8/mypy/bandit/black
+        # Simulate tool results to exercise suggestion branches
         results = {
-            "flake8": (0, "OK"),
-            "mypy": (0, "OK"),
-            "bandit": (0, "OK"),
-            "black": (0, "OK"),
+            "flake8": (1, "app.py:10:1: F401 'os' imported but unused"),
+            "mypy": (1, "Incompatible default for argument \"x\" (default has type \"None\", argument has type \"int\")"),
+            "bandit": (1, "Possible eval( usage) B307"),
+            "black": (1, "would reformat /tmp/repo/abc123/src/main.py"),
         }
         return results, "owner/name"
 
@@ -125,4 +125,57 @@ async def test_validate_repo_progress_exception_path(monkeypatch):
     await asyncio.wait_for(handler.handle_menu_callback(update, context), timeout=2.0)
 
     assert True
+
+
+@pytest.mark.asyncio
+async def test_import_branch_menu_shows_loading(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = _Update()
+    context = _Context()
+
+    # Route to github_import_repo
+    update.callback_query.data = "github_import_repo"
+
+    # Session with selected repo and token
+    session = handler.get_user_session(1)
+    session["selected_repo"] = "owner/name"
+
+    # Monkeypatch token getter
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    # Capture loading text
+    called = {"text": None}
+
+    async def _safe_edit(q, text, reply_markup=None, parse_mode=None):
+        called["text"] = text
+        return None
+
+    monkeypatch.setattr(gh.TelegramUtils, "safe_edit_message_text", _safe_edit)
+
+    # Stub Github and branches listing
+    class _Br:
+        def __init__(self, name):
+            self.name = name
+            self.commit = types.SimpleNamespace(commit=types.SimpleNamespace(author=types.SimpleNamespace(date=None)))
+
+    class _Repo:
+        def get_branches(self):
+            return [_Br("main"), _Br("dev")]
+
+    class _Gh:
+        def __init__(self, *a, **k):
+            pass
+        def get_repo(self, full):
+            return _Repo()
+
+    monkeypatch.setattr(gh, "Github", _Gh)
+    # Stub buttons/markup
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+
+    await asyncio.wait_for(handler.handle_menu_callback(update, context), timeout=2.0)
+
+    assert called["text"] and "טוען" in called["text"]
 
