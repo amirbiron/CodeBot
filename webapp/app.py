@@ -534,8 +534,16 @@ def files():
                 query['$and'].append({'tags': f'repo:{repo_name}'})
             else:
                 # הפקה של רשימת ריפואים מתוך תגיות שמתחילות ב- repo:
+                # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
+                base_active_query = {
+                    'user_id': user_id,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                }
                 repo_pipeline = [
-                    {'$match': query},
+                    {'$match': base_active_query},
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$addFields': {
                         'repo_tags': {
