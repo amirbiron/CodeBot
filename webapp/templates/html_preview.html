@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}תצוגת דפדפן - {{ file.file_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.preview-container {
+    width: 100%;
+    height: calc(100vh - 180px);
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.preview-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+.preview-iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: white;
+}
+@media (max-width: 768px) {
+    .preview-container { height: calc(100vh - 220px); }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="file-header">
+    <div class="file-info">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+            <span style="font-size: 3rem;">🌐</span>
+            <div>
+                <h1 style="margin: 0;">תצוגת דפדפן: {{ file.file_name }}</h1>
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <span class="badge">{{ file.language }}</span>
+                </div>
+            </div>
+        </div>
+        <p style="margin: 0.5rem 0; opacity: 0.85;">
+            התוכן מוצג בתוך מסגרת מבודדת (sandbox) כדי למנוע גישה למשאבים של האתר.
+        </p>
+    </div>
+
+    <div class="preview-actions">
+        <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" title="צפה בקוד">
+            <i class="fas fa-code"></i>
+            קוד
+        </a>
+        <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" title="הורד">
+            <i class="fas fa-download"></i>
+            הורד
+        </a>
+        <a href="/files" class="btn btn-secondary btn-icon" title="חזור לרשימה">
+            <i class="fas fa-arrow-right"></i>
+            חזור
+        </a>
+    </div>
+</div>
+
+<div class="glass-card preview-container">
+    <iframe
+        class="preview-iframe"
+        src="/raw_html/{{ file.id }}"
+        sandbox="allow-forms allow-scripts allow-popups allow-modals"
+        referrerpolicy="no-referrer"
+        loading="eager"
+        title="HTML Preview"
+    ></iframe>
+    
+</div>
+{% endblock %}
+

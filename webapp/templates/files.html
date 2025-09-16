@@ -186,6 +186,11 @@
                 <a href="/download/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="הורד">
                     <i class="fas fa-download"></i>
                 </a>
+                {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
+                <a href="/html/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">
+                    🌐
+                </a>
+                {% endif %}
             </div>
         </div>
     </div>
