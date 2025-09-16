@@ -1030,7 +1030,41 @@ def raw_html(file_id):
         abort(404)
 
     code = file.get('code') or ''
-    return Response(code, mimetype='text/html; charset=utf-8')
+    # קביעת מצב הרצה: ברירת מחדל ללא סקריפטים
+    allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
+    scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
+    if scripts_enabled:
+        csp = \
+            "default-src 'none'; " \
+            "base-uri 'none'; " \
+            "form-action 'none'; " \
+            "connect-src 'none'; " \
+            "img-src data:; " \
+            "style-src 'unsafe-inline'; " \
+            "font-src data:; " \
+            "object-src 'none'; " \
+            "frame-ancestors 'self'; " \
+            "script-src 'unsafe-inline'"
+        # שים לב: גם במצב זה ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin
+    else:
+        csp = \
+            "default-src 'none'; " \
+            "base-uri 'none'; " \
+            "form-action 'none'; " \
+            "connect-src 'none'; " \
+            "img-src data:; " \
+            "style-src 'unsafe-inline'; " \
+            "font-src data:; " \
+            "object-src 'none'; " \
+            "frame-ancestors 'self'; " \
+            "script-src 'none'"
+
+    resp = Response(code, mimetype='text/html; charset=utf-8')
+    resp.headers['Content-Security-Policy'] = csp
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Referrer-Policy'] = 'no-referrer'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
