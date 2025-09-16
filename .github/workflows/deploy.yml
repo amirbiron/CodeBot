@@ -184,11 +184,12 @@ jobs:
         run: |
           pytest -v --cov=. --cov-report=xml --cov-report=html
       
-      - name: 📊 Upload Coverage to Codecov
-        uses: codecov/codecov-action@v3
-        if: matrix.python-version == '3.11'
+      # Coverage upload מבוצע כבר ב-CI הראשי. כדי למנוע כפילויות/בלבול, ננטרל כאן.
+      - name: 📊 Upload Coverage to Codecov (disabled - handled in CI workflow)
+        if: false
+        uses: codecov/codecov-action@v4
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
       

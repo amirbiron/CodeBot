@@ -254,13 +254,13 @@ class TextUtils:
         """הגנה על תווים מיוחדים ב-Markdown"""
         
         if version == 2:
-            # Markdown V2
-            escape_chars = r'_*[]()~`>#+-=|{}.!'
-            return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+            # Markdown V2: כל התווים שיש לאסקייפ לפי Telegram MarkdownV2
+            special_chars = set("_*[]()~`>#+-=|{}.!\\")
+            return "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
         else:
-            # Markdown V1
-            escape_chars = r'_*`['
-            return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+            # Markdown V1: נשתמש בקבוצה מצומצמת אך גם נסמן סוגריים כדי להימנע מתקלות כלליות
+            special_chars = set("_*`[()\\")
+            return "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
     
     @staticmethod
     def clean_filename(filename: str) -> str:
