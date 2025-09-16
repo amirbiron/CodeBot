@@ -700,7 +700,29 @@ def files():
             query['$and'].append({'is_archive': {'$ne': True}})
     
     # ספירת סך הכל (אם לא חושב כבר)
-    if category_filter == 'other':
+    if not category_filter:
+        # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
+        count_pipeline = [
+            {'$match': query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
+            {'$group': {'_id': '$file_name'}},
+            {'$count': 'total'}
+        ]
+        count_result = list(db.code_snippets.aggregate(count_pipeline))
+        total_count = count_result[0]['total'] if count_result else 0
+    elif category_filter == 'other':
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
@@ -729,8 +751,34 @@ def files():
     sort_order = DESCENDING if sort_by.startswith('-') else 1
     sort_field = sort_by.lstrip('-')
     
-    # אם לא עשינו aggregation כבר (בקטגוריות large/other)
-    if category_filter not in ('large', 'other'):
+    # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
+    if not category_filter:
+        sort_dir = -1 if sort_by.startswith('-') else 1
+        sort_field_local = sort_by.lstrip('-')
+        pipeline = [
+            {'$match': query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$sort': {sort_field_local: sort_dir}},
+            {'$skip': (page - 1) * per_page},
+            {'$limit': per_page},
+        ]
+        files_cursor = db.code_snippets.aggregate(pipeline)
+    elif category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     elif category_filter == 'other':
         # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
