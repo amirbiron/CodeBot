@@ -241,6 +241,22 @@ def get_language_icon(language: str) -> str:
     }
     return icons.get(language.lower(), '📄')
 
+# עיצוב תאריך בטוח לתצוגה ללא נפילה לברירת מחדל של עכשיו
+def format_datetime_display(value) -> str:
+    try:
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            return dt.strftime('%d/%m/%Y %H:%M')
+        if isinstance(value, str) and value:
+            try:
+                dtp = datetime.fromisoformat(value)
+                dtp = dtp if dtp.tzinfo is not None else dtp.replace(tzinfo=timezone.utc)
+                return dtp.strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                return ''
+        return ''
+    except Exception:
+        return ''
 # Routes
 
 @app.route('/')
@@ -564,19 +580,43 @@ def files():
             query['$and'].append({'is_archive': {'$ne': True}})
     
     # ספירת סך הכל (אם לא חושב כבר)
-    if category_filter != 'large':
+    if category_filter == 'other':
+        # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון — תואם לבוט
+        count_pipeline = [
+            {'$match': query},
+            {'$group': {'_id': '$file_name'}},
+            {'$count': 'total'}
+        ]
+        count_result = list(db.code_snippets.aggregate(count_pipeline))
+        total_count = count_result[0]['total'] if count_result else 0
+    elif category_filter != 'large':
         total_count = db.code_snippets.count_documents(query)
     
     # שליפת הקבצים
     sort_order = DESCENDING if sort_by.startswith('-') else 1
     sort_field = sort_by.lstrip('-')
     
-    # אם לא עשינו aggregation כבר (בקטגוריית large)
-    if category_filter != 'large':
+    # אם לא עשינו aggregation כבר (בקטגוריות large/other)
+    if category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
+    elif category_filter == 'other':
+        # הצגת "שאר קבצים" לפי הגרסה האחרונה בלבד לכל file_name — תואם לבוט
+        sort_dir = -1 if sort_by.startswith('-') else 1
+        sort_field_local = sort_by.lstrip('-')
+        pipeline = [
+            {'$match': query},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$sort': {sort_field_local: sort_dir}},
+            {'$skip': (page - 1) * per_page},
+            {'$limit': per_page},
+        ]
+        files_cursor = db.code_snippets.aggregate(pipeline)
     
     files_list = []
     for file in files_cursor:
+        code_str = file.get('code') or ''
         files_list.append({
             'id': str(file['_id']),
             'file_name': file['file_name'],
@@ -584,10 +624,10 @@ def files():
             'icon': get_language_icon(file.get('programming_language', '')),
             'description': file.get('description', ''),
             'tags': file.get('tags', []),
-            'size': format_file_size(len(file.get('code', '').encode('utf-8'))),
-            'lines': len(file.get('code', '').split('\n')),
-            'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
-            'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M')
+            'size': format_file_size(len(code_str.encode('utf-8'))),
+            'lines': len(code_str.splitlines()),
+            'created_at': format_datetime_display(file.get('created_at')),
+            'updated_at': format_datetime_display(file.get('updated_at'))
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -657,9 +697,9 @@ def view_file(file_id):
                                  'description': file.get('description', ''),
                                  'tags': file.get('tags', []),
                                  'size': format_file_size(len(code.encode('utf-8'))),
-                                 'lines': len(code.split('\n')),
-                                 'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
-                                 'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'lines': len(code.splitlines()),
+                                 'created_at': format_datetime_display(file.get('created_at')),
+                                 'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': file.get('version', 1)
                              },
                              highlighted_code='<div class="alert alert-info" style="text-align: center; padding: 3rem;"><i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>הקובץ גדול מדי לתצוגה (' + format_file_size(len(code.encode('utf-8'))) + ')<br><br>ניתן להוריד את הקובץ לצפייה מקומית</div>',
@@ -678,8 +718,8 @@ def view_file(file_id):
                                  'tags': file.get('tags', []),
                                  'size': format_file_size(len(code.encode('utf-8')) if code else 0),
                                  'lines': 0,
-                                 'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
-                                 'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+                                 'created_at': format_datetime_display(file.get('created_at')),
+                                 'updated_at': format_datetime_display(file.get('updated_at')),
                                  'version': file.get('version', 1)
                              },
                              highlighted_code='<div class="alert alert-warning" style="text-align: center; padding: 3rem;"><i class="fas fa-lock" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>קובץ בינארי - לא ניתן להציג את התוכן<br><br>ניתן להוריד את הקובץ בלבד</div>',
@@ -712,9 +752,9 @@ def view_file(file_id):
         'description': file.get('description', ''),
         'tags': file.get('tags', []),
         'size': format_file_size(len(code.encode('utf-8'))),
-        'lines': len(code.split('\n')),
-        'created_at': file.get('created_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
-        'updated_at': file.get('updated_at', datetime.now()).strftime('%d/%m/%Y %H:%M'),
+        'lines': len(code.splitlines()),
+        'created_at': format_datetime_display(file.get('created_at')),
+        'updated_at': format_datetime_display(file.get('updated_at')),
         'version': file.get('version', 1)
     }
     
