@@ -60,6 +60,20 @@
     overflow: auto;
 }
 
+/* כותרת מקטע עם כפתור פעולה (למסך מלא) */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
+#codeCard:fullscreen .code-container {
+    height: calc(100vh - 120px);
+    overflow: auto;
+}
+
 .file-header {
     display: flex;
     justify-content: space-between;
@@ -171,6 +185,7 @@
     .main-content > .container { padding-left: 10px; padding-right: 10px; }
 }
 
+
 /* Mini WebApp: שיפורים כאשר נטען בתוך טלגרם */
 body.telegram-mini-app .source { font-size: 12px !important; padding: 0.75rem !important; }
 body.telegram-mini-app .main-content > .container { padding-left: 10px !important; padding-right: 10px !important; }
@@ -242,11 +257,17 @@ body.telegram-mini-app .main-content > .container { padding-left: 10px !importan
     </div>
 </div>
 
-<div class="glass-card">
-    <h2 class="section-title">
-        <i class="fas fa-code"></i>
-        קוד מקור
-    </h2>
+<div class="glass-card" id="codeCard">
+    <div class="section-header">
+        <h2 class="section-title" style="margin: 0;">
+            <i class="fas fa-code"></i>
+            קוד מקור
+        </h2>
+        <button id="fullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
+            <i class="fas fa-expand"></i>
+            מסך מלא
+        </button>
+    </div>
     <div class="code-container">
         {{ highlighted_code|safe }}
     </div>
@@ -369,10 +390,51 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         copyCode();
     }
-    // Escape לחזרה לרשימה
+    // Escape: אם במסך מלא – לצאת ממנו; אחרת – חזרה לרשימה
     if (e.key === 'Escape') {
+        const codeCard = document.getElementById('codeCard');
+        if (document.fullscreenElement && document.fullscreenElement === codeCard) {
+            e.preventDefault();
+            try { document.exitFullscreen(); } catch (err) { /* ignore */ }
+            return;
+        }
         window.location.href = '/files';
     }
 });
+
+// מסך מלא עבור מיכל הקוד
+(function(){
+    const btn = document.getElementById('fullscreenBtn');
+    const card = document.getElementById('codeCard');
+    if (!btn || !card) return;
+
+    function isFullscreen(){
+        return document.fullscreenElement === card;
+    }
+
+    function updateButton(){
+        const icon = btn.querySelector('i');
+        if (isFullscreen()) {
+            btn.innerHTML = '<i class="fas fa-compress"></i> יציאה ממסך מלא';
+        } else {
+            btn.innerHTML = '<i class="fas fa-expand"></i> מסך מלא';
+        }
+    }
+
+    btn.addEventListener('click', async function(){
+        try {
+            if (!isFullscreen()) {
+                await card.requestFullscreen();
+            } else {
+                await document.exitFullscreen();
+            }
+        } catch (e) {
+            console.error('fullscreen error', e);
+        }
+    });
+
+    document.addEventListener('fullscreenchange', updateButton);
+    updateButton();
+})();
 </script>
 {% endblock %}
