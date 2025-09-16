@@ -589,23 +589,37 @@ def files():
                                      has_next=False,
                                      bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'zip':
-            # קבצי ZIP נשמרים בבוט כמסמכי גיבוי (Filesystem/GridFS) ולא בתוך code_snippets
-            # לכן נציג רשימת גיבויים מה-BackupManager
-            try:
-                from file_manager import backup_manager
-                backups = backup_manager.list_backups(user_id) or []
-            except Exception:
-                backups = []
+            # קבצי ZIP נשמרים ב‑GridFS תחת bucket "backups" (או fs). נטען ישירות מה‑DB של הווב‑אפליקציה.
             zip_backups = []
-            for b in backups:
+            try:
+                grid_col = get_db().backups.files
+                docs = list(grid_col.find({'metadata.user_id': user_id}).sort('uploadDate', DESCENDING))
+            except Exception:
+                docs = []
+            # Fallback ל‑fs.files אם אין bucket בשם backups
+            if not docs:
                 try:
+                    grid_col_alt = get_db().fs.files
+                    docs = list(grid_col_alt.find({'metadata.user_id': user_id}).sort('uploadDate', DESCENDING))
+                except Exception:
+                    docs = []
+            for d in (docs or []):
+                try:
+                    md = d.get('metadata') or {}
+                    filename = d.get('filename') or ''
+                    backup_id = md.get('backup_id') or (filename.rsplit('.', 1)[0] if filename else str(d.get('_id')))
+                    created_val = md.get('created_at') or d.get('uploadDate')
+                    file_count = int(md.get('file_count') or 0)
+                    total_size = int(d.get('length') or 0)
+                    repo = md.get('repo') or ''
+                    path = md.get('path') or ''
                     zip_backups.append({
-                        'backup_id': getattr(b, 'backup_id', ''),
-                        'created_at': format_datetime_display(getattr(b, 'created_at', None)),
-                        'file_count': int(getattr(b, 'file_count', 0) or 0),
-                        'total_size': format_file_size(int(getattr(b, 'total_size', 0) or 0)),
-                        'repo': getattr(b, 'repo', None) or '',
-                        'path': getattr(b, 'path', None) or '',
+                        'backup_id': backup_id,
+                        'created_at': format_datetime_display(created_val),
+                        'file_count': file_count,
+                        'total_size': format_file_size(total_size),
+                        'repo': repo,
+                        'path': path,
                     })
                 except Exception:
                     continue
