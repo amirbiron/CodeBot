@@ -34,6 +34,9 @@
         <form method="get" style="display: flex; gap: 1rem; flex-wrap: wrap; flex: 1;">
             {% if category_filter %}
             <input type="hidden" name="category" value="{{ category_filter }}">
+            {% if selected_repo %}
+            <input type="hidden" name="repo" value="{{ selected_repo }}">
+            {% endif %}
             {% endif %}
             <div style="flex: 1; min-width: 200px;">
                 <input type="text" name="q" value="{{ search_query }}" 
@@ -77,7 +80,10 @@
         <div>
             מציג {{ files|length }} מתוך {{ total_count }} קבצים
             {% if category_filter == 'repo' %}
-            | קטגוריה: קבצים מ-GitHub
+            | קטגוריה: לפי ריפו
+            {% if selected_repo %}
+            | ריפו: {{ selected_repo }}
+            {% endif %}
             {% elif category_filter == 'zip' %}
             | קטגוריה: קבצי ZIP
             {% elif category_filter == 'large' %}
@@ -101,7 +107,22 @@
     </div>
 </div>
 
-{% if files %}
+{% if repos %}
+<div class="glass-card">
+  <h2 class="section-title"><i class="fab fa-github"></i> ריפואים</h2>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+    {% for r in repos %}
+    <a class="glass-card" href="/files?category=repo&repo={{ r.name | urlencode }}" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem; text-decoration: none; color: white;">
+      <span style="display: inline-flex; align-items: center; gap: 0.5rem;">
+        <i class="fab fa-github"></i>
+        {{ r.name }}
+      </span>
+      <span class="badge">{{ r.count }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% elif files %}
 <div class="files-grid" style="display: grid; gap: 1rem;">
     {% for file in files %}
     <div class="glass-card file-card" style="padding: 1.5rem;">

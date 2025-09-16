@@ -495,6 +495,7 @@ def files():
     language_filter = request.args.get('lang', '')
     category_filter = request.args.get('category', '')
     sort_by = request.args.get('sort', 'created_at')
+    repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
     per_page = 20
     
@@ -526,13 +527,66 @@ def files():
     # סינון לפי קטגוריה
     if category_filter:
         if category_filter == 'repo':
-            # קבצים מסומנים כריפו/גיטהאב: תגיות 'source:github' או תגית שמתחילה ב-'repo:'
-            query['$and'].append({
-                '$or': [
-                    {'tags': 'source:github'},
-                    {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}
+            # תצוגת "לפי ריפו":
+            # אם נבחר ריפו ספציפי -> מסנן לקבצים של אותו ריפו; אחרת -> נציג רשימת ריפואים ונחזור מיד
+            if repo_name:
+                query['$and'].append({'tags': f'repo:{repo_name}'})
+            else:
+                # הפקה של רשימת ריפואים מתוך תגיות שמתחילות ב- repo:
+                repo_pipeline = [
+                    {'$match': query},
+                    {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
+                    {'$addFields': {
+                        'repo_tags': {
+                            '$filter': {
+                                'input': '$tags',
+                                'as': 't',
+                                'cond': {'$regexMatch': {'input': '$$t', 'regex': '^repo:', 'options': 'i'}}
+                            }
+                        }
+                    }},
+                    {'$project': {'repo': {'$arrayElemAt': ['$repo_tags', 0]}}},
+                    {'$match': {'repo': {'$ne': None}}},
+                    {'$group': {'_id': '$repo', 'count': {'$sum': 1}}},
+                    {'$sort': {'_id': 1}},
                 ]
-            })
+                repos_raw = list(db.code_snippets.aggregate(repo_pipeline))
+                repos_list = []
+                for r in repos_raw:
+                    try:
+                        repo_full = str(r.get('_id') or '')
+                        name = repo_full.split(':', 1)[1] if ':' in repo_full else repo_full
+                        repos_list.append({'name': name, 'count': int(r.get('count') or 0)})
+                    except Exception:
+                        continue
+                # רשימת שפות לפילטר - רק מקבצים פעילים
+                languages = db.code_snippets.distinct(
+                    'programming_language',
+                    {
+                        'user_id': user_id,
+                        '$or': [
+                            {'is_active': True},
+                            {'is_active': {'$exists': False}}
+                        ]
+                    }
+                )
+                languages = sorted([lang for lang in languages if lang]) if languages else []
+                return render_template('files.html',
+                                     user=session['user_data'],
+                                     files=[],
+                                     repos=repos_list,
+                                     total_count=len(repos_list),
+                                     languages=languages,
+                                     search_query=search_query,
+                                     language_filter=language_filter,
+                                     category_filter=category_filter,
+                                     selected_repo='',
+                                     sort_by=sort_by,
+                                     page=1,
+                                     total_pages=1,
+                                     has_prev=False,
+                                     has_next=False,
+                                     bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'zip':
             # קבצי ZIP
             query['$and'].append({
