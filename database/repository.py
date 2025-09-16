@@ -52,24 +52,58 @@ class Repository:
                 prev_tags = list(existing.get('tags') or [])
             except Exception:
                 prev_tags = []
-        # Merge previous tags with any extra_tags provided (deduplicated, preserve order)
+        # Merge tags with special handling for repo:* —
+        # keep exactly one repo tag: prefer the last from extra_tags if present, otherwise keep the existing one
         merged_tags: List[str] = []
         try:
-            merged_source = list(prev_tags) + (list(extra_tags) if extra_tags else [])
-            seen = set()
-            for t in merged_source:
-                if not isinstance(t, str):
+            prev_list: List[str] = list(prev_tags or [])
+            extra_list: List[str] = list(extra_tags or [])
+
+            # Split previous tags
+            prev_non_repo: List[str] = []
+            prev_repo: List[str] = []
+            for tag in prev_list:
+                if not isinstance(tag, str):
                     continue
-                ts = t.strip()
+                ts = tag.strip()
                 if not ts:
                     continue
-                if ts in seen:
+                if ts.lower().startswith('repo:'):
+                    prev_repo.append(ts)
+                else:
+                    if ts not in prev_non_repo:
+                        prev_non_repo.append(ts)
+
+            # Split extra tags
+            extra_non_repo: List[str] = []
+            extra_repo: List[str] = []
+            for tag in extra_list:
+                if not isinstance(tag, str):
                     continue
-                seen.add(ts)
-                merged_tags.append(ts)
+                ts = tag.strip()
+                if not ts:
+                    continue
+                if ts.lower().startswith('repo:'):
+                    extra_repo.append(ts)
+                else:
+                    if ts not in extra_non_repo:
+                        extra_non_repo.append(ts)
+
+            # Compose non-repo tags: previous + extra (deduplicated, order preserved)
+            composed_non_repo: List[str] = []
+            for ts in prev_non_repo + extra_non_repo:
+                if ts not in composed_non_repo:
+                    composed_non_repo.append(ts)
+
+            # Choose repo tag: prefer extra last, else keep existing last
+            chosen_repo = extra_repo[-1] if extra_repo else (prev_repo[-1] if prev_repo else None)
+            merged_tags = composed_non_repo + ([chosen_repo] if chosen_repo else [])
         except Exception:
-            # Fallback safely to previous tags if anything goes wrong
-            merged_tags = list(prev_tags)
+            # Fallback: keep previous tags as-is on error
+            try:
+                merged_tags = list(prev_tags or [])
+            except Exception:
+                merged_tags = []
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=file_name,

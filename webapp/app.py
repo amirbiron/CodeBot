@@ -534,8 +534,16 @@ def files():
                 query['$and'].append({'tags': f'repo:{repo_name}'})
             else:
                 # הפקה של רשימת ריפואים מתוך תגיות שמתחילות ב- repo:
+                # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
+                base_active_query = {
+                    'user_id': user_id,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                }
                 repo_pipeline = [
-                    {'$match': query},
+                    {'$match': base_active_query},
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$addFields': {
                         'repo_tags': {
@@ -589,23 +597,37 @@ def files():
                                      has_next=False,
                                      bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'zip':
-            # קבצי ZIP נשמרים בבוט כמסמכי גיבוי (Filesystem/GridFS) ולא בתוך code_snippets
-            # לכן נציג רשימת גיבויים מה-BackupManager
-            try:
-                from file_manager import backup_manager
-                backups = backup_manager.list_backups(user_id) or []
-            except Exception:
-                backups = []
+            # קבצי ZIP נשמרים ב‑GridFS תחת bucket "backups" (או fs). נטען ישירות מה‑DB של הווב‑אפליקציה.
             zip_backups = []
-            for b in backups:
+            try:
+                grid_col = get_db().backups.files
+                docs = list(grid_col.find({'metadata.user_id': user_id}).sort('uploadDate', DESCENDING))
+            except Exception:
+                docs = []
+            # Fallback ל‑fs.files אם אין bucket בשם backups
+            if not docs:
                 try:
+                    grid_col_alt = get_db().fs.files
+                    docs = list(grid_col_alt.find({'metadata.user_id': user_id}).sort('uploadDate', DESCENDING))
+                except Exception:
+                    docs = []
+            for d in (docs or []):
+                try:
+                    md = d.get('metadata') or {}
+                    filename = d.get('filename') or ''
+                    backup_id = md.get('backup_id') or (filename.rsplit('.', 1)[0] if filename else str(d.get('_id')))
+                    created_val = md.get('created_at') or d.get('uploadDate')
+                    file_count = int(md.get('file_count') or 0)
+                    total_size = int(d.get('length') or 0)
+                    repo = md.get('repo') or ''
+                    path = md.get('path') or ''
                     zip_backups.append({
-                        'backup_id': getattr(b, 'backup_id', ''),
-                        'created_at': format_datetime_display(getattr(b, 'created_at', None)),
-                        'file_count': int(getattr(b, 'file_count', 0) or 0),
-                        'total_size': format_file_size(int(getattr(b, 'total_size', 0) or 0)),
-                        'repo': getattr(b, 'repo', None) or '',
-                        'path': getattr(b, 'path', None) or '',
+                        'backup_id': backup_id,
+                        'created_at': format_datetime_display(created_val),
+                        'file_count': file_count,
+                        'total_size': format_file_size(total_size),
+                        'repo': repo,
+                        'path': path,
                     })
                 except Exception:
                     continue
@@ -678,7 +700,29 @@ def files():
             query['$and'].append({'is_archive': {'$ne': True}})
     
     # ספירת סך הכל (אם לא חושב כבר)
-    if category_filter == 'other':
+    if not category_filter:
+        # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
+        count_pipeline = [
+            {'$match': query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
+            {'$group': {'_id': '$file_name'}},
+            {'$count': 'total'}
+        ]
+        count_result = list(db.code_snippets.aggregate(count_pipeline))
+        total_count = count_result[0]['total'] if count_result else 0
+    elif category_filter == 'other':
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
@@ -707,8 +751,34 @@ def files():
     sort_order = DESCENDING if sort_by.startswith('-') else 1
     sort_field = sort_by.lstrip('-')
     
-    # אם לא עשינו aggregation כבר (בקטגוריות large/other)
-    if category_filter not in ('large', 'other'):
+    # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
+    if not category_filter:
+        sort_dir = -1 if sort_by.startswith('-') else 1
+        sort_field_local = sort_by.lstrip('-')
+        pipeline = [
+            {'$match': query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$sort': {sort_field_local: sort_dir}},
+            {'$skip': (page - 1) * per_page},
+            {'$limit': per_page},
+        ]
+        files_cursor = db.code_snippets.aggregate(pipeline)
+    elif category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     elif category_filter == 'other':
         # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
@@ -1015,7 +1085,7 @@ def upload_file_web():
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
     # שליפת שפות קיימות להצעה
-    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db else []
+    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     languages = sorted([l for l in languages if l]) if languages else []
     return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
 
