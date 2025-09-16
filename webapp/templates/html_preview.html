@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}תצוגת דפדפן - {{ file.file_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.preview-container {
+    width: 100%;
+    height: calc(100vh - 180px);
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.preview-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+.preview-iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: white;
+}
+@media (max-width: 768px) {
+    .preview-container { height: calc(100vh - 220px); }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="file-header">
+    <div class="file-info">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+            <span style="font-size: 3rem;">🌐</span>
+            <div>
+                <h1 style="margin: 0;">תצוגת דפדפן: {{ file.file_name }}</h1>
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <span class="badge">{{ file.language }}</span>
+                </div>
+            </div>
+        </div>
+        <p style="margin: 0.5rem 0; opacity: 0.85;">
+            התוכן מוצג בתוך מסגרת מבודדת (sandbox) כדי למנוע גישה למשאבים של האתר.
+        </p>
+    </div>
+
+    <div class="preview-actions">
+        <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" title="צפה בקוד">
+            <i class="fas fa-code"></i>
+            קוד
+        </a>
+        <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" title="הורד">
+            <i class="fas fa-download"></i>
+            הורד
+        </a>
+        <a href="/files" class="btn btn-secondary btn-icon" title="חזור לרשימה">
+            <i class="fas fa-arrow-right"></i>
+            חזור
+        </a>
+    </div>
+</div>
+
+<div class="glass-card preview-container">
+    <div style="display: flex; gap: .5rem; padding: .5rem; align-items: center;">
+        <label style="display:flex; gap:.5rem; align-items:center;">
+            <input id="toggleJs" type="checkbox"> אפשר JS (מוגבל)
+        </label>
+        <small style="opacity:.8;">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
+    </div>
+    <iframe
+        id="previewFrame"
+        class="preview-iframe"
+        src="/raw_html/{{ file.id }}"
+        sandbox="allow-modals"
+        referrerpolicy="no-referrer"
+        loading="eager"
+        title="HTML Preview"
+    ></iframe>
+    
+</div>
+<script>
+(function(){
+  const cb = document.getElementById('toggleJs');
+  const frame = document.getElementById('previewFrame');
+  if (!cb || !frame) return;
+  function update(){
+    const url = new URL(frame.src, window.location.origin);
+    if (cb.checked) {
+      url.searchParams.set('allow', 'scripts');
+      frame.setAttribute('sandbox', 'allow-scripts allow-modals');
+    } else {
+      url.searchParams.delete('allow');
+      frame.setAttribute('sandbox', 'allow-modals');
+    }
+    if (frame.src !== url.toString()) {
+      frame.src = url.toString();
+    } else {
+      try { frame.contentWindow.location.reload(); } catch(e) {}
+    }
+  }
+  cb.addEventListener('change', update);
+})();
+</script>
+{% endblock %}
+

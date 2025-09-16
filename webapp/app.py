@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Optional, Dict, Any, List
 
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
 from pymongo import MongoClient, DESCENDING
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
@@ -556,20 +556,28 @@ def files():
                         {'is_active': {'$exists': False}}
                     ]
                 }
+                # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
                 repo_pipeline = [
                     {'$match': base_active_query},
+                    {'$sort': {'file_name': 1, 'version': -1}},
+                    {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+                    {'$replaceRoot': {'newRoot': '$latest'}},
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$project': {
-                        'repo_tags': {
-                            '$filter': {
-                                'input': '$tags',
-                                'as': 't',
-                                'cond': {'$regexMatch': {'input': '$$t', 'regex': '^repo:', 'options': 'i'}}
-                            }
+                        'repo_tag': {
+                            '$arrayElemAt': [
+                                {
+                                    '$filter': {
+                                        'input': '$tags',
+                                        'as': 't',
+                                        'cond': {'$regexMatch': {'input': '$$t', 'regex': '^repo:', 'options': 'i'}}
+                                    }
+                                },
+                                -1
+                            ]
                         }
                     }},
-                    {'$unwind': '$repo_tags'},
-                    {'$group': {'_id': '$repo_tags', 'count': {'$sum': 1}}},
+                    {'$group': {'_id': '$repo_tag', 'count': {'$sum': 1}}},
                     {'$sort': {'_id': 1}},
                 ]
                 repos_raw = list(db.code_snippets.aggregate(repo_pipeline))
@@ -975,6 +983,88 @@ def download_file(file_id):
         download_name=filename,
         mimetype='text/plain'
     )
+
+@app.route('/html/<file_id>')
+@login_required
+def html_preview(file_id):
+    """תצוגת דפדפן לקובץ HTML בתוך iframe עם sandbox."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file = db.code_snippets.find_one({
+            '_id': ObjectId(file_id),
+            'user_id': user_id
+        })
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    language = (file.get('programming_language') or '').lower()
+    file_name = file.get('file_name') or 'index.html'
+    # מציגים תצוגת דפדפן רק לקבצי HTML
+    if language != 'html' and not (isinstance(file_name, str) and file_name.lower().endswith(('.html', '.htm'))):
+        return redirect(url_for('view_file', file_id=file_id))
+
+    file_data = {
+        'id': str(file.get('_id')),
+        'file_name': file_name,
+        'language': language or 'html',
+    }
+    return render_template('html_preview.html', user=session.get('user_data', {}), file=file_data, bot_username=BOT_USERNAME_CLEAN)
+
+@app.route('/raw_html/<file_id>')
+@login_required
+def raw_html(file_id):
+    """מחזיר את ה-HTML הגולמי להצגה בתוך ה-iframe (אותו דומיין)."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file = db.code_snippets.find_one({
+            '_id': ObjectId(file_id),
+            'user_id': user_id
+        })
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    code = file.get('code') or ''
+    # קביעת מצב הרצה: ברירת מחדל ללא סקריפטים
+    allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
+    scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
+    if scripts_enabled:
+        csp = \
+            "default-src 'none'; " \
+            "base-uri 'none'; " \
+            "form-action 'none'; " \
+            "connect-src 'none'; " \
+            "img-src data:; " \
+            "style-src 'unsafe-inline'; " \
+            "font-src data:; " \
+            "object-src 'none'; " \
+            "frame-ancestors 'self'; " \
+            "script-src 'unsafe-inline'"
+        # שים לב: גם במצב זה ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin
+    else:
+        csp = \
+            "default-src 'none'; " \
+            "base-uri 'none'; " \
+            "form-action 'none'; " \
+            "connect-src 'none'; " \
+            "img-src data:; " \
+            "style-src 'unsafe-inline'; " \
+            "font-src data:; " \
+            "object-src 'none'; " \
+            "frame-ancestors 'self'; " \
+            "script-src 'none'"
+
+    resp = Response(code, mimetype='text/html; charset=utf-8')
+    resp.headers['Content-Security-Policy'] = csp
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Referrer-Policy'] = 'no-referrer'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required

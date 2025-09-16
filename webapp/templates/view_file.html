@@ -227,6 +227,11 @@ body.telegram-mini-app .main-content > .container { padding-left: 10px !importan
             העתק קוד
             <div class="copy-feedback" id="copyFeedback">הועתק!</div>
         </button>
+        {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
+        <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon">
+            🌐 תצוגת דפדפן
+        </a>
+        {% endif %}
         <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon">
             <i class="fas fa-download"></i>
             הורד
