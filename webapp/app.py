@@ -588,13 +588,56 @@ def files():
                                      has_next=False,
                                      bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'zip':
-            # קבצי ZIP
-            query['$and'].append({
-                '$or': [
-                    {'file_name': {'$regex': r'\.zip$', '$options': 'i'}},
-                    {'is_archive': True}
-                ]
-            })
+            # קבצי ZIP נשמרים בבוט כמסמכי גיבוי (Filesystem/GridFS) ולא בתוך code_snippets
+            # לכן נציג רשימת גיבויים מה-BackupManager
+            try:
+                from file_manager import backup_manager
+                backups = backup_manager.list_backups(user_id) or []
+            except Exception:
+                backups = []
+            zip_backups = []
+            for b in backups:
+                try:
+                    zip_backups.append({
+                        'backup_id': getattr(b, 'backup_id', ''),
+                        'created_at': format_datetime_display(getattr(b, 'created_at', None)),
+                        'file_count': int(getattr(b, 'file_count', 0) or 0),
+                        'total_size': format_file_size(int(getattr(b, 'total_size', 0) or 0)),
+                        'repo': getattr(b, 'repo', None) or '',
+                        'path': getattr(b, 'path', None) or '',
+                    })
+                except Exception:
+                    continue
+
+            # רשימת שפות לפילטר - כמו קודם
+            languages = db.code_snippets.distinct(
+                'programming_language',
+                {
+                    'user_id': user_id,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                }
+            )
+            languages = sorted([lang for lang in languages if lang]) if languages else []
+
+            return render_template('files.html',
+                                 user=session['user_data'],
+                                 files=[],
+                                 zip_backups=zip_backups,
+                                 total_count=len(zip_backups),
+                                 languages=languages,
+                                 search_query=search_query,
+                                 language_filter=language_filter,
+                                 category_filter=category_filter,
+                                 selected_repo='',
+                                 sort_by=sort_by,
+                                 page=1,
+                                 total_pages=1,
+                                 has_prev=False,
+                                 has_next=False,
+                                 bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'large':
             # קבצים גדולים (מעל 100KB)
             # נצטרך להוסיף שדה size אם אין

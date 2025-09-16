@@ -85,7 +85,7 @@
             | ריפו: {{ selected_repo }}
             {% endif %}
             {% elif category_filter == 'zip' %}
-            | קטגוריה: קבצי ZIP
+            | קטגוריה: קבצי ZIP (גיבויים שמורים בבוט)
             {% elif category_filter == 'large' %}
             | קטגוריה: קבצים גדולים (מעל 100KB)
             {% elif category_filter == 'other' %}
@@ -119,6 +119,29 @@
       </span>
       <span class="badge">{{ r.count }}</span>
     </a>
+    {% endfor %}
+  </div>
+</div>
+{% elif zip_backups %}
+<div class="glass-card">
+  <h2 class="section-title"><i class="fas fa-file-archive"></i> קבצי ZIP</h2>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+    {% for z in zip_backups %}
+    <div class="glass-card" style="padding: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <span><i class="fas fa-archive"></i> {{ z.backup_id }}</span>
+        <span class="badge">{{ z.file_count }} קבצים</span>
+      </div>
+      <div style="opacity: 0.8; display: flex; gap: 1rem; font-size: 0.9rem;">
+        <span><i class="fas fa-weight-hanging"></i> {{ z.total_size }}</span>
+        <span><i class="fas fa-calendar"></i> {{ z.created_at }}</span>
+      </div>
+      {% if z.repo %}
+      <div style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.9rem;">
+        <i class="fab fa-github"></i> {{ z.repo }}{% if z.path %} / {{ z.path }}{% endif %}
+      </div>
+      {% endif %}
+    </div>
     {% endfor %}
   </div>
 </div>
