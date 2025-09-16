@@ -581,10 +581,9 @@ def files():
     
     # ספירת סך הכל (אם לא חושב כבר)
     if category_filter == 'other':
-        # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (רק פעילים ובעלי תוכן)
+        # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
-            {'$match': {'is_active': True}},
             {'$addFields': {
                 'code_size': {
                     '$cond': {
@@ -614,12 +613,11 @@ def files():
     if category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     elif category_filter == 'other':
-        # "שאר קבצים": רק קבצים פעילים ובעלי תוכן (>0 בתים), הצגת הגרסה האחרונה לכל file_name
+        # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
         base_pipeline = [
             {'$match': query},
-            {'$match': {'is_active': True}},  # התאמה לבוט: רק פעילים
             {'$addFields': {
                 'code_size': {
                     '$cond': {
