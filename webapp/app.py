@@ -534,7 +534,6 @@ def files():
                 query['$and'].append({'tags': f'repo:{repo_name}'})
             else:
                 # הפקה של רשימת ריפואים מתוך תגיות שמתחילות ב- repo:
-<<<<<<< HEAD
                 # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
                 base_active_query = {
                     'user_id': user_id,
@@ -545,10 +544,6 @@ def files():
                 }
                 repo_pipeline = [
                     {'$match': base_active_query},
-=======
-                repo_pipeline = [
-                    {'$match': query},
->>>>>>> origin/main
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$addFields': {
                         'repo_tags': {
@@ -602,7 +597,6 @@ def files():
                                      has_next=False,
                                      bot_username=BOT_USERNAME_CLEAN)
         elif category_filter == 'zip':
-<<<<<<< HEAD
             # קבצי ZIP נשמרים ב‑GridFS תחת bucket "backups" (או fs). נטען ישירות מה‑DB של הווב‑אפליקציה.
             zip_backups = []
             try:
@@ -634,25 +628,6 @@ def files():
                         'total_size': format_file_size(total_size),
                         'repo': repo,
                         'path': path,
-=======
-            # קבצי ZIP נשמרים בבוט כמסמכי גיבוי (Filesystem/GridFS) ולא בתוך code_snippets
-            # לכן נציג רשימת גיבויים מה-BackupManager
-            try:
-                from file_manager import backup_manager
-                backups = backup_manager.list_backups(user_id) or []
-            except Exception:
-                backups = []
-            zip_backups = []
-            for b in backups:
-                try:
-                    zip_backups.append({
-                        'backup_id': getattr(b, 'backup_id', ''),
-                        'created_at': format_datetime_display(getattr(b, 'created_at', None)),
-                        'file_count': int(getattr(b, 'file_count', 0) or 0),
-                        'total_size': format_file_size(int(getattr(b, 'total_size', 0) or 0)),
-                        'repo': getattr(b, 'repo', None) or '',
-                        'path': getattr(b, 'path', None) or '',
->>>>>>> origin/main
                     })
                 except Exception:
                     continue
@@ -1110,11 +1085,7 @@ def upload_file_web():
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
     # שליפת שפות קיימות להצעה
-<<<<<<< HEAD
     languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
-=======
-    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db else []
->>>>>>> origin/main
     languages = sorted([l for l in languages if l]) if languages else []
     return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
 
