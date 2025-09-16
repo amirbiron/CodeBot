@@ -581,9 +581,22 @@ def files():
     
     # ספירת סך הכל (אם לא חושב כבר)
     if category_filter == 'other':
-        # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון — תואם לבוט
+        # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
@@ -600,11 +613,26 @@ def files():
     if category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     elif category_filter == 'other':
-        # הצגת "שאר קבצים" לפי הגרסה האחרונה בלבד לכל file_name — תואם לבוט
+        # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
-        pipeline = [
+        base_pipeline = [
             {'$match': query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
+        ]
+        pipeline = base_pipeline + [
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
