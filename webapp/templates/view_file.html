@@ -169,6 +169,20 @@
     }
     .highlighttable td.linenos { width: 2.8rem; }
     .main-content > .container { padding-left: 10px; padding-right: 10px; }
+    /* שבירת שורות בקוד במסכים צרים */
+    pre, code {
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (min-width: 769px) {
+    pre, code {
+        white-space: pre;
+        overflow-x: auto;
+        width: 100%;
+    }
 }
 
 /* Mini WebApp: שיפורים כאשר נטען בתוך טלגרם */
