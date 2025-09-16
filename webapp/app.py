@@ -601,16 +601,44 @@ def files():
             zip_backups = []
             try:
                 grid_col = get_db().backups.files
-                docs = list(grid_col.find({'metadata.user_id': user_id}).sort('uploadDate', DESCENDING))
+                # שלוף ללא פילטר קשיח כדי לאפשר סינון ידני (metadata.user_id עשוי להיות מחרוזת)
+                docs = list(grid_col.find({}).sort('uploadDate', DESCENDING))
             except Exception:
                 docs = []
             # Fallback ל‑fs.files אם אין bucket בשם backups
             if not docs:
                 try:
                     grid_col_alt = get_db().fs.files
-                    docs = list(grid_col_alt.find({'metadata.user_id': user_id}).sort('uploadDate', DESCENDING))
+                    docs = list(grid_col_alt.find({}).sort('uploadDate', DESCENDING))
                 except Exception:
                     docs = []
+            filtered_docs = []
+            for d in (docs or []):
+                try:
+                    md = d.get('metadata') or {}
+                    filename = d.get('filename') or ''
+                    backup_id = md.get('backup_id') or (filename.rsplit('.', 1)[0] if filename else str(d.get('_id')))
+                    created_val = md.get('created_at') or d.get('uploadDate')
+                    file_count = int(md.get('file_count') or 0)
+                    total_size = int(d.get('length') or 0)
+                    repo = md.get('repo') or ''
+                    path = md.get('path') or ''
+                    # סינון לפי user_id: תמיכה גם בסוג מחרוזת וגם ברמז בשם הקובץ
+                    md_uid = md.get('user_id')
+                    belongs = False
+                    if isinstance(md_uid, int) and md_uid == user_id:
+                        belongs = True
+                    elif isinstance(md_uid, str) and md_uid.strip() == str(user_id):
+                        belongs = True
+                    elif isinstance(filename, str) and f"_{user_id}_" in filename:
+                        belongs = True
+                    if not belongs:
+                        continue
+                    filtered_docs.append(d)
+                except Exception:
+                    continue
+
+            docs = filtered_docs
             for d in (docs or []):
                 try:
                     md = d.get('metadata') or {}
@@ -631,6 +659,26 @@ def files():
                     })
                 except Exception:
                     continue
+
+            # Fallback נוסף: אם עדיין אין תוצאות, שלוף דרך FileManager (דיסק)
+            if not zip_backups:
+                try:
+                    from file_manager import backup_manager
+                    backups = backup_manager.list_backups(user_id) or []
+                except Exception:
+                    backups = []
+                for b in backups:
+                    try:
+                        zip_backups.append({
+                            'backup_id': getattr(b, 'backup_id', ''),
+                            'created_at': format_datetime_display(getattr(b, 'created_at', None)),
+                            'file_count': int(getattr(b, 'file_count', 0) or 0),
+                            'total_size': format_file_size(int(getattr(b, 'total_size', 0) or 0)),
+                            'repo': getattr(b, 'repo', None) or '',
+                            'path': getattr(b, 'path', None) or '',
+                        })
+                    except Exception:
+                        continue
 
             # רשימת שפות לפילטר - כמו קודם
             languages = db.code_snippets.distinct(
