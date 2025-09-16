@@ -90,8 +90,9 @@ def test_restore_from_backup_passes_single_repo_tag(monkeypatch, tmp_path):
             calls.append({'user_id': user_id, 'file_name': file_name, 'tags': list(extra_tags or [])})
             return True
 
-    import database
-    database.db = _DBStub()  # monkeypatch module global used by file_manager
+    import sys, types
+    fake_db_module = types.SimpleNamespace(db=_DBStub())
+    monkeypatch.setitem(sys.modules, 'database', fake_db_module)
 
     from file_manager import backup_manager
     res = backup_manager.restore_from_backup(user_id=999, backup_path=str(zpath), overwrite=True, purge=False, extra_tags=['repo:A', 'repo:B', 'misc'])
