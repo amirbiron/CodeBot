@@ -365,19 +365,34 @@ function copyCode() {
     }
 }
 
-function copyLink() {
-    const url = window.location.href;
+async function ensurePublicLink() {
+    try {
+        const resp = await fetch(`/api/share/{{ file.id }}`, { method: 'POST' });
+        const data = await resp.json();
+        if (data && data.ok && data.url) {
+            return data.url;
+        }
+        // fallback: קישור הנוכחי
+        return window.location.href;
+    } catch (e) {
+        console.error('share create failed', e);
+        return window.location.href;
+    }
+}
+
+async function copyLink() {
+    const url = await ensurePublicLink();
     navigator.clipboard.writeText(url).then(() => {
-        alert('הקישור הועתק!');
+        alert('הקישור הציבורי הועתק!');
     }).catch(err => {
         console.error('Failed to copy:', err);
         alert('לא הצלחנו להעתיק את הקישור');
     });
 }
 
-function shareToTelegram() {
+async function shareToTelegram() {
     const fileName = {{ file.file_name|tojson }};
-    const url = window.location.href;
+    const url = await ensurePublicLink();
     const text = `בדוק את הקובץ ${fileName} ב-Code Keeper:\n${url}`;
     const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
     window.open(telegramUrl, '_blank');

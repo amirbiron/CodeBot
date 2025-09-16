@@ -24,6 +24,7 @@ from datetime import timedelta
 import re
 import sys
 from pathlib import Path
+import secrets
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
@@ -42,6 +43,8 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
 BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
+PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
+PUBLIC_SHARE_TTL_DAYS = int(os.getenv('PUBLIC_SHARE_TTL_DAYS', '7'))
 
  
 
@@ -968,6 +971,61 @@ def download_file(file_id):
         download_name=filename,
         mimetype='text/plain'
     )
+
+@app.route('/api/share/<file_id>', methods=['POST'])
+@login_required
+def create_public_share(file_id):
+    """יוצר קישור ציבורי לשיתוף הקובץ ומחזיר את ה-URL."""
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        try:
+            file = db.code_snippets.find_one({
+                '_id': ObjectId(file_id),
+                'user_id': user_id
+            })
+        except Exception:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        if not file:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        share_id = secrets.token_urlsafe(12)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+
+        doc = {
+            'share_id': share_id,
+            'file_name': file.get('file_name') or 'snippet.txt',
+            'code': file.get('code') or '',
+            'language': (file.get('programming_language') or 'text'),
+            'description': file.get('description') or '',
+            'created_at': now,
+            'views': 0,
+            'expires_at': expires_at,
+        }
+
+        coll = db.internal_shares
+        # ניסיון ליצור אינדקסים רלוונטיים (בטוח לקרוא מספר פעמים)
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            coll.create_index([('share_id', ASCENDING)], name='share_id_unique', unique=True)
+            coll.create_index([('created_at', DESCENDING)], name='created_at_desc')
+            coll.create_index([('expires_at', ASCENDING)], name='expires_ttl', expireAfterSeconds=0)
+        except Exception:
+            pass
+
+        try:
+            coll.insert_one(doc)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'שגיאה בשמירה: {e}'}), 500
+
+        # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
+        base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+        share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
+        return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
