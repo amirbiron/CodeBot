@@ -161,7 +161,19 @@
     .file-actions .btn {
         flex: 1;
     }
+    
+    /* התאמות מובייל לתצוגת קוד */
+    .source {
+        font-size: 12px !important;
+        padding: 0.75rem !important;
+    }
+    .highlighttable td.linenos { width: 2.8rem; }
+    .main-content > .container { padding-left: 10px; padding-right: 10px; }
 }
+
+/* Mini WebApp: שיפורים כאשר נטען בתוך טלגרם */
+body.telegram-mini-app .source { font-size: 12px !important; padding: 0.75rem !important; }
+body.telegram-mini-app .main-content > .container { padding-left: 10px !important; padding-right: 10px !important; }
 </style>
 {% endblock %}
 
