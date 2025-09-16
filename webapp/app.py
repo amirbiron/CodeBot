@@ -556,8 +556,13 @@ def files():
                         {'is_active': {'$exists': False}}
                     ]
                 }
+                # נציג ריפואים לפי התגיות במסמך ה"גרסה האחרונה" של כל קובץ,
+                # כדי ליישר התנהגות עם הבוט (שמשתמש get_user_files ומחזיר latest בלבד)
                 repo_pipeline = [
                     {'$match': base_active_query},
+                    {'$sort': {'file_name': 1, 'version': -1}},
+                    {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+                    {'$replaceRoot': {'newRoot': '$latest'}},
                     {'$match': {'tags': {'$elemMatch': {'$regex': r'^repo:', '$options': 'i'}}}},
                     {'$project': {
                         'repo_tags': {
