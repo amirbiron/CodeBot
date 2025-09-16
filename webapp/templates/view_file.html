@@ -390,8 +390,14 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         copyCode();
     }
-    // Escape לחזרה לרשימה
+    // Escape: אם במסך מלא – לצאת ממנו; אחרת – חזרה לרשימה
     if (e.key === 'Escape') {
+        const codeCard = document.getElementById('codeCard');
+        if (document.fullscreenElement && document.fullscreenElement === codeCard) {
+            e.preventDefault();
+            try { document.exitFullscreen(); } catch (err) { /* ignore */ }
+            return;
+        }
         window.location.href = '/files';
     }
 });
