@@ -256,11 +256,18 @@ class TextUtils:
         if version == 2:
             # Markdown V2: כל התווים שיש לאסקייפ לפי Telegram MarkdownV2
             special_chars = set("_*[]()~`>#+-=|{}.!\\")
-            return "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
+            res = "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
+            # היגיינה: אל תסיים בבק-סלאש בודד (לא תקין ב-Markdown)
+            if res.endswith("\\") and not text.endswith("\\"):
+                res = res[:-1]
+            return res
         else:
             # Markdown V1: נשתמש בקבוצה מצומצמת אך גם נסמן סוגריים כדי להימנע מתקלות כלליות
             special_chars = set("_*`[()\\")
-            return "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
+            res = "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
+            if res.endswith("\\") and not text.endswith("\\"):
+                res = res[:-1]
+            return res
     
     @staticmethod
     def clean_filename(filename: str) -> str:
