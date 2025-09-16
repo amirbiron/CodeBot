@@ -18,6 +18,12 @@
     text-align: left;
     width: 100%;
 }
+.source .highlight,
+.source .highlight pre {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: auto;
+}
 
 .source pre {
     margin: 0;
@@ -33,6 +39,8 @@
 .highlighttable {
     width: 100% !important;
     table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 .highlighttable td.linenos {
     width: 3.5rem;
@@ -40,6 +48,10 @@
 }
 .highlighttable td.code {
     width: auto;
+    overflow: auto;
+}
+.highlighttable td.code pre {
+    overflow: auto;
 }
 
 /* מיכל הקוד יתפרס לרוחב מלא */
