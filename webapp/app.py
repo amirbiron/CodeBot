@@ -21,6 +21,7 @@ from pygments.formatters import HtmlFormatter
 from bson import ObjectId
 import requests
 from datetime import timedelta
+import re
 
 # יצירת האפליקציה
 app = Flask(__name__)
@@ -952,6 +953,50 @@ def download_file(file_id):
         download_name=filename,
         mimetype='text/plain'
     )
+
+@app.route('/upload', methods=['GET', 'POST'])
+@login_required
+def upload_file_web():
+    """העלאת קובץ חדש דרך הווב-אפליקציה."""
+    db = get_db()
+    user_id = session['user_id']
+    error = None
+    success = None
+    if request.method == 'POST':
+        try:
+            file_name = (request.form.get('file_name') or '').strip()
+            code = request.form.get('code') or ''
+            language = (request.form.get('language') or '').strip() or 'text'
+            description = (request.form.get('description') or '').strip()
+            raw_tags = (request.form.get('tags') or '').strip()
+            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
+
+            if not file_name:
+                error = 'יש להזין שם קובץ'
+            elif not code:
+                error = 'יש להזין תוכן קוד'
+            else:
+                # זיהוי שפה בסיסי אם לא סופק
+                if not language or language == 'text':
+                    try:
+                        from utils import detect_language_from_filename as _dl
+                        language = _dl(file_name) or 'text'
+                    except Exception:
+                        language = 'text'
+                # שמירה כגרסה חדשה (שומר תיאור ותגים קודמים)
+                from database import db as _db
+                ok = _db.save_file(user_id=user_id, file_name=file_name, code=code, programming_language=language, extra_tags=tags)
+                if ok:
+                    success = 'הקובץ נשמר בהצלחה'
+                    return redirect(url_for('files'))
+                else:
+                    error = 'שמירת הקובץ נכשלה'
+        except Exception as e:
+            error = f'שגיאה בהעלאה: {e}'
+    # שליפת שפות קיימות להצעה
+    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db else []
+    languages = sorted([l for l in languages if l]) if languages else []
+    return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
 
 @app.route('/api/stats')
 @login_required
