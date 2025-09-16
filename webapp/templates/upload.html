@@ -13,7 +13,7 @@
   <div class="alert alert-success">{{ success }}</div>
   {% endif %}
 
-  <form method="post" style="display: grid; gap: 1rem;">
+  <form method="post" enctype="multipart/form-data" style="display: grid; gap: 1rem;">
     <div>
       <label>שם קובץ</label>
       <input type="text" name="file_name" placeholder="example.py" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
@@ -38,6 +38,11 @@
     <div>
       <label>קוד</label>
       <textarea name="code" rows="14" placeholder="# הדבק כאן את הקוד" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;"></textarea>
+    </div>
+    <div>
+      <label>או העלה קובץ</label>
+      <input type="file" name="code_file" accept=".txt,.py,.js,.ts,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.swift,.kt,.html,.css,.sql,.sh,.yaml,.yml,.json,.xml,.md" style="width: 100%;">
+      <small style="opacity:.8;">אם נבחר קובץ, התוכן יקרא ממנו וישתמש בשם הקובץ לזיהוי השפה.</small>
     </div>
     <div style="display: flex; gap: 1rem;">
       <button type="submit" class="btn btn-primary btn-icon"><i class="fas fa-upload"></i> שמור</button>

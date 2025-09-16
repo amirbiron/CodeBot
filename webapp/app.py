@@ -971,6 +971,27 @@ def upload_file_web():
             raw_tags = (request.form.get('tags') or '').strip()
             tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
 
+            # אם הועלה קובץ — נקרא ממנו ונשתמש בשמו אם אין שם קובץ בשדה
+            try:
+                uploaded = request.files.get('code_file')
+            except Exception:
+                uploaded = None
+            if uploaded and hasattr(uploaded, 'filename') and uploaded.filename:
+                # הגבלת גודל בסיסית (עד ~2MB)
+                data = uploaded.read()
+                if data and len(data) > 2 * 1024 * 1024:
+                    error = 'קובץ גדול מדי (עד 2MB)'
+                else:
+                    try:
+                        code = data.decode('utf-8')
+                    except Exception:
+                        try:
+                            code = data.decode('latin-1')
+                        except Exception:
+                            code = ''
+                    if not file_name:
+                        file_name = uploaded.filename or ''
+
             if not file_name:
                 error = 'יש להזין שם קובץ'
             elif not code:
