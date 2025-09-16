@@ -61,3 +61,68 @@ async def test_validate_repo_progress_task_cleans_up(monkeypatch):
     # If we got here without TimeoutError, the progress task did not leak/hang
     assert True
 
+
+@pytest.mark.asyncio
+async def test_validate_repo_progress_success_path(monkeypatch):
+    # Import after we have a test context
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = _Update()
+    context = _Context()
+
+    # Prepare session and stubs
+    session = handler.get_user_session(1)
+    session["selected_repo"] = "owner/name"
+
+    # Stub GitHub SDK usage inside the function (not used when we stub to_thread)
+    monkeypatch.setattr(gh, "Github", lambda *args, **kwargs: object())
+
+    # Stub Telegram keyboard classes to simple objects to avoid dependency
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+
+    # Stub asyncio.to_thread to return a fake validation result immediately
+    async def _fake_to_thread(fn, *args, **kwargs):
+        # Simulate tool results for flake8/mypy/bandit/black
+        results = {
+            "flake8": (0, "OK"),
+            "mypy": (0, "OK"),
+            "bandit": (0, "OK"),
+            "black": (0, "OK"),
+        }
+        return results, "owner/name"
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+
+    update.callback_query.data = "validate_repo"
+    await asyncio.wait_for(handler.handle_menu_callback(update, context), timeout=2.0)
+
+    assert True
+
+
+@pytest.mark.asyncio
+async def test_validate_repo_progress_exception_path(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = _Update()
+    context = _Context()
+
+    session = handler.get_user_session(1)
+    session["selected_repo"] = "owner/name"
+
+    monkeypatch.setattr(gh, "Github", lambda *args, **kwargs: object())
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+
+    async def _raise_to_thread(fn, *args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(asyncio, "to_thread", _raise_to_thread)
+
+    update.callback_query.data = "validate_repo"
+    await asyncio.wait_for(handler.handle_menu_callback(update, context), timeout=2.0)
+
+    assert True
+
