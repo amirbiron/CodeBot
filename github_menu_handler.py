@@ -642,11 +642,13 @@ class GitHubMenuHandler:
                         if saved >= IMPORT_MAX_FILES:
                             continue
                         lang = detect_language_from_filename(rel_path)
-                        # בדוק אם קיים כבר — אם כן, שמירה תיצור גרסה חדשה ונחשב זאת כ"עודכן"
-                        existed = bool(db.get_latest_version(user_id, rel_path))
+                        # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:)
+                        prev_doc = db.get_latest_version(user_id, rel_path)
+                        prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
+                        existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
                         ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
-                            if existed:
+                            if existed_for_repo:
                                 updated += 1
                             else:
                                 saved += 1
