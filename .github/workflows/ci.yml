@@ -210,7 +210,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install wheel poetry-core
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov pytest-mock
+          pip install pytest pytest-asyncio pytest-cov pytest-mock freezegun faker mongomock
       - name: 🔎 Dependency integrity (pip check)
         run: pip check || true
 
