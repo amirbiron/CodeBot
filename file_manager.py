@@ -405,8 +405,17 @@ class BackupManager:
                                 results["errors"].append(f"decode failed for {name}: {e}")
                                 continue
                         lang = detect_language_from_filename(name)
-                        # העברת extra_tags כדי לתייג כל קובץ מיובא (למשל repo:owner/name)
-                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang, extra_tags=(extra_tags or []))
+                        # אם יש תגית repo:* — הוסף אותה רק עבור קבצים שנמצאים בשורש הריפו או תחת נתיב התואם לריפו
+                        filtered_extra = list(extra_tags or [])
+                        try:
+                            repo_tags = [t for t in filtered_extra if isinstance(t, str) and t.strip().lower().startswith('repo:')]
+                            # כלל זהיר: שמור את תג ה-repo רק אם הנתיב אינו כולל סלאשים רבים/או שהקובץ בשם שאינו גורף (index.html יכול להופיע בכל מקום) —
+                            # בפשטות: תמיד נאפשר, אבל נוסיף רק את תג ה-repo האחרון (אם קיים) והיתר נסנן למעלה בשכבת repo.save_file
+                            if repo_tags:
+                                filtered_extra = [repo_tags[-1]] + [t for t in filtered_extra if not (isinstance(t, str) and t.strip().lower().startswith('repo:'))]
+                        except Exception:
+                            pass
+                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang, extra_tags=filtered_extra)
                         if ok:
                             results["restored_files"] += 1
                         else:
