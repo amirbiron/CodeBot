@@ -1274,6 +1274,74 @@ def health():
     
     return jsonify(health_data)
 
+# --- Public statistics for landing/mini web app ---
+@app.route('/api/public_stats')
+def api_public_stats():
+    """סטטיסטיקות גלובליות להצגה בעמוד הבית/מיני-ווב ללא התחברות.
+
+    מחזיר:
+    - total_users: סה"כ משתמשים שנוצרו אי פעם
+    - active_users_24h: משתמשים שהיו פעילים ב-24 השעות האחרונות (updated_at)
+    - total_snippets: סה"כ קטעי קוד ייחודיים שנשמרו (distinct לפי user_id+file_name) כאשר התוכן לא ריק ובסטטוס פעיל
+    """
+    try:
+        db = get_db()
+        now_utc = datetime.now(timezone.utc)
+        last_24h = now_utc - timedelta(hours=24)
+
+        # Users
+        try:
+            total_users = int(db.users.count_documents({}))
+        except Exception:
+            total_users = 0
+        try:
+            active_users_24h = int(db.users.count_documents({"updated_at": {"$gte": last_24h}}))
+        except Exception:
+            active_users_24h = 0
+
+        # Total distinct snippets (user_id+file_name), only active and with non-empty code
+        try:
+            pipeline = [
+                {"$match": {
+                    "$and": [
+                        {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                        {"code": {"$type": "string"}},
+                    ]
+                }},
+                {"$addFields": {
+                    "code_size": {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$code"}, "string"]},
+                            "then": {"$strLenBytes": "$code"},
+                            "else": 0,
+                        }
+                    }
+                }},
+                {"$match": {"code_size": {"$gt": 0}}},
+                {"$group": {"_id": {"user_id": "$user_id", "file_name": "$file_name"}}},
+                {"$count": "count"},
+            ]
+            res = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+            total_snippets = int(res[0]["count"]) if res else 0
+        except Exception:
+            total_snippets = 0
+
+        return jsonify({
+            "ok": True,
+            "total_users": total_users,
+            "active_users_24h": active_users_24h,
+            "total_snippets": total_snippets,
+            "timestamp": now_utc.isoformat(),
+        })
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "total_users": 0,
+            "active_users_24h": 0,
+            "total_snippets": 0,
+        }), 200
+
 # --- Public share route ---
 @app.route('/share/<share_id>')
 def public_share(share_id):

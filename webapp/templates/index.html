@@ -70,11 +70,15 @@
         <div class="stats-section" style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid rgba(255,255,255,0.2);">
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 2rem;">
                 <div>
-                    <div style="font-size: 2rem; font-weight: bold;">1000+</div>
+                    <div id="activeUsers" style="font-size: 2rem; font-weight: bold;">
+                        <span class="loading" aria-label="loading"></span>
+                    </div>
                     <div style="opacity: 0.8;">משתמשים פעילים</div>
                 </div>
                 <div>
-                    <div style="font-size: 2rem; font-weight: bold;">50K+</div>
+                    <div id="totalSnippets" style="font-size: 2rem; font-weight: bold;">
+                        <span class="loading" aria-label="loading"></span>
+                    </div>
                     <div style="opacity: 0.8;">קטעי קוד נשמרו</div>
                 </div>
                 <div>
@@ -86,6 +90,7 @@
                     <div style="opacity: 0.8;">זמינות</div>
                 </div>
             </div>
+            <div id="statsLastUpdate" style="opacity: 0.7; font-size: 0.9rem; margin-top: 1rem;"></div>
         </div>
     </div>
 </div>
@@ -118,4 +123,43 @@
     }
 }
 </style>
+{% block extra_js %}
+<script>
+    async function loadPublicStats() {
+        const activeEl = document.getElementById('activeUsers');
+        const snippetsEl = document.getElementById('totalSnippets');
+        const lastEl = document.getElementById('statsLastUpdate');
+        try {
+            const res = await fetch('/api/public_stats', { credentials: 'same-origin' });
+            const data = await res.json();
+            if (!data || data.ok === false) throw new Error(data && data.error ? data.error : 'bad response');
+            const active = Number(data.active_users_24h || 0);
+            const totalSnippets = Number(data.total_snippets || 0);
+            activeEl.textContent = formatCompact(active);
+            snippetsEl.textContent = formatCompact(totalSnippets);
+            lastEl.textContent = `עודכן לאחרונה: ${new Date(data.timestamp || Date.now()).toLocaleString('he-IL')}`;
+        } catch (e) {
+            activeEl.textContent = '—';
+            snippetsEl.textContent = '—';
+            lastEl.textContent = '';
+        }
+    }
+
+    function formatCompact(num) {
+        try {
+            return new Intl.NumberFormat('en', { notation: 'compact' }).format(num);
+        } catch (e) {
+            if (num >= 1_000_000) return (Math.round(num/100_000)/10)+'M';
+            if (num >= 1_000) return Math.round(num/100)/10+'K';
+            return String(num);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadPublicStats();
+        // רענון כל דקה קלה
+        setInterval(loadPublicStats, 30000);
+    });
+</script>
+{% endblock %}
 {% endblock %}
