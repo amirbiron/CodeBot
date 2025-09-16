@@ -456,6 +456,11 @@ class GitHubMenuHandler:
         if not (token and repo_full):
             await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
             return
+        # הודעת טעינה בזמן שליפת הענפים
+        try:
+            await TelegramUtils.safe_edit_message_text(query, "⏳ טוען רשימת ענפים…")
+        except Exception:
+            pass
         g = Github(token)
         try:
             repo = g.get_repo(repo_full)
@@ -637,11 +642,13 @@ class GitHubMenuHandler:
                         if saved >= IMPORT_MAX_FILES:
                             continue
                         lang = detect_language_from_filename(rel_path)
-                        # בדוק אם קיים כבר — אם כן, שמירה תיצור גרסה חדשה ונחשב זאת כ"עודכן"
-                        existed = bool(db.get_latest_version(user_id, rel_path))
+                        # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:)
+                        prev_doc = db.get_latest_version(user_id, rel_path)
+                        prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
+                        existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
                         ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
-                            if existed:
+                            if existed_for_repo:
                                 updated += 1
                             else:
                                 saved += 1
@@ -2589,14 +2596,38 @@ class GitHubMenuHandler:
         elif query.data == "confirm_merge_pr":
             await self.confirm_merge_pr(update, context)
         elif query.data == "validate_repo":
+            status_message = None
+            done_event = asyncio.Event()
+            progress_task = None
             try:
-                await query.edit_message_text("⏳ מוריד את הריפו ובודק תקינות...")
+                status_message = await query.edit_message_text("⏳ בודק תקינות הריפו... 0%")
+
+                async def _progress_updater():
+                    percent = 0
+                    try:
+                        while not done_event.is_set():
+                            percent = min(percent + 7, 90)
+                            try:
+                                await status_message.edit_text(f"⏳ בודק תקינות הריפו... {percent}%")
+                            except Exception:
+                                pass
+                            await asyncio.sleep(1.0)
+                    except Exception:
+                        pass
+
+                progress_task = asyncio.create_task(_progress_updater())
                 import tempfile, requests, zipfile
                 token_opt = self.get_user_token(user_id)
                 g = Github(login_or_token=(token_opt or ""))
                 repo_full = session.get("selected_repo")
                 if not repo_full:
-                    await query.edit_message_text("❌ קודם בחר ריפו!")
+                    done_event.set()
+                    if progress_task:
+                        try:
+                            await progress_task
+                        except Exception:
+                            pass
+                    await (status_message.edit_text("❌ קודם בחר ריפו!") if status_message else query.edit_message_text("❌ קודם בחר ריפו!"))
                     return
 
                 def do_validate():
@@ -2670,6 +2701,12 @@ class GitHubMenuHandler:
 
                 # הריץ ברקע כדי לא לחסום את לולאת האירועים
                 results, repo_name_for_msg = await asyncio.to_thread(do_validate)
+                done_event.set()
+                if progress_task:
+                    try:
+                        await progress_task
+                    except Exception:
+                        pass
 
                 # פורמט תוצאות מעוצב
                 def status_label(rc):
@@ -2753,6 +2790,16 @@ class GitHubMenuHandler:
                 kb = [[InlineKeyboardButton("🔙 חזרה לתפריט GitHub", callback_data="github_menu")]]
                 await query.edit_message_text(message, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
             except Exception as e:
+                # ודא סגירת עדכון התקדמות גם בשגיאה
+                try:
+                    done_event.set()
+                    if progress_task:
+                        try:
+                            await progress_task
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 logger.exception("Repo validation failed")
                 await query.edit_message_text(f"❌ שגיאה בבדיקת הריפו: {safe_html_escape(e)}", parse_mode="HTML")
 

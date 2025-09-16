@@ -814,7 +814,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}")
             ],
             [
-                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
+                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
@@ -897,7 +897,7 @@ async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")
             ],
             [
-                InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
+                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_to_file_menu_cb)]
         ]
@@ -1836,7 +1836,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{fname}")
                 ],
                 [
-                    InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("📤 שתף קוד", callback_data=f"share_menu_id:")
+                    InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
                 ],
                 [
                     InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{fname}"),
