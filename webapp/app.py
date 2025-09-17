@@ -1493,7 +1493,7 @@ def api_public_stats():
     מחזיר:
     - total_users: סה"כ משתמשים שנוצרו אי פעם
     - active_users_24h: משתמשים שהיו פעילים ב-24 השעות האחרונות (updated_at)
-    - total_snippets: סה"כ קטעי קוד ייחודיים שנשמרו (distinct לפי user_id+file_name) כאשר התוכן לא ריק ובסטטוס פעיל
+    - total_snippets: סה"כ קטעי קוד ייחודיים שנשמרו אי פעם (distinct לפי user_id+file_name) כאשר התוכן לא ריק — כולל כאלה שנמחקו (is_active=false)
     """
     try:
         db = get_db()
@@ -1510,15 +1510,10 @@ def api_public_stats():
         except Exception:
             active_users_24h = 0
 
-        # Total distinct snippets (user_id+file_name), only active and with non-empty code
+        # Total distinct snippets (user_id+file_name), with non-empty code, including deleted (soft-deleted)
         try:
             pipeline = [
-                {"$match": {
-                    "$and": [
-                        {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
-                        {"code": {"$type": "string"}},
-                    ]
-                }},
+                {"$match": {"code": {"$type": "string"}}},
                 {"$addFields": {
                     "code_size": {
                         "$cond": {
