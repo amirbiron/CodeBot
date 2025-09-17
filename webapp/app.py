@@ -65,8 +65,33 @@ db = None
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
+    # קביעת גודל גופן מהעדפות משתמש/קוקי
+    font_scale = 1.0
+    try:
+        # Cookie קודם
+        cookie_val = request.cookies.get('ui_font_scale')
+        if cookie_val:
+            try:
+                v = float(cookie_val)
+                if 0.85 <= v <= 1.6:
+                    font_scale = v
+            except Exception:
+                pass
+        # אם מחובר - העדפת DB גוברת
+        if 'user_id' in session:
+            try:
+                _db = get_db()
+                u = _db.users.find_one({'user_id': session['user_id']}) or {}
+                v = float(((u.get('ui_prefs') or {}).get('font_scale')) or font_scale)
+                if 0.85 <= v <= 1.6:
+                    font_scale = v
+            except Exception:
+                pass
+    except Exception:
+        pass
     return {
         'bot_username': BOT_USERNAME_CLEAN,
+        'ui_font_scale': font_scale,
     }
 
  
@@ -1405,6 +1430,35 @@ def api_persistent_login():
                 pass
             resp.delete_cookie(REMEMBER_COOKIE_NAME)
 
+        return resp
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/ui_prefs', methods=['POST'])
+@login_required
+def api_ui_prefs():
+    """שמירת העדפות UI (כרגע: font_scale)."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        font_scale = float(payload.get('font_scale', 1.0))
+        # הגבלה סבירה
+        if font_scale < 0.85:
+            font_scale = 0.85
+        if font_scale > 1.6:
+            font_scale = 1.6
+        db = get_db()
+        user_id = session['user_id']
+        db.users.update_one(
+            {'user_id': user_id},
+            {'$set': {'ui_prefs.font_scale': font_scale, 'updated_at': datetime.now(timezone.utc)}},
+            upsert=True
+        )
+        # גם בקוקי כדי להשפיע מיידית בעמודים ציבוריים
+        resp = jsonify({'ok': True, 'font_scale': font_scale})
+        try:
+            resp.set_cookie('ui_font_scale', str(font_scale), max_age=365*24*3600, samesite='Lax')
+        except Exception:
+            pass
         return resp
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500

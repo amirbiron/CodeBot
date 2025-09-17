@@ -118,13 +118,23 @@
         <i class="fas fa-palette"></i>
         העדפות תצוגה
     </h2>
-    <p style="opacity: 0.7;">בקרוב תוכל להתאים אישית:</p>
-    <ul style="opacity: 0.7; margin-top: 1rem;">
-        <li>ערכת נושא (בהיר/כהה)</li>
-        <li>גודל גופן</li>
-        <li>שפת ממשק</li>
-        <li>הגדרות הדגשת קוד</li>
-    </ul>
+    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
+            <div style="display:flex; align-items:center; gap: 1rem;">
+                <i class="fas fa-text-height" style="font-size: 1.5rem;"></i>
+                <div>
+                    <div style="font-weight:600;">גודל גופן</div>
+                    <div style="opacity:.8; font-size:.95rem;">התאם את גודל הטקסט באפליקציה</div>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:.5rem;">
+                <button id="fontMinus" class="btn btn-secondary" title="הקטן">A-</button>
+                <div id="fontValue" class="badge">× {{ '%.2f' % ui_font_scale }}</div>
+                <button id="fontPlus" class="btn btn-secondary" title="הגדל">A+</button>
+            </div>
+        </div>
+    </div>
+    <p style="opacity:.7; margin-top:.75rem; font-size:.9rem;">ההגדרה נשמרת למשתמש ולמכשיר זה.</p>
 </div>
 
 <div class="glass-card">
@@ -197,26 +207,53 @@ input:checked + .slider:before { transform: translateX(24px); }
 (function(){
   const toggle = document.getElementById('persistentToggle');
   const msg = document.getElementById('persistMsg');
-  if (!toggle) return;
-  toggle.addEventListener('change', async function(){
-    try {
-      const res = await fetch('/api/persistent_login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enable: toggle.checked })
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || 'Failed');
-      if (toggle.checked) {
-        msg.textContent = 'החיבור הקבוע פעיל. תוכל לכבות בכל רגע.';
-      } else {
-        msg.textContent = 'החיבור הקבוע כבוי.';
+  if (toggle) {
+    toggle.addEventListener('change', async function(){
+      try {
+        const res = await fetch('/api/persistent_login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enable: toggle.checked })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Failed');
+        if (toggle.checked) { msg.textContent = 'החיבור הקבוע פעיל. תוכל לכבות בכל רגע.'; }
+        else { msg.textContent = 'החיבור הקבוע כבוי.'; }
+      } catch (e) {
+        toggle.checked = !toggle.checked;
+        alert('שגיאה בעדכון מצב החיבור הקבוע');
       }
-    } catch (e) {
-      // החזר מצב קודמת במקרה כשל
-      toggle.checked = !toggle.checked;
-      alert('שגיאה בעדכון מצב החיבור הקבוע');
-    }
+    });
+  }
+
+  // Font size controls
+  const vEl = document.getElementById('fontValue');
+  const btnMinus = document.getElementById('fontMinus');
+  const btnPlus = document.getElementById('fontPlus');
+  function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
+  function save(scale){
+    return fetch('/api/ui_prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ font_scale: scale })
+    }).then(r=>r.json());
+  }
+  function getCurrent(){
+    try { return parseFloat((vEl.textContent||'').replace(/[×\s]/g,'')) || 1.00; } catch(e){ return 1.00; }
+  }
+  if (btnMinus) btnMinus.addEventListener('click', async function(){
+    let cur = getCurrent();
+    cur = Math.max(0.85, (cur - 0.05));
+    setVal(cur);
+    try { const res = await save(cur); if (!res.ok) throw 0; } catch(e){ alert('שגיאה בשמירת גודל הגופן'); }
+    location.reload();
+  });
+  if (btnPlus) btnPlus.addEventListener('click', async function(){
+    let cur = getCurrent();
+    cur = Math.min(1.60, (cur + 0.05));
+    setVal(cur);
+    try { const res = await save(cur); if (!res.ok) throw 0; } catch(e){ alert('שגיאה בשמירת גודל הגופן'); }
+    location.reload();
   });
 })();
 </script>

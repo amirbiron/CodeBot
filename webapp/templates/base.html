@@ -12,6 +12,7 @@
     
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta id="uiFont" data-scale="{{ '%.2f' % ui_font_scale }}">
     
     <style>
         :root {
@@ -34,9 +35,7 @@
             box-sizing: border-box;
         }
         
-        html, body {
-            height: 100%;
-        }
+        html, body { height: 100%; }
         
         body {
             font-family: 'Heebo', sans-serif;
@@ -45,6 +44,7 @@
             min-height: -webkit-fill-available;
             color: white;
             position: relative;
+            font-size: calc(16px * var(--ui-font-scale, 1));
         }
         
         body::before {
@@ -337,6 +337,12 @@
                     document.body.classList.add('telegram-mini-app');
                     try { window.Telegram.WebApp.expand(); } catch (e) {}
                     try { window.Telegram.WebApp.ready(); } catch (e) {}
+                }
+                // הזרקת scale לגופן משרת דרך data-attribute כדי להימנע מהזרקות בתוך JS
+                var m = document.getElementById('uiFont');
+                if (m) {
+                    var scale = m.getAttribute('data-scale') || '1';
+                    document.documentElement.style.setProperty('--ui-font-scale', String(scale));
                 }
             } catch (e) {}
         })();
