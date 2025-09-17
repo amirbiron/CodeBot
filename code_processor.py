@@ -111,8 +111,17 @@ class CodeProcessor:
             
             original_length = len(code)
             
-            # סניטציה ראשונית
-            cleaned_code = self.sanitize_code_blocks(code)
+            # עבור קבצי Markdown נשמור את התוכן כמו שהוא (כולל בלוקי ``` מרובי שפות)
+            # כדי לא לפגוע במסמך מרובה-שפות.
+            is_markdown: bool = False
+            try:
+                ext = Path((filename or "")).suffix.lower()
+                is_markdown = ext in (".md", ".markdown")
+            except Exception:
+                is_markdown = False
+
+            # סניטציה ראשונית (דלג עבור Markdown)
+            cleaned_code = code if is_markdown else self.sanitize_code_blocks(code)
             cleaned_length = len(cleaned_code)
             
             # רישום הצלחת סניטציה
