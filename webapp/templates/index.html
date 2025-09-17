@@ -90,7 +90,7 @@
                     <div style="opacity: 0.8;">זמינות</div>
                 </div>
             </div>
-            <div id="statsLastUpdate" style="opacity: 0.7; font-size: 0.9rem; margin-top: 1rem;"></div>
+            
         </div>
     </div>
 </div>
@@ -128,7 +128,6 @@
     async function loadPublicStats() {
         const activeEl = document.getElementById('activeUsers');
         const snippetsEl = document.getElementById('totalSnippets');
-        const lastEl = document.getElementById('statsLastUpdate');
         try {
             const res = await fetch('/api/public_stats', { credentials: 'same-origin' });
             const data = await res.json();
@@ -137,11 +136,9 @@
             const totalSnippets = Number(data.total_snippets || 0);
             activeEl.textContent = formatCompact(active);
             snippetsEl.textContent = formatCompact(totalSnippets);
-            lastEl.textContent = `עודכן לאחרונה: ${new Date(data.timestamp || Date.now()).toLocaleString('he-IL')}`;
         } catch (e) {
             activeEl.textContent = '—';
             snippetsEl.textContent = '—';
-            lastEl.textContent = '';
         }
     }
 

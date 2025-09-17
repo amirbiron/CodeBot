@@ -83,6 +83,23 @@
             position: sticky;
             top: 0;
             z-index: 1000;
+            transition: background 0.2s ease, box-shadow 0.2s ease, backdrop-filter 0.2s ease;
+        }
+        
+        /* אפקט עומק עדין בעת פתיחת תפריט במובייל */
+        body.nav-open .navbar {
+            background: rgba(255, 255, 255, 0.16);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+        }
+        body.nav-open .navbar::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -1px;
+            height: 12px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.25), rgba(0,0,0,0));
+            pointer-events: none;
         }
         
         .container {
@@ -163,7 +180,9 @@
         }
         
         .btn {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             padding: 0.75rem 1.5rem;
             border-radius: 10px;
             font-weight: 600;
@@ -172,6 +191,7 @@
             border: none;
             cursor: pointer;
             font-size: 1rem;
+            white-space: nowrap;
         }
         
         .btn-primary {
@@ -256,27 +276,30 @@
             cursor: pointer;
         }
         
-        /* כאשר התפריט פתוח – נטרל גלילה מאחורי התפריט במובייל */
-        body.menu-open {
-            overflow: hidden;
-        }
+        /* (ניטרלנו נעילת גלילה; התפריט אינו מכסה תוכן ולכן אין צורך) */
         
         @media (max-width: 768px) {
             .nav-menu {
-                display: none;
-                position: fixed; /* למנוע חפיפה על התפריט הקיים ולכסות את הרוחב */
-                left: 0;
-                right: 0;
-                background: var(--glass);
-                backdrop-filter: blur(20px);
+                display: flex;
+                position: static;
+                width: 100%;
+                background: transparent;
                 flex-direction: column;
-                padding: 1rem;
+                padding: 0;
                 gap: 1rem;
-                z-index: 1001;
+                border-top: 1px solid var(--glass-border);
+                max-height: 0;
+                overflow: hidden;
+                opacity: 0;
+                transform: translateY(-8px);
+                transition: max-height 0.25s ease, opacity 0.2s ease, transform 0.2s ease, padding 0.2s ease;
             }
             
             .nav-menu.active {
-                display: flex;
+                padding: 0.5rem 0;
+                max-height: 70vh;
+                opacity: 1;
+                transform: translateY(0);
             }
             
             .mobile-menu-toggle {
@@ -417,16 +440,11 @@
     <script>
         function toggleMobileMenu() {
             const menu = document.getElementById('navMenu');
-            const navbar = document.querySelector('.navbar');
             menu.classList.toggle('active');
             if (menu.classList.contains('active')) {
-                try {
-                    const rect = navbar ? navbar.getBoundingClientRect() : { height: 64 };
-                    menu.style.top = (rect.height) + 'px';
-                } catch (e) { menu.style.top = '64px'; }
-                document.body.classList.add('menu-open');
+                document.body.classList.add('nav-open');
             } else {
-                document.body.classList.remove('menu-open');
+                document.body.classList.remove('nav-open');
             }
         }
         
@@ -437,7 +455,7 @@
             
             if (menu.classList.contains('active') && !menu.contains(event.target) && !toggle.contains(event.target)) {
                 menu.classList.remove('active');
-                document.body.classList.remove('menu-open');
+                document.body.classList.remove('nav-open');
             }
         });
     </script>

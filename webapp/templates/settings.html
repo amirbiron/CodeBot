@@ -127,10 +127,10 @@
                     <div style="opacity:.8; font-size:.95rem;">התאם את גודל הטקסט באפליקציה</div>
                 </div>
             </div>
-            <div style="display:flex; align-items:center; gap:.5rem;">
-                <button id="fontMinus" class="btn btn-secondary" title="הקטן">A-</button>
+            <div style="display:flex; align-items:center; gap:.5rem; flex-wrap: wrap;">
+                <button id="fontMinus" class="btn btn-secondary" title="הקטן" style="min-width: 3rem;">A-</button>
                 <div id="fontValue" class="badge">× {{ '%.2f' % ui_font_scale }}</div>
-                <button id="fontPlus" class="btn btn-secondary" title="הגדל">A+</button>
+                <button id="fontPlus" class="btn btn-secondary" title="הגדל" style="min-width: 3rem;">A+</button>
             </div>
         </div>
     </div>
