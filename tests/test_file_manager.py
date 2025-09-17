@@ -77,3 +77,61 @@ def test_list_backups_filters_by_user(tmp_path, monkeypatch):
     assert "backup_222_1" in ids_222
     assert "backup_111_1" not in ids_222
 
+
+def _make_zip_with_metadata(backup_id: str, user_id: int) -> bytes:
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("a.txt", "A")
+        zf.writestr(
+            "metadata.json",
+            ("{""backup_id"": ""%s"", ""user_id"": %d}" % (backup_id, user_id)).replace("""", '"'),
+        )
+    return mem.getvalue()
+
+
+def test_save_backup_bytes_merges_metadata_preexisting_zip(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKUPS_STORAGE", "fs")
+    monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
+
+    mgr = BackupManager()
+    raw = _make_zip_with_metadata("orig", 123)
+    merged_id = "merged_999"
+    out_id = mgr.save_backup_bytes(raw, {"backup_id": merged_id, "user_id": 999})
+    assert out_id == merged_id
+    # נשמר בדיסק תחת tmp
+    path = Path(mgr.backup_dir) / f"{merged_id}.zip"
+    assert path.exists()
+    # list_backups מזהה כבעלות של 999
+    items = mgr.list_backups(999)
+    ids = {b.backup_id for b in items}
+    assert merged_id in ids
+    # metadata.json מעודכן בפועל
+    with zipfile.ZipFile(path, 'r') as zf:
+        md = zf.read('metadata.json').decode('utf-8')
+        assert '"user_id": 999' in md
+        assert f'"backup_id": "{merged_id}"' in md
+
+
+def test_list_backups_fs_regex_fallback_and_count(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKUPS_STORAGE", "fs")
+    monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
+
+    mgr = BackupManager()
+    # צור ZIP ללא metadata.json בשם הכולל userId
+    name = "backup_777_unknown"
+    path = Path(mgr.backup_dir) / f"{name}.zip"
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("x.py", "print('x')")
+        zf.writestr("y.txt", "y")
+        zf.writestr("dir/", b"")
+        zf.writestr("dir/z.md", "z")
+    path.write_bytes(mem.getvalue())
+
+    lst = mgr.list_backups(777)
+    # מזהה לפי שם
+    assert any(b.backup_id == name for b in lst)
+    # file_count חושב (3 קבצים שאינם תיקיות)
+    match = next(b for b in lst if b.backup_id == name)
+    assert match.file_count == 3
+
