@@ -83,6 +83,23 @@
             position: sticky;
             top: 0;
             z-index: 1000;
+            transition: background 0.2s ease, box-shadow 0.2s ease, backdrop-filter 0.2s ease;
+        }
+        
+        /* אפקט עומק עדין בעת פתיחת תפריט במובייל */
+        body.nav-open .navbar {
+            background: rgba(255, 255, 255, 0.16);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+        }
+        body.nav-open .navbar::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: -1px;
+            height: 12px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.25), rgba(0,0,0,0));
+            pointer-events: none;
         }
         
         .container {
@@ -427,6 +444,11 @@
         function toggleMobileMenu() {
             const menu = document.getElementById('navMenu');
             menu.classList.toggle('active');
+            if (menu.classList.contains('active')) {
+                document.body.classList.add('nav-open');
+            } else {
+                document.body.classList.remove('nav-open');
+            }
         }
         
         // סגירת התפריט בלחיצה מחוץ לו
@@ -436,6 +458,7 @@
             
             if (menu.classList.contains('active') && !menu.contains(event.target) && !toggle.contains(event.target)) {
                 menu.classList.remove('active');
+                document.body.classList.remove('nav-open');
             }
         });
     </script>
