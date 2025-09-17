@@ -15,6 +15,7 @@
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+    row-gap: 0.5rem;
 }
 .preview-iframe {
     width: 100%;
@@ -24,6 +25,10 @@
 }
 @media (max-width: 768px) {
     .preview-container { height: calc(100vh - 220px); }
+}
+
+@media (max-width: 480px) {
+    .preview-actions .btn { padding: 0.5rem 0.75rem; }
 }
 </style>
 {% endblock %}
