@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import logging
 from contextlib import suppress
+import io
+import re
 
 try:
     import gridfs  # from pymongo
@@ -117,6 +119,58 @@ class BackupManager:
         """
         try:
             backup_id = metadata.get("backup_id") or f"backup_{int(datetime.now(timezone.utc).timestamp())}"
+            # נסה להטמיע/לעדכן metadata.json בתוך ה-ZIP כך שיכלול לפחות backup_id ו-user_id אם סופק
+            try:
+                merged_bytes = data
+                with zipfile.ZipFile(io.BytesIO(data), 'r') as zin:
+                    # קרא מטאדטה קיימת אם יש
+                    existing_md: Dict[str, Any] = {}
+                    with suppress(Exception):
+                        raw = zin.read('metadata.json')
+                        try:
+                            existing_md = json.loads(raw)
+                        except Exception:
+                            try:
+                                text = raw.decode('utf-8', errors='ignore')
+                                # פענוח מינימלי
+                                existing_md = {}
+                                bid_m = re.search(r'"backup_id"\s*:\s*"([^"]+)"', text)
+                                uid_m = re.search(r'"user_id"\s*:\s*(\d+)', text)
+                                if bid_m:
+                                    existing_md['backup_id'] = bid_m.group(1)
+                                if uid_m:
+                                    existing_md['user_id'] = int(uid_m.group(1))
+                            except Exception:
+                                existing_md = {}
+                    # מטאדטה הסופית — metadata הנכנסת גוברת
+                    final_md = dict(existing_md)
+                    final_md.update(metadata or {})
+                    # ודא ש-backup_id קיים בתוצאה
+                    final_md['backup_id'] = final_md.get('backup_id') or backup_id
+                    # בנה ZIP חדש עם metadata.json מעודכן
+                    out = io.BytesIO()
+                    with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+                        for name in zin.namelist():
+                            if name == 'metadata.json' or name.endswith('/'):
+                                continue
+                            try:
+                                zout.writestr(name, zin.read(name))
+                            except Exception:
+                                continue
+                        # כתוב metadata.json מעודכן
+                        try:
+                            zout.writestr('metadata.json', json.dumps(final_md, indent=2))
+                        except Exception:
+                            # fallback בלי indent
+                            zout.writestr('metadata.json', json.dumps(final_md))
+                    merged_bytes = out.getvalue()
+                data = merged_bytes
+                # עדכן backup_id אם הוכנס ב-final_md
+                backup_id = (final_md.get('backup_id') or backup_id)
+            except Exception:
+                # אם לא הצלחנו לטפל — המשך עם הנתונים המקוריים
+                pass
+
             # הבטח זיהוי בקובץ
             filename = f"{backup_id}.zip"
 
@@ -168,11 +222,13 @@ class BackupManager:
             return None
 
     def list_backups(self, user_id: int) -> List[BackupInfo]:
-        """רשימת כל קבצי ה‑ZIP השמורים בבוט (לא רק כאלה בשם backup_*), ללא סינון לפי user_id.
+        """מחזירה רשימת קבצי ZIP ששייכים למשתמש המבקש בלבד.
 
-        הערות:
-        - אם קיים metadata.json, נשלוף ממנו נתונים (כולל user_id מקורי אם קיים) אך לא נסנן לפיו
-        - אם אין מטאדטה, נטפל בהם כ‑generic_zip עם נפילה לאחור
+        כל פריט חייב להיות מסווג כשייך ל-user_id דרך אחד מהבאים:
+        - metadata.json בתוך ה-ZIP עם שדה user_id תואם
+        - דפוס מזהה בשם: backup_<user_id>_*
+
+        ZIPים ללא שיוך ברור למשתמש לא ייכללו כדי למנוע זליגת מידע.
         """
 
         backups: List[BackupInfo] = []
@@ -201,7 +257,7 @@ class BackupManager:
 
             seen_paths: Set[str] = set()
 
-            # קבצים בדיסק
+            # קבצים בדיסק — מציגים רק קבצים ששייכים למשתמש
             for _dir in search_dirs:
                 for backup_file in _dir.glob("*.zip"):
                     try:
@@ -215,6 +271,7 @@ class BackupManager:
                         # ערכי ברירת מחדל
                         metadata: Optional[Dict[str, Any]] = None
                         backup_id: str = os.path.splitext(os.path.basename(backup_file))[0]
+                        owner_user_id: Optional[int] = None
                         created_at: Optional[datetime] = None
                         file_count: int = 0
                         backup_type: str = "unknown"
@@ -225,13 +282,50 @@ class BackupManager:
                             # נסה לקרוא metadata.json, אם קיים
                             try:
                                 metadata_content = zf.read("metadata.json")
-                                metadata = json.loads(metadata_content)
+                                try:
+                                    # json.loads תומך ב-bytes; אם ייכשל ננסה דקדוק חלופי
+                                    metadata = json.loads(metadata_content)
+                                except Exception:
+                                    # fallback: ננסה לפענח כמחרוזת ולחלץ שדות בסיסיים ב-regex
+                                    try:
+                                        text = metadata_content.decode('utf-8', errors='ignore')
+                                    except Exception:
+                                        text = str(metadata_content)
+                                    metadata = {}
+                                    # backup_id
+                                    try:
+                                        m_bid = re.search(r'"backup_id"\s*:\s*"([^"]+)"', text)
+                                        if m_bid:
+                                            metadata["backup_id"] = m_bid.group(1)
+                                    except Exception:
+                                        pass
+                                    # user_id
+                                    try:
+                                        m_uid = re.search(r'"user_id"\s*:\s*(\d+)', text)
+                                        if m_uid:
+                                            metadata["user_id"] = int(m_uid.group(1))
+                                    except Exception:
+                                        pass
+                                    # created_at
+                                    try:
+                                        m_cat = re.search(r'"created_at"\s*:\s*"([^"]+)"', text)
+                                        if m_cat:
+                                            metadata["created_at"] = m_cat.group(1)
+                                    except Exception:
+                                        pass
                             except Exception:
                                 metadata = None
 
-                            # הצגת כל קובצי ה‑ZIP שנשמרו בבוט, ללא תלות ב‑user_id
-                            # שמירת ה‑user_id המקורי (אם קיים) תיעשה בשדה המידע החוזר
-                            include: bool = True
+                            # קבע בעלים של ה-ZIP מתוך metadata אם קיים
+                            if metadata is not None:
+                                try:
+                                    uid_val = metadata.get("user_id")
+                                    if isinstance(uid_val, str) and uid_val.isdigit():
+                                        owner_user_id = int(uid_val)
+                                    elif isinstance(uid_val, int):
+                                        owner_user_id = uid_val
+                                except Exception:
+                                    owner_user_id = None
 
                             # שלוף נתונים מהמטאדטה אם קיימת
                             if metadata is not None:
@@ -255,6 +349,20 @@ class BackupManager:
                                 # ZIP כללי ללא מטאדטה
                                 backup_type = "generic_zip"
 
+                            # אם אין owner במטאדטה — נסה להסיק משם הקובץ: backup_<user>_*
+                            if owner_user_id is None:
+                                try:
+                                    m = re.match(r"^backup_(\d+)_", backup_id)
+                                    if m:
+                                        owner_user_id = int(m.group(1))
+                                except Exception:
+                                    owner_user_id = None
+
+                            # סינון: הצג רק אם שייך למשתמש המבקש
+                            if owner_user_id is None or owner_user_id != user_id:
+                                # לא שייך למשתמש — דלג
+                                continue
+
                             # אם אין created_at – נפל ל‑mtime של הקובץ
                             if not created_at:
                                 try:
@@ -273,7 +381,7 @@ class BackupManager:
 
                         backup_info = BackupInfo(
                             backup_id=backup_id,
-                            user_id=(metadata.get("user_id") if metadata and metadata.get("user_id") is not None else user_id),
+                            user_id=owner_user_id if owner_user_id is not None else user_id,
                             created_at=created_at,
                             file_count=file_count,
                             total_size=os.path.getsize(resolved_path),
@@ -291,20 +399,66 @@ class BackupManager:
                         logger.warning(f"שגיאה בקריאת גיבוי {backup_file}: {e}")
                         continue
 
-            # קבצים ב-GridFS (Mongo) – נטען גם אותם
+            # קבצים ב-GridFS (Mongo) – נטען רק של המשתמש
             try:
                 fs = self._get_gridfs()
                 if fs is not None:
-                    # חפש את כל הקבצים; נסנן ואח"כ נציג לפי created_at
-                    for fdoc in fs.find():
+                    # טען את כל הפריטים ובדוק בעלות בקוד כדי לכלול גם legacy ללא metadata.user_id
+                    cursor = fs.find()
+                    for fdoc in cursor:
                         try:
                             md = getattr(fdoc, 'metadata', None) or {}
+                            # קבע backup_id מוקדם לשימושים שונים
                             backup_id = md.get("backup_id") or os.path.splitext(fdoc.filename or "")[0] or str(getattr(fdoc, "_id", ""))
                             if not backup_id:
                                 continue
                             if any(b.backup_id == backup_id for b in backups):
                                 # כבר קיים מתוך הדיסק
                                 continue
+                            total_size = int(getattr(fdoc, 'length', 0) or 0)
+
+                            # זיהוי בעלות: metadata.user_id → דפוס בשם → metadata.json מתוך ה-ZIP
+                            owner_user_id = None
+                            try:
+                                uid_val = md.get("user_id")
+                                if isinstance(uid_val, str) and uid_val.isdigit():
+                                    owner_user_id = int(uid_val)
+                                elif isinstance(uid_val, int):
+                                    owner_user_id = uid_val
+                            except Exception:
+                                owner_user_id = None
+                            if owner_user_id is None:
+                                try:
+                                    m = re.match(r"^backup_(\d+)_", backup_id)
+                                    if m:
+                                        owner_user_id = int(m.group(1))
+                                except Exception:
+                                    owner_user_id = None
+                            # אם עדיין לא ידוע — קרא metadata.json מתוך ה-ZIP המקומי
+                            local_path = self.backup_dir / f"{backup_id}.zip"
+                            if owner_user_id is None:
+                                try:
+                                    if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
+                                        grid_out = fs.get(fdoc._id)
+                                        with open(local_path, 'wb') as lf:
+                                            lf.write(grid_out.read())
+                                    with zipfile.ZipFile(local_path, 'r') as zf:
+                                        with suppress(Exception):
+                                            raw = zf.read('metadata.json')
+                                            md2 = json.loads(raw) if raw else {}
+                                            u2 = md2.get('user_id')
+                                            if isinstance(u2, int):
+                                                owner_user_id = u2
+                                            elif isinstance(u2, str) and u2.isdigit():
+                                                owner_user_id = int(u2)
+                                except Exception:
+                                    pass
+
+                            # חסום פריטים שאינם שייכים למשתמש
+                            if owner_user_id != user_id:
+                                continue
+
+                            # מטא נוספים
                             created_at = None
                             created_at_str = md.get("created_at")
                             if created_at_str:
@@ -319,10 +473,8 @@ class BackupManager:
                             backup_type = md.get("backup_type", "unknown")
                             repo = md.get("repo")
                             path = md.get("path")
-                            total_size = int(getattr(fdoc, 'length', 0) or 0)
 
-                            # ודא עותק מקומי זמני כדי שתלויה בקוד קיים שעובד עם נתיב קובץ
-                            local_path = self.backup_dir / f"{backup_id}.zip"
+                            # ודא עותק מקומי זמני קיים לשימוש בהורדה/שחזור
                             if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
                                 try:
                                     grid_out = fs.get(fdoc._id)
@@ -334,7 +486,7 @@ class BackupManager:
 
                             backup_info = BackupInfo(
                                 backup_id=backup_id,
-                                user_id=(md.get("user_id") if md.get("user_id") is not None else user_id),
+                                user_id=owner_user_id if owner_user_id is not None else user_id,
                                 created_at=created_at or datetime.now(timezone.utc),
                                 file_count=file_count,
                                 total_size=total_size or (local_path.stat().st_size if local_path.exists() else 0),
@@ -484,16 +636,57 @@ class BackupManager:
             if fs is not None:
                 for bid, fn in zip(backup_ids, filenames):
                     try:
-                        # לפי filename
+                        # שלוף מועמדים לפי filename/backup_id ללא סינון על user_id כדי לא לפספס legacy
+                        candidates = []
                         with suppress(Exception):
-                            for fdoc in fs.find({"filename": fn}):
-                                fs.delete(fdoc._id)
-                                results["deleted"] += 1
-                        # לפי metadata.backup_id
+                            candidates.extend(list(fs.find({"filename": fn})))
                         with suppress(Exception):
-                            for fdoc in fs.find({"metadata.backup_id": bid}):
-                                fs.delete(fdoc._id)
-                                results["deleted"] += 1
+                            candidates.extend(list(fs.find({"metadata.backup_id": bid})))
+                        seen = set()
+                        for fdoc in candidates:
+                            try:
+                                if getattr(fdoc, '_id', None) in seen:
+                                    continue
+                                seen.add(getattr(fdoc, '_id', None))
+                                md = getattr(fdoc, 'metadata', None) or {}
+                                owner_ok = False
+                                # 1) metadata.user_id כמספר או מחרוזת
+                                uid_val = md.get('user_id')
+                                if isinstance(uid_val, int) and uid_val == user_id:
+                                    owner_ok = True
+                                elif isinstance(uid_val, str) and uid_val.isdigit() and int(uid_val) == user_id:
+                                    owner_ok = True
+                                # 2) גיבוי לפי דפוס backup_<user>_* בשם הקובץ
+                                if not owner_ok:
+                                    try:
+                                        base = os.path.splitext(str(getattr(fdoc, 'filename', '') or ''))[0]
+                                        m = re.match(r"^backup_(\d+)_", base)
+                                        if m and int(m.group(1)) == user_id:
+                                            owner_ok = True
+                                    except Exception:
+                                        pass
+                                # 3) כמוצא אחרון: אם יש עותק מקומי — פתח וקרא metadata.json לאימות
+                                if not owner_ok:
+                                    try:
+                                        local_path = self.backup_dir / f"{bid}.zip"
+                                        if not local_path.exists():
+                                            grid_out = fs.get(fdoc._id)
+                                            with open(local_path, 'wb') as lf:
+                                                lf.write(grid_out.read())
+                                        with zipfile.ZipFile(local_path, 'r') as zf:
+                                            with suppress(Exception):
+                                                raw = zf.read('metadata.json')
+                                                md2 = json.loads(raw) if raw else {}
+                                                u2 = md2.get('user_id')
+                                                if (isinstance(u2, int) and u2 == user_id) or (isinstance(u2, str) and u2.isdigit() and int(u2) == user_id):
+                                                    owner_ok = True
+                                    except Exception:
+                                        pass
+                                if owner_ok:
+                                    fs.delete(fdoc._id)
+                                    results["deleted"] += 1
+                            except Exception:
+                                continue
                     except Exception as e:
                         results["errors"].append(f"gridfs:{fn}:{e}")
 
