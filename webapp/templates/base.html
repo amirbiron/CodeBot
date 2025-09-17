@@ -27,6 +27,21 @@
             --light: #f7fafc;
             --glass: rgba(255, 255, 255, 0.1);
             --glass-border: rgba(255, 255, 255, 0.2);
+            --ui-font-scale: 1;
+        }
+
+        /* Theme palettes */
+        :root[data-theme="classic"] {
+            --primary: #667eea;
+            --secondary: #764ba2;
+        }
+        :root[data-theme="ocean"] {
+            --primary: #3182ce;
+            --secondary: #2c5282;
+        }
+        :root[data-theme="forest"] {
+            --primary: #2f855a;
+            --secondary: #22543d;
         }
         
         * {
@@ -344,6 +359,8 @@
                     var scale = m.getAttribute('data-scale') || '1';
                     document.documentElement.style.setProperty('--ui-font-scale', String(scale));
                 }
+                // theme attribute on <html>
+                document.documentElement.setAttribute('data-theme', '{{ ui_theme }}');
             } catch (e) {}
         })();
     </script>

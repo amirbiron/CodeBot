@@ -89,9 +89,29 @@ def inject_globals():
                 pass
     except Exception:
         pass
+    # ערכת נושא
+    theme = 'classic'
+    try:
+        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        if cookie_theme:
+            theme = cookie_theme
+        if 'user_id' in session:
+            try:
+                _db = get_db()
+                u = _db.users.find_one({'user_id': session['user_id']}) or {}
+                t = ((u.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                if t:
+                    theme = t
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if theme not in {'classic','ocean','forest'}:
+        theme = 'classic'
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
+        'ui_theme': theme,
     }
 
  
@@ -1441,6 +1461,7 @@ def api_ui_prefs():
     try:
         payload = request.get_json(silent=True) or {}
         font_scale = float(payload.get('font_scale', 1.0))
+        theme = (payload.get('theme') or '').strip().lower()
         # הגבלה סבירה
         if font_scale < 0.85:
             font_scale = 0.85
@@ -1448,15 +1469,16 @@ def api_ui_prefs():
             font_scale = 1.6
         db = get_db()
         user_id = session['user_id']
-        db.users.update_one(
-            {'user_id': user_id},
-            {'$set': {'ui_prefs.font_scale': font_scale, 'updated_at': datetime.now(timezone.utc)}},
-            upsert=True
-        )
+        update_fields = {'ui_prefs.font_scale': font_scale, 'updated_at': datetime.now(timezone.utc)}
+        if theme in {'classic','ocean','forest'}:
+            update_fields['ui_prefs.theme'] = theme
+        db.users.update_one({'user_id': user_id}, {'$set': update_fields}, upsert=True)
         # גם בקוקי כדי להשפיע מיידית בעמודים ציבוריים
-        resp = jsonify({'ok': True, 'font_scale': font_scale})
+        resp = jsonify({'ok': True, 'font_scale': font_scale, 'theme': theme or None})
         try:
             resp.set_cookie('ui_font_scale', str(font_scale), max_age=365*24*3600, samesite='Lax')
+            if theme in {'classic','ocean','forest'}:
+                resp.set_cookie('ui_theme', theme, max_age=365*24*3600, samesite='Lax')
         except Exception:
             pass
         return resp
