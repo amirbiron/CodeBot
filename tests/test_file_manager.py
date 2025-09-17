@@ -1,6 +1,7 @@
 import io
 import os
 import zipfile
+import json
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ def make_zip_bytes(files):
         # מטאדטה מינימלית
         zf.writestr(
             "metadata.json",
-            "{""backup_id"": ""test_backup"", ""user_id"": 123, ""file_count"": 1}",
+            json.dumps({"backup_id": "test_backup", "user_id": 123, "file_count": 1}),
         )
     return mem.getvalue()
 
@@ -84,7 +85,7 @@ def _make_zip_with_metadata(backup_id: str, user_id: int) -> bytes:
         zf.writestr("a.txt", "A")
         zf.writestr(
             "metadata.json",
-            ("{""backup_id"": ""%s"", ""user_id"": %d}" % (backup_id, user_id)).replace("""", '"'),
+            json.dumps({"backup_id": backup_id, "user_id": user_id}),
         )
     return mem.getvalue()
 
