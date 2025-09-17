@@ -3,7 +3,7 @@ import re
 import asyncio
 import os
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 import telegram.error
@@ -117,6 +117,45 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     from database import db
     db.save_user(user_id, username)
     user_stats.log_user(user_id, username)
+    # אם המשתמש הגיע עם פרמטר webapp_login — צור ושלח קישור התחברות אישי ל-Web App
+    try:
+        if context.args and len(context.args) > 0 and str(context.args[0]).strip().lower() == "webapp_login":
+            import hashlib, time
+            webapp_url = (config.WEBAPP_URL or os.getenv('WEBAPP_URL') or 'https://code-keeper-webapp.onrender.com')
+            timestamp = int(time.time())
+            secret = os.getenv('SECRET_KEY', 'dev-secret-key')
+            token_data = f"{user_id}:{timestamp}:{secret}"
+            auth_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+            # שמירת הטוקן ב-DB (תוקף 5 דקות)
+            try:
+                mongo_db = getattr(db, 'db', None)
+                if mongo_db is not None:
+                    mongo_db.webapp_tokens.insert_one({
+                        'token': auth_token,
+                        'user_id': user_id,
+                        'username': username,
+                        'created_at': datetime.now(timezone.utc),
+                        'expires_at': datetime.now(timezone.utc) + timedelta(minutes=5),
+                    })
+            except Exception:
+                pass
+            login_url = f"{webapp_url}/auth/token?token={auth_token}&user_id={user_id}"
+            reply_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔐 התחבר ל-Web App", url=login_url)],
+                [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)],
+            ])
+            await update.message.reply_text(
+                "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
+                "לחץ על הכפתור למטה כדי להתחבר:\n\n"
+                "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+            )
+            reporter.report_activity(user_id)
+            return ConversationHandler.END
+    except Exception:
+        # אם משהו נכשל ביצירת קישור — נמשיך לזרימת ברירת המחדל
+        pass
     safe_user_name = html_escape(user_name) if user_name else ""
     from i18n.strings_he import MESSAGES
     welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
