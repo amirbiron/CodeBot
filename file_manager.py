@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import logging
 from contextlib import suppress
+import re
 
 try:
     import gridfs  # from pymongo
@@ -228,7 +229,37 @@ class BackupManager:
                             # נסה לקרוא metadata.json, אם קיים
                             try:
                                 metadata_content = zf.read("metadata.json")
-                                metadata = json.loads(metadata_content)
+                                try:
+                                    # json.loads תומך ב-bytes; אם ייכשל ננסה דקדוק חלופי
+                                    metadata = json.loads(metadata_content)
+                                except Exception:
+                                    # fallback: ננסה לפענח כמחרוזת ולחלץ שדות בסיסיים ב-regex
+                                    try:
+                                        text = metadata_content.decode('utf-8', errors='ignore')
+                                    except Exception:
+                                        text = str(metadata_content)
+                                    metadata = {}
+                                    # backup_id
+                                    try:
+                                        m_bid = re.search(r'"backup_id"\s*:\s*"([^"]+)"', text)
+                                        if m_bid:
+                                            metadata["backup_id"] = m_bid.group(1)
+                                    except Exception:
+                                        pass
+                                    # user_id
+                                    try:
+                                        m_uid = re.search(r'"user_id"\s*:\s*(\d+)', text)
+                                        if m_uid:
+                                            metadata["user_id"] = int(m_uid.group(1))
+                                    except Exception:
+                                        pass
+                                    # created_at
+                                    try:
+                                        m_cat = re.search(r'"created_at"\s*:\s*"([^"]+)"', text)
+                                        if m_cat:
+                                            metadata["created_at"] = m_cat.group(1)
+                                    except Exception:
+                                        pass
                             except Exception:
                                 metadata = None
 
@@ -268,8 +299,7 @@ class BackupManager:
                             # אם אין owner במטאדטה — נסה להסיק משם הקובץ: backup_<user>_*
                             if owner_user_id is None:
                                 try:
-                                    import re as _re
-                                    m = _re.match(r"^backup_(\d+)_", backup_id)
+                                    m = re.match(r"^backup_(\d+)_", backup_id)
                                     if m:
                                         owner_user_id = int(m.group(1))
                                 except Exception:
