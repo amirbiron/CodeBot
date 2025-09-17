@@ -403,29 +403,62 @@ class BackupManager:
             try:
                 fs = self._get_gridfs()
                 if fs is not None:
-                    # סנן לפי user_id כבר בשאילתה אם אפשר
-                    try:
-                        cursor = fs.find({"metadata.user_id": user_id})
-                    except Exception:
-                        cursor = fs.find()
+                    # טען את כל הפריטים ובדוק בעלות בקוד כדי לכלול גם legacy ללא metadata.user_id
+                    cursor = fs.find()
                     for fdoc in cursor:
                         try:
                             md = getattr(fdoc, 'metadata', None) or {}
-                            uid_val = md.get("user_id")
-                            owner_user_id = None
-                            if isinstance(uid_val, str) and uid_val.isdigit():
-                                owner_user_id = int(uid_val)
-                            elif isinstance(uid_val, int):
-                                owner_user_id = uid_val
-                            # סינון — רק קבצים של המשתמש
-                            if owner_user_id != user_id:
-                                continue
+                            # קבע backup_id מוקדם לשימושים שונים
                             backup_id = md.get("backup_id") or os.path.splitext(fdoc.filename or "")[0] or str(getattr(fdoc, "_id", ""))
                             if not backup_id:
                                 continue
                             if any(b.backup_id == backup_id for b in backups):
                                 # כבר קיים מתוך הדיסק
                                 continue
+                            total_size = int(getattr(fdoc, 'length', 0) or 0)
+
+                            # זיהוי בעלות: metadata.user_id → דפוס בשם → metadata.json מתוך ה-ZIP
+                            owner_user_id = None
+                            try:
+                                uid_val = md.get("user_id")
+                                if isinstance(uid_val, str) and uid_val.isdigit():
+                                    owner_user_id = int(uid_val)
+                                elif isinstance(uid_val, int):
+                                    owner_user_id = uid_val
+                            except Exception:
+                                owner_user_id = None
+                            if owner_user_id is None:
+                                try:
+                                    m = re.match(r"^backup_(\d+)_", backup_id)
+                                    if m:
+                                        owner_user_id = int(m.group(1))
+                                except Exception:
+                                    owner_user_id = None
+                            # אם עדיין לא ידוע — קרא metadata.json מתוך ה-ZIP המקומי
+                            local_path = self.backup_dir / f"{backup_id}.zip"
+                            if owner_user_id is None:
+                                try:
+                                    if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
+                                        grid_out = fs.get(fdoc._id)
+                                        with open(local_path, 'wb') as lf:
+                                            lf.write(grid_out.read())
+                                    with zipfile.ZipFile(local_path, 'r') as zf:
+                                        with suppress(Exception):
+                                            raw = zf.read('metadata.json')
+                                            md2 = json.loads(raw) if raw else {}
+                                            u2 = md2.get('user_id')
+                                            if isinstance(u2, int):
+                                                owner_user_id = u2
+                                            elif isinstance(u2, str) and u2.isdigit():
+                                                owner_user_id = int(u2)
+                                except Exception:
+                                    pass
+
+                            # חסום פריטים שאינם שייכים למשתמש
+                            if owner_user_id != user_id:
+                                continue
+
+                            # מטא נוספים
                             created_at = None
                             created_at_str = md.get("created_at")
                             if created_at_str:
@@ -440,10 +473,8 @@ class BackupManager:
                             backup_type = md.get("backup_type", "unknown")
                             repo = md.get("repo")
                             path = md.get("path")
-                            total_size = int(getattr(fdoc, 'length', 0) or 0)
 
-                            # ודא עותק מקומי זמני רק אחרי אימות שייכות
-                            local_path = self.backup_dir / f"{backup_id}.zip"
+                            # ודא עותק מקומי זמני קיים לשימוש בהורדה/שחזור
                             if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
                                 try:
                                     grid_out = fs.get(fdoc._id)
