@@ -146,10 +146,10 @@
                 </div>
             </div>
             <div>
-                <select id="themeSelect" class="filter-select" style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-                    <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>Classic (נוכחית)</option>
-                    <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>Ocean</option>
-                    <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>Forest</option>
+                <select id="themeSelect" class="filter-select" aria-label="בחר ערכת נושא" style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+                    <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
+                    <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
+                    <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
                 </select>
             </div>
         </div>
