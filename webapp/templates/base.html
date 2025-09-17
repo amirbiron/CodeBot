@@ -241,11 +241,15 @@
             cursor: pointer;
         }
         
+        /* כאשר התפריט פתוח – נטרל גלילה מאחורי התפריט במובייל */
+        body.menu-open {
+            overflow: hidden;
+        }
+        
         @media (max-width: 768px) {
             .nav-menu {
                 display: none;
-                position: absolute;
-                top: 100%;
+                position: fixed; /* למנוע חפיפה על התפריט הקיים ולכסות את הרוחב */
                 left: 0;
                 right: 0;
                 background: var(--glass);
@@ -253,6 +257,7 @@
                 flex-direction: column;
                 padding: 1rem;
                 gap: 1rem;
+                z-index: 1001;
             }
             
             .nav-menu.active {
@@ -389,7 +394,17 @@
     <script>
         function toggleMobileMenu() {
             const menu = document.getElementById('navMenu');
+            const navbar = document.querySelector('.navbar');
             menu.classList.toggle('active');
+            if (menu.classList.contains('active')) {
+                try {
+                    const rect = navbar ? navbar.getBoundingClientRect() : { height: 64 };
+                    menu.style.top = (rect.height) + 'px';
+                } catch (e) { menu.style.top = '64px'; }
+                document.body.classList.add('menu-open');
+            } else {
+                document.body.classList.remove('menu-open');
+            }
         }
         
         // סגירת התפריט בלחיצה מחוץ לו
@@ -397,8 +412,9 @@
             const menu = document.getElementById('navMenu');
             const toggle = document.querySelector('.mobile-menu-toggle');
             
-            if (!menu.contains(event.target) && !toggle.contains(event.target)) {
+            if (menu.classList.contains('active') && !menu.contains(event.target) && !toggle.contains(event.target)) {
                 menu.classList.remove('active');
+                document.body.classList.remove('menu-open');
             }
         });
     </script>
