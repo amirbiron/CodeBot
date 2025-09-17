@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import logging
 from contextlib import suppress
+import io
 import re
 
 try:
@@ -118,6 +119,58 @@ class BackupManager:
         """
         try:
             backup_id = metadata.get("backup_id") or f"backup_{int(datetime.now(timezone.utc).timestamp())}"
+            # נסה להטמיע/לעדכן metadata.json בתוך ה-ZIP כך שיכלול לפחות backup_id ו-user_id אם סופק
+            try:
+                merged_bytes = data
+                with zipfile.ZipFile(io.BytesIO(data), 'r') as zin:
+                    # קרא מטאדטה קיימת אם יש
+                    existing_md: Dict[str, Any] = {}
+                    with suppress(Exception):
+                        raw = zin.read('metadata.json')
+                        try:
+                            existing_md = json.loads(raw)
+                        except Exception:
+                            try:
+                                text = raw.decode('utf-8', errors='ignore')
+                                # פענוח מינימלי
+                                existing_md = {}
+                                bid_m = re.search(r'"backup_id"\s*:\s*"([^"]+)"', text)
+                                uid_m = re.search(r'"user_id"\s*:\s*(\d+)', text)
+                                if bid_m:
+                                    existing_md['backup_id'] = bid_m.group(1)
+                                if uid_m:
+                                    existing_md['user_id'] = int(uid_m.group(1))
+                            except Exception:
+                                existing_md = {}
+                    # מטאדטה הסופית — metadata הנכנסת גוברת
+                    final_md = dict(existing_md)
+                    final_md.update(metadata or {})
+                    # ודא ש-backup_id קיים בתוצאה
+                    final_md['backup_id'] = final_md.get('backup_id') or backup_id
+                    # בנה ZIP חדש עם metadata.json מעודכן
+                    out = io.BytesIO()
+                    with zipfile.ZipFile(out, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+                        for name in zin.namelist():
+                            if name == 'metadata.json' or name.endswith('/'):
+                                continue
+                            try:
+                                zout.writestr(name, zin.read(name))
+                            except Exception:
+                                continue
+                        # כתוב metadata.json מעודכן
+                        try:
+                            zout.writestr('metadata.json', json.dumps(final_md, indent=2))
+                        except Exception:
+                            # fallback בלי indent
+                            zout.writestr('metadata.json', json.dumps(final_md))
+                    merged_bytes = out.getvalue()
+                data = merged_bytes
+                # עדכן backup_id אם הוכנס ב-final_md
+                backup_id = (final_md.get('backup_id') or backup_id)
+            except Exception:
+                # אם לא הצלחנו לטפל — המשך עם הנתונים המקוריים
+                pass
+
             # הבטח זיהוי בקובץ
             filename = f"{backup_id}.zip"
 
