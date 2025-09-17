@@ -121,7 +121,7 @@ def test_start_command_webapp_login_sends_personal_link(monkeypatch):
     context = _Context(args=['webapp_login'])
 
     # Run
-    result = asyncio.get_event_loop().run_until_complete(ch.start_command(update, context))
+    result = asyncio.run(ch.start_command(update, context))
 
     # Assertions
     assert result == ch.ConversationHandler.END
@@ -160,7 +160,7 @@ def test_start_command_webapp_login_handles_insert_exception(monkeypatch):
     context = _Context(args=['webapp_login'])
 
     # Should not raise; still sends message
-    result = asyncio.get_event_loop().run_until_complete(ch.start_command(update, context))
+    result = asyncio.run(ch.start_command(update, context))
 
     assert result == ch.ConversationHandler.END
     assert update.message.calls, 'Expected a reply even if DB insert failed'
