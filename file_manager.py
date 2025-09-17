@@ -605,16 +605,57 @@ class BackupManager:
             if fs is not None:
                 for bid, fn in zip(backup_ids, filenames):
                     try:
-                        # לפי filename + אימות user_id
+                        # שלוף מועמדים לפי filename/backup_id ללא סינון על user_id כדי לא לפספס legacy
+                        candidates = []
                         with suppress(Exception):
-                            for fdoc in fs.find({"filename": fn, "metadata.user_id": user_id}):
-                                fs.delete(fdoc._id)
-                                results["deleted"] += 1
-                        # לפי metadata.backup_id + אימות user_id
+                            candidates.extend(list(fs.find({"filename": fn})))
                         with suppress(Exception):
-                            for fdoc in fs.find({"metadata.backup_id": bid, "metadata.user_id": user_id}):
-                                fs.delete(fdoc._id)
-                                results["deleted"] += 1
+                            candidates.extend(list(fs.find({"metadata.backup_id": bid})))
+                        seen = set()
+                        for fdoc in candidates:
+                            try:
+                                if getattr(fdoc, '_id', None) in seen:
+                                    continue
+                                seen.add(getattr(fdoc, '_id', None))
+                                md = getattr(fdoc, 'metadata', None) or {}
+                                owner_ok = False
+                                # 1) metadata.user_id כמספר או מחרוזת
+                                uid_val = md.get('user_id')
+                                if isinstance(uid_val, int) and uid_val == user_id:
+                                    owner_ok = True
+                                elif isinstance(uid_val, str) and uid_val.isdigit() and int(uid_val) == user_id:
+                                    owner_ok = True
+                                # 2) גיבוי לפי דפוס backup_<user>_* בשם הקובץ
+                                if not owner_ok:
+                                    try:
+                                        base = os.path.splitext(str(getattr(fdoc, 'filename', '') or ''))[0]
+                                        m = re.match(r"^backup_(\d+)_", base)
+                                        if m and int(m.group(1)) == user_id:
+                                            owner_ok = True
+                                    except Exception:
+                                        pass
+                                # 3) כמוצא אחרון: אם יש עותק מקומי — פתח וקרא metadata.json לאימות
+                                if not owner_ok:
+                                    try:
+                                        local_path = self.backup_dir / f"{bid}.zip"
+                                        if not local_path.exists():
+                                            grid_out = fs.get(fdoc._id)
+                                            with open(local_path, 'wb') as lf:
+                                                lf.write(grid_out.read())
+                                        with zipfile.ZipFile(local_path, 'r') as zf:
+                                            with suppress(Exception):
+                                                raw = zf.read('metadata.json')
+                                                md2 = json.loads(raw) if raw else {}
+                                                u2 = md2.get('user_id')
+                                                if (isinstance(u2, int) and u2 == user_id) or (isinstance(u2, str) and u2.isdigit() and int(u2) == user_id):
+                                                    owner_ok = True
+                                    except Exception:
+                                        pass
+                                if owner_ok:
+                                    fs.delete(fdoc._id)
+                                    results["deleted"] += 1
+                            except Exception:
+                                continue
                     except Exception as e:
                         results["errors"].append(f"gridfs:{fn}:{e}")
 
