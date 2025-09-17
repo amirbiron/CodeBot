@@ -50,6 +50,13 @@ try:
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
 
+# הגדרת חיבור קבוע (Remember Me)
+try:
+    PERSISTENT_LOGIN_DAYS = max(30, int(os.getenv('PERSISTENT_LOGIN_DAYS', '180')))
+except Exception:
+    PERSISTENT_LOGIN_DAYS = 180
+REMEMBER_COOKIE_NAME = 'remember_me'
+
  
 
 # חיבור ל-MongoDB
@@ -161,6 +168,49 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+# before_request: אם אין סשן אבל יש cookie "remember_me" תקף — נבצע התחברות שקופה
+@app.before_request
+def try_persistent_login():
+    try:
+        if 'user_id' in session:
+            return
+        token = request.cookies.get(REMEMBER_COOKIE_NAME)
+        if not token:
+            return
+        db = get_db()
+        doc = db.remember_tokens.find_one({
+            'token': token
+        })
+        if not doc:
+            return
+        # בדיקת תוקף
+        exp = doc.get('expires_at')
+        now = datetime.now(timezone.utc)
+        if isinstance(exp, datetime):
+            if exp < now:
+                return
+        else:
+            try:
+                if datetime.fromisoformat(str(exp)) < now:
+                    return
+            except Exception:
+                return
+        # שחזור סשן בסיסי
+        user_id = int(doc.get('user_id'))
+        user = db.users.find_one({'user_id': user_id}) or {}
+        session['user_id'] = user_id
+        session['user_data'] = {
+            'id': user_id,
+            'first_name': user.get('first_name', ''),
+            'last_name': user.get('last_name', ''),
+            'username': user.get('username', ''),
+            'photo_url': ''
+        }
+        session.permanent = True
+    except Exception:
+        # אל תכשיל בקשות בגלל כשל חיבור/פרסר
+        pass
 
 def admin_required(f):
     """דקורטור לבדיקת הרשאות אדמין"""
@@ -376,8 +426,23 @@ def token_auth():
 @app.route('/logout')
 def logout():
     """התנתקות"""
+    try:
+        token = request.cookies.get(REMEMBER_COOKIE_NAME)
+        if token:
+            try:
+                db = get_db()
+                db.remember_tokens.delete_one({'token': token})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    resp = redirect(url_for('index'))
+    try:
+        resp.delete_cookie(REMEMBER_COOKIE_NAME)
+    except Exception:
+        pass
     session.clear()
-    return redirect(url_for('index'))
+    return resp
 
 @app.route('/dashboard')
 @login_required
@@ -1230,10 +1295,31 @@ def settings():
     
     # בדיקה אם המשתמש הוא אדמין
     user_is_admin = is_admin(user_id)
-    
+
+    # בדיקה האם יש חיבור קבוע פעיל
+    has_persistent = False
+    try:
+        db = get_db()
+        token = request.cookies.get(REMEMBER_COOKIE_NAME)
+        if token:
+            doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
+            if doc:
+                exp = doc.get('expires_at')
+                if isinstance(exp, datetime):
+                    has_persistent = exp > datetime.now(timezone.utc)
+                else:
+                    try:
+                        has_persistent = datetime.fromisoformat(str(exp)) > datetime.now(timezone.utc)
+                    except Exception:
+                        has_persistent = False
+    except Exception:
+        has_persistent = False
+
     return render_template('settings.html',
                          user=session['user_data'],
-                         is_admin=user_is_admin)
+                         is_admin=user_is_admin,
+                         persistent_login_enabled=has_persistent,
+                         persistent_days=PERSISTENT_LOGIN_DAYS)
 
 @app.route('/health')
 def health():
@@ -1273,6 +1359,55 @@ def health():
         health_data['error'] = str(e)
     
     return jsonify(health_data)
+
+# API: הפעלת/ביטול חיבור קבוע
+@app.route('/api/persistent_login', methods=['POST'])
+@login_required
+def api_persistent_login():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        payload = request.get_json(silent=True) or {}
+        enable = bool(payload.get('enable'))
+
+        resp = jsonify({'ok': True, 'enabled': enable})
+
+        if enable:
+            # צור טוקן ושמור ב-DB
+            token = secrets.token_urlsafe(32)
+            now = datetime.now(timezone.utc)
+            expires_at = now + timedelta(days=PERSISTENT_LOGIN_DAYS)
+            try:
+                db.remember_tokens.create_index('token', unique=True)
+                db.remember_tokens.create_index('expires_at', expireAfterSeconds=0)
+            except Exception:
+                pass
+            db.remember_tokens.update_one(
+                {'user_id': user_id},
+                {'$set': {'user_id': user_id, 'token': token, 'updated_at': now, 'expires_at': expires_at}, '$setOnInsert': {'created_at': now}},
+                upsert=True
+            )
+            resp.set_cookie(
+                REMEMBER_COOKIE_NAME,
+                token,
+                max_age=PERSISTENT_LOGIN_DAYS * 24 * 3600,
+                secure=True,
+                httponly=True,
+                samesite='Lax'
+            )
+        else:
+            # נטרל: מחיקת טוקן וקוקי
+            try:
+                token = request.cookies.get(REMEMBER_COOKIE_NAME)
+                if token:
+                    db.remember_tokens.delete_one({'user_id': user_id, 'token': token})
+            except Exception:
+                pass
+            resp.delete_cookie(REMEMBER_COOKIE_NAME)
+
+        return resp
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')

@@ -54,15 +54,28 @@
         <i class="fas fa-clock"></i>
         הגדרות סשן
     </h2>
-    <div style="background: rgba(72, 187, 120, 0.1); border: 1px solid rgba(72, 187, 120, 0.3); padding: 1.5rem; border-radius: 10px;">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <i class="fas fa-check-circle" style="color: var(--success); font-size: 2rem;"></i>
-            <div>
-                <h3 style="margin: 0;">זכור אותי מופעל</h3>
-                <p style="margin: 0.5rem 0; opacity: 0.8;">
-                    ההתחברות שלך נשמרת ל-30 יום. לא תצטרך להתחבר שוב בכל כניסה.
-                </p>
+    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
+            <div style="display:flex; align-items:center; gap: 1rem;">
+                <i class="fas fa-check-circle" style="color: var(--success); font-size: 1.5rem;"></i>
+                <div>
+                    <div style="font-weight:600;">חיבור קבוע</div>
+                    <div style="opacity:.8; font-size:.95rem;">
+                        השאר מחובר אוטומטית עד {{ persistent_days }} יום במכשיר זה
+                    </div>
+                </div>
             </div>
+            <label class="switch">
+                <input id="persistentToggle" type="checkbox" {% if persistent_login_enabled %}checked{% endif %}>
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div id="persistMsg" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">
+            {% if persistent_login_enabled %}
+            החיבור הקבוע פעיל. תוכל לכבות בכל רגע.
+            {% else %}
+            החיבור הקבוע כבוי.
+            {% endif %}
         </div>
     </div>
     
@@ -169,5 +182,43 @@
     margin: 0 0 0.5rem 0;
     color: var(--primary);
 }
+
+/* Toggle switch */
+.switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.2); transition: .2s; border-radius: 28px; border: 1px solid rgba(255,255,255,0.3); }
+.slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; top: 2px; background: white; transition: .2s; border-radius: 50%; }
+input:checked + .slider { background: rgba(72, 187, 120, 0.5); }
+input:checked + .slider:before { transform: translateX(24px); }
 </style>
+
+{% block extra_js %}
+<script>
+(function(){
+  const toggle = document.getElementById('persistentToggle');
+  const msg = document.getElementById('persistMsg');
+  if (!toggle) return;
+  toggle.addEventListener('change', async function(){
+    try {
+      const res = await fetch('/api/persistent_login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enable: toggle.checked })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Failed');
+      if (toggle.checked) {
+        msg.textContent = 'החיבור הקבוע פעיל. תוכל לכבות בכל רגע.';
+      } else {
+        msg.textContent = 'החיבור הקבוע כבוי.';
+      }
+    } catch (e) {
+      // החזר מצב קודמת במקרה כשל
+      toggle.checked = !toggle.checked;
+      alert('שגיאה בעדכון מצב החיבור הקבוע');
+    }
+  });
+})();
+</script>
+{% endblock %}
 {% endblock %}
