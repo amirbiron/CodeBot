@@ -54,3 +54,26 @@ def test_delete_backups_fs_only(tmp_path, monkeypatch):
     assert res["deleted"] >= 1
     assert not path.exists()
 
+
+def test_list_backups_filters_by_user(tmp_path, monkeypatch):
+    # ודא שהרשימה כוללת רק ZIPים של המשתמש המבקש
+    monkeypatch.setenv("BACKUPS_STORAGE", "fs")
+    monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
+
+    mgr = BackupManager()
+    data_a = make_zip_bytes({"a.py": "print('a')"})
+    data_b = make_zip_bytes({"b.py": "print('b')"})
+    bid_a = mgr.save_backup_bytes(data_a, {"backup_id": "backup_111_1", "user_id": 111, "file_count": 1})
+    bid_b = mgr.save_backup_bytes(data_b, {"backup_id": "backup_222_1", "user_id": 222, "file_count": 1})
+    assert bid_a and bid_b
+
+    list_for_111 = mgr.list_backups(user_id=111)
+    ids_111 = {b.backup_id for b in list_for_111}
+    assert "backup_111_1" in ids_111
+    assert "backup_222_1" not in ids_111
+
+    list_for_222 = mgr.list_backups(user_id=222)
+    ids_222 = {b.backup_id for b in list_for_222}
+    assert "backup_222_1" in ids_222
+    assert "backup_111_1" not in ids_222
+

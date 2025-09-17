@@ -168,11 +168,13 @@ class BackupManager:
             return None
 
     def list_backups(self, user_id: int) -> List[BackupInfo]:
-        """רשימת כל קבצי ה‑ZIP השמורים בבוט (לא רק כאלה בשם backup_*), ללא סינון לפי user_id.
+        """מחזירה רשימת קבצי ZIP ששייכים למשתמש המבקש בלבד.
 
-        הערות:
-        - אם קיים metadata.json, נשלוף ממנו נתונים (כולל user_id מקורי אם קיים) אך לא נסנן לפיו
-        - אם אין מטאדטה, נטפל בהם כ‑generic_zip עם נפילה לאחור
+        כל פריט חייב להיות מסווג כשייך ל-user_id דרך אחד מהבאים:
+        - metadata.json בתוך ה-ZIP עם שדה user_id תואם
+        - דפוס מזהה בשם: backup_<user_id>_*
+
+        ZIPים ללא שיוך ברור למשתמש לא ייכללו כדי למנוע זליגת מידע.
         """
 
         backups: List[BackupInfo] = []
@@ -201,7 +203,7 @@ class BackupManager:
 
             seen_paths: Set[str] = set()
 
-            # קבצים בדיסק
+            # קבצים בדיסק — מציגים רק קבצים ששייכים למשתמש
             for _dir in search_dirs:
                 for backup_file in _dir.glob("*.zip"):
                     try:
@@ -215,6 +217,7 @@ class BackupManager:
                         # ערכי ברירת מחדל
                         metadata: Optional[Dict[str, Any]] = None
                         backup_id: str = os.path.splitext(os.path.basename(backup_file))[0]
+                        owner_user_id: Optional[int] = None
                         created_at: Optional[datetime] = None
                         file_count: int = 0
                         backup_type: str = "unknown"
@@ -229,9 +232,16 @@ class BackupManager:
                             except Exception:
                                 metadata = None
 
-                            # הצגת כל קובצי ה‑ZIP שנשמרו בבוט, ללא תלות ב‑user_id
-                            # שמירת ה‑user_id המקורי (אם קיים) תיעשה בשדה המידע החוזר
-                            include: bool = True
+                            # קבע בעלים של ה-ZIP מתוך metadata אם קיים
+                            if metadata is not None:
+                                try:
+                                    uid_val = metadata.get("user_id")
+                                    if isinstance(uid_val, str) and uid_val.isdigit():
+                                        owner_user_id = int(uid_val)
+                                    elif isinstance(uid_val, int):
+                                        owner_user_id = uid_val
+                                except Exception:
+                                    owner_user_id = None
 
                             # שלוף נתונים מהמטאדטה אם קיימת
                             if metadata is not None:
@@ -255,6 +265,21 @@ class BackupManager:
                                 # ZIP כללי ללא מטאדטה
                                 backup_type = "generic_zip"
 
+                            # אם אין owner במטאדטה — נסה להסיק משם הקובץ: backup_<user>_*
+                            if owner_user_id is None:
+                                try:
+                                    import re as _re
+                                    m = _re.match(r"^backup_(\d+)_", backup_id)
+                                    if m:
+                                        owner_user_id = int(m.group(1))
+                                except Exception:
+                                    owner_user_id = None
+
+                            # סינון: הצג רק אם שייך למשתמש המבקש
+                            if owner_user_id is None or owner_user_id != user_id:
+                                # לא שייך למשתמש — דלג
+                                continue
+
                             # אם אין created_at – נפל ל‑mtime של הקובץ
                             if not created_at:
                                 try:
@@ -273,7 +298,7 @@ class BackupManager:
 
                         backup_info = BackupInfo(
                             backup_id=backup_id,
-                            user_id=(metadata.get("user_id") if metadata and metadata.get("user_id") is not None else user_id),
+                            user_id=owner_user_id if owner_user_id is not None else user_id,
                             created_at=created_at,
                             file_count=file_count,
                             total_size=os.path.getsize(resolved_path),
@@ -291,14 +316,27 @@ class BackupManager:
                         logger.warning(f"שגיאה בקריאת גיבוי {backup_file}: {e}")
                         continue
 
-            # קבצים ב-GridFS (Mongo) – נטען גם אותם
+            # קבצים ב-GridFS (Mongo) – נטען רק של המשתמש
             try:
                 fs = self._get_gridfs()
                 if fs is not None:
-                    # חפש את כל הקבצים; נסנן ואח"כ נציג לפי created_at
-                    for fdoc in fs.find():
+                    # סנן לפי user_id כבר בשאילתה אם אפשר
+                    try:
+                        cursor = fs.find({"metadata.user_id": user_id})
+                    except Exception:
+                        cursor = fs.find()
+                    for fdoc in cursor:
                         try:
                             md = getattr(fdoc, 'metadata', None) or {}
+                            uid_val = md.get("user_id")
+                            owner_user_id = None
+                            if isinstance(uid_val, str) and uid_val.isdigit():
+                                owner_user_id = int(uid_val)
+                            elif isinstance(uid_val, int):
+                                owner_user_id = uid_val
+                            # סינון — רק קבצים של המשתמש
+                            if owner_user_id != user_id:
+                                continue
                             backup_id = md.get("backup_id") or os.path.splitext(fdoc.filename or "")[0] or str(getattr(fdoc, "_id", ""))
                             if not backup_id:
                                 continue
@@ -321,7 +359,7 @@ class BackupManager:
                             path = md.get("path")
                             total_size = int(getattr(fdoc, 'length', 0) or 0)
 
-                            # ודא עותק מקומי זמני כדי שתלויה בקוד קיים שעובד עם נתיב קובץ
+                            # ודא עותק מקומי זמני רק אחרי אימות שייכות
                             local_path = self.backup_dir / f"{backup_id}.zip"
                             if not local_path.exists() or (total_size and local_path.stat().st_size != total_size):
                                 try:
@@ -334,7 +372,7 @@ class BackupManager:
 
                             backup_info = BackupInfo(
                                 backup_id=backup_id,
-                                user_id=(md.get("user_id") if md.get("user_id") is not None else user_id),
+                                user_id=owner_user_id if owner_user_id is not None else user_id,
                                 created_at=created_at or datetime.now(timezone.utc),
                                 file_count=file_count,
                                 total_size=total_size or (local_path.stat().st_size if local_path.exists() else 0),
@@ -484,14 +522,14 @@ class BackupManager:
             if fs is not None:
                 for bid, fn in zip(backup_ids, filenames):
                     try:
-                        # לפי filename
+                        # לפי filename + אימות user_id
                         with suppress(Exception):
-                            for fdoc in fs.find({"filename": fn}):
+                            for fdoc in fs.find({"filename": fn, "metadata.user_id": user_id}):
                                 fs.delete(fdoc._id)
                                 results["deleted"] += 1
-                        # לפי metadata.backup_id
+                        # לפי metadata.backup_id + אימות user_id
                         with suppress(Exception):
-                            for fdoc in fs.find({"metadata.backup_id": bid}):
+                            for fdoc in fs.find({"metadata.backup_id": bid, "metadata.user_id": user_id}):
                                 fs.delete(fdoc._id)
                                 results["deleted"] += 1
                     except Exception as e:
