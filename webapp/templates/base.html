@@ -12,6 +12,7 @@
     
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta id="uiFont" data-scale="{{ '%.2f' % ui_font_scale }}">
     
     <style>
         :root {
@@ -26,6 +27,21 @@
             --light: #f7fafc;
             --glass: rgba(255, 255, 255, 0.1);
             --glass-border: rgba(255, 255, 255, 0.2);
+            --ui-font-scale: 1;
+        }
+
+        /* Theme palettes */
+        :root[data-theme="classic"] {
+            --primary: #667eea;
+            --secondary: #764ba2;
+        }
+        :root[data-theme="ocean"] {
+            --primary: #3182ce;
+            --secondary: #2c5282;
+        }
+        :root[data-theme="forest"] {
+            --primary: #2f855a;
+            --secondary: #22543d;
         }
         
         * {
@@ -34,9 +50,7 @@
             box-sizing: border-box;
         }
         
-        html, body {
-            height: 100%;
-        }
+        html, body { height: 100%; }
         
         body {
             font-family: 'Heebo', sans-serif;
@@ -45,6 +59,7 @@
             min-height: -webkit-fill-available;
             color: white;
             position: relative;
+            font-size: calc(16px * var(--ui-font-scale, 1));
         }
         
         body::before {
@@ -241,11 +256,15 @@
             cursor: pointer;
         }
         
+        /* כאשר התפריט פתוח – נטרל גלילה מאחורי התפריט במובייל */
+        body.menu-open {
+            overflow: hidden;
+        }
+        
         @media (max-width: 768px) {
             .nav-menu {
                 display: none;
-                position: absolute;
-                top: 100%;
+                position: fixed; /* למנוע חפיפה על התפריט הקיים ולכסות את הרוחב */
                 left: 0;
                 right: 0;
                 background: var(--glass);
@@ -253,6 +272,7 @@
                 flex-direction: column;
                 padding: 1rem;
                 gap: 1rem;
+                z-index: 1001;
             }
             
             .nav-menu.active {
@@ -333,6 +353,14 @@
                     try { window.Telegram.WebApp.expand(); } catch (e) {}
                     try { window.Telegram.WebApp.ready(); } catch (e) {}
                 }
+                // הזרקת scale לגופן משרת דרך data-attribute כדי להימנע מהזרקות בתוך JS
+                var m = document.getElementById('uiFont');
+                if (m) {
+                    var scale = m.getAttribute('data-scale') || '1';
+                    document.documentElement.style.setProperty('--ui-font-scale', String(scale));
+                }
+                // theme attribute on <html>
+                document.documentElement.setAttribute('data-theme', '{{ ui_theme }}');
             } catch (e) {}
         })();
     </script>
@@ -389,7 +417,17 @@
     <script>
         function toggleMobileMenu() {
             const menu = document.getElementById('navMenu');
+            const navbar = document.querySelector('.navbar');
             menu.classList.toggle('active');
+            if (menu.classList.contains('active')) {
+                try {
+                    const rect = navbar ? navbar.getBoundingClientRect() : { height: 64 };
+                    menu.style.top = (rect.height) + 'px';
+                } catch (e) { menu.style.top = '64px'; }
+                document.body.classList.add('menu-open');
+            } else {
+                document.body.classList.remove('menu-open');
+            }
         }
         
         // סגירת התפריט בלחיצה מחוץ לו
@@ -397,8 +435,9 @@
             const menu = document.getElementById('navMenu');
             const toggle = document.querySelector('.mobile-menu-toggle');
             
-            if (!menu.contains(event.target) && !toggle.contains(event.target)) {
+            if (menu.classList.contains('active') && !menu.contains(event.target) && !toggle.contains(event.target)) {
                 menu.classList.remove('active');
+                document.body.classList.remove('menu-open');
             }
         });
     </script>

@@ -50,6 +50,13 @@ try:
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
 
+# הגדרת חיבור קבוע (Remember Me)
+try:
+    PERSISTENT_LOGIN_DAYS = max(30, int(os.getenv('PERSISTENT_LOGIN_DAYS', '180')))
+except Exception:
+    PERSISTENT_LOGIN_DAYS = 180
+REMEMBER_COOKIE_NAME = 'remember_me'
+
  
 
 # חיבור ל-MongoDB
@@ -58,8 +65,53 @@ db = None
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
+    # קביעת גודל גופן מהעדפות משתמש/קוקי
+    font_scale = 1.0
+    try:
+        # Cookie קודם
+        cookie_val = request.cookies.get('ui_font_scale')
+        if cookie_val:
+            try:
+                v = float(cookie_val)
+                if 0.85 <= v <= 1.6:
+                    font_scale = v
+            except Exception:
+                pass
+        # אם מחובר - העדפת DB גוברת
+        if 'user_id' in session:
+            try:
+                _db = get_db()
+                u = _db.users.find_one({'user_id': session['user_id']}) or {}
+                v = float(((u.get('ui_prefs') or {}).get('font_scale')) or font_scale)
+                if 0.85 <= v <= 1.6:
+                    font_scale = v
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # ערכת נושא
+    theme = 'classic'
+    try:
+        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        if cookie_theme:
+            theme = cookie_theme
+        if 'user_id' in session:
+            try:
+                _db = get_db()
+                u = _db.users.find_one({'user_id': session['user_id']}) or {}
+                t = ((u.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                if t:
+                    theme = t
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if theme not in {'classic','ocean','forest'}:
+        theme = 'classic'
     return {
         'bot_username': BOT_USERNAME_CLEAN,
+        'ui_font_scale': font_scale,
+        'ui_theme': theme,
     }
 
  
@@ -161,6 +213,49 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+# before_request: אם אין סשן אבל יש cookie "remember_me" תקף — נבצע התחברות שקופה
+@app.before_request
+def try_persistent_login():
+    try:
+        if 'user_id' in session:
+            return
+        token = request.cookies.get(REMEMBER_COOKIE_NAME)
+        if not token:
+            return
+        db = get_db()
+        doc = db.remember_tokens.find_one({
+            'token': token
+        })
+        if not doc:
+            return
+        # בדיקת תוקף
+        exp = doc.get('expires_at')
+        now = datetime.now(timezone.utc)
+        if isinstance(exp, datetime):
+            if exp < now:
+                return
+        else:
+            try:
+                if datetime.fromisoformat(str(exp)) < now:
+                    return
+            except Exception:
+                return
+        # שחזור סשן בסיסי
+        user_id = int(doc.get('user_id'))
+        user = db.users.find_one({'user_id': user_id}) or {}
+        session['user_id'] = user_id
+        session['user_data'] = {
+            'id': user_id,
+            'first_name': user.get('first_name', ''),
+            'last_name': user.get('last_name', ''),
+            'username': user.get('username', ''),
+            'photo_url': ''
+        }
+        session.permanent = True
+    except Exception:
+        # אל תכשיל בקשות בגלל כשל חיבור/פרסר
+        pass
 
 def admin_required(f):
     """דקורטור לבדיקת הרשאות אדמין"""
@@ -376,8 +471,23 @@ def token_auth():
 @app.route('/logout')
 def logout():
     """התנתקות"""
+    try:
+        token = request.cookies.get(REMEMBER_COOKIE_NAME)
+        if token:
+            try:
+                db = get_db()
+                db.remember_tokens.delete_one({'token': token})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    resp = redirect(url_for('index'))
+    try:
+        resp.delete_cookie(REMEMBER_COOKIE_NAME)
+    except Exception:
+        pass
     session.clear()
-    return redirect(url_for('index'))
+    return resp
 
 @app.route('/dashboard')
 @login_required
@@ -1230,10 +1340,31 @@ def settings():
     
     # בדיקה אם המשתמש הוא אדמין
     user_is_admin = is_admin(user_id)
-    
+
+    # בדיקה האם יש חיבור קבוע פעיל
+    has_persistent = False
+    try:
+        db = get_db()
+        token = request.cookies.get(REMEMBER_COOKIE_NAME)
+        if token:
+            doc = db.remember_tokens.find_one({'token': token, 'user_id': user_id})
+            if doc:
+                exp = doc.get('expires_at')
+                if isinstance(exp, datetime):
+                    has_persistent = exp > datetime.now(timezone.utc)
+                else:
+                    try:
+                        has_persistent = datetime.fromisoformat(str(exp)) > datetime.now(timezone.utc)
+                    except Exception:
+                        has_persistent = False
+    except Exception:
+        has_persistent = False
+
     return render_template('settings.html',
                          user=session['user_data'],
-                         is_admin=user_is_admin)
+                         is_admin=user_is_admin,
+                         persistent_login_enabled=has_persistent,
+                         persistent_days=PERSISTENT_LOGIN_DAYS)
 
 @app.route('/health')
 def health():
@@ -1273,6 +1404,154 @@ def health():
         health_data['error'] = str(e)
     
     return jsonify(health_data)
+
+# API: הפעלת/ביטול חיבור קבוע
+@app.route('/api/persistent_login', methods=['POST'])
+@login_required
+def api_persistent_login():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        payload = request.get_json(silent=True) or {}
+        enable = bool(payload.get('enable'))
+
+        resp = jsonify({'ok': True, 'enabled': enable})
+
+        if enable:
+            # צור טוקן ושמור ב-DB
+            token = secrets.token_urlsafe(32)
+            now = datetime.now(timezone.utc)
+            expires_at = now + timedelta(days=PERSISTENT_LOGIN_DAYS)
+            try:
+                db.remember_tokens.create_index('token', unique=True)
+                db.remember_tokens.create_index('expires_at', expireAfterSeconds=0)
+            except Exception:
+                pass
+            db.remember_tokens.update_one(
+                {'user_id': user_id},
+                {'$set': {'user_id': user_id, 'token': token, 'updated_at': now, 'expires_at': expires_at}, '$setOnInsert': {'created_at': now}},
+                upsert=True
+            )
+            resp.set_cookie(
+                REMEMBER_COOKIE_NAME,
+                token,
+                max_age=PERSISTENT_LOGIN_DAYS * 24 * 3600,
+                secure=True,
+                httponly=True,
+                samesite='Lax'
+            )
+        else:
+            # נטרל: מחיקת טוקן וקוקי
+            try:
+                token = request.cookies.get(REMEMBER_COOKIE_NAME)
+                if token:
+                    db.remember_tokens.delete_one({'user_id': user_id, 'token': token})
+            except Exception:
+                pass
+            resp.delete_cookie(REMEMBER_COOKIE_NAME)
+
+        return resp
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/ui_prefs', methods=['POST'])
+@login_required
+def api_ui_prefs():
+    """שמירת העדפות UI (כרגע: font_scale)."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        font_scale = float(payload.get('font_scale', 1.0))
+        theme = (payload.get('theme') or '').strip().lower()
+        # הגבלה סבירה
+        if font_scale < 0.85:
+            font_scale = 0.85
+        if font_scale > 1.6:
+            font_scale = 1.6
+        db = get_db()
+        user_id = session['user_id']
+        update_fields = {'ui_prefs.font_scale': font_scale, 'updated_at': datetime.now(timezone.utc)}
+        if theme in {'classic','ocean','forest'}:
+            update_fields['ui_prefs.theme'] = theme
+        db.users.update_one({'user_id': user_id}, {'$set': update_fields}, upsert=True)
+        # גם בקוקי כדי להשפיע מיידית בעמודים ציבוריים
+        resp = jsonify({'ok': True, 'font_scale': font_scale, 'theme': theme or None})
+        try:
+            resp.set_cookie('ui_font_scale', str(font_scale), max_age=365*24*3600, samesite='Lax')
+            if theme in {'classic','ocean','forest'}:
+                resp.set_cookie('ui_theme', theme, max_age=365*24*3600, samesite='Lax')
+        except Exception:
+            pass
+        return resp
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# --- Public statistics for landing/mini web app ---
+@app.route('/api/public_stats')
+def api_public_stats():
+    """סטטיסטיקות גלובליות להצגה בעמוד הבית/מיני-ווב ללא התחברות.
+
+    מחזיר:
+    - total_users: סה"כ משתמשים שנוצרו אי פעם
+    - active_users_24h: משתמשים שהיו פעילים ב-24 השעות האחרונות (updated_at)
+    - total_snippets: סה"כ קטעי קוד ייחודיים שנשמרו (distinct לפי user_id+file_name) כאשר התוכן לא ריק ובסטטוס פעיל
+    """
+    try:
+        db = get_db()
+        now_utc = datetime.now(timezone.utc)
+        last_24h = now_utc - timedelta(hours=24)
+
+        # Users
+        try:
+            total_users = int(db.users.count_documents({}))
+        except Exception:
+            total_users = 0
+        try:
+            active_users_24h = int(db.users.count_documents({"updated_at": {"$gte": last_24h}}))
+        except Exception:
+            active_users_24h = 0
+
+        # Total distinct snippets (user_id+file_name), only active and with non-empty code
+        try:
+            pipeline = [
+                {"$match": {
+                    "$and": [
+                        {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                        {"code": {"$type": "string"}},
+                    ]
+                }},
+                {"$addFields": {
+                    "code_size": {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$code"}, "string"]},
+                            "then": {"$strLenBytes": "$code"},
+                            "else": 0,
+                        }
+                    }
+                }},
+                {"$match": {"code_size": {"$gt": 0}}},
+                {"$group": {"_id": {"user_id": "$user_id", "file_name": "$file_name"}}},
+                {"$count": "count"},
+            ]
+            res = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+            total_snippets = int(res[0]["count"]) if res else 0
+        except Exception:
+            total_snippets = 0
+
+        return jsonify({
+            "ok": True,
+            "total_users": total_users,
+            "active_users_24h": active_users_24h,
+            "total_snippets": total_snippets,
+            "timestamp": now_utc.isoformat(),
+        })
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "total_users": 0,
+            "active_users_24h": 0,
+            "total_snippets": 0,
+        }), 200
 
 # --- Public share route ---
 @app.route('/share/<share_id>')

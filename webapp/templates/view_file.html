@@ -3,8 +3,8 @@
 {% block title %}{{ file.file_name }} - Code Keeper Bot{% endblock %}
 
 {% block extra_css %}
+<style id="syntax-css"></style>
 <style>
-{{ syntax_css }}
 
 .source {
     background: #1e1e1e !important;
@@ -194,6 +194,22 @@ body.telegram-mini-app .main-content > .container { padding-left: 10px !importan
 {% endblock %}
 
 {% block content %}
+<script type="application/json" id="pygmentsCssData">{{ syntax_css|tojson|safe }}</script>
+<div id="fileMeta" data-file-name="{{ file.file_name }}" style="display:none"></div>
+<script>
+// הזרקת CSS של Pygments בבטחה לתוך style#syntax-css, ללא Jinja בתוך JS
+(function(){
+    try {
+        var dataEl = document.getElementById('pygmentsCssData');
+        var css = '';
+        if (dataEl) {
+            try { css = JSON.parse(dataEl.textContent || '""'); } catch(e) { css = ''; }
+        }
+        var el = document.getElementById('syntax-css');
+        if (el && css) { el.textContent = css; }
+    } catch(e) {}
+})();
+</script>
 <div class="file-header">
     <div class="file-info">
         <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
@@ -237,7 +253,7 @@ body.telegram-mini-app .main-content > .container { padding-left: 10px !importan
             <i class="fas fa-download"></i>
             הורד
         </a>
-        <a href="/files" class="btn btn-secondary btn-icon">
+        <a href="#" onclick="return goBack(event)" class="btn btn-secondary btn-icon">
             <i class="fas fa-arrow-right"></i>
             חזור
         </a>
@@ -397,7 +413,8 @@ async function copyLink() {
 }
 
 async function shareToTelegram() {
-    const fileName = {{ file.file_name|tojson }};
+    var metaDiv = document.getElementById('fileMeta');
+    const fileName = metaDiv ? metaDiv.getAttribute('data-file-name') : '';
     const url = await ensurePublicLink();
     const text = `בדוק את הקובץ ${fileName} ב-Code Keeper:\n${url}`;
     const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
@@ -419,7 +436,7 @@ document.addEventListener('keydown', function(e) {
             try { document.exitFullscreen(); } catch (err) { /* ignore */ }
             return;
         }
-        window.location.href = '/files';
+        goBack();
     }
 });
 
@@ -457,5 +474,28 @@ document.addEventListener('keydown', function(e) {
     document.addEventListener('fullscreenchange', updateButton);
     updateButton();
 })();
+
+// חזרה למסך הקודם בצורה אמינה (שומרת מסננים/דפדוף)
+function goBack(ev){
+    try { if (ev) ev.preventDefault(); } catch(e){}
+    try {
+        // אם יש היסטוריה – חזור צעד אחד בלבד
+        if (window.history && window.history.length > 1) {
+            window.history.back();
+            return false;
+        }
+        // אם יש referrer מאותו דומיין – ננווט אליו
+        if (document.referrer) {
+            const ref = new URL(document.referrer, window.location.origin);
+            if (ref.origin === window.location.origin) {
+                window.location.href = ref.toString();
+                return false;
+            }
+        }
+    } catch (e) {}
+    // ברירת מחדל: רשימת קבצים
+    window.location.href = '/files';
+    return false;
+}
 </script>
 {% endblock %}
