@@ -330,6 +330,14 @@
             padding: 1rem !important;
             border-radius: 14px;
         }
+        body.telegram-mini-app .navbar {
+            position: static;
+            top: auto;
+            background: transparent;
+            backdrop-filter: none;
+            border-bottom: 0;
+        }
+        body.telegram-mini-app .navbar::after { display: none; }
         
         /* Loading animation */
         .loading {
