@@ -162,13 +162,26 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        await TelegramUtils.safe_edit_message_text(
-            query,
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
-            f"```{language}\n{code_preview}\n```",
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-        )
+        # אם הקובץ הוא Markdown – נציג ב-HTML עם <pre><code> כדי למנוע שבירת ``` פנימיים
+        if (language or '').lower() == 'markdown':
+            safe_code = html_escape(code_preview)
+            header_html = (
+                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}\n"
+            )
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"{header_html}<pre><code>{safe_code}</code></pre>",
+                reply_markup=reply_markup,
+                parse_mode='HTML',
+            )
+        else:
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
+                f"```{language}\n{code_preview}\n```",
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+            )
     except Exception as e:
         logger.error(f"Error in handle_view_file: {e}")
         await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהצגת הקוד המתקדם")
@@ -717,12 +730,26 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}"
-            f"```{language}\n{code_preview}\n```",
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-        )
+        # Markdown מוצג ב-HTML כדי למנוע שבירת ``` פנימיים
+        if (language or '').lower() == 'markdown':
+            safe_code = html_escape(code_preview)
+            header_html = (
+                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}"
+            )
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"{header_html}<pre><code>{safe_code}</code></pre>",
+                reply_markup=reply_markup,
+                parse_mode='HTML',
+            )
+        else:
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}"
+                f"```{language}\n{code_preview}\n```",
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+            )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
