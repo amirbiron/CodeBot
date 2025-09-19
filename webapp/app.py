@@ -1283,6 +1283,118 @@ def upload_file_web():
                         language = _dl(file_name) or 'text'
                     except Exception:
                         language = 'text'
+
+                # אם עדיין לא זוהתה שפה (או הוגדרה כ-text) ננסה לנחש לפי התוכן
+                if language == 'text' and code:
+                    try:
+                        lex = None
+                        try:
+                            lex = guess_lexer(code)
+                        except Exception:
+                            lex = None
+                        if lex is not None:
+                            lex_name = (getattr(lex, 'name', '') or '').lower()
+                            aliases = [a.lower() for a in getattr(lex, 'aliases', []) or []]
+                            cand = lex_name or (aliases[0] if aliases else '')
+                            # מיפוי שמות/כינויים של Pygments לשפה פנימית
+                            def _normalize_lang(name: str) -> str:
+                                n = name.lower()
+                                if 'python' in n or n in {'py'}:
+                                    return 'python'
+                                if n in {'javascript', 'js', 'node', 'nodejs'} or 'javascript' in n:
+                                    return 'javascript'
+                                if n in {'typescript', 'ts'}:
+                                    return 'typescript'
+                                if n in {'c++', 'cpp', 'cxx'}:
+                                    return 'cpp'
+                                if n == 'c':
+                                    return 'c'
+                                if n in {'c#', 'csharp'}:
+                                    return 'csharp'
+                                if n in {'go', 'golang'}:
+                                    return 'go'
+                                if n in {'rust', 'rs'}:
+                                    return 'rust'
+                                if 'java' in n:
+                                    return 'java'
+                                if 'kotlin' in n:
+                                    return 'kotlin'
+                                if n in {'ruby', 'rb'}:
+                                    return 'ruby'
+                                if n in {'php'}:
+                                    return 'php'
+                                if n in {'swift'}:
+                                    return 'swift'
+                                if n in {'html', 'htm'}:
+                                    return 'html'
+                                if n in {'css', 'scss', 'sass', 'less'}:
+                                    # נעדיף css כשלא ברור
+                                    return 'css'
+                                if n in {'bash', 'sh', 'shell', 'zsh'}:
+                                    return 'bash'
+                                if n in {'sql'}:
+                                    return 'sql'
+                                if n in {'yaml', 'yml'}:
+                                    return 'yaml'
+                                if n in {'json'}:
+                                    return 'json'
+                                if n in {'xml'}:
+                                    return 'xml'
+                                if 'markdown' in n or n in {'md'}:
+                                    return 'markdown'
+                                return 'text'
+                            guessed = _normalize_lang(cand)
+                            if guessed != 'text':
+                                language = guessed
+                    except Exception:
+                        pass
+
+                # עדכון שם קובץ כך שיתאם את השפה (סיומת מתאימה)
+                try:
+                    lang_to_ext = {
+                        'python': 'py',
+                        'javascript': 'js',
+                        'typescript': 'ts',
+                        'java': 'java',
+                        'cpp': 'cpp',
+                        'c': 'c',
+                        'csharp': 'cs',
+                        'go': 'go',
+                        'rust': 'rs',
+                        'ruby': 'rb',
+                        'php': 'php',
+                        'swift': 'swift',
+                        'kotlin': 'kt',
+                        'html': 'html',
+                        'css': 'css',
+                        'sql': 'sql',
+                        'bash': 'sh',
+                        'shell': 'sh',
+                        'yaml': 'yaml',
+                        'json': 'json',
+                        'xml': 'xml',
+                        'markdown': 'md',
+                        'scss': 'scss',
+                        'sass': 'sass',
+                        'less': 'less',
+                        # שפות נוספות יישארו ללא שינוי
+                    }
+                    lang_key = (language or 'text').lower()
+                    target_ext = lang_to_ext.get(lang_key)
+                    if target_ext:
+                        base, curr_ext = os.path.splitext(file_name or '')
+                        curr_ext_lower = curr_ext.lower()
+                        wanted_dot_ext = f'.{target_ext}'
+                        if not base:
+                            # שם ריק – לא נשנה כאן
+                            pass
+                        elif curr_ext_lower == '':
+                            file_name = f"{base}{wanted_dot_ext}"
+                        elif curr_ext_lower in {'.txt', '.text'} and curr_ext_lower != wanted_dot_ext:
+                            file_name = f"{base}{wanted_dot_ext}"
+                        # אם קיימת סיומת לא-טקסט ואחרת – נשאיר כפי שהיא כדי לכבד את שם הקובץ שהוזן
+                except Exception:
+                    pass
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
                 try:
                     # קבע גרסה חדשה על בסיס האחרונה הפעילה
