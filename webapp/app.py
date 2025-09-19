@@ -1031,6 +1031,227 @@ def view_file(file_id):
                          syntax_css=css,
                          raw_code=code)
 
+@app.route('/edit/<file_id>', methods=['GET', 'POST'])
+@login_required
+def edit_file_page(file_id):
+    """עריכת קובץ קיים: טופס עריכה ושמירת גרסה חדשה."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+    except Exception:
+        file = None
+    if not file:
+        abort(404)
+
+    error = None
+    success = None
+
+    if request.method == 'POST':
+        try:
+            file_name = (request.form.get('file_name') or '').strip()
+            code = request.form.get('code') or ''
+            language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
+            description = (request.form.get('description') or '').strip()
+            raw_tags = (request.form.get('tags') or '').strip()
+            tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else list(file.get('tags') or [])
+
+            if not file_name:
+                error = 'יש להזין שם קובץ'
+            elif not code:
+                error = 'יש להזין תוכן קוד'
+            else:
+                # זיהוי שפה בסיסי אם לא סופק
+                if not language or language == 'text':
+                    try:
+                        from utils import detect_language_from_filename as _dl
+                        language = _dl(file_name) or 'text'
+                    except Exception:
+                        language = 'text'
+
+                # נסיון ניחוש שפה לפי תוכן כאשר נותר text
+                if language == 'text' and code:
+                    try:
+                        lex = None
+                        try:
+                            lex = guess_lexer(code)
+                        except Exception:
+                            lex = None
+                        if lex is not None:
+                            lex_name = (getattr(lex, 'name', '') or '').lower()
+                            aliases = [a.lower() for a in getattr(lex, 'aliases', []) or []]
+                            cand = lex_name or (aliases[0] if aliases else '')
+                            def _normalize_lang(name: str) -> str:
+                                n = name.lower()
+                                if 'python' in n or n in {'py'}:
+                                    return 'python'
+                                if n in {'javascript', 'js', 'node', 'nodejs'} or 'javascript' in n:
+                                    return 'javascript'
+                                if n in {'typescript', 'ts'}:
+                                    return 'typescript'
+                                if n in {'c++', 'cpp', 'cxx'}:
+                                    return 'cpp'
+                                if n == 'c':
+                                    return 'c'
+                                if n in {'c#', 'csharp'}:
+                                    return 'csharp'
+                                if n in {'go', 'golang'}:
+                                    return 'go'
+                                if n in {'rust', 'rs'}:
+                                    return 'rust'
+                                if 'java' in n:
+                                    return 'java'
+                                if 'kotlin' in n:
+                                    return 'kotlin'
+                                if n in {'ruby', 'rb'}:
+                                    return 'ruby'
+                                if n in {'php'}:
+                                    return 'php'
+                                if n in {'swift'}:
+                                    return 'swift'
+                                if n in {'html', 'htm'}:
+                                    return 'html'
+                                if n in {'css', 'scss', 'sass', 'less'}:
+                                    return 'css'
+                                if n in {'bash', 'sh', 'shell', 'zsh'}:
+                                    return 'bash'
+                                if n in {'sql'}:
+                                    return 'sql'
+                                if n in {'yaml', 'yml'}:
+                                    return 'yaml'
+                                if n in {'json'}:
+                                    return 'json'
+                                if n in {'xml'}:
+                                    return 'xml'
+                                if 'markdown' in n or n in {'md'}:
+                                    return 'markdown'
+                                return 'text'
+                            guessed = _normalize_lang(cand)
+                            if guessed != 'text':
+                                language = guessed
+                    except Exception:
+                        pass
+
+                # עדכון שם קובץ לפי השפה (אם אין סיומת או .txt)
+                try:
+                    lang_to_ext = {
+                        'python': 'py',
+                        'javascript': 'js',
+                        'typescript': 'ts',
+                        'java': 'java',
+                        'cpp': 'cpp',
+                        'c': 'c',
+                        'csharp': 'cs',
+                        'go': 'go',
+                        'rust': 'rs',
+                        'ruby': 'rb',
+                        'php': 'php',
+                        'swift': 'swift',
+                        'kotlin': 'kt',
+                        'html': 'html',
+                        'css': 'css',
+                        'sql': 'sql',
+                        'bash': 'sh',
+                        'shell': 'sh',
+                        'yaml': 'yaml',
+                        'json': 'json',
+                        'xml': 'xml',
+                        'markdown': 'md',
+                        'scss': 'scss',
+                        'sass': 'sass',
+                        'less': 'less',
+                    }
+                    lang_key = (language or 'text').lower()
+                    target_ext = lang_to_ext.get(lang_key)
+                    if target_ext:
+                        base, curr_ext = os.path.splitext(file_name or '')
+                        curr_ext_lower = curr_ext.lower()
+                        wanted_dot_ext = f'.{target_ext}'
+                        if base:
+                            if curr_ext_lower == '':
+                                file_name = f"{base}{wanted_dot_ext}"
+                            elif curr_ext_lower in {'.txt', '.text'} and curr_ext_lower != wanted_dot_ext:
+                                file_name = f"{base}{wanted_dot_ext}"
+                except Exception:
+                    pass
+
+                # קבע גרסה חדשה על סמך שם הקובץ לאחר העדכון
+                try:
+                    prev = db.code_snippets.find_one(
+                        {
+                            'user_id': user_id,
+                            'file_name': file_name,
+                            '$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}}
+                            ]
+                        },
+                        sort=[('version', -1)]
+                    )
+                except Exception:
+                    prev = None
+                version = int((prev or {}).get('version', 0) or 0) + 1
+                if not description:
+                    try:
+                        description = (prev or file or {}).get('description') or ''
+                    except Exception:
+                        description = ''
+                if not tags:
+                    try:
+                        tags = list((prev or file or {}).get('tags') or [])
+                    except Exception:
+                        tags = []
+
+                now = datetime.now(timezone.utc)
+                new_doc = {
+                    'user_id': user_id,
+                    'file_name': file_name,
+                    'code': code,
+                    'programming_language': language,
+                    'description': description,
+                    'tags': tags,
+                    'version': version,
+                    'created_at': now,
+                    'updated_at': now,
+                    'is_active': True,
+                }
+                try:
+                    res = db.code_snippets.insert_one(new_doc)
+                    if res and getattr(res, 'inserted_id', None):
+                        return redirect(url_for('view_file', file_id=str(res.inserted_id)))
+                    error = 'שמירת הקובץ נכשלה'
+                except Exception as _e:
+                    error = f'שמירת הקובץ נכשלה: {_e}'
+        except Exception as e:
+            error = f'שגיאה בעריכה: {e}'
+
+    # טופס עריכה (GET או POST עם שגיאה)
+    try:
+        languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
+        languages = sorted([l for l in languages if l]) if languages else []
+    except Exception:
+        languages = []
+
+    # המרה לנתונים לתבנית
+    code_value = file.get('code') or ''
+    file_data = {
+        'id': str(file.get('_id')),
+        'file_name': file.get('file_name') or '',
+        'language': file.get('programming_language') or 'text',
+        'description': file.get('description') or '',
+        'tags': file.get('tags') or [],
+        'version': file.get('version', 1),
+    }
+
+    return render_template('edit_file.html',
+                         user=session['user_data'],
+                         file=file_data,
+                         code_value=code_value,
+                         languages=languages,
+                         error=error,
+                         success=success,
+                         bot_username=BOT_USERNAME_CLEAN)
+
 @app.route('/download/<file_id>')
 @login_required
 def download_file(file_id):
