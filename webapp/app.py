@@ -1283,14 +1283,55 @@ def upload_file_web():
                         language = _dl(file_name) or 'text'
                     except Exception:
                         language = 'text'
-                # שמירה כגרסה חדשה (שומר תיאור ותגים קודמים)
-                from database import db as _db
-                ok = _db.save_file(user_id=user_id, file_name=file_name, code=code, programming_language=language, extra_tags=tags)
-                if ok:
-                    success = 'הקובץ נשמר בהצלחה'
+                # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
+                try:
+                    # קבע גרסה חדשה על בסיס האחרונה הפעילה
+                    prev = db.code_snippets.find_one(
+                        {
+                            'user_id': user_id,
+                            'file_name': file_name,
+                            '$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}}
+                            ]
+                        },
+                        sort=[('version', -1)]
+                    )
+                except Exception:
+                    prev = None
+                version = int((prev or {}).get('version', 0) or 0) + 1
+                if not description:
+                    try:
+                        description = (prev or {}).get('description') or ''
+                    except Exception:
+                        description = ''
+                prev_tags = []
+                try:
+                    prev_tags = list((prev or {}).get('tags') or [])
+                except Exception:
+                    prev_tags = []
+                final_tags = tags if tags else prev_tags
+
+                now = datetime.now(timezone.utc)
+                doc = {
+                    'user_id': user_id,
+                    'file_name': file_name,
+                    'code': code,
+                    'programming_language': language,
+                    'description': description,
+                    'tags': final_tags,
+                    'version': version,
+                    'created_at': now,
+                    'updated_at': now,
+                    'is_active': True,
+                }
+                try:
+                    res = db.code_snippets.insert_one(doc)
+                except Exception as _e:
+                    res = None
+                if res and getattr(res, 'inserted_id', None):
                     return redirect(url_for('files'))
-                else:
-                    error = 'שמירת הקובץ נכשלה'
+                error = 'שמירת הקובץ נכשלה'
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
     # שליפת שפות קיימות להצעה
