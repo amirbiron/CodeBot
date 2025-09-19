@@ -1643,7 +1643,9 @@ def upload_file_web():
                     prev_tags = list((prev or {}).get('tags') or [])
                 except Exception:
                     prev_tags = []
-                final_tags = tags if tags else prev_tags
+                # אל תוסיף תגיות repo:* כברירת מחדל בעת העלאה חדשה; שמור רק תגיות רגילות אם המשתמש לא הקליד
+                safe_prev_tags = [t for t in prev_tags if not (isinstance(t, str) and t.strip().lower().startswith('repo:'))]
+                final_tags = tags if tags else safe_prev_tags
 
                 now = datetime.now(timezone.utc)
                 doc = {
