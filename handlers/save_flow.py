@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, WAIT_ADD_CODE_MODE, LONG_COLLECT
 from services import code_service
+from utils import TextUtils
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,12 @@ def _cancel_long_collect_timeout(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _schedule_long_collect_timeout(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """קבע טיימאאוט ללא פעילות, מאופס בכל קבלת חלק."""
-    _cancel_long_collect_timeout(context)
+    """קבע/רענן טיימאאוט ללא פעילות.
+
+    שימוש במזהה Job קבוע (per-user) ו-replace_existing כדי למנוע כפילויות בלוגים של APScheduler.
+    """
     try:
+        jid = f"long_collect_timeout:{update.effective_user.id}"
         job = context.job_queue.run_once(
             long_collect_timeout_job,
             when=LONG_COLLECT_TIMEOUT_SECONDS,
@@ -72,7 +76,11 @@ def _schedule_long_collect_timeout(update, context: ContextTypes.DEFAULT_TYPE) -
                 'chat_id': update.effective_chat.id if getattr(update, 'effective_chat', None) else update.callback_query.message.chat_id,
                 'user_id': update.effective_user.id,
             },
-            name=f"long_collect_timeout:{update.effective_user.id}"
+            name=jid,
+            job_kwargs={
+                'id': jid,
+                'replace_existing': True,
+            }
         )
         context.user_data['long_collect_job'] = job
     except Exception as e:
@@ -322,7 +330,7 @@ async def save_file_final(update, context, filename, user_id):
     try:
         detected_language = code_service.detect_language(code, filename)
         from database import db, CodeSnippet
-        note = (context.user_data.get('note_to_save') or '').strip()
+    note = (context.user_data.get('note_to_save') or '').strip()
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=filename,
@@ -361,7 +369,7 @@ async def save_file_final(update, context, filename, user_id):
                 ],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            note_display = note if note else '—'
+            note_display = TextUtils.escape_markdown(note, version=1) if note else '—'
             await update.message.reply_text(
                 f"🎉 *קובץ נשמר בהצלחה!*\n\n"
                 f"📄 **שם:** `{filename}`\n"
