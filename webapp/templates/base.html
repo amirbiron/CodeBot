@@ -359,6 +359,18 @@
         }
         body.telegram-mini-app .navbar::after { display: none; }
         
+        /* Mini WebApp: במסכי טאבלט ומעלה – מכולה ראשית ברוחב מלא וללא ריווח צדדי */
+        @media (min-width: 768px) {
+            body.telegram-mini-app .container {
+                width: 100% !important;
+                max-width: none !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+        }
+        
         /* Loading animation */
         .loading {
             display: inline-block;
