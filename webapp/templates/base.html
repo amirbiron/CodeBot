@@ -80,13 +80,13 @@
             backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--glass-border);
             padding: 1rem 0;
-            position: sticky;
-            top: 0;
+            position: static;
+            top: auto;
             z-index: 1000;
             transform: translateY(0);
             transition: transform 0.24s ease, background 0.2s ease, box-shadow 0.2s ease, backdrop-filter 0.2s ease;
         }
-        .navbar.nav-hidden { transform: translateY(-110%); }
+        
         
         /* אפקט עומק עדין בעת פתיחת תפריט במובייל */
         body.nav-open .navbar {
@@ -469,29 +469,7 @@
             }
         });
 
-        // הסתרת הניווט בגלילה מטה והצגה בגלילה מעלה
-        (function(){
-            try {
-                var lastY = window.scrollY || 0;
-                var navbar = document.querySelector('.navbar');
-                var ticking = false;
-                if (!navbar) return;
-                window.addEventListener('scroll', function(){
-                    if (ticking) return; ticking = true;
-                    window.requestAnimationFrame(function(){
-                        var y = window.scrollY || 0;
-                        var down = y > lastY;
-                        if (y > 40 && down) {
-                            navbar.classList.add('nav-hidden');
-                        } else {
-                            navbar.classList.remove('nav-hidden');
-                        }
-                        lastY = y;
-                        ticking = false;
-                    });
-                }, { passive: true });
-            } catch (e) {}
-        })();
+        
     </script>
     
     {% block extra_js %}{% endblock %}
