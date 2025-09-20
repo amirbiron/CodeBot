@@ -180,6 +180,16 @@
             padding: 2rem;
             margin-bottom: 2rem;
         }
+        /* מניעת חיתוך כרטיסים בשוליים בכל המסכים (כולל RTL) */
+        .main-content .glass-card,
+        .main-content .feature-card,
+        .main-content .stat-card {
+            margin-left: 0.5rem;
+            margin-right: 0.5rem;
+            width: calc(100% - 1rem);
+            box-sizing: border-box;
+            min-width: 0;
+        }
         
         .btn {
             display: inline-flex;
