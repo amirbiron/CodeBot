@@ -280,6 +280,8 @@
     width: calc(100% - 1rem);
     box-sizing: border-box;
     transition: transform 0.3s, background 0.3s;
+    position: relative;
+    overflow: hidden; /* שומר את הכפתורים והתוכן בתוך גבולות הכרטיס */
 }
 
 .file-card:hover {
@@ -296,6 +298,13 @@
     .filters-section select,
     .filters-section button {
         width: 100% !important;
+    }
+
+    /* בכרטיסי קבצים: לאפשר עטיפה כדי שהכפתורים לא יגלשו החוצה */
+    .files-grid .glass-card.file-card > div {
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-start;
     }
 }
 </style>
