@@ -70,7 +70,8 @@ def test_save_file_final_escapes_note_markdown(monkeypatch):
 
     db_mod.db = _DB()
     db_mod.CodeSnippet = _CodeSnippet
-    sys.modules['database'] = db_mod
+    # רשום את המודול הזמני רק לטווח הטסט
+    monkeypatch.setitem(sys.modules, 'database', db_mod)
 
     # Build update/context stubs
     calls = {}
