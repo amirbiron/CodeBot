@@ -83,6 +83,40 @@
     gap: 1rem;
 }
 
+/* כותרת ושורת מידע: מניעת גלישה ויישור אליפסות */
+.file-title-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    min-width: 0; /* מאפשר אליפסות בצאצאים */
+}
+.file-icon {
+    font-size: 2.25rem; /* היה 3rem – מקטין למניעת גלישה */
+    line-height: 1;
+    flex: 0 0 auto;
+}
+.file-title-wrap {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.file-title {
+    margin: 0;
+    font-size: 1.5rem; /* גודל שקול ל-section-title */
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.file-subrow {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    min-width: 0;
+}
+
 .file-info {
     flex: 1;
 }
@@ -116,6 +150,8 @@
     font-size: 1.1rem;
     font-weight: 500;
 }
+
+.muted { opacity: 0.7; }
 
 .copy-button {
     position: relative;
@@ -182,6 +218,8 @@
         font-size: 12px !important;
         padding: 0.75rem !important;
     }
+    .file-icon { font-size: 2rem; }
+    .file-title { font-size: 1.25rem; }
     .highlighttable td.linenos { width: 2.8rem; }
     .main-content > .container { padding-left: 10px; padding-right: 10px; }
 }
@@ -190,6 +228,9 @@
 /* Mini WebApp: שיפורים כאשר נטען בתוך טלגרם */
 body.telegram-mini-app .source { font-size: 12px !important; padding: 0.75rem !important; }
 body.telegram-mini-app .main-content > .container { padding-left: 10px !important; padding-right: 10px !important; }
+/* Mini App: הקטנת הכותרת והאייקון ומניעת גלישה */
+body.telegram-mini-app .file-icon { font-size: 1.9rem; }
+body.telegram-mini-app .file-title { font-size: 1.125rem; }
 </style>
 {% endblock %}
 
@@ -212,13 +253,13 @@ body.telegram-mini-app .main-content > .container { padding-left: 10px !importan
 </script>
 <div class="file-header">
     <div class="file-info">
-        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-            <span style="font-size: 3rem;">{{ file.icon }}</span>
-            <div>
-                <h1 style="margin: 0;">{{ file.file_name }}</h1>
-                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+        <div class="file-title-row">
+            <span class="file-icon">{{ file.icon }}</span>
+            <div class="file-title-wrap">
+                <h1 class="file-title">{{ file.file_name }}</h1>
+                <div class="file-subrow">
                     <span class="badge">{{ file.language }}</span>
-                    <span style="opacity: 0.7;">גרסה {{ file.version }}</span>
+                    <span class="muted">גרסה {{ file.version }}</span>
                 </div>
             </div>
         </div>
