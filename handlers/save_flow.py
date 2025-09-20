@@ -330,7 +330,7 @@ async def save_file_final(update, context, filename, user_id):
     try:
         detected_language = code_service.detect_language(code, filename)
         from database import db, CodeSnippet
-    note = (context.user_data.get('note_to_save') or '').strip()
+        note = (context.user_data.get('note_to_save') or '').strip()
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=filename,
