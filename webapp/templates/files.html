@@ -144,7 +144,7 @@
 {% elif files %}
 <div class="files-grid" style="display: grid; gap: 1rem;">
     {% for file in files %}
-    <div class="glass-card file-card" style="padding: 1.5rem;">
+    <div class="glass-card file-card">
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <div style="flex: 1;">
                 <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
@@ -274,6 +274,11 @@
 }
 
 .file-card {
+    margin: 0.5rem;
+    padding: 1rem;
+    border-radius: 12px;
+    width: calc(100% - 1rem);
+    box-sizing: border-box;
     transition: transform 0.3s, background 0.3s;
 }
 
