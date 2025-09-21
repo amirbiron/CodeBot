@@ -347,6 +347,7 @@ async def save_file_final(update, context, filename, user_id):
             except Exception:
                 fid = ''
 
+            note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{filename}"),
@@ -354,17 +355,19 @@ async def save_file_final(update, context, filename, user_id):
                 ],
                 [
                     InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{filename}"),
-                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}"),
+                    InlineKeyboardButton(note_btn_text, callback_data=f"edit_note_direct_{filename}"),
                 ],
                 [
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}"),
                     InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
+                ],
+                [
                     InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}"),
                 ],
                 [
                     InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
                 ],
                 [
-                    InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{filename}"),
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
                 ],
             ]

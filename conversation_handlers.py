@@ -140,9 +140,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             except Exception:
                 pass
             login_url = f"{webapp_url}/auth/token?token={auth_token}&user_id={user_id}"
-            reply_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔐 התחבר ל-Web App", url=login_url)],
-                [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)],
+            # יבוא מקומי כדי לאפשר לסטאבים של הטלגרם להיטען גם אם המודול נטען מוקדם יותר בטסטים
+            from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+            reply_markup = _IKM([
+                [_IKB("🔐 התחבר ל-Web App", url=login_url)],
+                [_IKB("🌐 פתח את ה-Web App", url=webapp_url)],
             ])
             await update.message.reply_text(
                 "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
@@ -360,6 +362,8 @@ from handlers.file_view import (
     handle_edit_code_direct as handle_edit_code_direct,
     handle_edit_name_direct as handle_edit_name_direct,
     handle_edit_note_direct as handle_edit_note_direct,
+    handle_clone as handle_clone,
+    handle_clone_direct as handle_clone_direct,
 )
 
 async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1836,6 +1840,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_versions_history(update, context)
         elif data.startswith("dl_") or data.startswith("download_"):
             return await handle_download_file(update, context)
+        elif data.startswith("clone_"):
+            if data.startswith("clone_direct_"):
+                return await handle_clone_direct(update, context)
+            else:
+                return await handle_clone(update, context)
         elif data.startswith("back_after_view:"):
             # חזרה למסך ההצלחה לאחר צפייה בקוד שנשמר זה עתה
             try:
@@ -1861,6 +1870,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             lang = saved.get('language') or 'text'
             note = saved.get('note') or ''
             fid = saved.get('file_id') or ''
+            note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{fname}"),
@@ -1868,17 +1878,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 ],
                 [
                     InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{fname}"),
-                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{fname}")
+                    InlineKeyboardButton(note_btn_text, callback_data=f"edit_note_direct_{fname}")
                 ],
                 [
-                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{fname}"),
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{fname}"),
+                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{fname}")
+                ],
+                [
                     InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{fname}")
                 ],
                 [
                     InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
                 ],
                 [
-                    InlineKeyboardButton("📊 מידע מתקדם", callback_data=f"info_direct_{fname}"),
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files")
                 ]
             ]

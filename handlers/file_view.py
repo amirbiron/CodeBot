@@ -837,3 +837,158 @@ async def handle_edit_note_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("❌ שגיאה בעריכת הערה")
     return ConversationHandler.END
 
+
+async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    try:
+        file_index = query.data.split('_')[1]
+        files_cache = context.user_data.get('files_cache', {})
+        file_data = files_cache.get(file_index)
+        if not file_data:
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ לשכפול")
+            return ConversationHandler.END
+        original_name = file_data.get('file_name', 'file.txt')
+        code = file_data.get('code', '')
+        language = file_data.get('programming_language', 'text')
+        description = file_data.get('description', '') or ''
+        try:
+            tags = list(file_data.get('tags') or [])
+        except Exception:
+            tags = []
+        user_id = update.effective_user.id
+
+        def _suggest_clone_name(name: str) -> str:
+            try:
+                dot = name.rfind('.')
+                stem = name[:dot] if dot > 0 else name
+                ext = name[dot:] if dot > 0 else ''
+            except Exception:
+                stem, ext = name, ''
+            from database import db
+            candidate = f"{stem} (copy){ext}"
+            exists = db.get_latest_version(user_id, candidate)
+            if not exists:
+                return candidate
+            for i in range(2, 100):
+                candidate = f"{stem} (copy {i}){ext}"
+                if not db.get_latest_version(user_id, candidate):
+                    return candidate
+            return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
+
+        new_name = _suggest_clone_name(original_name)
+
+        from database import db, CodeSnippet
+        snippet = CodeSnippet(
+            user_id=user_id,
+            file_name=new_name,
+            code=code,
+            programming_language=language,
+            description=description,
+            tags=tags,
+        )
+        ok = db.save_code_snippet(snippet)
+        if ok:
+            try:
+                # רענון חלקי של ה-cache המקומי אם זמין
+                if isinstance(files_cache, dict):
+                    files_cache[str(file_index)] = dict(file_data, file_name=original_name)
+            except Exception:
+                pass
+            keyboard = [
+                [
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
+                ],
+                [
+                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{new_name}"),
+                    InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
+                ],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"✅ *הקובץ שוכפל בהצלחה!*\n\n"
+                f"📄 **מקור:** `{original_name}`\n"
+                f"📄 **עותק חדש:** `{new_name}`",
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+            )
+        else:
+            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשכפול הקובץ")
+    except Exception as e:
+        logger.error(f"Error in handle_clone: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשכפול הקובץ")
+    return ConversationHandler.END
+
+
+async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    try:
+        file_name = query.data.replace("clone_direct_", "")
+        user_id = update.effective_user.id
+        from database import db
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await query.edit_message_text("❌ הקובץ לא נמצא לשכפול")
+            return ConversationHandler.END
+        code = file_data.get('code', '')
+        language = file_data.get('programming_language', 'text')
+        description = file_data.get('description', '') or ''
+        try:
+            tags = list(file_data.get('tags') or [])
+        except Exception:
+            tags = []
+
+        def _suggest_clone_name(name: str) -> str:
+            try:
+                dot = name.rfind('.')
+                stem = name[:dot] if dot > 0 else name
+                ext = name[dot:] if dot > 0 else ''
+            except Exception:
+                stem, ext = name, ''
+            candidate = f"{stem} (copy){ext}"
+            if not db.get_latest_version(user_id, candidate):
+                return candidate
+            for i in range(2, 100):
+                candidate = f"{stem} (copy {i}){ext}"
+                if not db.get_latest_version(user_id, candidate):
+                    return candidate
+            return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
+
+        new_name = _suggest_clone_name(file_name)
+        from database import CodeSnippet
+        snippet = CodeSnippet(
+            user_id=user_id,
+            file_name=new_name,
+            code=code,
+            programming_language=language,
+            description=description,
+            tags=tags,
+        )
+        ok = db.save_code_snippet(snippet)
+        if ok:
+            keyboard = [
+                [
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
+                ],
+                [
+                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{new_name}"),
+                    InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
+                ],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            text = (
+                f"✅ *הקובץ שוכפל בהצלחה!*\n\n"
+                f"📄 **מקור:** `{file_name}`\n"
+                f"📄 **עותק חדש:** `{new_name}`"
+            )
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await query.edit_message_text("❌ שגיאה בשכפול הקובץ")
+    except Exception as e:
+        logger.error(f"Error in handle_clone_direct: {e}")
+        await query.edit_message_text("❌ שגיאה בשכפול הקובץ")
+    return ConversationHandler.END
