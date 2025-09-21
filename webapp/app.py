@@ -25,6 +25,8 @@ import re
 import sys
 from pathlib import Path
 import secrets
+import urllib.parse as urlparse
+import html as html_lib
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
@@ -35,6 +37,15 @@ if ROOT_DIR not in sys.path:
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.permanent_session_lifetime = timedelta(days=30)  # סשן נשמר ל-30 יום
+
+# מגבלת גודל גוף (ברירת מחדל 8MB, ניתן להגדיר ב-ENV)
+try:
+    _max_mb = int(os.getenv('MAX_CONTENT_LENGTH_MB', os.getenv('MAX_UPLOAD_MB', '8')))
+except Exception:
+    _max_mb = 8
+app.config['MAX_CONTENT_LENGTH'] = max(1, _max_mb) * 1024 * 1024
+# קבוע לשימוש בבדיקות קבצים (שמור עקביות עם MAX_CONTENT_LENGTH אם רלוונטי)
+MAX_UPLOAD_BYTES = app.config['MAX_CONTENT_LENGTH']
 
 # הגדרות
 MONGODB_URL = os.getenv('MONGODB_URL')
@@ -214,12 +225,91 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# before_request: אם אין סשן אבל יש cookie "remember_me" תקף — נבצע התחברות שקופה
+def verify_telegram_init_data(init_data: str) -> Optional[Dict[str, Any]]:
+    """מאמת initData מ-Telegram WebApp (מועבר ב-Authorization: Bearer <initData>).
+
+    אם תקין: מחזיר user_data (dict) עם id, first_name, last_name, username, photo_url.
+    אחרת: מחזיר None.
+    """
+    try:
+        if not init_data or not BOT_TOKEN:
+            return None
+        # פירוק מחרוזת query
+        pairs = urlparse.parse_qsl(init_data, keep_blank_values=True)
+        data_map: Dict[str, str] = {k: v for k, v in pairs}
+        received_hash = data_map.get('hash', '')
+        if not received_hash:
+            return None
+        # data-check-string לפי מפתח אלפביתי, ללא hash
+        items = []
+        for key in sorted(data_map.keys()):
+            if key == 'hash':
+                continue
+            # יש לשמר בדיוק את הערך כפי שהגיע (לא JSON parsed)
+            items.append(f"{key}={data_map[key]}")
+        data_check_string = '\n'.join(items)
+        secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+        calc_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        if calc_hash != received_hash:
+            return None
+        # בדיקת זמן
+        try:
+            auth_date = int(data_map.get('auth_date', '0') or '0')
+        except Exception:
+            auth_date = 0
+        if auth_date <= 0 or (time.time() - auth_date) > 3600:
+            return None
+        # חילוץ משתמש
+        user_raw = data_map.get('user', '')
+        user: Dict[str, Any] = {}
+        try:
+            if user_raw:
+                user = json.loads(user_raw)
+        except Exception:
+            user = {}
+        uid = int(user.get('id')) if str(user.get('id', '')).isdigit() else None
+        if not uid:
+            return None
+        return {
+            'id': uid,
+            'first_name': user.get('first_name', ''),
+            'last_name': user.get('last_name', ''),
+            'username': user.get('username', ''),
+            'photo_url': user.get('photo_url', ''),
+        }
+    except Exception:
+        return None
+
+def try_auth_from_authorization_header() -> bool:
+    """ניסיון התחברות דרך Authorization: Bearer <initData> של Telegram WebApp."""
+    try:
+        auth = request.headers.get('Authorization', '')
+        if not auth or not auth.startswith('Bearer '):
+            return False
+        init_data = auth[len('Bearer '):].strip()
+        user_data = verify_telegram_init_data(init_data)
+        if not user_data:
+            return False
+        # קביעת סשן
+        session['user_id'] = int(user_data['id'])
+        session['user_data'] = user_data
+        session.permanent = True
+        return True
+    except Exception:
+        return False
+
+# before_request: אם אין סשן ננסה קודם Authorization header, אחרת cookie "remember_me" תקף — נבצע התחברות שקופה
 @app.before_request
 def try_persistent_login():
     try:
         if 'user_id' in session:
             return
+        # נסה התחברות דרך Authorization Header (Telegram WebApp)
+        try:
+            if try_auth_from_authorization_header():
+                return
+        except Exception:
+            pass
         token = request.cookies.get(REMEMBER_COOKIE_NAME)
         if not token:
             return
@@ -1462,6 +1552,19 @@ def upload_file_web():
     user_id = session['user_id']
     error = None
     success = None
+    # לוגים לזיהוי WAF/חסימות: גודל גוף, תוכן והקידוד
+    try:
+        cl = request.content_length
+        ct = request.content_type
+        chs = ''
+        try:
+            chs = (request.mimetype_params or {}).get('charset') or ''
+        except Exception:
+            chs = ''
+        enc = request.headers.get('Content-Encoding', '')
+        print(f"[upload] method={request.method} content_length={cl} content_type={ct} charset={chs} content_encoding={enc}")
+    except Exception:
+        pass
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
@@ -1477,10 +1580,10 @@ def upload_file_web():
             except Exception:
                 uploaded = None
             if uploaded and hasattr(uploaded, 'filename') and uploaded.filename:
-                # הגבלת גודל בסיסית (עד ~2MB)
+                # הגבלת גודל בסיסית (עד ~MAX_UPLOAD_BYTES)
                 data = uploaded.read()
-                if data and len(data) > 2 * 1024 * 1024:
-                    error = 'קובץ גדול מדי (עד 2MB)'
+                if data and len(data) > MAX_UPLOAD_BYTES:
+                    error = f"קובץ גדול מדי (עד {format_file_size(MAX_UPLOAD_BYTES)})"
                 else:
                     try:
                         code = data.decode('utf-8')
@@ -1665,10 +1768,18 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
+                    # אם זו בקשת fetch (Accept: application/json) נחזיר JSON, אחרת redirect רגיל
+                    wants_json = 'application/json' in (request.headers.get('Accept') or '').lower() or (request.headers.get('X-Requested-With', '').lower() in {'fetch', 'xmlhttprequest'})
+                    if wants_json:
+                        return jsonify({'ok': True, 'redirect': url_for('files')}), 200
                     return redirect(url_for('files'))
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
+        # החזר שגיאה כ-JSON אם בקשת fetch ביקשה JSON
+        wants_json = 'application/json' in (request.headers.get('Accept') or '').lower() or (request.headers.get('X-Requested-With', '').lower() in {'fetch', 'xmlhttprequest'})
+        if wants_json and error:
+            return jsonify({'ok': False, 'error': error}), 400
     # שליפת שפות קיימות להצעה
     languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     languages = sorted([l for l in languages if l]) if languages else []
