@@ -335,8 +335,8 @@
         /* Telegram Mini App adjustments */
         body.telegram-mini-app .container {
             max-width: 100% !important;
-            padding-left: 8px !important;
-            padding-right: 8px !important;
+            padding-left: 16px !important;
+            padding-right: 16px !important;
         }
         body.telegram-mini-app .glass-card {
             padding: 1rem !important;
@@ -370,6 +370,19 @@
                 margin-right: 0 !important;
             }
         }
+        
+        /* Telegram Mini App: inner wrapper to provide controlled horizontal padding on wider screens */
+        body.telegram-mini-app .content-inner { padding-left: 0; padding-right: 0; }
+        @media (min-width: 768px) {
+            body.telegram-mini-app .content-inner { padding-left: 32px; padding-right: 32px; }
+        }
+        @media (min-width: 1024px) {
+            body.telegram-mini-app .content-inner { padding-left: 48px; padding-right: 48px; }
+        }
+        
+        /* Telegram Mini App: page title responsiveness and spacing */
+        body.telegram-mini-app .page-title { text-align: center; padding-top: 2rem; padding-bottom: 1.5rem; font-size: 1.5rem; }
+        @media (min-width: 768px) { body.telegram-mini-app .page-title { font-size: 1.875rem; } }
         
         /* Loading animation */
         .loading {
@@ -429,7 +442,8 @@
     </script>
     <nav class="navbar">
         <div class="container">
-            <div class="nav-content">
+            <div class="content-inner">
+                <div class="nav-content">
                 <a href="/" class="logo">
                     <i class="fas fa-code"></i>
                     Code Keeper
@@ -467,13 +481,16 @@
                         {% endif %}
                     </li>
                 </ul>
+                </div>
             </div>
         </div>
     </nav>
     
     <main class="main-content">
         <div class="container">
-            {% block content %}{% endblock %}
+            <div class="content-inner">
+                {% block content %}{% endblock %}
+            </div>
         </div>
     </main>
     
