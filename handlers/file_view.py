@@ -980,13 +980,12 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
                 ],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
+            text = (
                 f"✅ *הקובץ שוכפל בהצלחה!*\n\n"
                 f"📄 **מקור:** `{file_name}`\n"
-                f"📄 **עותק חדש:** `{new_name}`",
-                reply_markup=reply_markup,
-                parse_mode='Markdown',
+                f"📄 **עותק חדש:** `{new_name}`"
             )
+            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
         else:
             await query.edit_message_text("❌ שגיאה בשכפול הקובץ")
     except Exception as e:
