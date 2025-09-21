@@ -140,9 +140,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             except Exception:
                 pass
             login_url = f"{webapp_url}/auth/token?token={auth_token}&user_id={user_id}"
-            reply_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔐 התחבר ל-Web App", url=login_url)],
-                [InlineKeyboardButton("🌐 פתח את ה-Web App", url=webapp_url)],
+            # יבוא מקומי כדי לאפשר לסטאבים של הטלגרם להיטען גם אם המודול נטען מוקדם יותר בטסטים
+            from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+            reply_markup = _IKM([
+                [_IKB("🔐 התחבר ל-Web App", url=login_url)],
+                [_IKB("🌐 פתח את ה-Web App", url=webapp_url)],
             ])
             await update.message.reply_text(
                 "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
