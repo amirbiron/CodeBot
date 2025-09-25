@@ -81,40 +81,42 @@
             חלון חדש
         </a>
     </div>
-    <div id="renderedView" class="preview-iframe" style="overflow:auto; padding: 1rem;">
-        <article id="mdContent" class="markdown-body"></article>
-    </div>
+    <iframe
+        id="renderedFrame"
+        class="preview-iframe"
+        src="/raw_markdown/{{ file.id }}"
+        sandbox="allow-modals"
+        referrerpolicy="no-referrer"
+        loading="eager"
+        title="Markdown Preview"
+    ></iframe>
     <textarea id="rawView" class="preview-iframe" style="display:none; padding:1rem; font-family: 'Fira Code', monospace; font-size: 14px; white-space: pre; line-height: 1.5;">טוען…</textarea>
     
 </div>
 <script>
 (function(){
-  const rendered = document.getElementById('renderedView');
+  const frame = document.getElementById('renderedFrame');
   const raw = document.getElementById('rawView');
-  const mdArticle = document.getElementById('mdContent');
   const btnFs = document.getElementById('btnFullscreen');
   const btnRendered = document.getElementById('btnRendered');
   const btnRaw = document.getElementById('btnRaw');
   let current = 'rendered';
 
-  async function loadData(){
+  async function loadRaw(){
     try {
       const resp = await fetch('/api/markdown_render/{{ file.id }}', {headers: {'Accept': 'application/json'}});
       const data = await resp.json();
-      if (data && data.ok) {
-        if (mdArticle) mdArticle.innerHTML = data.html || '';
-        if (raw) raw.value = data.raw || '';
-      } else {
-        if (mdArticle) mdArticle.innerHTML = '<div class="alert alert-warning">שגיאה בטעינה</div>';
+      if (data && data.ok && raw) {
+        raw.value = data.raw || '';
       }
     } catch (e) {
-      if (mdArticle) mdArticle.innerHTML = '<div class="alert alert-danger">שגיאה בטעינה</div>';
+      if (raw) raw.value = 'שגיאה בטעינה';
     }
   }
 
   function showRendered(){
     current = 'rendered';
-    if (rendered) rendered.style.display = '';
+    if (frame) frame.style.display = '';
     if (raw) raw.style.display = 'none';
     if (btnRendered) { btnRendered.classList.remove('btn-secondary'); btnRendered.classList.add('btn-primary'); }
     if (btnRaw) { btnRaw.classList.remove('btn-primary'); btnRaw.classList.add('btn-secondary'); }
@@ -122,7 +124,7 @@
 
   function showRaw(){
     current = 'raw';
-    if (rendered) rendered.style.display = 'none';
+    if (frame) frame.style.display = 'none';
     if (raw) raw.style.display = '';
     if (btnRendered) { btnRendered.classList.remove('btn-primary'); btnRendered.classList.add('btn-secondary'); }
     if (btnRaw) { btnRaw.classList.remove('btn-secondary'); btnRaw.classList.add('btn-primary'); }
@@ -130,12 +132,12 @@
 
   if (btnRendered) btnRendered.addEventListener('click', function(e){ e.preventDefault(); showRendered(); });
   if (btnRaw) btnRaw.addEventListener('click', function(e){ e.preventDefault(); showRaw(); });
-  loadData();
+  loadRaw();
 
   if (btnFs) {
     btnFs.addEventListener('click', async function(){
       try {
-        const target = current === 'raw' ? raw : rendered;
+        const target = current === 'raw' ? raw : frame;
         if (document.fullscreenElement === target) {
           await document.exitFullscreen();
         } else {
