@@ -294,6 +294,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             🌐 תצוגת דפדפן
         </a>
         {% endif %}
+        {% if file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md') or (file.file_name|lower).endswith('.markdown') %}
+        <a href="/markdown/{{ file.id }}" class="btn btn-secondary btn-icon">
+            🌐 תצוגת דפדפן
+        </a>
+        {% endif %}
         <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon">
             <i class="fas fa-download"></i>
             הורד
