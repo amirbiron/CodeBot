@@ -28,6 +28,7 @@ import secrets
 import urllib.parse as urlparse
 import html as html_lib
 import markdown as md_lib
+import bleach
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
@@ -1579,6 +1580,58 @@ def raw_markdown(file_id):
     resp.headers['Referrer-Policy'] = 'no-referrer'
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+@app.route('/api/markdown_render/<file_id>')
+@login_required
+def api_markdown_render(file_id):
+    """API שמחזיר HTML מרונדר ומסונן + תוכן raw של קובץ Markdown."""
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        try:
+            file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+        except Exception:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+        if not file:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        code = file.get('code') or ''
+        try:
+            html_body = md_lib.markdown(code, extensions=['extra', 'fenced_code', 'codehilite', 'toc'])
+        except Exception:
+            html_body = md_lib.markdown(code)
+
+        # סינון XSS עם bleach, מאפשר תגיות בסיסיות של Markdown וטבלאות/קוד
+        allowed_tags = [
+            'p','br','hr','pre','code','blockquote','em','strong','del','kbd','samp',
+            'ul','ol','li','dl','dt','dd',
+            'h1','h2','h3','h4','h5','h6',
+            'table','thead','tbody','tr','th','td','caption',
+            'a','img','span','div'
+        ]
+        allowed_attrs = {
+            'a': ['href','title','rel','target'],
+            'img': ['src','alt','title','width','height'],
+            'code': ['class'],
+            'pre': ['class'],
+            'th': ['align'],
+            'td': ['align'],
+            '*': ['id']
+        }
+        cleaner = bleach.Cleaner(tags=allowed_tags, attributes=allowed_attrs, protocols=['http','https','data','mailto'], strip=True)
+        safe_html = cleaner.clean(html_body)
+
+        return jsonify({'ok': True, 'html': safe_html, 'raw': code})
+    except Exception as e:
+        try:
+            import logging
+            logging.exception("Error in api_markdown_render")
+        except Exception:
+            try:
+                print(f"Error in api_markdown_render: {e}")
+            except Exception:
+                pass
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
