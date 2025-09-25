@@ -1553,9 +1553,7 @@ def raw_markdown(file_id):
     th, td {{ border: 1px solid #e1e4e8; padding: 6px 10px; }}
     h1, h2, h3, h4, h5, h6 {{ border-bottom: 1px solid #eaecef; padding-bottom: .3em; }}
   </style>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'">
-  <meta http-equiv="Referrer-Policy" content="no-referrer">
-  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <!-- CSP and security headers are set via HTTP headers to avoid conflicts -->
 </head>
 <body>
   <article class="markdown-body">{html_body}</article>
