@@ -27,6 +27,7 @@ from pathlib import Path
 import secrets
 import urllib.parse as urlparse
 import html as html_lib
+import markdown as md_lib
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
@@ -1483,6 +1484,98 @@ def raw_html(file_id):
             "script-src 'none'"
 
     resp = Response(code, mimetype='text/html; charset=utf-8')
+    resp.headers['Content-Security-Policy'] = csp
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['Referrer-Policy'] = 'no-referrer'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+@app.route('/markdown/<file_id>')
+@login_required
+def markdown_preview(file_id):
+    """תצוגת דפדפן לקובץ Markdown בתוך iframe עם sandbox."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    language = (file.get('programming_language') or '').lower()
+    file_name = file.get('file_name') or 'README.md'
+    # מציגים תצוגת דפדפן רק לקבצי Markdown
+    if language != 'markdown' and not (isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))):
+        return redirect(url_for('view_file', file_id=file_id))
+
+    file_data = {
+        'id': str(file.get('_id')),
+        'file_name': file_name,
+        'language': language or 'markdown',
+    }
+    return render_template('markdown_preview.html', user=session.get('user_data', {}), file=file_data, bot_username=BOT_USERNAME_CLEAN)
+
+@app.route('/raw_markdown/<file_id>')
+@login_required
+def raw_markdown(file_id):
+    """מרנדר את ה-Markdown ל-HTML ומחזיר דף HTML בטוח לטעינה בתוך iframe."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    code = file.get('code') or ''
+    try:
+        html_body = md_lib.markdown(code, extensions=['extra', 'fenced_code', 'codehilite', 'toc'])
+    except Exception:
+        html_body = md_lib.markdown(code)
+
+    # מסמך HTML בסיסי עם עיצוב קליל
+    html_doc = f"""<!doctype html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html_lib.escape(file.get('file_name') or 'Markdown')}</title>
+  <style>
+    body {{ margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: white; color: #111; }}
+    .markdown-body {{ max-width: 980px; margin: 0 auto; }}
+    pre, code {{ font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; }}
+    pre {{ background: #f6f8fa; padding: 12px; border-radius: 6px; overflow: auto; }}
+    code {{ background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }}
+    img {{ max-width: 100%; height: auto; }}
+    table {{ border-collapse: collapse; }}
+    th, td {{ border: 1px solid #e1e4e8; padding: 6px 10px; }}
+    h1, h2, h3, h4, h5, h6 {{ border-bottom: 1px solid #eaecef; padding-bottom: .3em; }}
+  </style>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'">
+  <meta http-equiv="Referrer-Policy" content="no-referrer">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+</head>
+<body>
+  <article class="markdown-body">{html_body}</article>
+</body>
+</html>"""
+
+    csp = (
+        "sandbox; "
+        "default-src 'none'; "
+        "base-uri 'none'; "
+        "form-action 'none'; "
+        "connect-src 'none'; "
+        "img-src data:; "
+        "style-src 'unsafe-inline'; "
+        "font-src data:; "
+        "object-src 'none'; "
+        "frame-ancestors 'self'; "
+        "script-src 'none'"
+    )
+    resp = Response(html_doc, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['Referrer-Policy'] = 'no-referrer'

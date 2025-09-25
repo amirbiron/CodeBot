@@ -195,6 +195,13 @@
                     </a>
                 </div>
                 {% endif %}
+                {% if file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md') or (file.file_name|lower).endswith('.markdown') %}
+                <div>
+                    <a href="/markdown/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">
+                        🌐
+                    </a>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
