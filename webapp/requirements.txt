@@ -11,6 +11,9 @@ pymongo==4.6.1
 # Code Highlighting
 pygments==2.17.2
 
+# HTML/Text Processing
+markdown==3.5.1
+
 # HTTP Requests (for Telegram API)
 requests==2.31.0
 
