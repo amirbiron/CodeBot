@@ -1623,7 +1623,15 @@ def api_markdown_render(file_id):
 
         return jsonify({'ok': True, 'html': safe_html, 'raw': code})
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        try:
+            import logging
+            logging.exception("Error in api_markdown_render")
+        except Exception:
+            try:
+                print(f"Error in api_markdown_render: {e}")
+            except Exception:
+                pass
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
