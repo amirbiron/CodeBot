@@ -2454,7 +2454,7 @@ def api_markdown_tasks(file_id):
             logging.exception('api_markdown_tasks error')
         except Exception:
             pass
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית.'}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
@@ -2672,7 +2672,7 @@ def api_markdown_tasks_project(project):
         coll.update_one({'user_id': user_id, 'project': project_key}, {'$set': update_fields}, upsert=True)
         return jsonify({'ok': True})
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית.'}), 500
 
 if __name__ == '__main__':
     print("Starting Code Keeper Web App...")
