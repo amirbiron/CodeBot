@@ -1,0 +1,728 @@
+{% extends "base.html" %}
+
+{% block title %}{{ file.file_name }} - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<!-- KaTeX for Math -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+
+<!-- Prism.js for Syntax Highlighting -->
+<link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+
+<!-- Custom Markdown Styles -->
+<style>
+/* מיכל ראשי */
+.markdown-viewer {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* כותרת ומידע על הקובץ */
+.file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.file-title-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    min-width: 0;
+}
+
+.file-icon {
+    font-size: 2.25rem;
+    line-height: 1;
+    flex: 0 0 auto;
+}
+
+.file-title-wrap {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.file-title {
+    margin: 0;
+    font-size: 1.5rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.file-subrow {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    min-width: 0;
+}
+
+.file-info {
+    flex: 1;
+}
+
+.file-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+/* תוכן Markdown */
+.markdown-content {
+    background: var(--card-bg);
+    border-radius: 15px;
+    padding: 2rem;
+    margin: 1rem 0;
+    line-height: 1.8;
+    font-size: 1.05rem;
+    overflow-x: auto;
+}
+
+/* כותרות */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.markdown-content h1 {
+    font-size: 2em;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.3em;
+}
+
+.markdown-content h2 {
+    font-size: 1.5em;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.3em;
+}
+
+.markdown-content h3 { font-size: 1.25em; }
+.markdown-content h4 { font-size: 1em; }
+.markdown-content h5 { font-size: 0.875em; }
+.markdown-content h6 { font-size: 0.85em; color: var(--text-muted); }
+
+/* פסקאות ורשימות */
+.markdown-content p {
+    margin-bottom: 1em;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+    padding-right: 2em;
+    margin-bottom: 1em;
+}
+
+.markdown-content li {
+    margin-bottom: 0.25em;
+}
+
+/* Task Lists */
+.markdown-content .task-list-item {
+    list-style: none;
+    position: relative;
+    padding-right: 1.5em;
+}
+
+.markdown-content .task-list-item-checkbox {
+    position: absolute;
+    right: 0;
+    top: 0.25em;
+    cursor: pointer;
+    width: 1.2em;
+    height: 1.2em;
+}
+
+/* קוד */
+.markdown-content code {
+    background: rgba(110, 118, 129, 0.15);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 0.85em;
+}
+
+.markdown-content pre {
+    background: #282c34;
+    color: #abb2bf;
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 1em 0;
+}
+
+.markdown-content pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+/* ציטוטים */
+.markdown-content blockquote {
+    border-right: 4px solid var(--primary);
+    padding: 0.5em 1em;
+    margin: 1em 0;
+    background: rgba(102, 126, 234, 0.05);
+    border-radius: 0 5px 5px 0;
+}
+
+.markdown-content blockquote p:last-child {
+    margin-bottom: 0;
+}
+
+/* טבלאות */
+.markdown-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    overflow: auto;
+}
+
+.markdown-content th,
+.markdown-content td {
+    border: 1px solid var(--border-color);
+    padding: 0.6em 1em;
+    text-align: right;
+}
+
+.markdown-content th {
+    background: rgba(102, 126, 234, 0.1);
+    font-weight: 600;
+}
+
+.markdown-content tr:nth-child(even) {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+/* תמונות */
+.markdown-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    margin: 1em 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* קישורים */
+.markdown-content a {
+    color: var(--primary);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+}
+
+.markdown-content a:hover {
+    border-bottom-color: var(--primary);
+}
+
+/* קווים אופקיים */
+.markdown-content hr {
+    border: none;
+    border-top: 2px solid var(--border-color);
+    margin: 2em 0;
+}
+
+/* Math display */
+.markdown-content .math-display {
+    text-align: center;
+    margin: 1.5em 0;
+    overflow-x: auto;
+}
+
+.markdown-content .math-inline {
+    margin: 0 0.2em;
+}
+
+/* Mermaid diagrams */
+.markdown-content .mermaid-diagram {
+    text-align: center;
+    margin: 1.5em 0;
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* תפריט צד - תוכן עניינים */
+.toc-sidebar {
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    padding: 1rem;
+    background: var(--card-bg);
+    border-radius: 10px;
+    margin-bottom: 2rem;
+}
+
+.toc-title {
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.toc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.toc-list li {
+    margin-bottom: 0.5rem;
+}
+
+.toc-list a {
+    color: var(--text-color);
+    text-decoration: none;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.toc-list a:hover {
+    opacity: 1;
+}
+
+.toc-list a.active {
+    color: var(--primary);
+    opacity: 1;
+    font-weight: 500;
+}
+
+/* כפתורי מצב תצוגה */
+.view-mode-toggle {
+    display: flex;
+    gap: 0.5rem;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.25rem;
+    border-radius: 8px;
+}
+
+.view-mode-toggle button {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-color);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.view-mode-toggle button.active {
+    background: var(--primary);
+    color: white;
+}
+
+/* Performance: Virtual scrolling for large documents */
+.markdown-content[data-large="true"] {
+    contain: layout style;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .markdown-content {
+        padding: 1rem;
+        font-size: 1rem;
+    }
+    
+    .toc-sidebar {
+        position: relative;
+        top: auto;
+        max-height: none;
+        margin-bottom: 1rem;
+    }
+    
+    .file-header {
+        flex-direction: column;
+    }
+    
+    .file-actions {
+        width: 100%;
+    }
+    
+    .file-actions .btn {
+        flex: 1;
+    }
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+    .markdown-content {
+        color: #e4e4e4;
+    }
+    
+    .markdown-content code {
+        background: rgba(255, 255, 255, 0.1);
+    }
+    
+    .markdown-content blockquote {
+        background: rgba(102, 126, 234, 0.1);
+    }
+    
+    .markdown-content th {
+        background: rgba(102, 126, 234, 0.15);
+    }
+    
+    .markdown-content tr:nth-child(even) {
+        background: rgba(255, 255, 255, 0.02);
+    }
+}
+
+/* Loading state */
+.markdown-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+    font-size: 1.2rem;
+    color: var(--text-muted);
+}
+
+.markdown-loading::after {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    border: 3px solid var(--primary);
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="markdown-viewer">
+    <!-- כותרת הקובץ ופעולות -->
+    <div class="file-header">
+        <div class="file-info">
+            <div class="file-title-row">
+                <span class="file-icon">{{ file.icon }}</span>
+                <div class="file-title-wrap">
+                    <h1 class="file-title">{{ file.file_name }}</h1>
+                    <div class="file-subrow">
+                        <span class="badge">Markdown</span>
+                        <span class="muted">גרסה {{ file.version }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            {% if file.description %}
+            <p style="margin: 1rem 0; opacity: 0.9; font-size: 1.1rem;">{{ file.description }}</p>
+            {% endif %}
+            
+            {% if file.tags %}
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0;">
+                {% for tag in file.tags %}
+                <span class="badge" style="background: rgba(102, 126, 234, 0.2); border-color: rgba(102, 126, 234, 0.4);">
+                    #{{ tag }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="file-actions">
+            <!-- כפתורי מצב תצוגה -->
+            <div class="view-mode-toggle">
+                <button id="btnMarkdownView" class="active" onclick="switchView('markdown')">
+                    📝 תצוגה מעוצבת
+                </button>
+                <button id="btnCodeView" onclick="switchView('code')">
+                    <i class="fas fa-code"></i> קוד מקור
+                </button>
+            </div>
+            
+            <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon">
+                <i class="fas fa-edit"></i>
+                ערוך
+            </a>
+            
+            <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon">
+                🌐 תצוגת דפדפן
+            </a>
+            
+            <button onclick="copyMarkdown()" class="btn btn-secondary btn-icon">
+                <i class="fas fa-copy"></i>
+                העתק
+            </button>
+            
+            <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon">
+                <i class="fas fa-download"></i>
+                הורד
+            </a>
+            
+            <a href="/files" class="btn btn-secondary btn-icon">
+                <i class="fas fa-arrow-right"></i>
+                חזור
+            </a>
+        </div>
+    </div>
+
+    <!-- תוכן עניינים (אם יש) -->
+    {% if markdown_toc %}
+    <div class="glass-card toc-sidebar">
+        <div class="toc-title">
+            <i class="fas fa-list"></i> תוכן עניינים
+        </div>
+        <div class="toc-content">
+            {{ markdown_toc|safe }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- תצוגת Markdown מעוצבת -->
+    <div id="markdownView" class="glass-card">
+        <div class="markdown-content" {% if file.lines > 1000 %}data-large="true"{% endif %}>
+            {{ markdown_html|safe }}
+        </div>
+    </div>
+
+    <!-- תצוגת קוד מקור (מוסתרת בהתחלה) -->
+    <div id="codeView" class="glass-card" style="display: none;">
+        <div class="code-container">
+            {{ highlighted_code|safe }}
+        </div>
+    </div>
+
+    <!-- נתונים נסתרים -->
+    <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+
+<script>
+// אתחול
+document.addEventListener('DOMContentLoaded', function() {
+    // עיבוד נוסחאות מתמטיות
+    {% if has_math %}
+    if (typeof renderMathInElement !== 'undefined') {
+        renderMathInElement(document.querySelector('.markdown-content'), {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\[', right: '\\]', display: true},
+                {left: '\\(', right: '\\)', display: false}
+            ],
+            throwOnError: false
+        });
+    }
+    {% endif %}
+    
+    // עיבוד תרשימי Mermaid
+    {% if has_mermaid %}
+    if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({ 
+            startOnLoad: false,
+            theme: 'default',
+            themeVariables: {
+                primaryColor: '#667eea',
+                primaryBorderColor: '#5a67d8',
+                primaryTextColor: '#fff',
+                lineColor: '#5a67d8',
+                secondaryColor: '#f7fafc',
+                tertiaryColor: '#edf2f7'
+            }
+        });
+        
+        // עיבוד כל תרשימי Mermaid
+        document.querySelectorAll('.mermaid-diagram').forEach(function(elem) {
+            const code = elem.getAttribute('data-mermaid');
+            if (code) {
+                const graphDiv = document.createElement('div');
+                graphDiv.className = 'mermaid';
+                graphDiv.textContent = code;
+                elem.innerHTML = '';
+                elem.appendChild(graphDiv);
+                mermaid.init(undefined, graphDiv);
+            }
+        });
+    }
+    {% endif %}
+    
+    // הדגשת תחביר
+    if (typeof Prism !== 'undefined') {
+        Prism.highlightAll();
+    }
+    
+    // Task lists אינטראקטיביות
+    {% if has_tasks %}
+    document.querySelectorAll('.task-list-item-checkbox').forEach(function(checkbox) {
+        // שמור/שחזר מצב
+        const taskId = checkbox.getAttribute('data-task-id');
+        if (taskId) {
+            // שחזר מצב מ-localStorage
+            const saved = localStorage.getItem('task-' + taskId);
+            if (saved !== null) {
+                checkbox.checked = saved === '1';
+            }
+            
+            // האזן לשינויים
+            checkbox.addEventListener('change', function() {
+                localStorage.setItem('task-' + taskId, this.checked ? '1' : '0');
+                
+                // אפשר לשלוח לשרת אם רוצים שמירה קבועה
+                // saveTaskState(taskId, this.checked);
+            });
+        }
+    });
+    {% endif %}
+    
+    // Smooth scroll לעוגנים
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function(e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    });
+    
+    // Lazy loading לתמונות
+    if ('IntersectionObserver' in window) {
+        const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    if (img.dataset.src) {
+                        img.src = img.dataset.src;
+                        img.removeAttribute('data-src');
+                        observer.unobserve(img);
+                    }
+                }
+            });
+        });
+        
+        document.querySelectorAll('.markdown-content img[data-src]').forEach(img => {
+            imageObserver.observe(img);
+        });
+    }
+});
+
+// החלפת מצב תצוגה
+function switchView(mode) {
+    const markdownView = document.getElementById('markdownView');
+    const codeView = document.getElementById('codeView');
+    const btnMarkdown = document.getElementById('btnMarkdownView');
+    const btnCode = document.getElementById('btnCodeView');
+    
+    if (mode === 'markdown') {
+        markdownView.style.display = 'block';
+        codeView.style.display = 'none';
+        btnMarkdown.classList.add('active');
+        btnCode.classList.remove('active');
+    } else {
+        markdownView.style.display = 'none';
+        codeView.style.display = 'block';
+        btnMarkdown.classList.remove('active');
+        btnCode.classList.add('active');
+    }
+}
+
+// העתקת Markdown
+function copyMarkdown() {
+    const rawCode = document.getElementById('rawCode');
+    if (rawCode) {
+        navigator.clipboard.writeText(rawCode.value).then(() => {
+            // הצג הודעת הצלחה
+            const btn = event.target.closest('button');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check"></i> הועתק!';
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            alert('לא הצלחנו להעתיק את הקוד');
+        });
+    }
+}
+
+// Debounce helper for performance
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// עדכון TOC פעיל בגלילה
+const updateActiveTOC = debounce(() => {
+    const headers = document.querySelectorAll('.markdown-content h1, .markdown-content h2, .markdown-content h3');
+    const tocLinks = document.querySelectorAll('.toc-list a');
+    
+    let currentHeader = null;
+    const scrollPosition = window.scrollY + 100;
+    
+    headers.forEach(header => {
+        if (header.offsetTop <= scrollPosition) {
+            currentHeader = header;
+        }
+    });
+    
+    tocLinks.forEach(link => {
+        link.classList.remove('active');
+        if (currentHeader && link.getAttribute('href') === '#' + currentHeader.id) {
+            link.classList.add('active');
+        }
+    });
+}, 100);
+
+// האזן לגלילה לעדכון TOC
+window.addEventListener('scroll', updateActiveTOC);
+
+// קיצורי מקלדת
+document.addEventListener('keydown', function(e) {
+    // Ctrl+E - עריכה
+    if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault();
+        window.location.href = '/edit/{{ file.id }}';
+    }
+    
+    // Ctrl+D - הורדה
+    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        window.location.href = '/download/{{ file.id }}';
+    }
+    
+    // Ctrl+M - החלפת מצב תצוגה
+    if ((e.ctrlKey || e.metaKey) && e.key === 'm') {
+        e.preventDefault();
+        const currentView = document.getElementById('markdownView').style.display !== 'none' ? 'code' : 'markdown';
+        switchView(currentView === 'markdown' ? 'code' : 'markdown');
+    }
+});
+</script>
+{% endblock %}
