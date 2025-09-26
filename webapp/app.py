@@ -1603,36 +1603,73 @@ def raw_html(file_id):
         else:
             # אם אין מעבד Markdown, נציג טקסט פשוט
             code = f'<pre>{html_lib.escape(code)}</pre>'
+    
     # קביעת מצב הרצה: ברירת מחדל ללא סקריפטים
     allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
     scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
+    
+    # בדוק אם זה Markdown שצריך משאבי CDN
+    is_markdown_with_cdn = language == 'markdown' or (file_name and file_name.lower().endswith(('.md', '.markdown')))
+    
     if scripts_enabled:
-        csp = \
-            "sandbox allow-scripts; " \
-            "default-src 'none'; " \
-            "base-uri 'none'; " \
-            "form-action 'none'; " \
-            "connect-src 'none'; " \
-            "img-src data:; " \
-            "style-src 'unsafe-inline'; " \
-            "font-src data:; " \
-            "object-src 'none'; " \
-            "frame-ancestors 'self'; " \
-            "script-src 'unsafe-inline'"
-        # שים לב: גם במצב זה ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin
+        if is_markdown_with_cdn:
+            # CSP מתירני יותר עבור Markdown עם CDN resources
+            csp = \
+                "sandbox allow-scripts; " \
+                "default-src 'none'; " \
+                "base-uri 'none'; " \
+                "form-action 'none'; " \
+                "connect-src 'none'; " \
+                "img-src data: https:; " \
+                "style-src 'unsafe-inline' https://cdn.jsdelivr.net; " \
+                "font-src data: https://cdn.jsdelivr.net; " \
+                "object-src 'none'; " \
+                "frame-ancestors 'self'; " \
+                "script-src 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net"
+            # Note: 'unsafe-eval' נדרש עבור KaTeX
+        else:
+            # CSP רגיל עבור HTML
+            csp = \
+                "sandbox allow-scripts; " \
+                "default-src 'none'; " \
+                "base-uri 'none'; " \
+                "form-action 'none'; " \
+                "connect-src 'none'; " \
+                "img-src data:; " \
+                "style-src 'unsafe-inline'; " \
+                "font-src data:; " \
+                "object-src 'none'; " \
+                "frame-ancestors 'self'; " \
+                "script-src 'unsafe-inline'"
     else:
-        csp = \
-            "sandbox; " \
-            "default-src 'none'; " \
-            "base-uri 'none'; " \
-            "form-action 'none'; " \
-            "connect-src 'none'; " \
-            "img-src data:; " \
-            "style-src 'unsafe-inline'; " \
-            "font-src data:; " \
-            "object-src 'none'; " \
-            "frame-ancestors 'self'; " \
-            "script-src 'none'"
+        if is_markdown_with_cdn:
+            # CSP ללא scripts אבל עם styles מ-CDN
+            csp = \
+                "sandbox; " \
+                "default-src 'none'; " \
+                "base-uri 'none'; " \
+                "form-action 'none'; " \
+                "connect-src 'none'; " \
+                "img-src data: https:; " \
+                "style-src 'unsafe-inline' https://cdn.jsdelivr.net; " \
+                "font-src data: https://cdn.jsdelivr.net; " \
+                "object-src 'none'; " \
+                "frame-ancestors 'self'; " \
+                "script-src 'none'"
+        else:
+            # CSP רגיל ללא scripts
+            csp = \
+                "sandbox; " \
+                "default-src 'none'; " \
+                "base-uri 'none'; " \
+                "form-action 'none'; " \
+                "connect-src 'none'; " \
+                "img-src data:; " \
+                "style-src 'unsafe-inline'; " \
+                "font-src data:; " \
+                "object-src 'none'; " \
+                "frame-ancestors 'self'; " \
+                "script-src 'none'"
 
     resp = Response(code, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp
