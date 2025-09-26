@@ -214,7 +214,7 @@ class MarkdownProcessor:
         original_list_item_open = self.md.renderer.rules.get('list_item_open')
         original_list_item_close = self.md.renderer.rules.get('list_item_close')
         
-        def render_list_item_open(tokens, idx, options, env, renderer):
+        def render_list_item_open(tokens, idx, options, env):
             """Renderer ל-list_item_open עם תמיכה ב-checkboxes"""
             token = tokens[idx]
 
@@ -266,14 +266,16 @@ class MarkdownProcessor:
 
             # שמור התנהגות ברירת המחדל: אם יש כלל מקורי – השתמש בו, אחרת renderToken
             if original_list_item_open:
-                return original_list_item_open(tokens, idx, options, env, renderer)
-            return renderer.renderToken(tokens, idx, options, env)
+                return original_list_item_open(tokens, idx, options, env)
+            renderer_instance = self.md.renderer
+            return renderer_instance.renderToken(tokens, idx, options, env)
 
-        def render_list_item_close(tokens, idx, options, env, renderer):
+        def render_list_item_close(tokens, idx, options, env):
             """Renderer ל-list_item_close ששומר התנהגות ברירת מחדל"""
             if original_list_item_close:
-                return original_list_item_close(tokens, idx, options, env, renderer)
-            return renderer.renderToken(tokens, idx, options, env)
+                return original_list_item_close(tokens, idx, options, env)
+            renderer_instance = self.md.renderer
+            return renderer_instance.renderToken(tokens, idx, options, env)
         
         # החלף את ה-renderer
         self.md.renderer.rules['list_item_open'] = render_list_item_open
