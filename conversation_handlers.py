@@ -2330,27 +2330,33 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             action = data.split(":", 1)[1]
             return await execute_batch_on_current_selection(update, context, action)
         elif data.startswith("by_repo:"):
-            # הצגת קבצים לפי תגית ריפו + אפשרות מחיקה מרוכזת
+            # הצגת קבצים לפי תגית ריפו + אפשרות מחיקה מרוכזת, עם עימוד
             tag = data.split(":", 1)[1]
-            # סימון מקור הרשימה: "לפי ריפו" עם התגית שנבחרה
             context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=10000)
+            files, total = db.get_user_files_by_repo(user_id, tag, page=1, per_page=FILES_PAGE_SIZE)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים עבור התגית הזו.")
                 return ConversationHandler.END
+            # נשמור את מספר העמוד הנוכחי עבור ניווט חזרה
+            context.user_data['files_last_page'] = 1
             keyboard = []
-            # שמירת קאש לכל הקבצים לשימוש בעימוד/פתיחה
             context.user_data['files_cache'] = {}
-            for i, f in enumerate(files[:20]):
+            start_index = 0
+            for offset, f in enumerate(files):
+                i = start_index + offset
                 name = f.get('file_name', 'ללא שם')
                 language = f.get('programming_language', 'text')
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
-            # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
+            # שורת עימוד
+            pagination_row = build_pagination_row(1, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
+            if pagination_row:
+                keyboard.append(pagination_row)
+            # פעולת מחיקה לריפו הנוכחי
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
@@ -2391,6 +2397,49 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        elif data.startswith("by_repo_page:"):
+            # עימוד קבצים לפי תגית ריפו: תבנית callback "by_repo_page:{tag}:{page}"
+            parts = data.split(":")
+            # צורה צפויה: ["by_repo_page", "{tag}", "{page}"]
+            if len(parts) < 3:
+                return ConversationHandler.END
+            tag = parts[1]
+            try:
+                page = int(parts[2])
+            except Exception:
+                page = 1
+            if page < 1:
+                page = 1
+            context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
+            context.user_data['files_last_page'] = page
+            from database import db
+            user_id = update.effective_user.id
+            files, total = db.get_user_files_by_repo(user_id, tag, page=page, per_page=FILES_PAGE_SIZE)
+            keyboard = []
+            context.user_data['files_cache'] = {}
+            start_index = (page - 1) * FILES_PAGE_SIZE
+            for offset, f in enumerate(files):
+                i = start_index + offset
+                name = f.get('file_name', 'ללא שם')
+                language = f.get('programming_language', 'text')
+                emoji = get_file_emoji(language)
+                button_text = f"{emoji} {name}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                context.user_data['files_cache'][str(i)] = f
+            pagination_row = build_pagination_row(page, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
+            if pagination_row:
+                keyboard.append(pagination_row)
+            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+            try:
+                await query.edit_message_text(
+                    f"📂 קבצים עם {tag}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
         elif data.startswith("byrepo_delete_do:"):
             # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
             tag = data.split(":", 1)[1]
