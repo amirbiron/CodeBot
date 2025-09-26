@@ -28,22 +28,6 @@ import secrets
 import urllib.parse as urlparse
 import html as html_lib
 
-# ייבוא מעבד Markdown
-try:
-    from markdown_processor import render_markdown
-    MARKDOWN_AVAILABLE = True
-except ImportError:
-    MARKDOWN_AVAILABLE = False
-    print("Warning: Markdown processor not available")
-
-# ייבוא מנהל Task Lists
-try:
-    from task_lists_manager import TaskListsManager
-    TASK_LISTS_AVAILABLE = True
-except ImportError:
-    TASK_LISTS_AVAILABLE = False
-    print("Warning: Task Lists manager not available")
-
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
@@ -1055,19 +1039,6 @@ def view_file(file_id):
     # הדגשת syntax
     code = file.get('code', '')
     language = file.get('programming_language', 'text')
-    file_name = file.get('file_name', '')
-    
-    # בדיקה אם זה קובץ Markdown
-    is_markdown = False
-    markdown_result = None
-    if language == 'markdown' or (file_name and file_name.lower().endswith(('.md', '.markdown'))):
-        is_markdown = True
-        if MARKDOWN_AVAILABLE:
-            # עיבוד Markdown
-            markdown_result = render_markdown(code)
-        else:
-            # אם אין מעבד Markdown, נציג כקוד רגיל
-            is_markdown = False
     
     # הגבלת גודל תצוגה - 1MB
     MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
@@ -1140,24 +1111,8 @@ def view_file(file_id):
         'lines': len(code.splitlines()),
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
-        'version': file.get('version', 1),
-        'is_markdown': is_markdown
+        'version': file.get('version', 1)
     }
-    
-    # אם זה Markdown מעובד, נשלח את התוצאה
-    if is_markdown and markdown_result:
-        return render_template('view_file.html',
-                             user=session['user_data'],
-                             file=file_data,
-                             highlighted_code=highlighted_code,
-                             syntax_css=css,
-                             raw_code=code,
-                             is_markdown=True,
-                             markdown_html=markdown_result['html'],
-                             markdown_toc=markdown_result.get('toc', ''),
-                             has_math=markdown_result.get('has_math', False),
-                             has_mermaid=markdown_result.get('has_mermaid', False),
-                             has_tasks=markdown_result.get('has_tasks', False))
     
     return render_template('view_file.html',
                          user=session['user_data'],
@@ -1453,7 +1408,7 @@ def download_file(file_id):
 @app.route('/html/<file_id>')
 @login_required
 def html_preview(file_id):
-    """תצוגת דפדפן לקובץ HTML או Markdown בתוך iframe עם sandbox."""
+    """תצוגת דפדפן לקובץ HTML בתוך iframe עם sandbox."""
     db = get_db()
     user_id = session['user_id']
     try:
@@ -1468,12 +1423,8 @@ def html_preview(file_id):
 
     language = (file.get('programming_language') or '').lower()
     file_name = file.get('file_name') or 'index.html'
-    
-    # תמיכה ב-HTML וגם ב-Markdown
-    is_html = language == 'html' or (isinstance(file_name, str) and file_name.lower().endswith(('.html', '.htm')))
-    is_markdown = language == 'markdown' or (isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown')))
-    
-    if not is_html and not is_markdown:
+    # מציגים תצוגת דפדפן רק לקבצי HTML
+    if language != 'html' and not (isinstance(file_name, str) and file_name.lower().endswith(('.html', '.htm'))):
         return redirect(url_for('view_file', file_id=file_id))
 
     file_data = {
@@ -1486,7 +1437,7 @@ def html_preview(file_id):
 @app.route('/raw_html/<file_id>')
 @login_required
 def raw_html(file_id):
-    """מחזיר את ה-HTML הגולמי או Markdown מעובד להצגה בתוך ה-iframe."""
+    """מחזיר את ה-HTML הגולמי להצגה בתוך ה-iframe (אותו דומיין)."""
     db = get_db()
     user_id = session['user_id']
     try:
@@ -1500,177 +1451,36 @@ def raw_html(file_id):
         abort(404)
 
     code = file.get('code') or ''
-    language = (file.get('programming_language') or '').lower()
-    file_name = file.get('file_name') or ''
-    
-    # אם זה Markdown, נעבד אותו ל-HTML
-    if language == 'markdown' or (file_name and file_name.lower().endswith(('.md', '.markdown'))):
-        if MARKDOWN_AVAILABLE:
-            markdown_result = render_markdown(code)
-            # יצירת HTML מלא עם סגנונות
-            html_content = f'''<!DOCTYPE html>
-<html lang="he" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{html_lib.escape(file_name)}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" crossorigin="anonymous">
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }}
-        .markdown-content {{
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        h1, h2, h3, h4, h5, h6 {{ margin-top: 24px; margin-bottom: 16px; }}
-        h1 {{ font-size: 2em; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
-        h2 {{ font-size: 1.5em; }}
-        code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }}
-        pre {{ background: #282c34; color: #abb2bf; padding: 16px; border-radius: 6px; overflow-x: auto; }}
-        pre code {{ background: none; padding: 0; }}
-        blockquote {{ border-right: 4px solid #ddd; margin: 0; padding: 0 16px; color: #666; }}
-        table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: right; }}
-        th {{ background: #f5f5f5; font-weight: bold; }}
-        img {{ max-width: 100%; height: auto; }}
-        a {{ color: #0066cc; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
-        .task-list-item {{ list-style: none; }}
-        .task-list-item-checkbox {{ margin-left: 8px; margin-right: 0; }}
-        .math-display {{ text-align: center; margin: 20px 0; }}
-        .mermaid-diagram {{ margin: 20px 0; text-align: center; }}
-    </style>
-</head>
-<body>
-    {markdown_result['html']}
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js" crossorigin="anonymous"></script>
-    <script>
-        // עיבוד נוסחאות מתמטיות
-        if (typeof renderMathInElement !== 'undefined') {{
-            renderMathInElement(document.body, {{
-                delimiters: [
-                    {{left: '$$', right: '$$', display: true}},
-                    {{left: '$', right: '$', display: false}},
-                    {{left: '\\[', right: '\\]', display: true}},
-                    {{left: '\\(', right: '\\)', display: false}}
-                ]
-            }});
-        }}
-        // עיבוד תרשימי Mermaid
-        if (typeof mermaid !== 'undefined') {{
-            mermaid.initialize({{ startOnLoad: true, theme: 'default' }});
-        }}
-        // הדגשת תחביר
-        if (typeof Prism !== 'undefined') {{
-            Prism.highlightAll();
-        }}
-        // Task lists אינטראקטיביות
-        document.querySelectorAll('.task-list-item-checkbox').forEach(checkbox => {{
-            checkbox.addEventListener('change', function() {{
-                // שמור מצב ב-localStorage
-                const taskId = this.getAttribute('data-task-id');
-                if (taskId) {{
-                    localStorage.setItem('task-' + taskId, this.checked ? '1' : '0');
-                }}
-            }});
-            // שחזר מצב מ-localStorage
-            const taskId = checkbox.getAttribute('data-task-id');
-            if (taskId) {{
-                const saved = localStorage.getItem('task-' + taskId);
-                if (saved !== null) {{
-                    checkbox.checked = saved === '1';
-                }}
-            }}
-        }});
-    </script>
-</body>
-</html>'''
-            code = html_content
-        else:
-            # אם אין מעבד Markdown, נציג טקסט פשוט
-            code = f'<pre>{html_lib.escape(code)}</pre>'
-    
     # קביעת מצב הרצה: ברירת מחדל ללא סקריפטים
     allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
     scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
-    
-    # בדוק אם זה Markdown שצריך משאבי CDN
-    is_markdown_with_cdn = language == 'markdown' or (file_name and file_name.lower().endswith(('.md', '.markdown')))
-    
     if scripts_enabled:
-        if is_markdown_with_cdn:
-            # CSP מתירני יותר עבור Markdown עם CDN resources
-            csp = \
-                "sandbox allow-scripts; " \
-                "default-src 'self'; " \
-                "base-uri 'none'; " \
-                "form-action 'none'; " \
-                "connect-src 'self' https://cdn.jsdelivr.net; " \
-                "img-src * data: blob:; " \
-                "style-src 'unsafe-inline' 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
-                "font-src 'self' data: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
-                "object-src 'none'; " \
-                "frame-ancestors 'self'; " \
-                "script-src 'unsafe-inline' 'unsafe-eval' 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
-                "worker-src 'self' blob:"
-            # Note: 'unsafe-eval' נדרש עבור KaTeX, worker-src עבור Mermaid
-        else:
-            # CSP רגיל עבור HTML
-            csp = \
-                "sandbox allow-scripts; " \
-                "default-src 'none'; " \
-                "base-uri 'none'; " \
-                "form-action 'none'; " \
-                "connect-src 'none'; " \
-                "img-src data:; " \
-                "style-src 'unsafe-inline'; " \
-                "font-src data:; " \
-                "object-src 'none'; " \
-                "frame-ancestors 'self'; " \
-                "script-src 'unsafe-inline'"
+        csp = \
+            "sandbox allow-scripts; " \
+            "default-src 'none'; " \
+            "base-uri 'none'; " \
+            "form-action 'none'; " \
+            "connect-src 'none'; " \
+            "img-src data:; " \
+            "style-src 'unsafe-inline'; " \
+            "font-src data:; " \
+            "object-src 'none'; " \
+            "frame-ancestors 'self'; " \
+            "script-src 'unsafe-inline'"
+        # שים לב: גם במצב זה ה-iframe נשאר בסנדבוקס ללא allow-forms/allow-popups/allow-same-origin
     else:
-        if is_markdown_with_cdn:
-            # CSP ללא scripts אבל עם styles מ-CDN
-            csp = \
-                "sandbox; " \
-                "default-src 'self'; " \
-                "base-uri 'none'; " \
-                "form-action 'none'; " \
-                "connect-src 'none'; " \
-                "img-src * data: blob:; " \
-                "style-src 'unsafe-inline' 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
-                "font-src 'self' data: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
-                "object-src 'none'; " \
-                "frame-ancestors 'self'; " \
-                "script-src 'none'"
-        else:
-            # CSP רגיל ללא scripts
-            csp = \
-                "sandbox; " \
-                "default-src 'none'; " \
-                "base-uri 'none'; " \
-                "form-action 'none'; " \
-                "connect-src 'none'; " \
-                "img-src data:; " \
-                "style-src 'unsafe-inline'; " \
-                "font-src data:; " \
-                "object-src 'none'; " \
-                "frame-ancestors 'self'; " \
-                "script-src 'none'"
+        csp = \
+            "sandbox; " \
+            "default-src 'none'; " \
+            "base-uri 'none'; " \
+            "form-action 'none'; " \
+            "connect-src 'none'; " \
+            "img-src data:; " \
+            "style-src 'unsafe-inline'; " \
+            "font-src data:; " \
+            "object-src 'none'; " \
+            "frame-ancestors 'self'; " \
+            "script-src 'none'"
 
     resp = Response(code, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp
@@ -1732,8 +1542,7 @@ def create_public_share(file_id):
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
         return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
     except Exception as e:
-        print(f"Error in create_public_share: {e}")
-        return jsonify({'ok': False, 'error': 'Failed to create share link'}), 500
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -2044,14 +1853,6 @@ def settings():
                          persistent_login_enabled=has_persistent,
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    """הגשת קבצים סטטיים"""
-    from flask import send_from_directory
-    import os
-    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-    return send_from_directory(static_dir, filename)
-
 @app.route('/health')
 def health():
     """בדיקת תקינות"""
@@ -2085,10 +1886,9 @@ def health():
             health_data['database'] = 'connected'
             health_data['status'] = 'healthy'
     except Exception as e:
-        print(f"Health check database error: {e}")
         health_data['database'] = 'error'
         health_data['status'] = 'unhealthy'
-        health_data['error'] = 'Database connection failed'
+        health_data['error'] = str(e)
     
     return jsonify(health_data)
 
@@ -2139,120 +1939,7 @@ def api_persistent_login():
 
         return resp
     except Exception as e:
-        print(f"Error in api_persistent_login: {e}")
-        return jsonify({'ok': False, 'error': 'Failed to update login settings'}), 500
-
-@app.route('/api/task_lists/<file_id>', methods=['GET', 'POST'])
-@login_required
-def api_task_lists(file_id):
-    """API לניהול Task Lists"""
-    if not TASK_LISTS_AVAILABLE:
-        return jsonify({'error': 'Task Lists not available'}), 503
-    
-    try:
-        db = get_db()
-        user_id = session['user_id']
-        
-        # בדיקת הרשאות - וודא שהקובץ שייך למשתמש
-        try:
-            file = db.code_snippets.find_one({
-                '_id': ObjectId(file_id),
-                'user_id': user_id
-            })
-            if not file:
-                return jsonify({'error': 'File not found or access denied'}), 404
-        except:
-            return jsonify({'error': 'Invalid file ID'}), 400
-        
-        task_manager = TaskListsManager(db)
-        
-        if request.method == 'GET':
-            # קבלת מצב כל ה-tasks
-            states = task_manager.get_task_states(user_id, file_id)
-            return jsonify({'states': states})
-        
-        elif request.method == 'POST':
-            data = request.get_json()
-            
-            if 'tasks' in data:
-                # עדכון מרובה
-                success = task_manager.bulk_update_tasks(
-                    user_id, file_id, data['tasks']
-                )
-            elif 'task_id' in data:
-                # עדכון בודד
-                success = task_manager.update_task_state(
-                    user_id, file_id,
-                    data['task_id'],
-                    data.get('checked', False),
-                    data.get('text', '')
-                )
-            else:
-                return jsonify({'error': 'Invalid request'}), 400
-            
-            if success:
-                return jsonify({'success': True})
-            else:
-                return jsonify({'error': 'Update failed'}), 500
-                
-    except Exception as e:
-        # Log the actual error for debugging
-        print(f"Error in api_task_lists: {e}")
-        # Return generic error message to user
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/api/task_stats')
-@login_required
-def api_task_stats():
-    """קבלת סטטיסטיקות Task Lists של המשתמש"""
-    if not TASK_LISTS_AVAILABLE:
-        return jsonify({'error': 'Task Lists not available'}), 503
-    
-    try:
-        db = get_db()
-        user_id = session['user_id']
-        task_manager = TaskListsManager(db)
-        stats = task_manager.get_user_statistics(user_id)
-        return jsonify(stats)
-    except Exception as e:
-        # Log the actual error for debugging
-        print(f"Error in api_task_stats: {e}")
-        # Return generic error message to user
-        return jsonify({'error': 'Internal server error'}), 500
-
-@app.route('/api/render_markdown', methods=['POST'])
-def api_render_markdown():
-    """API לעיבוד Markdown בזמן אמת"""
-    try:
-        data = request.get_json()
-        markdown_text = data.get('text', '')
-        
-        if not markdown_text:
-            return jsonify({'html': '', 'error': None})
-        
-        if MARKDOWN_AVAILABLE:
-            result = render_markdown(markdown_text)
-            return jsonify({
-                'html': result['html'],
-                'has_math': result.get('has_math', False),
-                'has_mermaid': result.get('has_mermaid', False),
-                'has_tasks': result.get('has_tasks', False),
-                'error': None
-            })
-        else:
-            # Fallback לעיבוד בסיסי
-            import html as html_lib
-            basic_html = html_lib.escape(markdown_text).replace('\n', '<br>')
-            return jsonify({
-                'html': f'<pre>{basic_html}</pre>',
-                'has_math': False,
-                'has_mermaid': False,
-                'has_tasks': False,
-                'error': 'Markdown processor not available'
-            })
-    except Exception as e:
-        print(f"Error in api_render_markdown: {e}")
-        return jsonify({'html': '', 'error': 'Failed to render markdown'}), 500
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
@@ -2283,8 +1970,7 @@ def api_ui_prefs():
             pass
         return resp
     except Exception as e:
-        print(f"Error in api_ui_prefs: {e}")
-        return jsonify({'ok': False, 'error': 'Failed to save preferences'}), 500
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
@@ -2343,7 +2029,7 @@ def api_public_stats():
     except Exception as e:
         return jsonify({
             "ok": False,
-            "error": "Failed to retrieve statistics",
+            "error": str(e),
             "total_users": 0,
             "active_users_24h": 0,
             "total_snippets": 0,
