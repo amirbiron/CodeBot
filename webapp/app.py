@@ -152,6 +152,115 @@ def get_db():
             raise
     return db
 
+# ---------- Markdown advanced rendering helpers ----------
+def _render_markdown_advanced(md_text: str) -> str:
+    """מרנדר Markdown לרמת GFM עם תמיכה ב-Task Lists, טבלאות, emoji, Mermaid ומתמטיקה.
+
+    שים לב: רינדור זה אינו מאפשר HTML גולמי. אנו מסננים לאחר מכן עם bleach.
+    """
+    try:
+        extensions = [
+            # ליבה
+            'extra',               # includes tables, etc.
+            'sane_lists',
+            'nl2br',               # breaks: true
+            'smarty',              # typographer
+            'toc',
+            'fenced_code',
+            'codehilite',
+            # PyMdown
+            'pymdownx.superfences',
+            'pymdownx.magiclink',  # autolink URLs
+            'pymdownx.tilde',      # ~~strikethrough~~
+            'pymdownx.tasklist',   # [ ] / [x]
+            'pymdownx.emoji',      # :smile:
+            'pymdownx.arithmatex', # Math
+        ]
+        # קונפיגורציה
+        extension_configs = {
+            'codehilite': {
+                'guess_lang': False,
+                'noclasses': False,
+                'linenums': False,
+            },
+            'pymdownx.magiclink': {
+                'repo_url_shorthand': True,
+                'social_url_shorthand': True,
+                'hide_protocol': False,
+            },
+            'pymdownx.tasklist': {
+                'clickable_checkbox': True,
+                'custom_checkbox': True,
+            },
+            'pymdownx.superfences': {
+                'custom_fences': [
+                    {
+                        'name': 'mermaid',
+                        'class': 'mermaid',
+                        'format': 'pymdownx.superfences.fence_div_format',
+                    },
+                ]
+            },
+            'pymdownx.emoji': {
+                # ממיר קיצורי emoji ל-Unicode ישיר
+                'emoji_index': 'pymdownx.emoji.gemoji',
+                'emoji_generator': 'pymdownx.emoji.to_emoji',
+            },
+            'pymdownx.arithmatex': {
+                'generic': True,  # עוטף ב-span/div.arithmatex
+            },
+        }
+
+        md = md_lib.Markdown(
+            extensions=extensions,
+            extension_configs=extension_configs,
+            output_format='html5',
+        )
+        html_body = md.convert(md_text or '')
+    except Exception:
+        # fallback בסיסי אם הרחבות נכשלו
+        html_body = md_lib.markdown(md_text or '', extensions=['extra', 'fenced_code', 'codehilite'])
+
+    # הוספת lazy-loading לתמונות כבר בשלב המחרוזת
+    try:
+        html_body = re.sub(r'<img(?![^>]*\bloading=)[^>]*?', lambda m: m.group(0).replace('<img', '<img loading="lazy"'), html_body)
+    except Exception:
+        pass
+
+    return html_body
+
+def _clean_html_user(md_html: str) -> str:
+    """סינון HTML המתקבל מרינדור Markdown לסט תגיות/תכונות בטוח."""
+    allowed_tags = [
+        'p','br','hr','pre','code','blockquote','em','strong','del','kbd','samp','span','div',
+        'ul','ol','li','dl','dt','dd','input','label',
+        'h1','h2','h3','h4','h5','h6',
+        'table','thead','tbody','tr','th','td','caption',
+        'a','img'
+    ]
+    allowed_attrs = {
+        'a': ['href','title','rel','target'],
+        'img': ['src','alt','title','width','height','loading'],
+        'code': ['class'],
+        'pre': ['class'],
+        'th': ['align'],
+        'td': ['align'],
+        'span': ['class'],
+        'div': ['class'],
+        'input': ['type','checked','disabled','class','id','data-index'],
+        '*': ['id']
+    }
+    cleaner = bleach.Cleaner(
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        protocols=['http','https','data','mailto'],
+        strip=True
+    )
+    try:
+        return cleaner.clean(md_html)
+    except Exception:
+        return md_html
+
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
     try:
@@ -1531,49 +1640,119 @@ def raw_markdown(file_id):
         abort(404)
 
     code = file.get('code') or ''
-    try:
-        html_body = md_lib.markdown(code, extensions=['extra', 'fenced_code', 'codehilite', 'toc'])
-    except Exception:
-        html_body = md_lib.markdown(code)
+    # פרמטר להרשאת סקריפטים מוגבלת (ל-MathJax/Mermaid/Highlight.js בלבד)
+    allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
+    scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
+
+    # רינדור Markdown עם הרחבות מתקדמות
+    html_rendered = _render_markdown_advanced(code)
+    safe_html = _clean_html_user(html_rendered)
 
     # מסמך HTML בסיסי עם עיצוב קליל
+    head_styles = """
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: white; color: #111; }
+    .markdown-body { max-width: 980px; margin: 0 auto; line-height: 1.6; }
+    pre, code { font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; }
+    pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow: auto; }
+    code { background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }
+    img { max-width: 100%; height: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e1e4e8; padding: 6px 10px; }
+    h1, h2, h3, h4, h5, h6 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+    .task-list-item { list-style: none; }
+    .task-list-item input[type="checkbox"] { margin-inline-end: .5rem; }
+    .mermaid { background: #fff; }
+  </style>
+    """
+
+    extra_head = ''
+    extra_body_end = ''
+    if scripts_enabled:
+        # הזרקת ספריות צד-לקוח רק במצב סקריפטים. נטען מ-CDN דרך https, תוך שמירה על sandbox.
+        extra_head += """
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script>window.__MD_RENDER_CONF__ = { fileId: "%s" };</script>
+        """ % (str(file.get('_id')))
+        extra_body_end += """
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    try { mermaid.initialize({ startOnLoad: true, securityLevel: 'strict' }); } catch (e) {}
+    try { document.querySelectorAll('pre code').forEach(el => window.hljs && window.hljs.highlightElement(el)); } catch (e) {}
+  </script>
+  <script>
+    // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
+    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] }, svg: { fontCache: 'global' } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <script>
+    // Task list interactivity + שמירה ב-localStorage לפי fileId
+    (function(){
+      try {
+        const key = 'md_task_state:' + (window.__MD_RENDER_CONF__ ? window.__MD_RENDER_CONF__.fileId : 'unknown');
+        const state = JSON.parse(localStorage.getItem(key) || '{}');
+        const items = Array.from(document.querySelectorAll('.task-list-item input[type="checkbox"]'));
+        items.forEach((cb, idx) => {
+          const id = cb.getAttribute('data-index') || String(idx);
+          if (state[id] !== undefined) { cb.checked = !!state[id]; }
+          cb.addEventListener('change', function(){
+            const s = JSON.parse(localStorage.getItem(key) || '{}');
+            s[id] = cb.checked;
+            localStorage.setItem(key, JSON.stringify(s));
+          });
+        });
+      } catch(e) {}
+    })();
+  </script>
+        """
+
     html_doc = f"""<!doctype html>
 <html dir="rtl" lang="he">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html_lib.escape(file.get('file_name') or 'Markdown')}</title>
-  <style>
-    body {{ margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: white; color: #111; }}
-    .markdown-body {{ max-width: 980px; margin: 0 auto; }}
-    pre, code {{ font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; }}
-    pre {{ background: #f6f8fa; padding: 12px; border-radius: 6px; overflow: auto; }}
-    code {{ background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }}
-    img {{ max-width: 100%; height: auto; }}
-    table {{ border-collapse: collapse; }}
-    th, td {{ border: 1px solid #e1e4e8; padding: 6px 10px; }}
-    h1, h2, h3, h4, h5, h6 {{ border-bottom: 1px solid #eaecef; padding-bottom: .3em; }}
-  </style>
-  <!-- CSP and security headers are set via HTTP headers to avoid conflicts -->
+  {head_styles}
+  {extra_head}
+  <!-- CSP is set via headers -->
 </head>
 <body>
-  <article class="markdown-body">{html_body}</article>
+  <article class="markdown-body">{safe_html}</article>
+  {extra_body_end}
 </body>
 </html>"""
 
-    csp = (
-        "sandbox; "
-        "default-src 'none'; "
-        "base-uri 'none'; "
-        "form-action 'none'; "
-        "connect-src 'none'; "
-        "img-src data:; "
-        "style-src 'unsafe-inline'; "
-        "font-src data:; "
-        "object-src 'none'; "
-        "frame-ancestors 'self'; "
-        "script-src 'none'"
-    )
+    if scripts_enabled:
+        csp = (
+            "sandbox allow-scripts; "
+            "default-src 'none'; "
+            "base-uri 'none'; "
+            "form-action 'none'; "
+            "connect-src 'none'; "
+            "img-src data: https:; "
+            "style-src 'unsafe-inline' https:; "
+            "font-src data: https:; "
+            "object-src 'none'; "
+            "frame-ancestors 'self'; "
+            "script-src 'unsafe-inline' https:"
+        )
+    else:
+        csp = (
+            "sandbox; "
+            "default-src 'none'; "
+            "base-uri 'none'; "
+            "form-action 'none'; "
+            "connect-src 'none'; "
+            "img-src data:; "
+            "style-src 'unsafe-inline'; "
+            "font-src data:; "
+            "object-src 'none'; "
+            "frame-ancestors 'self'; "
+            "script-src 'none'"
+        )
+
     resp = Response(html_doc, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp
     resp.headers['X-Content-Type-Options'] = 'nosniff'
@@ -1584,7 +1763,10 @@ def raw_markdown(file_id):
 @app.route('/api/markdown_render/<file_id>')
 @login_required
 def api_markdown_render(file_id):
-    """API שמחזיר HTML מרונדר ומסונן + תוכן raw של קובץ Markdown."""
+    """API שמחזיר HTML מרונדר (GFM) ומסונן + תוכן raw של קובץ Markdown.
+
+    מיועד ל-preview בזמן הקלדה ולשימוש פנימי בעמודים עתידיים.
+    """
     try:
         db = get_db()
         user_id = session['user_id']
@@ -1596,30 +1778,7 @@ def api_markdown_render(file_id):
             return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
 
         code = file.get('code') or ''
-        try:
-            html_body = md_lib.markdown(code, extensions=['extra', 'fenced_code', 'codehilite', 'toc'])
-        except Exception:
-            html_body = md_lib.markdown(code)
-
-        # סינון XSS עם bleach, מאפשר תגיות בסיסיות של Markdown וטבלאות/קוד
-        allowed_tags = [
-            'p','br','hr','pre','code','blockquote','em','strong','del','kbd','samp',
-            'ul','ol','li','dl','dt','dd',
-            'h1','h2','h3','h4','h5','h6',
-            'table','thead','tbody','tr','th','td','caption',
-            'a','img','span','div'
-        ]
-        allowed_attrs = {
-            'a': ['href','title','rel','target'],
-            'img': ['src','alt','title','width','height'],
-            'code': ['class'],
-            'pre': ['class'],
-            'th': ['align'],
-            'td': ['align'],
-            '*': ['id']
-        }
-        cleaner = bleach.Cleaner(tags=allowed_tags, attributes=allowed_attrs, protocols=['http','https','data','mailto'], strip=True)
-        safe_html = cleaner.clean(html_body)
+        safe_html = _clean_html_user(_render_markdown_advanced(code))
 
         return jsonify({'ok': True, 'html': safe_html, 'raw': code})
     except Exception as e:
