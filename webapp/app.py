@@ -29,6 +29,10 @@ import urllib.parse as urlparse
 import html as html_lib
 import logging
 
+# Configure logging once for the module
+logging.basicConfig(level=logging.INFO)
+import logging
+
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 
@@ -1892,9 +1896,10 @@ def health():
             health_data['database'] = 'connected'
             health_data['status'] = 'healthy'
     except Exception as e:
+        logging.exception("Health check database error")
         health_data['database'] = 'error'
         health_data['status'] = 'unhealthy'
-        health_data['error'] = str(e)
+        health_data['error'] = 'internal'
     
     return jsonify(health_data)
 
@@ -1945,7 +1950,8 @@ def api_persistent_login():
 
         return resp
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        logging.exception("Error in /api/persistent_login")
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית'}), 500
 
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
@@ -2033,9 +2039,10 @@ def api_public_stats():
             "timestamp": now_utc.isoformat(),
         })
     except Exception as e:
+        logging.exception("Error in /api/public_stats")
         return jsonify({
             "ok": False,
-            "error": str(e),
+            "error": "אירעה שגיאה פנימית",
             "total_users": 0,
             "active_users_24h": 0,
             "total_snippets": 0,
