@@ -235,6 +235,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 {% endblock %}
 
 {% block content %}
+{% if is_markdown %}
+<!-- Markdown View -->
+{% include 'markdown_view_content.html' %}
+{% else %}
+<!-- Regular Code View -->
 <script type="application/json" id="pygmentsCssData">{{ syntax_css|tojson|safe }}</script>
 <div id="fileMeta" data-file-name="{{ file.file_name }}" style="display:none"></div>
 <script>
@@ -289,7 +294,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             העתק קוד
             <div class="copy-feedback" id="copyFeedback">הועתק!</div>
         </button>
-        {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
+        {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') or file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md') or (file.file_name|lower).endswith('.markdown') %}
         <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon">
             🌐 תצוגת דפדפן
         </a>
@@ -543,4 +548,5 @@ function goBack(ev){
     return false;
 }
 </script>
+{% endif %}
 {% endblock %}
