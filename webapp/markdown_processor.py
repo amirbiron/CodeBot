@@ -222,12 +222,31 @@ class MarkdownProcessor:
             if idx + 2 < len(tokens):
                 next_token = tokens[idx + 1]
                 if next_token.type == 'inline' and next_token.content:
-                    # בדוק אם מתחיל ב-[ ] או [x]
+                    # בדוק אם מתחיל ב-[ ] או [x] - בטוח מפני ReDoS
                     content = next_token.content
-                    task_match = re.match(r'^\[([ xX])\]\s*(.*)', content)
+                    
+                    # בדיקה ידנית במקום regex
+                    task_match = None
+                    checked = False
+                    task_text = content
+                    
+                    if len(content) >= 3 and content[0] == '[' and content[2] == ']':
+                        check_char = content[1]
+                        if check_char in ' xX':
+                            # זה task list item
+                            checked = check_char.lower() == 'x'
+                            # חלץ את הטקסט אחרי ה-checkbox
+                            if len(content) > 3:
+                                # דלג על רווחים אחרי ה-checkbox
+                                idx = 3
+                                while idx < len(content) and content[idx] in ' \t':
+                                    idx += 1
+                                task_text = content[idx:] if idx < len(content) else ''
+                            else:
+                                task_text = ''
+                            task_match = True
+                    
                     if task_match:
-                        checked = task_match.group(1).lower() == 'x'
-                        task_text = task_match.group(2)
                         
                         # צור task ID מהטקסט הנקי (לא מהתוכן המקורי)
                         task_id = hashlib.md5(task_text.strip().encode()).hexdigest()[:8]
