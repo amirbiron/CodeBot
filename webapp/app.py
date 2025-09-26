@@ -152,6 +152,141 @@ def get_db():
             raise
     return db
 
+def get_ui_theme_value() -> str:
+    """החזרת ערכת הנושא הפעילה ('classic'/'ocean'/'forest') עבור המשתמש הנוכחי.
+
+    לוגיקה תואמת ל-context_processor: cookie קודם, ואם יש משתמש – העדפת DB גוברת.
+    """
+    theme = 'classic'
+    try:
+        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        if cookie_theme:
+            theme = cookie_theme
+        if 'user_id' in session:
+            try:
+                _db = get_db()
+                u = _db.users.find_one({'user_id': session['user_id']}) or {}
+                t = ((u.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                if t:
+                    theme = t
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if theme not in {'classic','ocean','forest'}:
+        theme = 'classic'
+    return theme
+
+# ---------- Markdown advanced rendering helpers ----------
+def _render_markdown_advanced(md_text: str) -> str:
+    """מרנדר Markdown לרמת GFM עם תמיכה ב-Task Lists, טבלאות, emoji, Mermaid ומתמטיקה.
+
+    שים לב: רינדור זה אינו מאפשר HTML גולמי. אנו מסננים לאחר מכן עם bleach.
+    """
+    try:
+        extensions = [
+            # ליבה
+            'extra',               # includes tables, etc.
+            'sane_lists',
+            'nl2br',               # breaks: true
+            'smarty',              # typographer
+            'toc',
+            'fenced_code',
+            # PyMdown
+            'pymdownx.highlight',
+            'pymdownx.superfences',
+            'pymdownx.magiclink',  # autolink URLs
+            'pymdownx.tilde',      # ~~strikethrough~~
+            'pymdownx.tasklist',   # [ ] / [x]
+            'pymdownx.emoji',      # :smile:
+            'pymdownx.arithmatex', # Math
+        ]
+        # קונפיגורציה
+        extension_configs = {
+            'pymdownx.highlight': {
+                'use_pygments': False,    # שלא להדגיש בצד שרת
+                'anchor_linenums': False,
+                'linenums': False,
+                'guess_lang': False,
+            },
+            'pymdownx.magiclink': {
+                'repo_url_shorthand': True,
+                'social_url_shorthand': True,
+                'hide_protocol': False,
+            },
+            'pymdownx.tasklist': {
+                'clickable_checkbox': True,
+                'custom_checkbox': True,
+            },
+            'pymdownx.superfences': {
+                'custom_fences': [
+                    {
+                        'name': 'mermaid',
+                        'class': 'mermaid',
+                        'format': 'pymdownx.superfences.fence_div_format',
+                    },
+                ]
+            },
+            'pymdownx.emoji': {
+                # ממיר קיצורי emoji ל-Unicode ישיר
+                'emoji_index': 'pymdownx.emoji.gemoji',
+                'emoji_generator': 'pymdownx.emoji.to_emoji',
+            },
+            'pymdownx.arithmatex': {
+                'generic': True,  # עוטף ב-span/div.arithmatex
+            },
+        }
+
+        md = md_lib.Markdown(
+            extensions=extensions,
+            extension_configs=extension_configs,
+            output_format='html5',
+        )
+        html_body = md.convert(md_text or '')
+    except Exception:
+        # fallback בסיסי אם הרחבות נכשלו
+        html_body = md_lib.markdown(md_text or '', extensions=['extra', 'fenced_code', 'codehilite'])
+
+    # הוספת lazy-loading לתמונות כבר בשלב המחרוזת
+    try:
+        html_body = re.sub(r'<img(?![^>]*\bloading=)[^>]*?', lambda m: m.group(0).replace('<img', '<img loading="lazy"'), html_body)
+    except Exception:
+        pass
+
+    return html_body
+
+def _clean_html_user(md_html: str) -> str:
+    """סינון HTML המתקבל מרינדור Markdown לסט תגיות/תכונות בטוח."""
+    allowed_tags = [
+        'p','br','hr','pre','code','blockquote','em','strong','del','kbd','samp','span','div',
+        'ul','ol','li','dl','dt','dd','input','label',
+        'h1','h2','h3','h4','h5','h6',
+        'table','thead','tbody','tr','th','td','caption',
+        'a','img'
+    ]
+    allowed_attrs = {
+        'a': ['href','title','rel','target'],
+        'img': ['src','alt','title','width','height','loading'],
+        'code': ['class'],
+        'pre': ['class'],
+        'th': ['align'],
+        'td': ['align'],
+        'span': ['class'],
+        'div': ['class'],
+        'input': ['type','checked','disabled','class','id','data-index'],
+        '*': ['id']
+    }
+    cleaner = bleach.Cleaner(
+        tags=allowed_tags,
+        attributes=allowed_attrs,
+        protocols=['http','https','data','mailto'],
+        strip=True
+    )
+    try:
+        return cleaner.clean(md_html)
+    except Exception:
+        return md_html
+
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
     try:
@@ -1531,49 +1666,220 @@ def raw_markdown(file_id):
         abort(404)
 
     code = file.get('code') or ''
-    try:
-        html_body = md_lib.markdown(code, extensions=['extra', 'fenced_code', 'codehilite', 'toc'])
-    except Exception:
-        html_body = md_lib.markdown(code)
+    # פרמטר להרשאת סקריפטים מוגבלת (ל-MathJax/Mermaid/Highlight.js בלבד)
+    allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
+    scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
+
+    # רינדור Markdown עם הרחבות מתקדמות
+    html_rendered = _render_markdown_advanced(code)
+    safe_html = _clean_html_user(html_rendered)
 
     # מסמך HTML בסיסי עם עיצוב קליל
+    head_styles = """
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: white; color: #111; }
+    .markdown-body { max-width: 980px; margin: 0 auto; line-height: 1.6; }
+    pre, code { font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; }
+    pre { background: #f4f0ff; padding: 12px; border-radius: 6px; overflow: auto; }
+    code { background: #f4f0ff; padding: 2px 4px; border-radius: 4px; }
+    img { max-width: 100%; height: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e1e4e8; padding: 6px 10px; }
+    h1, h2, h3, h4, h5, h6 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+    .task-list-item { list-style: none; }
+    .task-list-item input[type="checkbox"] { margin-inline-end: .5rem; }
+    .mermaid { background: #fff; }
+  </style>
+    """
+
+    extra_head = ''
+    extra_body_end = ''
+    if scripts_enabled:
+        # הזרקת ספריות צד-לקוח רק במצב סקריפטים. נטען מ-CDN דרך https, תוך שמירה על sandbox.
+        theme = get_ui_theme_value()
+        # זיהוי פרויקט (repo:NAME מהתגיות)
+        project_name = ''
+        try:
+            for _t in (file.get('tags') or []):
+                ts = str(_t or '')
+                if ts.lower().startswith('repo:'):
+                    project_name = ts.split(':', 1)[1].strip()
+                    break
+        except Exception:
+            project_name = ''
+        # בחירת ערכת הדגשה לפי ערכת נושא
+        hl_theme = {
+            'classic': 'tokyo-night-light',
+            'ocean': 'github',
+            'forest': 'atom-one-light',
+        }.get(theme, 'tokyo-night-light')
+        conf_obj = {
+            'fileId': str(file.get('_id')),
+            'theme': theme,
+            'project': project_name,
+            'userId': int(session.get('user_id') or 0),
+        }
+        conf_json = json.dumps(conf_obj, ensure_ascii=False)
+        # הימנעות מ-backslash בתוך ביטוי f-string: נחשב מראש מחרוזת בטוחה ל-JS
+        conf_json_js = conf_json.replace('\\', '\\\\').replace("'", "\\'")
+        extra_head += f"""
+  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = JSON.parse('{conf_json_js}');<\/script>
+        """
+        extra_body_end += """
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+   <script>
+     try { mermaid.initialize({ startOnLoad: true, securityLevel: 'strict' }); } catch (e) {}
+     // הדגשת קוד יעילה: הדגשה רק כאשר הבלוק נכנס לפריים (IntersectionObserver)
+     try {
+       if (window.hljs) {
+         const blocks = Array.from(document.querySelectorAll('pre code'));
+         const seen = new WeakSet();
+         const highlight = el => { if (!seen.has(el)) { seen.add(el); try { window.hljs.highlightElement(el); } catch(e) {} } };
+         if ('IntersectionObserver' in window) {
+           const io = new IntersectionObserver(entries => {
+             entries.forEach(e => { if (e.isIntersecting) { highlight(e.target); io.unobserve(e.target); } });
+           }, { rootMargin: '200px 0px' });
+           blocks.forEach(el => io.observe(el));
+         } else {
+           blocks.forEach(el => highlight(el));
+         }
+       }
+     } catch (e) {}
+   </script>
+   <script>
+     // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
+     window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] }, svg: { fontCache: 'global' } };
+   </script>
+   <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+   <script>
+     // Task list interactivity + סנכרון DB דו־כיווני לקובץ ולפרויקט-משתמש (וגיבוי localStorage)
+     (function(){
+       try {
+         const conf = (window.__MD_RENDER_CONF__ || {});
+         const fileId = conf.fileId || 'unknown';
+         const project = conf.project || '';
+         const key = 'md_task_state:' + fileId;
+         function applyState(stateMap) {
+           try {
+             const items2 = Array.from(document.querySelectorAll('.task-list-item input[type=\"checkbox\"]'));
+             items2.forEach((cb, idx) => {
+               if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
+               const id = cb.getAttribute('data-index');
+               if (stateMap && Object.prototype.hasOwnProperty.call(stateMap, id)) {
+                 cb.checked = !!stateMap[id];
+               }
+             });
+           } catch(e) {}
+         }
+
+         // שלב 1: מצב מקומי
+         const localState = JSON.parse(localStorage.getItem(key) || '{}');
+         let merged = Object.assign({}, localState);
+
+         // שלב 2: מצב קובץ משותף
+         const p1 = fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
+           .then(r => r.ok ? r.json() : { ok:false })
+           .then(d => { if (d && d.ok) merged = Object.assign({}, merged, d.state || {}); })
+           .catch(function(){});
+
+         // שלב 3: מצב פרויקט-משתמש (מפתחים: מאחסן במבנה fileId:index)
+         const p2 = (project ? fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), { credentials: 'same-origin' }) : Promise.resolve({ok:false}))
+           .then(r => (r && r.ok) ? r.json() : { ok:false })
+           .then(d => {
+             if (d && d.ok && d.state) {
+               // חלץ רק הערכים של הקובץ הנוכחי
+               const m = {};
+               Object.keys(d.state).forEach(k => {
+                 if (k.startsWith(fileId + ':')) {
+                   const id = k.slice(fileId.length + 1);
+                   m[id] = !!d.state[k];
+                 }
+               });
+               merged = Object.assign({}, merged, m);
+             }
+           })
+           .catch(function(){});
+
+         Promise.all([p1,p2]).then(function(){ applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); });
+
+         // שינוי -> עדכון מקומי + POST לשרת (קובץ) + POST לפרויקט-משתמש
+         const items = Array.from(document.querySelectorAll('.task-list-item input[type=\"checkbox\"]'));
+         items.forEach((cb, idx) => {
+           if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
+           const id = cb.getAttribute('data-index');
+           cb.addEventListener('change', function(){
+             try {
+               const s = JSON.parse(localStorage.getItem(key) || '{}');
+               s[id] = cb.checked; localStorage.setItem(key, JSON.stringify(s));
+             } catch(e) {}
+             try {
+               fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), {
+                 method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ id: id, checked: !!cb.checked })
+               }).catch(function(){});
+             } catch(e) {}
+             if (project) {
+               try {
+                 fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), {
+                   method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify({ id: fileId + ':' + id, checked: !!cb.checked })
+                 }).catch(function(){});
+               } catch(e) {}
+             }
+           });
+         });
+       } catch(e) {}
+     })();
+   </script>
+        """
+
     html_doc = f"""<!doctype html>
 <html dir="rtl" lang="he">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html_lib.escape(file.get('file_name') or 'Markdown')}</title>
-  <style>
-    body {{ margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: white; color: #111; }}
-    .markdown-body {{ max-width: 980px; margin: 0 auto; }}
-    pre, code {{ font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; }}
-    pre {{ background: #f6f8fa; padding: 12px; border-radius: 6px; overflow: auto; }}
-    code {{ background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }}
-    img {{ max-width: 100%; height: auto; }}
-    table {{ border-collapse: collapse; }}
-    th, td {{ border: 1px solid #e1e4e8; padding: 6px 10px; }}
-    h1, h2, h3, h4, h5, h6 {{ border-bottom: 1px solid #eaecef; padding-bottom: .3em; }}
-  </style>
-  <!-- CSP and security headers are set via HTTP headers to avoid conflicts -->
+  {head_styles}
+  {extra_head}
+  <!-- CSP is set via headers -->
 </head>
 <body>
-  <article class="markdown-body">{html_body}</article>
+  <article class="markdown-body">{safe_html}</article>
+  {extra_body_end}
 </body>
 </html>"""
 
-    csp = (
-        "sandbox; "
-        "default-src 'none'; "
-        "base-uri 'none'; "
-        "form-action 'none'; "
-        "connect-src 'none'; "
-        "img-src data:; "
-        "style-src 'unsafe-inline'; "
-        "font-src data:; "
-        "object-src 'none'; "
-        "frame-ancestors 'self'; "
-        "script-src 'none'"
-    )
+    if scripts_enabled:
+        csp = (
+            "sandbox allow-scripts allow-same-origin; "
+            "default-src 'none'; "
+            "base-uri 'none'; "
+            "form-action 'none'; "
+            "connect-src 'self'; "
+            "img-src data: https:; "
+            "style-src 'unsafe-inline' https:; "
+            "font-src data: https:; "
+            "object-src 'none'; "
+            "frame-ancestors 'self'; "
+            "script-src 'unsafe-inline' https:"
+        )
+    else:
+        csp = (
+            "sandbox; "
+            "default-src 'none'; "
+            "base-uri 'none'; "
+            "form-action 'none'; "
+            "connect-src 'none'; "
+            "img-src data:; "
+            "style-src 'unsafe-inline'; "
+            "font-src data:; "
+            "object-src 'none'; "
+            "frame-ancestors 'self'; "
+            "script-src 'none'"
+        )
+
     resp = Response(html_doc, mimetype='text/html; charset=utf-8')
     resp.headers['Content-Security-Policy'] = csp
     resp.headers['X-Content-Type-Options'] = 'nosniff'
@@ -1584,7 +1890,10 @@ def raw_markdown(file_id):
 @app.route('/api/markdown_render/<file_id>')
 @login_required
 def api_markdown_render(file_id):
-    """API שמחזיר HTML מרונדר ומסונן + תוכן raw של קובץ Markdown."""
+    """API שמחזיר HTML מרונדר (GFM) ומסונן + תוכן raw של קובץ Markdown.
+
+    מיועד ל-preview בזמן הקלדה ולשימוש פנימי בעמודים עתידיים.
+    """
     try:
         db = get_db()
         user_id = session['user_id']
@@ -1596,30 +1905,7 @@ def api_markdown_render(file_id):
             return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
 
         code = file.get('code') or ''
-        try:
-            html_body = md_lib.markdown(code, extensions=['extra', 'fenced_code', 'codehilite', 'toc'])
-        except Exception:
-            html_body = md_lib.markdown(code)
-
-        # סינון XSS עם bleach, מאפשר תגיות בסיסיות של Markdown וטבלאות/קוד
-        allowed_tags = [
-            'p','br','hr','pre','code','blockquote','em','strong','del','kbd','samp',
-            'ul','ol','li','dl','dt','dd',
-            'h1','h2','h3','h4','h5','h6',
-            'table','thead','tbody','tr','th','td','caption',
-            'a','img','span','div'
-        ]
-        allowed_attrs = {
-            'a': ['href','title','rel','target'],
-            'img': ['src','alt','title','width','height'],
-            'code': ['class'],
-            'pre': ['class'],
-            'th': ['align'],
-            'td': ['align'],
-            '*': ['id']
-        }
-        cleaner = bleach.Cleaner(tags=allowed_tags, attributes=allowed_attrs, protocols=['http','https','data','mailto'], strip=True)
-        safe_html = cleaner.clean(html_body)
+        safe_html = _clean_html_user(_render_markdown_advanced(code))
 
         return jsonify({'ok': True, 'html': safe_html, 'raw': code})
     except Exception as e:
@@ -2116,6 +2402,69 @@ def api_ui_prefs():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+# --- Markdown Task Lists state (DB sync) ---
+@app.route('/api/markdown_tasks/<file_id>', methods=['GET', 'POST'])
+@login_required
+def api_markdown_tasks(file_id):
+    """אחסון דו־כיווני של מצב Task Lists עבור קובץ Markdown.
+
+    מבנה מסמך:
+    { file_id: ObjectId, state: { '0': true, '1': false, ... }, updated_at: datetime }
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        # אימות שהקובץ שייך למשתמש
+        try:
+            file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+        except Exception:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+        if not file:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        coll = db.md_task_states
+        try:
+            from pymongo import ASCENDING
+            coll.create_index([('file_id', ASCENDING)], name='file_unique', unique=True)
+        except Exception:
+            pass
+
+        if request.method == 'GET':
+            doc = coll.find_one({'file_id': ObjectId(file_id)}) or {}
+            return jsonify({'ok': True, 'state': (doc.get('state') or {})})
+
+        payload = request.get_json(silent=True) or {}
+        now = datetime.now(timezone.utc)
+        update_fields = {'updated_at': now}
+        # תמיכה גם ב-patch נקודתי וגם ב-state מלא
+        if 'id' in payload and 'checked' in payload:
+            tid = str(payload.get('id'))
+            val = bool(payload.get('checked'))
+            update_fields[f'state.{tid}'] = val
+        elif 'patch' in payload and isinstance(payload.get('patch'), dict):
+            for k, v in (payload.get('patch') or {}).items():
+                update_fields[f'state.{str(k)}'] = bool(v)
+        elif 'state' in payload and isinstance(payload.get('state'), dict):
+            # מחליף מצב מלא
+            coll.update_one(
+                {'file_id': ObjectId(file_id)},
+                {'$set': {'state': {str(k): bool(v) for k, v in (payload.get('state') or {}).items()}, 'updated_at': now}},
+                upsert=True
+            )
+            return jsonify({'ok': True})
+        else:
+            return jsonify({'ok': False, 'error': 'payload לא תקף'}), 400
+
+        coll.update_one({'file_id': ObjectId(file_id)}, {'$set': update_fields}, upsert=True)
+        return jsonify({'ok': True})
+    except Exception as e:
+        try:
+            import logging
+            logging.exception('api_markdown_tasks error')
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית.'}), 500
+
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
 def api_public_stats():
@@ -2281,6 +2630,58 @@ def check_configuration():
             print(f"✗ MongoDB connection failed: {e}")
     
     return len(missing) == 0
+
+# פרויקט-משתמש: מצב משימות מצטבר (מאפשר שיתוף הרגלים/סטטוס בין קבצים בריפו)
+@app.route('/api/markdown_tasks_project/<project>', methods=['GET', 'POST'])
+@login_required
+def api_markdown_tasks_project(project):
+    """שומר מצב Task Lists ברמת משתמש+פרויקט.
+
+    מבנה מסמך:
+    { user_id: int, project: str, state: { 'FILEID:0': true, ... }, updated_at }
+    """
+    try:
+        db = get_db()
+        user_id = int(session['user_id'])
+        project_key = (project or '').strip()
+        if not project_key:
+            return jsonify({'ok': False, 'error': 'project required'}), 400
+
+        coll = db.md_task_states_project
+        try:
+            from pymongo import ASCENDING
+            coll.create_index([('user_id', ASCENDING), ('project', ASCENDING)], name='user_project_unique', unique=True)
+        except Exception:
+            pass
+
+        if request.method == 'GET':
+            doc = coll.find_one({'user_id': user_id, 'project': project_key}) or {}
+            return jsonify({'ok': True, 'state': (doc.get('state') or {})})
+
+        payload = request.get_json(silent=True) or {}
+        now = datetime.now(timezone.utc)
+        update_fields = {'updated_at': now}
+        if 'id' in payload and 'checked' in payload:
+            tid = str(payload.get('id'))
+            val = bool(payload.get('checked'))
+            update_fields[f'state.{tid}'] = val
+        elif 'patch' in payload and isinstance(payload.get('patch'), dict):
+            for k, v in (payload.get('patch') or {}).items():
+                update_fields[f'state.{str(k)}'] = bool(v)
+        elif 'state' in payload and isinstance(payload.get('state'), dict):
+            coll.update_one(
+                {'user_id': user_id, 'project': project_key},
+                {'$set': {'state': {str(k): bool(v) for k, v in (payload.get('state') or {}).items()}, 'updated_at': now}},
+                upsert=True
+            )
+            return jsonify({'ok': True})
+        else:
+            return jsonify({'ok': False, 'error': 'payload לא תקף'}), 400
+
+        coll.update_one({'user_id': user_id, 'project': project_key}, {'$set': update_fields}, upsert=True)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית.'}), 500
 
 if __name__ == '__main__':
     print("Starting Code Keeper Web App...")

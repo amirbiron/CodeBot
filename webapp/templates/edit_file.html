@@ -38,7 +38,7 @@
     </div>
     <div>
       <label>קוד</label>
-      <textarea name="code" rows="18" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value }}</textarea>
+      <textarea id="editorCode" name="code" rows="18" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value }}</textarea>
     </div>
     <div style="display: flex; gap: 1rem;">
       <button type="submit" class="btn btn-primary btn-icon"><i class="fas fa-save"></i> שמור גרסה חדשה</button>
@@ -46,5 +46,123 @@
     </div>
   </form>
 </div>
+
+{% if (file.language|lower == 'markdown') or (file.file_name|lower).endswith('.md') or (file.file_name|lower).endswith('.markdown') %}
+<div class="glass-card">
+  <div style="display:flex; align-items:center; gap: 1rem; justify-content: space-between; flex-wrap: wrap;">
+    <h2 class="section-title" style="margin:0;">תצוגה מקדימה (Markdown)</h2>
+    <label style="display:flex; align-items:center; gap:.5rem;">
+      <input id="mdPreviewToggle" type="checkbox" checked>
+      עדכן בזמן אמת
+    </label>
+  </div>
+  <div id="mdPreview" class="markdown-body" style="background: white; color: #111; border-radius: 10px; padding: 1rem; overflow:auto; max-height: 60vh;"></div>
+</div>
+
+{% block extra_js %}
+{% endblock %}
+<script>
+// טעינת ספריות רק כאשר עורך Markdown פעיל
+(function(){
+  const isMd = true; // כבר עברנו תנאי Jinja למעלה
+  if (!isMd) return;
+  const libs = [
+    'https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/markdown-it-emoji/2.0.2/markdown-it-emoji.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/markdown-it-task-lists/2.1.1/markdown-it-task-lists.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
+    'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
+    'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
+    'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js'
+  ];
+  const head = document.getElementsByTagName('head')[0];
+  // Styles
+  var styleLink = document.createElement('link');
+  styleLink.rel = 'stylesheet';
+  styleLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';
+  head.appendChild(styleLink);
+  var katexCss = document.createElement('link');
+  katexCss.rel = 'stylesheet';
+  katexCss.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+  head.appendChild(katexCss);
+
+  function loadScript(src){
+    return new Promise(function(res, rej){
+      var s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = rej; document.body.appendChild(s);
+    });
+  }
+  Promise.all(libs.map(loadScript)).then(init).catch(function(){ init(); });
+
+  function init(){
+    const md = window.markdownit({
+      breaks: true,
+      linkify: true,
+      typographer: true,
+      html: false,
+      highlight: function (str, lang) {
+        try { if (window.hljs) { return '<pre><code class="language-' + (lang||'') + '">' + window.hljs.highlight(str,{language:lang||'plaintext'}).value + '</code></pre>'; } } catch(e) {}
+        return '<pre><code>' + (str||'') + '</code></pre>';
+      }
+    });
+    try { md.use(window.markdownitEmoji); } catch(e) {}
+    try { md.use(window.markdownitTaskLists, { enabled: true }); } catch(e) {}
+
+    // תמיכה ב-Mermaid דרך fence ייעודי
+    var fence = md.renderer.rules.fence || function(tokens, idx, options, env, self){ return self.renderToken(tokens, idx, options); };
+    md.renderer.rules.fence = function(tokens, idx, options, env, self){
+      var token = tokens[idx];
+      var info = (token.info || '').trim();
+      if (info === 'mermaid') {
+        return '<div class="mermaid">' + token.content + '</div>';
+      }
+      return fence(tokens, idx, options, env, self);
+    };
+
+    const input = document.getElementById('editorCode');
+    const out = document.getElementById('mdPreview');
+    const toggle = document.getElementById('mdPreviewToggle');
+    const fileKey = 'md_task_state_live:' + ('{{ file.id }}' || 'new');
+    let tid = 0;
+    function debouncedRender(){
+      clearTimeout(tid);
+      tid = setTimeout(render, 220);
+    }
+    function render(){
+      if (!toggle || !toggle.checked) return;
+      var src = input ? input.value : '';
+      var html = md.render(src);
+      // lazy loading לתמונות
+      try { html = html.replace(/<img(?![^>]*\bloading=)/g, '<img loading="lazy"'); } catch(e) {}
+      out.innerHTML = html;
+      // Highlight
+      try { out.querySelectorAll('pre code').forEach(el => window.hljs && window.hljs.highlightElement(el)); } catch(e) {}
+      // Mermaid
+      try { mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' }); mermaid.run({ nodes: out }); } catch(e) {}
+      // KaTeX
+      try { renderMathInElement(out, { delimiters: [ {left: "$$", right: "$$", display: true}, {left: "\\(", right: "\\)", display: false} ] }); } catch(e) {}
+      // Task list interactivity + localStorage
+      try {
+        const state = JSON.parse(localStorage.getItem(fileKey) || '{}');
+        const items = Array.from(out.querySelectorAll('.task-list-item input[type="checkbox"]'));
+        items.forEach(function(cb, idx){
+          const id = cb.getAttribute('data-index') || String(idx);
+          if (state[id] !== undefined) cb.checked = !!state[id];
+          cb.addEventListener('change', function(){
+            const s = JSON.parse(localStorage.getItem(fileKey) || '{}');
+            s[id] = cb.checked; localStorage.setItem(fileKey, JSON.stringify(s));
+          });
+        });
+        // וירטואליזציה קלה
+        Array.from(out.children).forEach(function(el){ el.style.contain = 'content'; el.style.contentVisibility = 'auto'; el.style.containIntrinsicSize = '1px 600px'; });
+      } catch(e) {}
+    }
+    input && input.addEventListener('input', debouncedRender);
+    toggle && toggle.addEventListener('change', function(){ if (toggle.checked) render(); });
+    render();
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}
 
