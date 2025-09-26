@@ -4,7 +4,6 @@ Markdown Processor for Code Keeper WebApp
 מעבד Markdown מתקדם עם תמיכה ב-GFM, Task Lists, Math, Mermaid ועוד
 """
 
-import re
 import json
 import html as html_lib
 from typing import Optional, Dict, Any
@@ -970,6 +969,163 @@ class MarkdownProcessor:
         
         return ''.join(result)
     
+    def _process_headers_safe(self, text: str) -> str:
+        """עיבוד headers בצורה בטוחה מפני ReDoS"""
+        lines = text.split('\n')
+        result = []
+        
+        for line in lines:
+            processed = False
+            
+            # בדוק אם זו כותרת
+            if line.startswith('#'):
+                hash_count = 0
+                for char in line:
+                    if char == '#':
+                        hash_count += 1
+                    else:
+                        break
+                
+                # בדוק שיש 1-6 # ואז רווח
+                if 1 <= hash_count <= 6 and len(line) > hash_count:
+                    # דלג על רווחים אחרי ה-#
+                    idx = hash_count
+                    while idx < len(line) and line[idx] in ' \t':
+                        idx += 1
+                    
+                    if idx < len(line):
+                        # יש תוכן אחרי הרווחים
+                        header_text = line[idx:]
+                        result.append(f'<h{hash_count}>{header_text}</h{hash_count}>')
+                        processed = True
+            
+            if not processed:
+                result.append(line)
+        
+        return '\n'.join(result)
+    
+    def _process_links_and_images_safe(self, text: str) -> str:
+        """עיבוד links ו-images בצורה בטוחה מפני ReDoS"""
+        result = []
+        i = 0
+        
+        while i < len(text):
+            # חפש תחילת link או image
+            if i < len(text) - 1 and text[i:i+2] == '![':
+                # זה image
+                end_bracket = text.find(']', i + 2)
+                if end_bracket != -1 and end_bracket + 1 < len(text) and text[end_bracket + 1] == '(':
+                    end_paren = text.find(')', end_bracket + 2)
+                    if end_paren != -1:
+                        alt_text = text[i + 2:end_bracket]
+                        img_url = text[end_bracket + 2:end_paren]
+                        result.append(f'<img src="{img_url}" alt="{alt_text}">')
+                        i = end_paren + 1
+                        continue
+            elif text[i] == '[':
+                # אולי זה link
+                end_bracket = text.find(']', i + 1)
+                if end_bracket != -1 and end_bracket + 1 < len(text) and text[end_bracket + 1] == '(':
+                    end_paren = text.find(')', end_bracket + 2)
+                    if end_paren != -1:
+                        link_text = text[i + 1:end_bracket]
+                        link_url = text[end_bracket + 2:end_paren]
+                        result.append(f'<a href="{link_url}">{link_text}</a>')
+                        i = end_paren + 1
+                        continue
+            
+            # לא link/image, העתק את התו
+            result.append(text[i])
+            i += 1
+        
+        return ''.join(result)
+    
+    def _process_inline_code_safe(self, text: str) -> str:
+        """עיבוד inline code בצורה בטוחה מפני ReDoS"""
+        result = []
+        i = 0
+        
+        while i < len(text):
+            if text[i] == '`':
+                # חפש את הסוף
+                end = text.find('`', i + 1)
+                if end != -1:
+                    code = text[i + 1:end]
+                    result.append(f'<code>{code}</code>')
+                    i = end + 1
+                else:
+                    result.append(text[i])
+                    i += 1
+            else:
+                result.append(text[i])
+                i += 1
+        
+        return ''.join(result)
+    
+    def _process_blockquotes_safe(self, text: str) -> str:
+        """עיבוד blockquotes בצורה בטוחה מפני ReDoS"""
+        lines = text.split('\n')
+        result = []
+        
+        for line in lines:
+            # בדוק גם > רגיל וגם &gt; (escaped)
+            if line.startswith('&gt;'):
+                # דלג על &gt; ורווחים
+                idx = 4  # אורך של '&gt;'
+                while idx < len(line) and line[idx] in ' \t':
+                    idx += 1
+                
+                if idx < len(line):
+                    quote_text = line[idx:]
+                    result.append(f'<blockquote>{quote_text}</blockquote>')
+                else:
+                    result.append('<blockquote></blockquote>')
+            elif line.startswith('>'):
+                # דלג על > ורווחים
+                idx = 1
+                while idx < len(line) and line[idx] in ' \t':
+                    idx += 1
+                
+                if idx < len(line):
+                    quote_text = line[idx:]
+                    result.append(f'<blockquote>{quote_text}</blockquote>')
+                else:
+                    result.append('<blockquote></blockquote>')
+            else:
+                result.append(line)
+        
+        return '\n'.join(result)
+    
+    def _process_lists_safe(self, text: str) -> str:
+        """עיבוד lists בצורה בטוחה מפני ReDoS"""
+        lines = text.split('\n')
+        result = []
+        
+        for line in lines:
+            processed = False
+            
+            # בדוק אם זה list item
+            if line.startswith('* ') or line.startswith('- '):
+                # דלג על הסימן והרווח
+                list_text = line[2:]
+                result.append(f'<li>{list_text}</li>')
+                processed = True
+            elif len(line) > 0 and line[0].isdigit():
+                # אולי זה numbered list
+                idx = 0
+                while idx < len(line) and line[idx].isdigit():
+                    idx += 1
+                
+                if idx < len(line) and line[idx:idx+2] == '. ':
+                    list_text = line[idx+2:]
+                    result.append(f'<li>{list_text}</li>')
+                    processed = True
+            
+            if not processed:
+                result.append(line)
+        
+        return '\n'.join(result)
+    
     def _process_task_lists_safe(self, text: str) -> str:
         """עיבוד task lists בצורה בטוחה מפני ReDoS"""
         lines = text.split('\n')
@@ -1062,8 +1218,25 @@ class MarkdownProcessor:
             # נקה HTML tags מהכותרת בצורה בטוחה
             clean_title = self._strip_html_tags(title)
             # צור anchor ID
-            anchor_id = re.sub(r'[^\w\s-]', '', clean_title.lower())
-            anchor_id = re.sub(r'[-\s]+', '-', anchor_id)
+            # צור anchor ID בטוח
+            anchor_chars = []
+            for char in clean_title.lower():
+                if char.isalnum() or char in ' -':
+                    anchor_chars.append(char)
+            anchor_id = ''.join(anchor_chars)
+            
+            # החלף רווחים ומקפים מרובים במקף בודד
+            anchor_parts = []
+            prev_was_separator = False
+            for char in anchor_id:
+                if char in ' -':
+                    if not prev_was_separator:
+                        anchor_parts.append('-')
+                        prev_was_separator = True
+                else:
+                    anchor_parts.append(char)
+                    prev_was_separator = False
+            anchor_id = ''.join(anchor_parts).strip('-')
             
             indent = '  ' * (int(level) - 1)
             toc_items.append(f'{indent}- [{clean_title}](#{anchor_id})')
@@ -1075,13 +1248,8 @@ class MarkdownProcessor:
         # Escape HTML
         text = html_lib.escape(text)
         
-        # Headers
-        text = re.sub(r'^######\s+(.+)$', r'<h6>\1</h6>', text, flags=re.MULTILINE)
-        text = re.sub(r'^#####\s+(.+)$', r'<h5>\1</h5>', text, flags=re.MULTILINE)
-        text = re.sub(r'^####\s+(.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
-        text = re.sub(r'^###\s+(.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^##\s+(.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^#\s+(.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
+        # Headers - בטוח מפני ReDoS
+        text = self._process_headers_safe(text)
         
         # Bold and italic - בטוח מפני ReDoS
         text = self._process_emphasis_safe(text)
@@ -1089,32 +1257,28 @@ class MarkdownProcessor:
         # Strikethrough - בטוח מפני ReDoS
         text = self._process_strikethrough_safe(text)
         
-        # Links
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
-        
-        # Images
-        text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', r'<img src="\2" alt="\1">', text)
+        # Links and Images - בטוח מפני ReDoS
+        text = self._process_links_and_images_safe(text)
         
         # Code blocks - בטוח מפני ReDoS
         text = self._process_code_blocks_safe(text)
         
-        # Inline code
-        text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
+        # Inline code - בטוח מפני ReDoS
+        text = self._process_inline_code_safe(text)
         
-        # Blockquotes
-        text = re.sub(r'^>\s+(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
+        # Blockquotes - בטוח מפני ReDoS
+        text = self._process_blockquotes_safe(text)
         
         # Task lists FIRST - בטוח מפני ReDoS (חייב להיות לפני רשימות רגילות!)
         text = self._process_task_lists_safe(text)
         
-        # Lists (basic) - אחרי task lists
-        text = re.sub(r'^\*\s+(.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
-        text = re.sub(r'^-\s+(.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
-        text = re.sub(r'^\d+\.\s+(.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
+        # Lists (basic) - בטוח מפני ReDoS
+        text = self._process_lists_safe(text)
         
         # Paragraphs and line breaks
         if self.config['breaks']:
-            text = re.sub(r'\n', '<br>\n', text)
+            # החלף line breaks בצורה בטוחה
+            text = text.replace('\n', '<br>\n')
         
         # Wrap consecutive li elements in ul - בטוח מפני ReDoS
         text = self._wrap_list_items_safe(text)
