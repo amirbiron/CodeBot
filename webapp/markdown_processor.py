@@ -9,6 +9,7 @@ import json
 import html as html_lib
 from typing import Optional, Dict, Any
 import hashlib
+from html.parser import HTMLParser
 
 # נסה לייבא bleach לניקוי HTML
 try:
@@ -33,6 +34,84 @@ try:
     PYTHON_MARKDOWN_AVAILABLE = True
 except ImportError:
     PYTHON_MARKDOWN_AVAILABLE = False
+
+
+class SafeHTMLCleaner(HTMLParser):
+    """HTML parser שמנקה תגיות מסוכנות"""
+    
+    ALLOWED_TAGS = {
+        'p', 'br', 'hr', 'div', 'span',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins',
+        'ul', 'ol', 'li',
+        'a', 'img',
+        'blockquote', 'q', 'cite',
+        'code', 'pre',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'input',  # For checkboxes only
+        'sup', 'sub',
+    }
+    
+    ALLOWED_ATTRS = {
+        'a': {'href', 'title', 'target', 'rel'},
+        'img': {'src', 'alt', 'title', 'width', 'height'},
+        'input': {'type', 'checked', 'disabled', 'data-task-id'},
+        '*': {'class', 'id'},
+    }
+    
+    def __init__(self):
+        super().__init__()
+        self.result = []
+        self.stack = []
+    
+    def handle_starttag(self, tag, attrs):
+        if tag not in self.ALLOWED_TAGS:
+            return
+            
+        # Filter attributes
+        filtered_attrs = []
+        allowed_attrs_for_tag = self.ALLOWED_ATTRS.get(tag, set()) | self.ALLOWED_ATTRS.get('*', set())
+        
+        for attr_name, attr_value in attrs:
+            # Skip dangerous attributes
+            if attr_name.startswith('on'):  # Event handlers
+                continue
+            if attr_name in allowed_attrs_for_tag:
+                # Clean attribute values
+                if attr_name == 'href' or attr_name == 'src':
+                    # Block dangerous protocols
+                    if attr_value and any(attr_value.lower().startswith(p) for p in ['javascript:', 'vbscript:', 'data:text/html']):
+                        continue
+                filtered_attrs.append((attr_name, attr_value))
+        
+        # Special handling for input tags
+        if tag == 'input':
+            # Only allow checkboxes
+            if not any(attr[0] == 'type' and attr[1] == 'checkbox' for attr in filtered_attrs):
+                return
+        
+        # Build clean tag
+        attrs_str = ' '.join(f'{name}="{html_lib.escape(value)}"' for name, value in filtered_attrs)
+        if attrs_str:
+            self.result.append(f'<{tag} {attrs_str}>')
+        else:
+            self.result.append(f'<{tag}>')
+        self.stack.append(tag)
+    
+    def handle_endtag(self, tag):
+        if tag in self.ALLOWED_TAGS and self.stack and self.stack[-1] == tag:
+            self.result.append(f'</{tag}>')
+            self.stack.pop()
+    
+    def handle_data(self, data):
+        self.result.append(html_lib.escape(data))
+    
+    def get_clean_html(self):
+        # Close any unclosed tags
+        while self.stack:
+            tag = self.stack.pop()
+            self.result.append(f'</{tag}>')
+        return ''.join(self.result)
 
 
 class MarkdownProcessor:
@@ -218,17 +297,42 @@ class MarkdownProcessor:
             
             return cleaned
         else:
-            # Fallback: ניקוי בסיסי
-            # הסר תגיות script ו-style
-            html = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>', '', html, flags=re.IGNORECASE)
+            # Fallback: ניקוי בסיסי אבל יותר בטוח
+            # הסר תגיות script ו-style עם כל הווריאציות
+            # תומך ב: </script>, </script >, </SCRIPT>, וכו'
+            html = re.sub(r'<script[^>]*>.*?</script\s*>', '', html, flags=re.IGNORECASE | re.DOTALL)
+            html = re.sub(r'<style[^>]*>.*?</style\s*>', '', html, flags=re.IGNORECASE | re.DOTALL)
             
-            # הסר event handlers
+            # הסר תגיות script/style שלא נסגרו
+            html = re.sub(r'<script[^>]*>', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'<style[^>]*>', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'</script\s*>', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'</style\s*>', '', html, flags=re.IGNORECASE)
+            
+            # הסר event handlers (כל הווריאציות)
             html = re.sub(r'\s*on\w+\s*=\s*["\'][^"\']*["\']', '', html, flags=re.IGNORECASE)
             html = re.sub(r'\s*on\w+\s*=\s*[^\s>]+', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'\s*on\w+\s*=', '', html, flags=re.IGNORECASE)  # גם ללא ערך
             
-            # הסר javascript: URLs
-            html = re.sub(r'javascript:', '', html, flags=re.IGNORECASE)
+            # הסר javascript: ו-data: URLs
+            html = re.sub(r'javascript\s*:', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'data\s*:text/html', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'vbscript\s*:', '', html, flags=re.IGNORECASE)
+            
+            # הסר תגיות מסוכנות נוספות
+            dangerous_tags = ['iframe', 'embed', 'object', 'applet', 'meta', 'link', 'base']
+            for tag in dangerous_tags:
+                html = re.sub(f'<{tag}[^>]*>.*?</{tag}\s*>', '', html, flags=re.IGNORECASE | re.DOTALL)
+                html = re.sub(f'<{tag}[^>]*/?>', '', html, flags=re.IGNORECASE)
+            
+            # אם עדיין יש חשש, נשתמש ב-HTML parser לניקוי נוסף
+            try:
+                cleaner = SafeHTMLCleaner()
+                cleaner.feed(html)
+                html = cleaner.get_clean_html()
+            except Exception:
+                # במקרה של כישלון, נחזיר טקסט escaped
+                html = html_lib.escape(html)
             
             return html
     
