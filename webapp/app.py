@@ -1721,8 +1721,10 @@ def raw_markdown(file_id):
             'userId': int(session.get('user_id') or 0),
         }
         conf_json = json.dumps(conf_obj, ensure_ascii=False)
+        # הימנעות מ-backslash בתוך ביטוי f-string: נחשב מראש מחרוזת בטוחה ל-JS
+        conf_json_js = conf_json.replace('\\', '\\\\').replace("'", "\\'")
         extra_head += f"""
-  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = JSON.parse('{conf_json.replace("\\\\", "\\\\\\\\").replace("'", "\\'")}');<\/script>
+  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = JSON.parse('{conf_json_js}');<\/script>
         """
         extra_body_end += """
    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
