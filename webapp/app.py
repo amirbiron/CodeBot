@@ -27,6 +27,10 @@ from pathlib import Path
 import secrets
 import urllib.parse as urlparse
 import html as html_lib
+import logging
+
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
@@ -1535,14 +1539,16 @@ def create_public_share(file_id):
         try:
             coll.insert_one(doc)
         except Exception as e:
-            return jsonify({'ok': False, 'error': f'שגיאה בשמירה: {e}'}), 500
+            logging.exception("Error saving internal share document")
+            return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית'}), 500
 
         # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
         base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
         return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        logging.exception("Exception in create_public_share")
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית'}), 500
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
