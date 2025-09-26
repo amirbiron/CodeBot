@@ -52,6 +52,12 @@ class SafeHTMLCleaner(HTMLParser):
         'sup', 'sub',
     }
     
+    # תגיות שאסור לכלול כלל (גם לא את התוכן שלהן)
+    DANGEROUS_TAGS = {
+        'script', 'style', 'iframe', 'embed', 'object', 
+        'applet', 'meta', 'link', 'base'
+    }
+    
     ALLOWED_ATTRS = {
         'a': {'href', 'title', 'target', 'rel'},
         'img': {'src', 'alt', 'title', 'width', 'height'},
@@ -63,8 +69,18 @@ class SafeHTMLCleaner(HTMLParser):
         super().__init__()
         self.result = []
         self.stack = []
+        self.in_dangerous_tag = None  # Track if we're inside a dangerous tag
     
     def handle_starttag(self, tag, attrs):
+        # Check if this is a dangerous tag
+        if tag in self.DANGEROUS_TAGS:
+            self.in_dangerous_tag = tag
+            return
+            
+        # Skip if we're inside a dangerous tag
+        if self.in_dangerous_tag:
+            return
+            
         if tag not in self.ALLOWED_TAGS:
             return
             
@@ -99,11 +115,23 @@ class SafeHTMLCleaner(HTMLParser):
         self.stack.append(tag)
     
     def handle_endtag(self, tag):
+        # Check if we're closing a dangerous tag
+        if tag in self.DANGEROUS_TAGS and self.in_dangerous_tag == tag:
+            self.in_dangerous_tag = None
+            return
+            
+        # Skip if we're inside a dangerous tag
+        if self.in_dangerous_tag:
+            return
+            
         if tag in self.ALLOWED_TAGS and self.stack and self.stack[-1] == tag:
             self.result.append(f'</{tag}>')
             self.stack.pop()
     
     def handle_data(self, data):
+        # אל תוסיף data אם אנחנו בתוך תג מסוכן
+        if self.in_dangerous_tag:
+            return
         self.result.append(html_lib.escape(data))
     
     def get_clean_html(self):
@@ -297,44 +325,134 @@ class MarkdownProcessor:
             
             return cleaned
         else:
-            # Fallback: ניקוי בסיסי אבל יותר בטוח
-            # הסר תגיות script ו-style עם כל הווריאציות
-            # תומך ב: </script>, </script >, </SCRIPT>, וכו'
-            html = re.sub(r'<script[^>]*>.*?</script\s*>', '', html, flags=re.IGNORECASE | re.DOTALL)
-            html = re.sub(r'<style[^>]*>.*?</style\s*>', '', html, flags=re.IGNORECASE | re.DOTALL)
-            
-            # הסר תגיות script/style שלא נסגרו
-            html = re.sub(r'<script[^>]*>', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'<style[^>]*>', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'</script\s*>', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'</style\s*>', '', html, flags=re.IGNORECASE)
-            
-            # הסר event handlers (כל הווריאציות)
-            html = re.sub(r'\s*on\w+\s*=\s*["\'][^"\']*["\']', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'\s*on\w+\s*=\s*[^\s>]+', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'\s*on\w+\s*=', '', html, flags=re.IGNORECASE)  # גם ללא ערך
-            
-            # הסר javascript: ו-data: URLs
-            html = re.sub(r'javascript\s*:', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'data\s*:text/html', '', html, flags=re.IGNORECASE)
-            html = re.sub(r'vbscript\s*:', '', html, flags=re.IGNORECASE)
-            
-            # הסר תגיות מסוכנות נוספות
-            dangerous_tags = ['iframe', 'embed', 'object', 'applet', 'meta', 'link', 'base']
-            for tag in dangerous_tags:
-                html = re.sub(f'<{tag}[^>]*>.*?</{tag}\s*>', '', html, flags=re.IGNORECASE | re.DOTALL)
-                html = re.sub(f'<{tag}[^>]*/?>', '', html, flags=re.IGNORECASE)
-            
-            # אם עדיין יש חשש, נשתמש ב-HTML parser לניקוי נוסף
+            # Fallback: ניקוי בסיסי עם HTML parser במקום regex מסוכן
+            # שימוש ב-HTML parser מונע ReDoS attacks
             try:
+                # ניסיון ראשון: השתמש ב-SafeHTMLCleaner שלנו
                 cleaner = SafeHTMLCleaner()
                 cleaner.feed(html)
-                html = cleaner.get_clean_html()
+                return cleaner.get_clean_html()
             except Exception:
-                # במקרה של כישלון, נחזיר טקסט escaped
-                html = html_lib.escape(html)
-            
-            return html
+                # אם נכשל, נעשה ניקוי מינימלי בטוח
+                # במקום regex מסוכן, נעבור תו-תו בצורה בטוחה
+                return self._safe_minimal_clean(html)
+    
+    def _safe_minimal_clean(self, html: str) -> str:
+        """
+        ניקוי מינימלי בטוח ללא regex מסוכן
+        מונע ReDoS attacks על ידי עיבוד תו-תו
+        """
+        if not html:
+            return ""
+        
+        # רשימת תגיות מסוכנות לחסימה
+        dangerous_tags = {'script', 'style', 'iframe', 'embed', 'object', 'applet', 'meta', 'link', 'base'}
+        
+        # רשימת event handlers לחסימה
+        event_handlers = {
+            'onabort', 'onblur', 'onchange', 'onclick', 'ondblclick', 'onerror', 'onfocus',
+            'onkeydown', 'onkeypress', 'onkeyup', 'onload', 'onmousedown', 'onmousemove',
+            'onmouseout', 'onmouseover', 'onmouseup', 'onreset', 'onresize', 'onselect',
+            'onsubmit', 'onunload', 'onbeforeunload', 'onhashchange', 'onmessage', 'onoffline',
+            'ononline', 'onpopstate', 'onredo', 'onstorage', 'onundo', 'onunload'
+        }
+        
+        result = []
+        i = 0
+        length = len(html)
+        
+        while i < length:
+            if html[i] == '<':
+                # מצאנו תחילת תג
+                tag_start = i
+                i += 1
+                
+                # דלג על רווחים
+                while i < length and html[i].isspace():
+                    i += 1
+                
+                # בדוק אם זו תגית סגירה
+                is_closing = False
+                if i < length and html[i] == '/':
+                    is_closing = True
+                    i += 1
+                    while i < length and html[i].isspace():
+                        i += 1
+                
+                # קרא את שם התג
+                tag_name_start = i
+                while i < length and (html[i].isalnum() or html[i] in '-_'):
+                    i += 1
+                tag_name = html[tag_name_start:i].lower()
+                
+                # בדוק אם התג מסוכן
+                if tag_name in dangerous_tags:
+                    # דלג על כל התג
+                    while i < length and html[i] != '>':
+                        i += 1
+                    if i < length:
+                        i += 1  # דלג על '>'
+                    continue
+                
+                # עבור תגים בטוחים, בדוק attributes
+                tag_content = html[tag_start:i]
+                
+                # חפש את סוף התג
+                tag_end = i
+                in_quotes = False
+                quote_char = None
+                
+                while tag_end < length:
+                    if not in_quotes:
+                        if html[tag_end] == '>':
+                            break
+                        elif html[tag_end] in '"\'':
+                            in_quotes = True
+                            quote_char = html[tag_end]
+                    else:
+                        if html[tag_end] == quote_char and (tag_end == 0 or html[tag_end-1] != '\\'):
+                            in_quotes = False
+                            quote_char = None
+                    tag_end += 1
+                
+                if tag_end < length:
+                    tag_full = html[tag_start:tag_end+1]
+                    
+                    # בדוק event handlers בצורה בטוחה
+                    tag_lower = tag_full.lower()
+                    has_event_handler = False
+                    for handler in event_handlers:
+                        # חיפוש פשוט ללא regex
+                        if handler in tag_lower:
+                            # בדוק שזה באמת attribute ולא חלק מטקסט
+                            handler_pos = tag_lower.find(handler)
+                            if handler_pos > 0:
+                                # בדוק שיש = אחרי ה-handler
+                                next_pos = handler_pos + len(handler)
+                                while next_pos < len(tag_lower) and tag_lower[next_pos].isspace():
+                                    next_pos += 1
+                                if next_pos < len(tag_lower) and tag_lower[next_pos] == '=':
+                                    has_event_handler = True
+                                    break
+                    
+                    # בדוק javascript: URLs
+                    if 'javascript:' in tag_lower or 'vbscript:' in tag_lower or 'data:text/html' in tag_lower:
+                        has_event_handler = True
+                    
+                    if not has_event_handler:
+                        result.append(tag_full)
+                    
+                    i = tag_end + 1
+                else:
+                    i = length
+            else:
+                # טקסט רגיל
+                text_start = i
+                while i < length and html[i] != '<':
+                    i += 1
+                result.append(html[text_start:i])
+        
+        return ''.join(result)
     
     def _add_target_blank(self, attrs, new=False):
         """הוסף target="_blank" לקישורים חיצוניים"""
