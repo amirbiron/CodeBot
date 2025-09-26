@@ -618,58 +618,259 @@ class MarkdownProcessor:
         return text
     
     def _process_mermaid_blocks(self, html: str) -> str:
-        """עיבוד בלוקי Mermaid"""
-        # החלף בלוקי mermaid ב-div מיוחד
-        pattern = r'<pre><code class="language-mermaid">(.*?)</code></pre>'
+        """עיבוד בלוקי Mermaid - בטוח מפני ReDoS"""
+        result = []
+        pos = 0
         
-        def replace_mermaid(match):
-            content = html_lib.unescape(match.group(1))
-            return f'<div class="mermaid-diagram" data-mermaid="{html_lib.escape(content, quote=True)}">{html_lib.escape(content)}</div>'
+        # חפש בלוקי mermaid בצורה בטוחה ללא regex
+        start_tag = '<pre><code class="language-mermaid">'
+        end_tag = '</code></pre>'
         
-        return re.sub(pattern, replace_mermaid, html, flags=re.DOTALL)
+        while True:
+            # מצא את תחילת הבלוק הבא
+            start_idx = html.find(start_tag, pos)
+            if start_idx == -1:
+                # אין יותר בלוקים, הוסף את השארית
+                result.append(html[pos:])
+                break
+            
+            # הוסף את הטקסט לפני הבלוק
+            result.append(html[pos:start_idx])
+            
+            # מצא את סוף הבלוק
+            content_start = start_idx + len(start_tag)
+            end_idx = html.find(end_tag, content_start)
+            
+            if end_idx == -1:
+                # בלוק לא סגור, השאר כמו שהוא
+                result.append(html[start_idx:])
+                break
+            
+            # חלץ את התוכן
+            content = html[content_start:end_idx]
+            content_unescaped = html_lib.unescape(content)
+            
+            # צור את ה-div החדש
+            mermaid_div = f'<div class="mermaid-diagram" data-mermaid="{html_lib.escape(content_unescaped, quote=True)}">{html_lib.escape(content_unescaped)}</div>'
+            result.append(mermaid_div)
+            
+            # המשך מאחרי הבלוק
+            pos = end_idx + len(end_tag)
+        
+        return ''.join(result)
     
     def _process_math_blocks(self, html: str) -> str:
-        """עיבוד בלוקי מתמטיקה"""
+        """עיבוד בלוקי מתמטיקה - בטוח מפני ReDoS"""
+        
+        def process_delimited_content(text: str, start_delim: str, end_delim: str, 
+                                     wrapper_tag: str, css_class: str) -> str:
+            """עיבוד תוכן עם delimiters בצורה בטוחה"""
+            result = []
+            pos = 0
+            
+            while True:
+                # מצא את ה-delimiter הבא
+                start_idx = text.find(start_delim, pos)
+                if start_idx == -1:
+                    result.append(text[pos:])
+                    break
+                
+                # הוסף טקסט לפני
+                result.append(text[pos:start_idx])
+                
+                # מצא את הסוף
+                content_start = start_idx + len(start_delim)
+                end_idx = text.find(end_delim, content_start)
+                
+                if end_idx == -1:
+                    # לא נמצא סוף, השאר כמו שהוא
+                    result.append(text[start_idx:])
+                    break
+                
+                # חלץ תוכן
+                content = text[content_start:end_idx]
+                
+                # אל תעבד אם התוכן ארוך מדי (הגנה נוספת)
+                if len(content) > 10000:
+                    result.append(text[start_idx:end_idx + len(end_delim)])
+                else:
+                    # צור את ה-wrapper
+                    escaped_content = html_lib.escape(content)
+                    escaped_attr = html_lib.escape(content, quote=True)
+                    
+                    if wrapper_tag == 'div':
+                        if start_delim == '$$':
+                            wrapped = f'<div class="{css_class}" data-math="{escaped_attr}">$${escaped_content}$$</div>'
+                        else:  # \[
+                            wrapped = f'<div class="{css_class}" data-math="{escaped_attr}">\\[{escaped_content}\\]</div>'
+                    else:  # span
+                        if start_delim == '$':
+                            wrapped = f'<span class="{css_class}" data-math="{escaped_attr}">${escaped_content}$</span>'
+                        else:  # \(
+                            wrapped = f'<span class="{css_class}" data-math="{escaped_attr}">\\({escaped_content}\\)</span>'
+                    
+                    result.append(wrapped)
+                
+                pos = end_idx + len(end_delim)
+            
+            return ''.join(result)
+        
         # עיבוד display math ($$...$$)
-        html = re.sub(
-            r'\$\$([^$]+)\$\$',
-            r'<div class="math-display" data-math="\1">$$\1$$</div>',
-            html
-        )
+        html = process_delimited_content(html, '$$', '$$', 'div', 'math-display')
+        
+        # עיבוד LaTeX-style display math (\[...\])
+        html = process_delimited_content(html, '\\[', '\\]', 'div', 'math-display')
         
         # עיבוד inline math ($...$)
-        html = re.sub(
-            r'\$([^$]+)\$',
-            r'<span class="math-inline" data-math="\1">$\1$</span>',
-            html
-        )
+        html = process_delimited_content(html, '$', '$', 'span', 'math-inline')
         
-        # עיבוד LaTeX style
-        html = re.sub(
-            r'\\\[(.*?)\\\]',
-            r'<div class="math-display" data-math="\1">\[\1\]</div>',
-            html,
-            flags=re.DOTALL
-        )
-        
-        html = re.sub(
-            r'\\\((.*?)\\\)',
-            r'<span class="math-inline" data-math="\1">\(\1\)</span>',
-            html
-        )
+        # עיבוד LaTeX-style inline math (\(...\))
+        html = process_delimited_content(html, '\\(', '\\)', 'span', 'math-inline')
         
         return html
     
+    def _strip_html_tags(self, text: str) -> str:
+        """הסרת תגיות HTML בצורה בטוחה"""
+        result = []
+        in_tag = False
+        
+        for char in text:
+            if char == '<':
+                in_tag = True
+            elif char == '>':
+                in_tag = False
+            elif not in_tag:
+                result.append(char)
+        
+        return ''.join(result)
+    
+    def _process_code_blocks_safe(self, text: str) -> str:
+        """עיבוד code blocks בצורה בטוחה מפני ReDoS"""
+        result = []
+        pos = 0
+        
+        while True:
+            # חפש תחילת code block
+            start = text.find('```', pos)
+            if start == -1:
+                result.append(text[pos:])
+                break
+            
+            # הוסף טקסט לפני
+            result.append(text[pos:start])
+            
+            # חפש שפה (אופציונלי)
+            lang_start = start + 3
+            newline_pos = text.find('\n', lang_start)
+            if newline_pos == -1:
+                # אין newline, לא code block תקין
+                result.append('```')
+                pos = lang_start
+                continue
+            
+            # חלץ שפה
+            lang = text[lang_start:newline_pos].strip()
+            if not lang or not lang.replace('-', '').replace('_', '').isalnum():
+                lang = 'text'
+            
+            # חפש סוף code block
+            code_start = newline_pos + 1
+            end = text.find('```', code_start)
+            if end == -1:
+                # code block לא סגור
+                result.append(text[start:])
+                break
+            
+            # חלץ קוד
+            code = text[code_start:end]
+            
+            # צור HTML
+            escaped_code = html_lib.escape(code)
+            result.append(f'<pre><code class="language-{lang}">{escaped_code}</code></pre>')
+            
+            pos = end + 3
+        
+        return ''.join(result)
+    
+    def _wrap_list_items_safe(self, text: str) -> str:
+        """עטיפת list items ב-ul בצורה בטוחה מפני ReDoS"""
+        lines = text.split('\n')
+        result = []
+        in_list = False
+        list_items = []
+        
+        for line in lines:
+            if line.strip().startswith('<li'):
+                # זה list item
+                if not in_list:
+                    in_list = True
+                    list_items = []
+                list_items.append(line)
+            else:
+                # לא list item
+                if in_list:
+                    # סיים את הרשימה
+                    result.append('<ul>')
+                    result.extend(list_items)
+                    result.append('</ul>')
+                    in_list = False
+                    list_items = []
+                result.append(line)
+        
+        # אם נשארנו עם רשימה פתוחה
+        if in_list and list_items:
+            result.append('<ul>')
+            result.extend(list_items)
+            result.append('</ul>')
+        
+        return '\n'.join(result)
+    
     def _generate_toc(self, html: str) -> str:
-        """יצירת תוכן עניינים מהכותרות"""
-        headers = re.findall(r'<h([1-6])[^>]*>(.*?)</h\1>', html)
+        """יצירת תוכן עניינים מהכותרות - בטוח מפני ReDoS"""
+        headers = []
+        pos = 0
+        
+        # חפש headers בצורה בטוחה ללא regex עם backtracking
+        while pos < len(html):
+            # חפש תחילת header
+            h_start = html.find('<h', pos)
+            if h_start == -1:
+                break
+            
+            # בדוק שזה h1-h6
+            if h_start + 2 >= len(html):
+                break
+                
+            level_char = html[h_start + 2]
+            if not level_char.isdigit() or level_char not in '123456':
+                pos = h_start + 1
+                continue
+            
+            # מצא סוף התג הפותח
+            tag_end = html.find('>', h_start)
+            if tag_end == -1:
+                break
+            
+            # מצא תג סגירה
+            close_tag = f'</h{level_char}>'
+            content_end = html.find(close_tag, tag_end)
+            if content_end == -1:
+                pos = tag_end + 1
+                continue
+            
+            # חלץ תוכן
+            content = html[tag_end + 1:content_end]
+            headers.append((level_char, content))
+            
+            pos = content_end + len(close_tag)
+        
         if not headers:
             return ''
         
         toc_items = []
         for level, title in headers:
-            # נקה HTML tags מהכותרת
-            clean_title = re.sub(r'<[^>]+>', '', title)
+            # נקה HTML tags מהכותרת בצורה בטוחה
+            clean_title = self._strip_html_tags(title)
             # צור anchor ID
             anchor_id = re.sub(r'[^\w\s-]', '', clean_title.lower())
             anchor_id = re.sub(r'[-\s]+', '-', anchor_id)
@@ -709,8 +910,8 @@ class MarkdownProcessor:
         # Images
         text = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', r'<img src="\2" alt="\1">', text)
         
-        # Code blocks
-        text = re.sub(r'```(\w+)?\n(.*?)```', lambda m: f'<pre><code class="language-{m.group(1) or "text"}">{html_lib.escape(m.group(2))}</code></pre>', text, flags=re.DOTALL)
+        # Code blocks - בטוח מפני ReDoS
+        text = self._process_code_blocks_safe(text)
         
         # Inline code
         text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
@@ -731,8 +932,8 @@ class MarkdownProcessor:
         if self.config['breaks']:
             text = re.sub(r'\n', '<br>\n', text)
         
-        # Wrap consecutive li elements in ul
-        text = re.sub(r'(<li[^>]*>.*?</li>\n?)+', lambda m: f'<ul>{m.group(0)}</ul>', text, flags=re.DOTALL)
+        # Wrap consecutive li elements in ul - בטוח מפני ReDoS
+        text = self._wrap_list_items_safe(text)
         
         # Wrap in paragraphs
         paragraphs = []
