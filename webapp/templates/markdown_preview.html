@@ -68,10 +68,10 @@
 
 <div class="glass-card preview-container">
     <div style="display: flex; gap: .5rem; padding: .5rem; align-items: center; flex-wrap: wrap;">
-        <label style="display:flex; gap:.5rem; align-items:center;">
-            <input id="toggleJs" type="checkbox"> אפשר JS (מוגבל)
-        </label>
-        <small style="opacity:.8;">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
+        <div class="btn-group" role="group" aria-label="view-toggle">
+            <button id="btnRendered" class="btn btn-primary btn-icon">🌐 תצוגה מעוצבת</button>
+            <button id="btnRaw" class="btn btn-secondary btn-icon">📝 טקסט גולמי</button>
+        </div>
         <button id="btnFullscreen" class="btn btn-secondary btn-icon" style="margin-inline-start:auto;">
             <i class="fas fa-expand"></i>
             מסך מלא
@@ -82,7 +82,7 @@
         </a>
     </div>
     <iframe
-        id="previewFrame"
+        id="renderedFrame"
         class="preview-iframe"
         src="/raw_markdown/{{ file.id }}"
         sandbox="allow-modals"
@@ -90,42 +90,58 @@
         loading="eager"
         title="Markdown Preview"
     ></iframe>
-    
-    
+    <textarea id="rawView" class="preview-iframe" style="display:none; padding:1rem; font-family: 'Fira Code', monospace; font-size: 14px; white-space: pre; line-height: 1.5;">טוען…</textarea>
     
 </div>
 <script>
 (function(){
-  const cb = document.getElementById('toggleJs');
-  const frame = document.getElementById('previewFrame');
+  const frame = document.getElementById('renderedFrame');
+  const raw = document.getElementById('rawView');
   const btnFs = document.getElementById('btnFullscreen');
-  const btnNew = document.getElementById('btnNewWindow');
-  if (!frame) return;
-  function update(){
-    const url = new URL(frame.src, window.location.origin);
-    if (cb && cb.checked) {
-      url.searchParams.set('allow', 'scripts');
-      frame.setAttribute('sandbox', 'allow-scripts allow-modals');
-      if (btnNew) btnNew.href = (new URL(frame.src, window.location.origin)).toString().replace(/([?&])allow=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
-    } else {
-      url.searchParams.delete('allow');
-      frame.setAttribute('sandbox', 'allow-modals');
-      if (btnNew) btnNew.href = url.toString();
-    }
-    if (frame.src !== url.toString()) {
-      frame.src = url.toString();
-    } else {
-      try { frame.contentWindow.location.reload(); } catch(e) {}
+  const btnRendered = document.getElementById('btnRendered');
+  const btnRaw = document.getElementById('btnRaw');
+  let current = 'rendered';
+
+  async function loadRaw(){
+    try {
+      const resp = await fetch('/api/markdown_render/{{ file.id }}', {headers: {'Accept': 'application/json'}});
+      const data = await resp.json();
+      if (data && data.ok && raw) {
+        raw.value = data.raw || '';
+      }
+    } catch (e) {
+      if (raw) raw.value = 'שגיאה בטעינה';
     }
   }
-  if (cb) cb.addEventListener('change', update);
+
+  function showRendered(){
+    current = 'rendered';
+    if (frame) frame.style.display = '';
+    if (raw) raw.style.display = 'none';
+    if (btnRendered) { btnRendered.classList.remove('btn-secondary'); btnRendered.classList.add('btn-primary'); }
+    if (btnRaw) { btnRaw.classList.remove('btn-primary'); btnRaw.classList.add('btn-secondary'); }
+  }
+
+  function showRaw(){
+    current = 'raw';
+    if (frame) frame.style.display = 'none';
+    if (raw) raw.style.display = '';
+    if (btnRendered) { btnRendered.classList.remove('btn-primary'); btnRendered.classList.add('btn-secondary'); }
+    if (btnRaw) { btnRaw.classList.remove('btn-secondary'); btnRaw.classList.add('btn-primary'); }
+  }
+
+  if (btnRendered) btnRendered.addEventListener('click', function(e){ e.preventDefault(); showRendered(); });
+  if (btnRaw) btnRaw.addEventListener('click', function(e){ e.preventDefault(); showRaw(); });
+  loadRaw();
+
   if (btnFs) {
     btnFs.addEventListener('click', async function(){
       try {
-        if (document.fullscreenElement === frame) {
+        const target = current === 'raw' ? raw : frame;
+        if (document.fullscreenElement === target) {
           await document.exitFullscreen();
         } else {
-          await frame.requestFullscreen();
+          await target.requestFullscreen();
         }
       } catch(e) { console.error(e); }
     });
