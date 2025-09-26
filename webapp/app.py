@@ -1732,7 +1732,8 @@ def create_public_share(file_id):
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
         return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        print(f"Error in create_public_share: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to create share link'}), 500
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -2084,9 +2085,10 @@ def health():
             health_data['database'] = 'connected'
             health_data['status'] = 'healthy'
     except Exception as e:
+        print(f"Health check database error: {e}")
         health_data['database'] = 'error'
         health_data['status'] = 'unhealthy'
-        health_data['error'] = str(e)
+        health_data['error'] = 'Database connection failed'
     
     return jsonify(health_data)
 
@@ -2137,7 +2139,8 @@ def api_persistent_login():
 
         return resp
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        print(f"Error in api_persistent_login: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to update login settings'}), 500
 
 @app.route('/api/task_lists/<file_id>', methods=['GET', 'POST'])
 @login_required
@@ -2193,7 +2196,10 @@ def api_task_lists(file_id):
                 return jsonify({'error': 'Update failed'}), 500
                 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Log the actual error for debugging
+        print(f"Error in api_task_lists: {e}")
+        # Return generic error message to user
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/task_stats')
 @login_required
@@ -2209,7 +2215,10 @@ def api_task_stats():
         stats = task_manager.get_user_statistics(user_id)
         return jsonify(stats)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Log the actual error for debugging
+        print(f"Error in api_task_stats: {e}")
+        # Return generic error message to user
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/render_markdown', methods=['POST'])
 def api_render_markdown():
@@ -2242,7 +2251,8 @@ def api_render_markdown():
                 'error': 'Markdown processor not available'
             })
     except Exception as e:
-        return jsonify({'html': '', 'error': str(e)}), 500
+        print(f"Error in api_render_markdown: {e}")
+        return jsonify({'html': '', 'error': 'Failed to render markdown'}), 500
 
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
@@ -2273,7 +2283,8 @@ def api_ui_prefs():
             pass
         return resp
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        print(f"Error in api_ui_prefs: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to save preferences'}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
@@ -2332,7 +2343,7 @@ def api_public_stats():
     except Exception as e:
         return jsonify({
             "ok": False,
-            "error": str(e),
+            "error": "Failed to retrieve statistics",
             "total_users": 0,
             "active_users_24h": 0,
             "total_snippets": 0,
