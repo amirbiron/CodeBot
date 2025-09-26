@@ -1801,23 +1801,25 @@ def raw_markdown(file_id):
             .catch(function(err){ showError('טעינת משימות נכשלה: ' + (err && err.message || 'שגיאה')); })
         ) : Promise.resolve({ ok:false });
 
-         // שלב 3: מצב פרויקט-משתמש (מפתחים: מאחסן במבנה fileId:index)
-         const p2 = (project ? fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), { credentials: 'same-origin' }) : Promise.resolve({ok:false}))
-          .then(r => (r && r.ok) ? r.json() : (function(){ throw new Error('GET /api/markdown_tasks_project: ' + (r && r.status)); })())
-           .then(d => {
-             if (d && d.ok && d.state) {
-               // חלץ רק הערכים של הקובץ הנוכחי
-               const m = {};
-               Object.keys(d.state).forEach(k => {
-                 if (k.startsWith(fileId + ':')) {
-                   const id = k.slice(fileId.length + 1);
-                   m[id] = !!d.state[k];
-                 }
-               });
-               merged = Object.assign({}, merged, m);
-             }
-          })
-          .catch(function(err){ if (project) { showError('טעינת מצב פרויקט נכשלה: ' + (err && err.message || 'שגיאה')); } });
+        // שלב 3: מצב פרויקט-משתמש (מפתחים: מאחסן במבנה fileId:index)
+        const p2 = (project && fileId) ? (
+          fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), { credentials: 'same-origin' })
+            .then(function(r){ if (!r || !r.ok) { throw new Error('GET /api/markdown_tasks_project: ' + (r && r.status)); } return r.json(); })
+            .then(function(d){
+              if (d && d.ok && d.state) {
+                // חלץ רק הערכים של הקובץ הנוכחי
+                const m = {};
+                Object.keys(d.state).forEach(function(k){
+                  if (k && typeof k === 'string' && k.startsWith(fileId + ':')) {
+                    const id = k.slice(fileId.length + 1);
+                    m[id] = !!d.state[k];
+                  }
+                });
+                merged = Object.assign({}, merged, m);
+              }
+            })
+            .catch(function(err){ showError('טעינת מצב פרויקט נכשלה: ' + (err && err.message || 'שגיאה')); })
+        ) : Promise.resolve({ ok:false });
 
          Promise.all([p1,p2]).then(function(){ applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); });
 
@@ -1841,7 +1843,7 @@ def raw_markdown(file_id):
                 showError('לא ניתן לשמור מצב משימות: מזהה קובץ חסר.');
               }
              } catch(e) {}
-             if (project) {
+            if (project && fileId) {
                try {
                  fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), {
                    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
