@@ -36,6 +36,14 @@ except ImportError:
     MARKDOWN_AVAILABLE = False
     print("Warning: Markdown processor not available")
 
+# ייבוא מנהל Task Lists
+try:
+    from task_lists_manager import TaskListsManager
+    TASK_LISTS_AVAILABLE = True
+except ImportError:
+    TASK_LISTS_AVAILABLE = False
+    print("Warning: Task Lists manager not available")
+
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
@@ -1997,6 +2005,14 @@ def settings():
                          persistent_login_enabled=has_persistent,
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """הגשת קבצים סטטיים"""
+    from flask import send_from_directory
+    import os
+    static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    return send_from_directory(static_dir, filename)
+
 @app.route('/health')
 def health():
     """בדיקת תקינות"""
@@ -2084,6 +2100,78 @@ def api_persistent_login():
         return resp
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/api/task_lists/<file_id>', methods=['GET', 'POST'])
+@login_required
+def api_task_lists(file_id):
+    """API לניהול Task Lists"""
+    if not TASK_LISTS_AVAILABLE:
+        return jsonify({'error': 'Task Lists not available'}), 503
+    
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        
+        # בדיקת הרשאות - וודא שהקובץ שייך למשתמש
+        try:
+            file = db.code_snippets.find_one({
+                '_id': ObjectId(file_id),
+                'user_id': user_id
+            })
+            if not file:
+                return jsonify({'error': 'File not found or access denied'}), 404
+        except:
+            return jsonify({'error': 'Invalid file ID'}), 400
+        
+        task_manager = TaskListsManager(db)
+        
+        if request.method == 'GET':
+            # קבלת מצב כל ה-tasks
+            states = task_manager.get_task_states(user_id, file_id)
+            return jsonify({'states': states})
+        
+        elif request.method == 'POST':
+            data = request.get_json()
+            
+            if 'tasks' in data:
+                # עדכון מרובה
+                success = task_manager.bulk_update_tasks(
+                    user_id, file_id, data['tasks']
+                )
+            elif 'task_id' in data:
+                # עדכון בודד
+                success = task_manager.update_task_state(
+                    user_id, file_id,
+                    data['task_id'],
+                    data.get('checked', False),
+                    data.get('text', '')
+                )
+            else:
+                return jsonify({'error': 'Invalid request'}), 400
+            
+            if success:
+                return jsonify({'success': True})
+            else:
+                return jsonify({'error': 'Update failed'}), 500
+                
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/task_stats')
+@login_required
+def api_task_stats():
+    """קבלת סטטיסטיקות Task Lists של המשתמש"""
+    if not TASK_LISTS_AVAILABLE:
+        return jsonify({'error': 'Task Lists not available'}), 503
+    
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        task_manager = TaskListsManager(db)
+        stats = task_manager.get_user_statistics(user_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/render_markdown', methods=['POST'])
 def api_render_markdown():

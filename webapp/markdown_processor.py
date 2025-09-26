@@ -10,6 +10,14 @@ import html as html_lib
 from typing import Optional, Dict, Any
 import hashlib
 
+# נסה לייבא bleach לניקוי HTML
+try:
+    import bleach
+    from bleach.css_sanitizer import CSSSanitizer
+    BLEACH_AVAILABLE = True
+except ImportError:
+    BLEACH_AVAILABLE = False
+
 # נסה לייבא markdown-it-py (ספרייה מתקדמת)
 try:
     import markdown_it
@@ -141,6 +149,94 @@ class MarkdownProcessor:
         # החלף את ה-renderer
         self.md.renderer.rules['list_item_open'] = render_list_item_open
     
+    def sanitize_html(self, html: str) -> str:
+        """
+        ניקוי HTML למניעת XSS
+        
+        Args:
+            html: HTML לניקוי
+            
+        Returns:
+            HTML מנוקה ובטוח
+        """
+        if BLEACH_AVAILABLE:
+            # רשימת תגיות מותרות
+            allowed_tags = [
+                'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'p', 'br', 'hr',
+                'strong', 'b', 'em', 'i', 'del', 's', 'strike', 'code', 'pre',
+                'ul', 'ol', 'li',
+                'blockquote', 'q',
+                'a', 'img',
+                'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+                'div', 'span', 'section', 'article',
+                'input',  # עבור checkboxes
+                'sup', 'sub',  # עבור נוסחאות
+            ]
+            
+            # רשימת attributes מותרים
+            allowed_attributes = {
+                '*': ['class', 'id'],
+                'a': ['href', 'title', 'target', 'rel'],
+                'img': ['src', 'alt', 'title', 'width', 'height'],
+                'input': ['type', 'checked', 'disabled', 'data-task-id'],
+                'div': ['data-mermaid', 'data-math'],
+                'span': ['data-math'],
+                'code': ['class'],
+                'pre': ['class'],
+            }
+            
+            # CSS sanitizer
+            css_sanitizer = CSSSanitizer(allowed_css_properties=[
+                'color', 'background-color', 'font-size', 'font-weight',
+                'text-align', 'margin', 'padding', 'border',
+                'width', 'height', 'max-width', 'max-height'
+            ])
+            
+            # ניקוי HTML
+            cleaned = bleach.clean(
+                html,
+                tags=allowed_tags,
+                attributes=allowed_attributes,
+                css_sanitizer=css_sanitizer,
+                strip=True
+            )
+            
+            # וודא שלינקים נפתחים בחלון חדש
+            cleaned = bleach.linkify(
+                cleaned,
+                callbacks=[self._add_target_blank],
+                skip_tags=['pre', 'code']
+            )
+            
+            return cleaned
+        else:
+            # Fallback: ניקוי בסיסי
+            # הסר תגיות script ו-style
+            html = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>', '', html, flags=re.IGNORECASE)
+            
+            # הסר event handlers
+            html = re.sub(r'\s*on\w+\s*=\s*["\'][^"\']*["\']', '', html, flags=re.IGNORECASE)
+            html = re.sub(r'\s*on\w+\s*=\s*[^\s>]+', '', html, flags=re.IGNORECASE)
+            
+            # הסר javascript: URLs
+            html = re.sub(r'javascript:', '', html, flags=re.IGNORECASE)
+            
+            return html
+    
+    def _add_target_blank(self, attrs, new=False):
+        """הוסף target="_blank" לקישורים חיצוניים"""
+        attrs = dict(attrs) if attrs else {}
+        
+        # בדוק אם זה קישור חיצוני
+        href = attrs.get((None, 'href'), '')
+        if href and (href.startswith('http://') or href.startswith('https://')):
+            attrs[(None, 'target')] = '_blank'
+            attrs[(None, 'rel')] = 'noopener noreferrer'
+        
+        return attrs
+    
     def render(self, text: str) -> Dict[str, Any]:
         """
         עיבוד Markdown ל-HTML מעוצב
@@ -195,6 +291,9 @@ class MarkdownProcessor:
         
         if has_math and self.config['math']:
             html = self._process_math_blocks(html)
+        
+        # נקה את ה-HTML למניעת XSS
+        html = self.sanitize_html(html)
         
         # הוסף wrapper classes
         html = f'<div class="markdown-content">{html}</div>'
