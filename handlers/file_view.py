@@ -696,9 +696,24 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         user_id = update.effective_user.id
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
+        # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
         if not file_data:
-            await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-            return ConversationHandler.END
+            try:
+                lf = db.get_large_file(user_id, file_name)
+            except Exception:
+                lf = None
+            if lf:
+                file_data = {
+                    'file_name': lf.get('file_name', file_name),
+                    'code': lf.get('content', ''),
+                    'programming_language': lf.get('programming_language', 'text'),
+                    'version': 1,
+                    'description': lf.get('description', ''),
+                    '_id': lf.get('_id')
+                }
+            else:
+                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+                return ConversationHandler.END
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
