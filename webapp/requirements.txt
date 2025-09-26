@@ -30,6 +30,6 @@ redis==5.0.1
 # Markdown Processing
 markdown-it-py==3.0.0  # מעבד Markdown מתקדם (markdown-it port)
 mdit-py-plugins==0.4.0  # תוספים ל-markdown-it-py
-python-markdown==3.5.1  # Fallback markdown processor
+markdown>=3.6  # Fallback markdown processor
 markdown-checklist==0.4.3  # תמיכה ב-task lists
 bleach==6.1.0  # ניקוי HTML לאבטחה
