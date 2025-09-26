@@ -152,6 +152,31 @@ def get_db():
             raise
     return db
 
+def get_ui_theme_value() -> str:
+    """החזרת ערכת הנושא הפעילה ('classic'/'ocean'/'forest') עבור המשתמש הנוכחי.
+
+    לוגיקה תואמת ל-context_processor: cookie קודם, ואם יש משתמש – העדפת DB גוברת.
+    """
+    theme = 'classic'
+    try:
+        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        if cookie_theme:
+            theme = cookie_theme
+        if 'user_id' in session:
+            try:
+                _db = get_db()
+                u = _db.users.find_one({'user_id': session['user_id']}) or {}
+                t = ((u.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                if t:
+                    theme = t
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if theme not in {'classic','ocean','forest'}:
+        theme = 'classic'
+    return theme
+
 # ---------- Markdown advanced rendering helpers ----------
 def _render_markdown_advanced(md_text: str) -> str:
     """מרנדר Markdown לרמת GFM עם תמיכה ב-Task Lists, טבלאות, emoji, Mermaid ומתמטיקה.
@@ -1672,89 +1697,94 @@ def raw_markdown(file_id):
     extra_body_end = ''
     if scripts_enabled:
         # הזרקת ספריות צד-לקוח רק במצב סקריפטים. נטען מ-CDN דרך https, תוך שמירה על sandbox.
-        extra_head += """
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-light.min.css">
-  <script>window.__MD_RENDER_CONF__ = { fileId: "%s" };</script>
-        """ % (str(file.get('_id')))
+        theme = get_ui_theme_value()
+        hl_theme = {
+            'classic': 'tokyo-night-light',
+            'ocean': 'github',
+            'forest': 'atom-one-light',
+        }.get(theme, 'tokyo-night-light')
+        extra_head += f"""
+  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = {{ fileId: \"{str(file.get('_id'))}\", theme: \"{theme}\" }};<\/script>
+        """
         extra_body_end += """
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-  <script>
-    try { mermaid.initialize({ startOnLoad: true, securityLevel: 'strict' }); } catch (e) {}
-    // הדגשת קוד יעילה: הדגשה רק כאשר הבלוק נכנס לפריים (IntersectionObserver)
-    try {
-      if (window.hljs) {
-        const blocks = Array.from(document.querySelectorAll('pre code'));
-        const seen = new WeakSet();
-        const highlight = el => { if (!seen.has(el)) { seen.add(el); try { window.hljs.highlightElement(el); } catch(e) {} } };
-        if ('IntersectionObserver' in window) {
-          const io = new IntersectionObserver(entries => {
-            entries.forEach(e => { if (e.isIntersecting) { highlight(e.target); io.unobserve(e.target); } });
-          }, { rootMargin: '200px 0px' });
-          blocks.forEach(el => io.observe(el));
-        } else {
-          blocks.forEach(el => highlight(el));
-        }
-      }
-    } catch (e) {}
-  </script>
-  <script>
-    // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
-    window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] }, svg: { fontCache: 'global' } };
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
-  <script>
-    // Task list interactivity + סנכרון DB דו־כיווני (וגיבוי localStorage)
-    (function(){
-      try {
-        const fileId = (window.__MD_RENDER_CONF__ ? window.__MD_RENDER_CONF__.fileId : 'unknown');
-        const key = 'md_task_state:' + fileId;
-        function applyState(stateMap) {
-          try {
-            const items2 = Array.from(document.querySelectorAll('.task-list-item input[type="checkbox"]'));
-            items2.forEach((cb, idx) => {
-              if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
-              const id = cb.getAttribute('data-index');
-              if (stateMap && Object.prototype.hasOwnProperty.call(stateMap, id)) {
-                cb.checked = !!stateMap[id];
-              }
-            });
-          } catch(e) {}
-        }
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+   <script>
+     try { mermaid.initialize({ startOnLoad: true, securityLevel: 'strict' }); } catch (e) {}
+     // הדגשת קוד יעילה: הדגשה רק כאשר הבלוק נכנס לפריים (IntersectionObserver)
+     try {
+       if (window.hljs) {
+         const blocks = Array.from(document.querySelectorAll('pre code'));
+         const seen = new WeakSet();
+         const highlight = el => { if (!seen.has(el)) { seen.add(el); try { window.hljs.highlightElement(el); } catch(e) {} } };
+         if ('IntersectionObserver' in window) {
+           const io = new IntersectionObserver(entries => {
+             entries.forEach(e => { if (e.isIntersecting) { highlight(e.target); io.unobserve(e.target); } });
+           }, { rootMargin: '200px 0px' });
+           blocks.forEach(el => io.observe(el));
+         } else {
+           blocks.forEach(el => highlight(el));
+         }
+       }
+     } catch (e) {}
+   </script>
+   <script>
+     // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
+     window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] }, svg: { fontCache: 'global' } };
+   </script>
+   <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+   <script>
+     // Task list interactivity + סנכרון DB דו־כיווני (וגיבוי localStorage)
+     (function(){
+       try {
+         const fileId = (window.__MD_RENDER_CONF__ ? window.__MD_RENDER_CONF__.fileId : 'unknown');
+         const key = 'md_task_state:' + fileId;
+         function applyState(stateMap) {
+           try {
+             const items2 = Array.from(document.querySelectorAll('.task-list-item input[type=\"checkbox\"]'));
+             items2.forEach((cb, idx) => {
+               if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
+               const id = cb.getAttribute('data-index');
+               if (stateMap && Object.prototype.hasOwnProperty.call(stateMap, id)) {
+                 cb.checked = !!stateMap[id];
+               }
+             });
+           } catch(e) {}
+         }
 
-        // מצב מקומי ראשוני
-        const localState = JSON.parse(localStorage.getItem(key) || '{}');
-        applyState(localState);
+         // מצב מקומי ראשוני
+         const localState = JSON.parse(localStorage.getItem(key) || '{}');
+         applyState(localState);
 
-        // משיכת מצב מהשרת
-        try {
-          fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
-            .then(r => r.ok ? r.json() : Promise.reject())
-            .then(d => { if (d && d.ok) { const merged = Object.assign({}, localState, d.state || {}); applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); } })
-            .catch(function(){});
-        } catch(e) {}
+         // משיכת מצב מהשרת
+         try {
+           fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
+             .then(r => r.ok ? r.json() : Promise.reject())
+             .then(d => { if (d && d.ok) { const merged = Object.assign({}, localState, d.state || {}); applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); } })
+             .catch(function(){});
+         } catch(e) {}
 
-        // שינוי -> עדכון מקומי + POST לשרת
-        const items = Array.from(document.querySelectorAll('.task-list-item input[type="checkbox"]'));
-        items.forEach((cb, idx) => {
-          if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
-          const id = cb.getAttribute('data-index');
-          cb.addEventListener('change', function(){
-            try {
-              const s = JSON.parse(localStorage.getItem(key) || '{}');
-              s[id] = cb.checked; localStorage.setItem(key, JSON.stringify(s));
-            } catch(e) {}
-            try {
-              fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), {
-                method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: id, checked: !!cb.checked })
-              }).catch(function(){});
-            } catch(e) {}
-          });
-        });
-      } catch(e) {}
-    })();
-  </script>
+         // שינוי -> עדכון מקומי + POST לשרת
+         const items = Array.from(document.querySelectorAll('.task-list-item input[type=\"checkbox\"]'));
+         items.forEach((cb, idx) => {
+           if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
+           const id = cb.getAttribute('data-index');
+           cb.addEventListener('change', function(){
+             try {
+               const s = JSON.parse(localStorage.getItem(key) || '{}');
+               s[id] = cb.checked; localStorage.setItem(key, JSON.stringify(s));
+             } catch(e) {}
+             try {
+               fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), {
+                 method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ id: id, checked: !!cb.checked })
+               }).catch(function(){});
+             } catch(e) {}
+           });
+         });
+       } catch(e) {}
+     })();
+   </script>
         """
 
     html_doc = f"""<!doctype html>
