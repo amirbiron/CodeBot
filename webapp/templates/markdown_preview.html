@@ -105,7 +105,7 @@
     const url = new URL(frame.src, window.location.origin);
     if (cb && cb.checked) {
       url.searchParams.set('allow', 'scripts');
-      frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-modals');
+      frame.setAttribute('sandbox', 'allow-scripts allow-modals');
       if (btnNew) btnNew.href = (new URL(frame.src, window.location.origin)).toString().replace(/([?&])allow=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
     } else {
       url.searchParams.delete('allow');
