@@ -358,6 +358,7 @@
 let previewUpdateTimer = null;
 let lastRenderedText = '';
 let editorMode = 'editor'; // Default to editor only
+let taskLineMapping = new Map(); // Maps task IDs to line numbers
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
@@ -426,8 +427,12 @@ async function updatePreview() {
     
     if (!text) {
         preview.innerHTML = '<div class="preview-loading">הקלד Markdown כדי לראות תצוגה מקדימה...</div>';
+        taskLineMapping.clear();
         return;
     }
+    
+    // Build task line mapping before rendering
+    buildTaskLineMapping(text);
     
     // Show loading
     preview.innerHTML = '<div class="preview-loading">מעבד...</div>';
@@ -493,32 +498,160 @@ function processPreviewContent(data) {
 
 // Update task checkbox state in editor
 function updateTaskInEditor(checkbox) {
-    // This is a preview, so we need to update the actual editor text
     const editor = document.getElementById('codeEditor');
     const text = editor.value;
-    
-    // Find and update the corresponding checkbox in the text
-    // This is simplified - in production you'd want more robust matching
     const lines = text.split('\n');
-    let taskIndex = Array.from(document.querySelectorAll('#markdownPreview .task-list-item-checkbox')).indexOf(checkbox);
-    let currentTask = 0;
     
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].match(/^[\s\-\*]*\[[ xX]\]/)) {
-            if (currentTask === taskIndex) {
+    // First, try to use the task ID mapping
+    const taskId = checkbox.getAttribute('data-task-id');
+    if (taskId && taskLineMapping.has(taskId)) {
+        const lineIndex = taskLineMapping.get(taskId);
+        if (lineIndex < lines.length) {
+            const line = lines[lineIndex];
+            // Verify this is still a task line
+            if (line.match(/^([\s\-\*\+\d\.]*)\[([ xX])\]/)) {
+                // Update the checkbox state
                 if (checkbox.checked) {
-                    lines[i] = lines[i].replace(/\[ \]/, '[x]');
+                    lines[lineIndex] = line.replace(/\[([ ])\]/, '[x]');
                 } else {
-                    lines[i] = lines[i].replace(/\[[xX]\]/, '[ ]');
+                    lines[lineIndex] = line.replace(/\[([xX])\]/, '[ ]');
                 }
-                break;
+                
+                editor.value = lines.join('\n');
+                lastRenderedText = editor.value;
+                return; // Success!
             }
-            currentTask++;
         }
     }
     
-    editor.value = lines.join('\n');
-    lastRenderedText = editor.value; // Update to prevent re-render
+    // Fallback: If mapping failed, use text matching
+    const listItem = checkbox.closest('li');
+    if (!listItem) return;
+    
+    // Extract the task text (without the checkbox)
+    let taskText = listItem.textContent.trim();
+    
+    // Store information about all task candidates
+    const candidates = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const taskMatch = line.match(/^([\s\-\*\+\d\.]*)\[([ xX])\]\s*(.*)/);
+        
+        if (taskMatch) {
+            const lineTaskText = taskMatch[3].trim();
+            const isChecked = taskMatch[2].toLowerCase() === 'x';
+            
+            // Calculate similarity score
+            let score = 0;
+            
+            // Exact match is best
+            if (lineTaskText === taskText) {
+                score = 1000;
+            } else {
+                // Use Levenshtein distance for better matching
+                const distance = levenshteinDistance(lineTaskText.toLowerCase(), taskText.toLowerCase());
+                score = Math.max(0, 100 - distance);
+                
+                // Bonus for matching first/last words
+                const lineWords = lineTaskText.split(/\s+/);
+                const taskWords = taskText.split(/\s+/);
+                
+                if (lineWords[0] === taskWords[0]) score += 30;
+                if (lineWords[lineWords.length - 1] === taskWords[taskWords.length - 1]) score += 20;
+                
+                // Bonus for matching checkbox state (helps distinguish similar tasks)
+                if (isChecked === checkbox.checked) score += 10;
+            }
+            
+            candidates.push({
+                index: i,
+                score: score,
+                text: lineTaskText
+            });
+        }
+    }
+    
+    // Sort candidates by score and pick the best one
+    candidates.sort((a, b) => b.score - a.score);
+    
+    if (candidates.length > 0 && candidates[0].score > 20) {
+        const bestMatch = candidates[0].index;
+        const line = lines[bestMatch];
+        
+        if (checkbox.checked) {
+            lines[bestMatch] = line.replace(/\[([ ])\]/, '[x]');
+        } else {
+            lines[bestMatch] = line.replace(/\[([xX])\]/, '[ ]');
+        }
+        
+        editor.value = lines.join('\n');
+        lastRenderedText = editor.value;
+        
+        // Update the mapping for next time
+        buildTaskLineMapping(editor.value);
+    } else {
+        console.warn('Could not find matching task in editor for:', taskText);
+    }
+}
+
+// Levenshtein distance algorithm for string similarity
+function levenshteinDistance(str1, str2) {
+    const matrix = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+        matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+        matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+        for (let j = 1; j <= str1.length; j++) {
+            if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+    
+    return matrix[str2.length][str1.length];
+}
+
+// Helper function to generate task ID (matching the backend logic)
+function generateTaskId(text) {
+    // Simple hash function for consistency
+    let hash = 0;
+    const str = text.trim();
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash).toString(16).substring(0, 8);
+}
+
+// Build mapping of task IDs to line numbers
+function buildTaskLineMapping(text) {
+    taskLineMapping.clear();
+    const lines = text.split('\n');
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const taskMatch = line.match(/^([\s\-\*\+\d\.]*)\[([ xX])\]\s*(.*)/);
+        
+        if (taskMatch) {
+            const taskText = taskMatch[3].trim();
+            const taskId = generateTaskId(taskText);
+            taskLineMapping.set(taskId, i);
+        }
+    }
 }
 
 // Set editor mode
