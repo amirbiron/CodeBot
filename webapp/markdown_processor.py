@@ -212,74 +212,74 @@ class MarkdownProcessor:
             
         # שמור את ה-renderer המקורי
         original_list_item_open = self.md.renderer.rules.get('list_item_open')
-        original_list_item_close = self.md.renderer.rules.get('list_item_close')
         
-        def render_list_item_open(tokens, idx, options, env):
+        def render_list_item_open(tokens, idx, options, env, renderer):
             """Renderer ל-list_item_open עם תמיכה ב-checkboxes"""
             token = tokens[idx]
-
+            
             # בדוק אם זו task list item
             if idx + 2 < len(tokens):
                 next_token = tokens[idx + 1]
                 if next_token.type == 'inline' and next_token.content:
                     # בדוק אם מתחיל ב-[ ] או [x] - בטוח מפני ReDoS
                     content = next_token.content
-
+                    
                     # בדיקה ידנית במקום regex
-                    is_task_item = False
-                    is_checked = False
+                    task_match = None
+                    checked = False
                     task_text = content
-
+                    
                     if len(content) >= 3 and content[0] == '[' and content[2] == ']':
                         check_char = content[1]
                         if check_char in ' xX':
-                            is_task_item = True
-                            is_checked = check_char.lower() == 'x'
+                            # זה task list item
+                            checked = check_char.lower() == 'x'
                             # חלץ את הטקסט אחרי ה-checkbox
                             if len(content) > 3:
-                                pos_after = 3
-                                while pos_after < len(content) and content[pos_after] in ' \t':
-                                    pos_after += 1
-                                task_text = content[pos_after:] if pos_after < len(content) else ''
+                                # דלג על רווחים אחרי ה-checkbox
+                                idx = 3
+                                while idx < len(content) and content[idx] in ' \t':
+                                    idx += 1
+                                task_text = content[idx:] if idx < len(content) else ''
                             else:
                                 task_text = ''
-
-                    if is_task_item:
+                            task_match = True
+                    
+                    if task_match:
+                        
                         # צור task ID מהטקסט הנקי (לא מהתוכן המקורי)
                         task_id = hashlib.md5(task_text.strip().encode()).hexdigest()[:8]
-
+                        
                         # הוסף class ו-data attribute ל-li
                         token.attrSet('class', 'task-list-item')
-                        token.attrSet('data-checked', 'true' if is_checked else 'false')
-
+                        token.attrSet('data-checked', 'true' if checked else 'false')
+                        
                         # עדכן את התוכן להסרת ה-checkbox pattern
                         next_token.content = task_text
-
-                        # הוסף checkbox לתחילת ה-inline
-                        checkbox_html = f'<input type="checkbox" class="task-list-item-checkbox" {"checked" if is_checked else ""} data-task-id="{task_id}">'
-                        if next_token.children and len(next_token.children) > 0 and next_token.children[0].type == 'text':
+                        
+                        # במקום לשנות את children, צור HTML מותאם אישית
+                        checkbox_html = f'<input type="checkbox" class="task-list-item-checkbox" {"checked" if checked else ""} data-task-id="{task_id}">'
+                        
+                        # שנה את התוכן של next_token כדי לכלול את ה-checkbox
+                        # נשתמש ב-HTML inline token במקום לשנות את המבנה
+                        if next_token.children and len(next_token.children) > 0:
+                            # אם יש children, הוסף את ה-checkbox לפני הראשון
                             first_child = next_token.children[0]
-                            first_child.content = checkbox_html + ' ' + task_text
-                            next_token.content = ''
+                            if first_child.type == 'text':
+                                # שלב את ה-checkbox עם הטקסט
+                                first_child.content = checkbox_html + ' ' + task_text
+                                next_token.content = ''  # נקה את התוכן הראשי
                         else:
+                            # אם אין children, פשוט החלף את התוכן
                             next_token.content = checkbox_html + ' ' + task_text
-
-            # שמור התנהגות ברירת המחדל: אם יש כלל מקורי – השתמש בו, אחרת renderToken
+            
+            # קרא ל-renderer המקורי
             if original_list_item_open:
-                return original_list_item_open(tokens, idx, options, env)
-            renderer_instance = self.md.renderer
-            return renderer_instance.renderToken(tokens, idx, options, env)
-
-        def render_list_item_close(tokens, idx, options, env):
-            """Renderer ל-list_item_close ששומר התנהגות ברירת מחדל"""
-            if original_list_item_close:
-                return original_list_item_close(tokens, idx, options, env)
-            renderer_instance = self.md.renderer
-            return renderer_instance.renderToken(tokens, idx, options, env)
+                return original_list_item_open(tokens, idx, options, env, renderer)
+            return '<li>'
         
         # החלף את ה-renderer
         self.md.renderer.rules['list_item_open'] = render_list_item_open
-        self.md.renderer.rules['list_item_close'] = render_list_item_close
     
     def sanitize_html(self, html: str) -> str:
         """
