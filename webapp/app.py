@@ -1698,13 +1698,24 @@ def raw_markdown(file_id):
     if scripts_enabled:
         # הזרקת ספריות צד-לקוח רק במצב סקריפטים. נטען מ-CDN דרך https, תוך שמירה על sandbox.
         theme = get_ui_theme_value()
+        # זיהוי פרויקט (repo:NAME מהתגיות)
+        project_name = ''
+        try:
+            for _t in (file.get('tags') or []):
+                ts = str(_t or '')
+                if ts.lower().startswith('repo:'):
+                    project_name = ts.split(':', 1)[1].strip()
+                    break
+        except Exception:
+            project_name = ''
+        # בחירת ערכת הדגשה לפי ערכת נושא
         hl_theme = {
             'classic': 'tokyo-night-light',
             'ocean': 'github',
             'forest': 'atom-one-light',
         }.get(theme, 'tokyo-night-light')
         extra_head += f"""
-  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = {{ fileId: \"{str(file.get('_id'))}\", theme: \"{theme}\" }};<\/script>
+  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = {{ fileId: \"{str(file.get('_id'))}\", theme: \"{theme}\", project: \"{html_lib.escape(project_name)}\", userId: {int(session.get('user_id') or 0)} }};<\/script>
         """
         extra_body_end += """
    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -1734,10 +1745,12 @@ def raw_markdown(file_id):
    </script>
    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
    <script>
-     // Task list interactivity + סנכרון DB דו־כיווני (וגיבוי localStorage)
+     // Task list interactivity + סנכרון DB דו־כיווני לקובץ ולפרויקט-משתמש (וגיבוי localStorage)
      (function(){
        try {
-         const fileId = (window.__MD_RENDER_CONF__ ? window.__MD_RENDER_CONF__.fileId : 'unknown');
+         const conf = (window.__MD_RENDER_CONF__ || {});
+         const fileId = conf.fileId || 'unknown';
+         const project = conf.project || '';
          const key = 'md_task_state:' + fileId;
          function applyState(stateMap) {
            try {
@@ -1752,19 +1765,37 @@ def raw_markdown(file_id):
            } catch(e) {}
          }
 
-         // מצב מקומי ראשוני
+         // שלב 1: מצב מקומי
          const localState = JSON.parse(localStorage.getItem(key) || '{}');
-         applyState(localState);
+         let merged = Object.assign({}, localState);
 
-         // משיכת מצב מהשרת
-         try {
-           fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
-             .then(r => r.ok ? r.json() : Promise.reject())
-             .then(d => { if (d && d.ok) { const merged = Object.assign({}, localState, d.state || {}); applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); } })
-             .catch(function(){});
-         } catch(e) {}
+         // שלב 2: מצב קובץ משותף
+         const p1 = fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
+           .then(r => r.ok ? r.json() : { ok:false })
+           .then(d => { if (d && d.ok) merged = Object.assign({}, merged, d.state || {}); })
+           .catch(function(){});
 
-         // שינוי -> עדכון מקומי + POST לשרת
+         // שלב 3: מצב פרויקט-משתמש (מפתחים: מאחסן במבנה fileId:index)
+         const p2 = (project ? fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), { credentials: 'same-origin' }) : Promise.resolve({ok:false}))
+           .then(r => (r && r.ok) ? r.json() : { ok:false })
+           .then(d => {
+             if (d && d.ok && d.state) {
+               // חלץ רק הערכים של הקובץ הנוכחי
+               const m = {};
+               Object.keys(d.state).forEach(k => {
+                 if (k.startsWith(fileId + ':')) {
+                   const id = k.slice(fileId.length + 1);
+                   m[id] = !!d.state[k];
+                 }
+               });
+               merged = Object.assign({}, merged, m);
+             }
+           })
+           .catch(function(){});
+
+         Promise.all([p1,p2]).then(function(){ applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); });
+
+         // שינוי -> עדכון מקומי + POST לשרת (קובץ) + POST לפרויקט-משתמש
          const items = Array.from(document.querySelectorAll('.task-list-item input[type=\"checkbox\"]'));
          items.forEach((cb, idx) => {
            if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
@@ -1780,6 +1811,14 @@ def raw_markdown(file_id):
                  body: JSON.stringify({ id: id, checked: !!cb.checked })
                }).catch(function(){});
              } catch(e) {}
+             if (project) {
+               try {
+                 fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), {
+                   method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify({ id: fileId + ':' + id, checked: !!cb.checked })
+                 }).catch(function(){});
+               } catch(e) {}
+             }
            });
          });
        } catch(e) {}
@@ -2582,6 +2621,58 @@ def check_configuration():
             print(f"✗ MongoDB connection failed: {e}")
     
     return len(missing) == 0
+
+# פרויקט-משתמש: מצב משימות מצטבר (מאפשר שיתוף הרגלים/סטטוס בין קבצים בריפו)
+@app.route('/api/markdown_tasks_project/<project>', methods=['GET', 'POST'])
+@login_required
+def api_markdown_tasks_project(project):
+    """שומר מצב Task Lists ברמת משתמש+פרויקט.
+
+    מבנה מסמך:
+    { user_id: int, project: str, state: { 'FILEID:0': true, ... }, updated_at }
+    """
+    try:
+        db = get_db()
+        user_id = int(session['user_id'])
+        project_key = (project or '').strip()
+        if not project_key:
+            return jsonify({'ok': False, 'error': 'project required'}), 400
+
+        coll = db.md_task_states_project
+        try:
+            from pymongo import ASCENDING
+            coll.create_index([('user_id', ASCENDING), ('project', ASCENDING)], name='user_project_unique', unique=True)
+        except Exception:
+            pass
+
+        if request.method == 'GET':
+            doc = coll.find_one({'user_id': user_id, 'project': project_key}) or {}
+            return jsonify({'ok': True, 'state': (doc.get('state') or {})})
+
+        payload = request.get_json(silent=True) or {}
+        now = datetime.now(timezone.utc)
+        update_fields = {'updated_at': now}
+        if 'id' in payload and 'checked' in payload:
+            tid = str(payload.get('id'))
+            val = bool(payload.get('checked'))
+            update_fields[f'state.{tid}'] = val
+        elif 'patch' in payload and isinstance(payload.get('patch'), dict):
+            for k, v in (payload.get('patch') or {}).items():
+                update_fields[f'state.{str(k)}'] = bool(v)
+        elif 'state' in payload and isinstance(payload.get('state'), dict):
+            coll.update_one(
+                {'user_id': user_id, 'project': project_key},
+                {'$set': {'state': {str(k): bool(v) for k, v in (payload.get('state') or {}).items()}, 'updated_at': now}},
+                upsert=True
+            )
+            return jsonify({'ok': True})
+        else:
+            return jsonify({'ok': False, 'error': 'payload לא תקף'}), 400
+
+        coll.update_one({'user_id': user_id, 'project': project_key}, {'$set': update_fields}, upsert=True)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("Starting Code Keeper Web App...")
