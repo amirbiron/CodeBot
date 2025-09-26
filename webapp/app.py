@@ -1714,8 +1714,15 @@ def raw_markdown(file_id):
             'ocean': 'github',
             'forest': 'atom-one-light',
         }.get(theme, 'tokyo-night-light')
+        conf_obj = {
+            'fileId': str(file.get('_id')),
+            'theme': theme,
+            'project': project_name,
+            'userId': int(session.get('user_id') or 0),
+        }
+        conf_json = json.dumps(conf_obj, ensure_ascii=False)
         extra_head += f"""
-  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = {{ fileId: \"{str(file.get('_id'))}\", theme: \"{theme}\", project: \"{html_lib.escape(project_name)}\", userId: {int(session.get('user_id') or 0)} }};<\/script>
+  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = JSON.parse('{conf_json.replace("\\\\", "\\\\\\\\").replace("'", "\\'")}');<\/script>
         """
         extra_body_end += """
    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
