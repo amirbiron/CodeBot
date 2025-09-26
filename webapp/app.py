@@ -1656,8 +1656,8 @@ def raw_markdown(file_id):
     body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol'; background: white; color: #111; }
     .markdown-body { max-width: 980px; margin: 0 auto; line-height: 1.6; }
     pre, code { font-family: 'Fira Code', 'Consolas', 'Monaco', monospace; }
-    pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow: auto; }
-    code { background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }
+    pre { background: #f4f0ff; padding: 12px; border-radius: 6px; overflow: auto; }
+    code { background: #f4f0ff; padding: 2px 4px; border-radius: 4px; }
     img { max-width: 100%; height: auto; }
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #e1e4e8; padding: 6px 10px; }
@@ -1673,7 +1673,7 @@ def raw_markdown(file_id):
     if scripts_enabled:
         # הזרקת ספריות צד-לקוח רק במצב סקריפטים. נטען מ-CDN דרך https, תוך שמירה על sandbox.
         extra_head += """
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-light.min.css">
   <script>window.__MD_RENDER_CONF__ = { fileId: "%s" };</script>
         """ % (str(file.get('_id')))
         extra_body_end += """
