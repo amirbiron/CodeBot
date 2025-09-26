@@ -544,30 +544,67 @@ class MarkdownProcessor:
         }
     
     def _detect_math(self, text: str) -> bool:
-        """זיהוי נוסחאות מתמטיות בטקסט"""
-        # חפש $...$ או $$...$$ או \(...\) או \[...\]
-        math_patterns = [
-            r'\$[^$]+\$',           # inline math with $
-            r'\$\$[^$]+\$\$',       # display math with $$
-            r'\\\([^)]+\\\)',       # inline math with \( \)
-            r'\\\[[^\]]+\\\]',      # display math with \[ \]
+        """זיהוי נוסחאות מתמטיות בטקסט - בטוח מפני ReDoS"""
+        # בדיקה פשוטה ומהירה ללא regex
+        # חפש סימנים של math
+        math_indicators = [
+            ('$', '$'),      # inline or display math
+            ('\\(', '\\)'),  # LaTeX inline
+            ('\\[', '\\]'),  # LaTeX display
         ]
-        for pattern in math_patterns:
-            if re.search(pattern, text):
-                return True
+        
+        for start_delim, end_delim in math_indicators:
+            start_pos = text.find(start_delim)
+            if start_pos != -1:
+                # מצאנו התחלה, חפש סוף
+                end_pos = text.find(end_delim, start_pos + len(start_delim))
+                if end_pos != -1:
+                    # יש גם התחלה וגם סוף - כנראה יש math
+                    return True
+        
         return False
     
     def _detect_mermaid(self, text: str) -> bool:
-        """זיהוי בלוקי Mermaid בטקסט"""
-        return bool(re.search(r'```mermaid', text, re.IGNORECASE))
+        """זיהוי בלוקי Mermaid בטקסט - בטוח מפני ReDoS"""
+        # בדיקה פשוטה ללא regex
+        text_lower = text.lower()
+        return '```mermaid' in text_lower
     
     def _detect_tasks(self, text: str) -> bool:
-        """זיהוי task lists בטקסט"""
-        return bool(re.search(r'^[\s\-\*]*\[[ xX]\]', text, re.MULTILINE))
+        """זיהוי task lists בטקסט - בטוח מפני ReDoS"""
+        # בדיקה פשוטה לכל שורה
+        for line in text.split('\n'):
+            stripped = line.lstrip()
+            # בדוק אם מתחיל עם סימן רשימה ואז checkbox
+            if stripped.startswith('- [ ]') or stripped.startswith('- [x]') or stripped.startswith('- [X]'):
+                return True
+            if stripped.startswith('* [ ]') or stripped.startswith('* [x]') or stripped.startswith('* [X]'):
+                return True
+            if stripped.startswith('+ [ ]') or stripped.startswith('+ [x]') or stripped.startswith('+ [X]'):
+                return True
+            # בדוק גם בלי סימן רשימה
+            if stripped.startswith('[ ]') or stripped.startswith('[x]') or stripped.startswith('[X]'):
+                return True
+        return False
     
     def _has_headers(self, text: str) -> bool:
-        """בדיקה אם יש כותרות בטקסט"""
-        return bool(re.search(r'^#{1,6}\s+', text, re.MULTILINE))
+        """בדיקה אם יש כותרות בטקסט - בטוח מפני ReDoS"""
+        # בדיקה פשוטה לכל שורה
+        for line in text.split('\n'):
+            stripped = line.lstrip()
+            # בדוק אם מתחיל עם # (1-6 פעמים)
+            if stripped.startswith('#'):
+                # ספור כמה #
+                hash_count = 0
+                for char in stripped:
+                    if char == '#':
+                        hash_count += 1
+                    else:
+                        break
+                # בדוק שיש 1-6 # ואז רווח
+                if 1 <= hash_count <= 6 and len(stripped) > hash_count and stripped[hash_count] == ' ':
+                    return True
+        return False
     
     def _process_emoji(self, text: str) -> str:
         """המרת emoji shortcuts לאמוג'י"""
