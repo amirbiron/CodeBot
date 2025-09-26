@@ -1982,7 +1982,8 @@ def api_ui_prefs():
             pass
         return resp
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        logging.exception("Error in /api/ui_prefs")
+        return jsonify({'ok': False, 'error': 'אירעה שגיאה פנימית'}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
