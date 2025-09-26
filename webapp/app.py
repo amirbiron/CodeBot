@@ -1514,8 +1514,8 @@ def raw_html(file_id):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{html_lib.escape(file_name)}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" crossorigin="anonymous">
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -1553,11 +1553,11 @@ def raw_html(file_id):
 </head>
 <body>
     {markdown_result['html']}
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js" crossorigin="anonymous"></script>
     <script>
         // עיבוד נוסחאות מתמטיות
         if (typeof renderMathInElement !== 'undefined') {{
@@ -1616,17 +1616,18 @@ def raw_html(file_id):
             # CSP מתירני יותר עבור Markdown עם CDN resources
             csp = \
                 "sandbox allow-scripts; " \
-                "default-src 'none'; " \
+                "default-src 'self'; " \
                 "base-uri 'none'; " \
                 "form-action 'none'; " \
-                "connect-src 'none'; " \
-                "img-src data: https:; " \
-                "style-src 'unsafe-inline' https://cdn.jsdelivr.net; " \
-                "font-src data: https://cdn.jsdelivr.net; " \
+                "connect-src 'self' https://cdn.jsdelivr.net; " \
+                "img-src * data: blob:; " \
+                "style-src 'unsafe-inline' 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
+                "font-src 'self' data: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
                 "object-src 'none'; " \
                 "frame-ancestors 'self'; " \
-                "script-src 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net"
-            # Note: 'unsafe-eval' נדרש עבור KaTeX
+                "script-src 'unsafe-inline' 'unsafe-eval' 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
+                "worker-src 'self' blob:"
+            # Note: 'unsafe-eval' נדרש עבור KaTeX, worker-src עבור Mermaid
         else:
             # CSP רגיל עבור HTML
             csp = \
@@ -1646,13 +1647,13 @@ def raw_html(file_id):
             # CSP ללא scripts אבל עם styles מ-CDN
             csp = \
                 "sandbox; " \
-                "default-src 'none'; " \
+                "default-src 'self'; " \
                 "base-uri 'none'; " \
                 "form-action 'none'; " \
                 "connect-src 'none'; " \
-                "img-src data: https:; " \
-                "style-src 'unsafe-inline' https://cdn.jsdelivr.net; " \
-                "font-src data: https://cdn.jsdelivr.net; " \
+                "img-src * data: blob:; " \
+                "style-src 'unsafe-inline' 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
+                "font-src 'self' data: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " \
                 "object-src 'none'; " \
                 "frame-ancestors 'self'; " \
                 "script-src 'none'"
