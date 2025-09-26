@@ -264,12 +264,16 @@ class MarkdownProcessor:
                         else:
                             next_token.content = checkbox_html + ' ' + task_text
 
-            # שמור התנהגות ברירת המחדל באמצעות renderer
-            return renderer.renderToken(tokens, idx, options)
+            # שמור התנהגות ברירת המחדל: אם יש כלל מקורי – השתמש בו, אחרת renderToken
+            if original_list_item_open:
+                return original_list_item_open(tokens, idx, options, env, renderer)
+            return renderer.renderToken(tokens, idx, options, env)
 
         def render_list_item_close(tokens, idx, options, env, renderer):
             """Renderer ל-list_item_close ששומר התנהגות ברירת מחדל"""
-            return renderer.renderToken(tokens, idx, options)
+            if original_list_item_close:
+                return original_list_item_close(tokens, idx, options, env, renderer)
+            return renderer.renderToken(tokens, idx, options, env)
         
         # החלף את ה-renderer
         self.md.renderer.rules['list_item_open'] = render_list_item_open
