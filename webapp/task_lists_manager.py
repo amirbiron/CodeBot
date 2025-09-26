@@ -8,7 +8,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 from bson import ObjectId
 
 
@@ -117,26 +117,25 @@ class TaskListsManager:
             operations = []
             
             for task in tasks:
-                operations.append({
-                    'updateOne': {
-                        'filter': {
-                            'user_id': user_id,
-                            'file_id': file_id,
-                            'task_id': task['task_id']
+                operation = UpdateOne(
+                    filter={
+                        'user_id': user_id,
+                        'file_id': file_id,
+                        'task_id': task['task_id']
+                    },
+                    update={
+                        '$set': {
+                            'checked': task.get('checked', False),
+                            'task_text': task.get('text', ''),
+                            'updated_at': now
                         },
-                        'update': {
-                            '$set': {
-                                'checked': task.get('checked', False),
-                                'task_text': task.get('text', ''),
-                                'updated_at': now
-                            },
-                            '$setOnInsert': {
-                                'created_at': now
-                            }
-                        },
-                        'upsert': True
-                    }
-                })
+                        '$setOnInsert': {
+                            'created_at': now
+                        }
+                    },
+                    upsert=True
+                )
+                operations.append(operation)
             
             if operations:
                 result = self.collection.bulk_write(operations)
