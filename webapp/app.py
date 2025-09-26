@@ -1724,9 +1724,9 @@ def raw_markdown(file_id):
         # הימנעות מ-backslash בתוך ביטוי f-string: נחשב מראש מחרוזת בטוחה ל-JS
         conf_json_js = conf_json.replace('\\', '\\\\').replace("'", "\\'")
         extra_head += f"""
-  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = JSON.parse('{conf_json_js}');<\/script>
+  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/{hl_theme}.min.css\">\n  <script>window.__MD_RENDER_CONF__ = JSON.parse('{conf_json_js}');</script>
         """
-        extra_body_end += """
+        extra_body_end += r"""
    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
    <script>
@@ -1749,7 +1749,7 @@ def raw_markdown(file_id):
      } catch (e) {}
    </script>
    <script>
-     // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
+    // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
      window.MathJax = { tex: { inlineMath: [['\\(','\\)']], displayMath: [['$$','$$']] }, svg: { fontCache: 'global' } };
    </script>
    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
@@ -1757,10 +1757,10 @@ def raw_markdown(file_id):
      // Task list interactivity + סנכרון DB דו־כיווני לקובץ ולפרויקט-משתמש (וגיבוי localStorage)
      (function(){
        try {
-         const conf = (window.__MD_RENDER_CONF__ || {});
-         const fileId = conf.fileId || 'unknown';
-         const project = conf.project || '';
-         const key = 'md_task_state:' + fileId;
+        const conf = (window.__MD_RENDER_CONF__ || {});
+        const fileId = (conf && typeof conf.fileId === 'string' && conf.fileId) ? conf.fileId : '';
+        const project = (conf && typeof conf.project === 'string') ? conf.project : '';
+        const key = 'md_task_state:' + (fileId || 'no-file');
          function applyState(stateMap) {
            try {
              const items2 = Array.from(document.querySelectorAll('.task-list-item input[type=\"checkbox\"]'));
@@ -1774,19 +1774,36 @@ def raw_markdown(file_id):
            } catch(e) {}
          }
 
+        function showError(msg) {
+          try {
+            var el = document.getElementById('mdTasksError');
+            if (!el) {
+              el = document.createElement('div');
+              el.id = 'mdTasksError';
+              el.setAttribute('role', 'status');
+              el.style.cssText = 'margin:12px 0;padding:8px;border:1px solid #f5c2c7;background:#f8d7da;color:#842029;border-radius:4px;';
+              var article = document.querySelector('.markdown-body') || document.body;
+              article.prepend(el);
+            }
+            el.textContent = String(msg || 'אירעה שגיאת רשת בשמירת המשימות');
+          } catch(e) {}
+        }
+
          // שלב 1: מצב מקומי
          const localState = JSON.parse(localStorage.getItem(key) || '{}');
          let merged = Object.assign({}, localState);
 
          // שלב 2: מצב קובץ משותף
-         const p1 = fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
-           .then(r => r.ok ? r.json() : { ok:false })
-           .then(d => { if (d && d.ok) merged = Object.assign({}, merged, d.state || {}); })
-           .catch(function(){});
+        const p1 = fileId ? (
+          fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
+            .then(function(r){ if (!r.ok) { throw new Error('GET /api/markdown_tasks: ' + r.status); } return r.json(); })
+            .then(function(d){ if (d && d.ok) { merged = Object.assign({}, merged, d.state || {}); } })
+            .catch(function(err){ showError('טעינת משימות נכשלה: ' + (err && err.message || 'שגיאה')); })
+        ) : Promise.resolve({ ok:false });
 
          // שלב 3: מצב פרויקט-משתמש (מפתחים: מאחסן במבנה fileId:index)
          const p2 = (project ? fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), { credentials: 'same-origin' }) : Promise.resolve({ok:false}))
-           .then(r => (r && r.ok) ? r.json() : { ok:false })
+          .then(r => (r && r.ok) ? r.json() : (function(){ throw new Error('GET /api/markdown_tasks_project: ' + (r && r.status)); })())
            .then(d => {
              if (d && d.ok && d.state) {
                // חלץ רק הערכים של הקובץ הנוכחי
@@ -1799,8 +1816,8 @@ def raw_markdown(file_id):
                });
                merged = Object.assign({}, merged, m);
              }
-           })
-           .catch(function(){});
+          })
+          .catch(function(err){ if (project) { showError('טעינת מצב פרויקט נכשלה: ' + (err && err.message || 'שגיאה')); } });
 
          Promise.all([p1,p2]).then(function(){ applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); });
 
@@ -1815,17 +1832,21 @@ def raw_markdown(file_id):
                s[id] = cb.checked; localStorage.setItem(key, JSON.stringify(s));
              } catch(e) {}
              try {
-               fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), {
-                 method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({ id: id, checked: !!cb.checked })
-               }).catch(function(){});
+              if (fileId) {
+                fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), {
+                  method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: id, checked: !!cb.checked })
+                }).then(function(r){ if (!r.ok) { throw new Error('POST /api/markdown_tasks: ' + r.status); } }).catch(function(err){ showError('שמירת משימה נכשלה: ' + (err && err.message || 'שגיאה')); });
+              } else {
+                showError('לא ניתן לשמור מצב משימות: מזהה קובץ חסר.');
+              }
              } catch(e) {}
              if (project) {
                try {
                  fetch('/api/markdown_tasks_project/' + encodeURIComponent(project), {
                    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
                    body: JSON.stringify({ id: fileId + ':' + id, checked: !!cb.checked })
-                 }).catch(function(){});
+                }).then(function(r){ if (!r.ok) { throw new Error('POST /api/markdown_tasks_project: ' + r.status); } }).catch(function(err){ showError('שמירת משימה לפרויקט נכשלה: ' + (err && err.message || 'שגיאה')); });
                } catch(e) {}
              }
            });
@@ -2412,6 +2433,9 @@ def api_markdown_tasks(file_id):
     { file_id: ObjectId, state: { '0': true, '1': false, ... }, updated_at: datetime }
     """
     try:
+        # חסימת מזהה לא תקף מצד ה-frontend
+        if str(file_id).strip().lower() == 'unknown':
+            return jsonify({'ok': False, 'error': 'file_id לא תקף'}), 400
         db = get_db()
         user_id = session['user_id']
         # אימות שהקובץ שייך למשתמש
