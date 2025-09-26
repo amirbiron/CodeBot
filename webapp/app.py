@@ -28,12 +28,6 @@ import secrets
 import urllib.parse as urlparse
 import html as html_lib
 import logging
-
-# Configure logging once for the module
-logging.basicConfig(level=logging.INFO)
-import logging
-
-# Configure basic logging
 logging.basicConfig(level=logging.INFO)
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
