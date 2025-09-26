@@ -825,6 +825,140 @@ class MarkdownProcessor:
         
         return '\n'.join(result)
     
+    def _process_emphasis_safe(self, text: str) -> str:
+        """עיבוד bold ו-italic בצורה בטוחה מפני ReDoS"""
+        
+        def process_delimiter(text: str, delimiter: str, tag: str) -> str:
+            """עיבוד delimiter ספציפי"""
+            result = []
+            parts = text.split(delimiter)
+            
+            # אם אין מספיק חלקים, אין מה לעבד
+            if len(parts) < 3:
+                return text
+            
+            in_emphasis = False
+            for i, part in enumerate(parts):
+                if i == 0:
+                    result.append(part)
+                elif i == len(parts) - 1:
+                    if in_emphasis:
+                        result.append(delimiter)
+                    result.append(part)
+                else:
+                    if in_emphasis:
+                        # סגור את התג
+                        result.append(f'</{tag}>')
+                        in_emphasis = False
+                    else:
+                        # פתח תג חדש
+                        result.append(f'<{tag}>')
+                        in_emphasis = True
+                    result.append(part)
+            
+            # אם נשארנו עם תג פתוח
+            if in_emphasis:
+                result.append(f'</{tag}>')
+            
+            return ''.join(result)
+        
+        # עיבוד לפי סדר עדיפות
+        # Bold + Italic (*** או ___)
+        text = process_delimiter(text, '***', 'strong><em')
+        text = text.replace('</strong><em>', '</em></strong>')
+        text = process_delimiter(text, '___', 'strong><em')
+        text = text.replace('</strong><em>', '</em></strong>')
+        
+        # Bold (** או __)
+        text = process_delimiter(text, '**', 'strong')
+        text = process_delimiter(text, '__', 'strong')
+        
+        # Italic (* או _)
+        text = process_delimiter(text, '*', 'em')
+        text = process_delimiter(text, '_', 'em')
+        
+        return text
+    
+    def _process_strikethrough_safe(self, text: str) -> str:
+        """עיבוד strikethrough בצורה בטוחה מפני ReDoS"""
+        result = []
+        pos = 0
+        
+        while True:
+            # חפש ~~
+            start = text.find('~~', pos)
+            if start == -1:
+                result.append(text[pos:])
+                break
+            
+            # הוסף טקסט לפני
+            result.append(text[pos:start])
+            
+            # חפש סוף ~~
+            end = text.find('~~', start + 2)
+            if end == -1:
+                # לא נמצא סוף
+                result.append(text[start:])
+                break
+            
+            # חלץ תוכן
+            content = text[start + 2:end]
+            
+            # אל תעבד אם ריק או ארוך מדי
+            if content and len(content) < 1000:
+                result.append(f'<del>{html_lib.escape(content)}</del>')
+            else:
+                result.append(text[start:end + 2])
+            
+            pos = end + 2
+        
+        return ''.join(result)
+    
+    def _process_task_lists_safe(self, text: str) -> str:
+        """עיבוד task lists בצורה בטוחה מפני ReDoS"""
+        lines = text.split('\n')
+        result = []
+        
+        for line in lines:
+            # נקה רווחים מההתחלה בצורה בטוחה
+            stripped = line.lstrip()
+            indent = len(line) - len(stripped)
+            
+            # בדוק אם מתחיל עם סימני רשימה
+            list_prefix = ''
+            if stripped.startswith('- '):
+                list_prefix = '- '
+                stripped = stripped[2:]
+            elif stripped.startswith('* '):
+                list_prefix = '* '
+                stripped = stripped[2:]
+            elif stripped.startswith('+ '):
+                list_prefix = '+ '
+                stripped = stripped[2:]
+            
+            # בדוק אם זה task list
+            is_task = False
+            is_checked = False
+            task_text = stripped
+            
+            if stripped.startswith('[ ] '):
+                is_task = True
+                is_checked = False
+                task_text = stripped[4:]
+            elif stripped.startswith('[x] ') or stripped.startswith('[X] '):
+                is_task = True
+                is_checked = True
+                task_text = stripped[4:]
+            
+            # צור את השורה החדשה
+            if is_task:
+                checkbox = '<input type="checkbox" class="task-list-item-checkbox"' + (' checked' if is_checked else '') + '>'
+                result.append(f'{" " * indent}<li class="task-list-item">{checkbox} {html_lib.escape(task_text)}</li>')
+            else:
+                result.append(line)
+        
+        return '\n'.join(result)
+    
     def _generate_toc(self, html: str) -> str:
         """יצירת תוכן עניינים מהכותרות - בטוח מפני ReDoS"""
         headers = []
@@ -893,16 +1027,11 @@ class MarkdownProcessor:
         text = re.sub(r'^##\s+(.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^#\s+(.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
         
-        # Bold and italic
-        text = re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', text)
-        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
-        text = re.sub(r'___(.+?)___', r'<strong><em>\1</em></strong>', text)
-        text = re.sub(r'__(.+?)__', r'<strong>\1</strong>', text)
-        text = re.sub(r'_(.+?)_', r'<em>\1</em>', text)
+        # Bold and italic - בטוח מפני ReDoS
+        text = self._process_emphasis_safe(text)
         
-        # Strikethrough
-        text = re.sub(r'~~(.+?)~~', r'<del>\1</del>', text)
+        # Strikethrough - בטוח מפני ReDoS
+        text = self._process_strikethrough_safe(text)
         
         # Links
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', text)
@@ -919,14 +1048,13 @@ class MarkdownProcessor:
         # Blockquotes
         text = re.sub(r'^>\s+(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
         
-        # Lists (basic)
+        # Task lists FIRST - בטוח מפני ReDoS (חייב להיות לפני רשימות רגילות!)
+        text = self._process_task_lists_safe(text)
+        
+        # Lists (basic) - אחרי task lists
         text = re.sub(r'^\*\s+(.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
         text = re.sub(r'^-\s+(.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
         text = re.sub(r'^\d+\.\s+(.+)$', r'<li>\1</li>', text, flags=re.MULTILINE)
-        
-        # Task lists
-        text = re.sub(r'^[\s\-\*]*\[\s\]\s+(.+)$', r'<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox"> \1</li>', text, flags=re.MULTILINE)
-        text = re.sub(r'^[\s\-\*]*\[[xX]\]\s+(.+)$', r'<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" checked> \1</li>', text, flags=re.MULTILINE)
         
         # Paragraphs and line breaks
         if self.config['breaks']:
