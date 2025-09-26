@@ -1851,7 +1851,7 @@ def raw_markdown(file_id):
 
     if scripts_enabled:
         csp = (
-            "sandbox allow-scripts; "
+            "sandbox allow-scripts allow-same-origin; "
             "default-src 'none'; "
             "base-uri 'none'; "
             "form-action 'none'; "
