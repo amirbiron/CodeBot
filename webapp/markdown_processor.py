@@ -23,7 +23,6 @@ try:
     import markdown_it
     from markdown_it import MarkdownIt
     from markdown_it.token import Token
-    from markdown_it.utils import AttrDict
     MARKDOWN_IT_AVAILABLE = True
 except ImportError:
     MARKDOWN_IT_AVAILABLE = False
@@ -107,7 +106,6 @@ class MarkdownProcessor:
             
         # שמור את ה-renderer המקורי
         original_list_item_open = self.md.renderer.rules.get('list_item_open')
-        original_text = self.md.renderer.rules.get('text')
         
         def render_list_item_open(tokens, idx, options, env, renderer):
             """Renderer ל-list_item_open עם תמיכה ב-checkboxes"""
@@ -122,24 +120,33 @@ class MarkdownProcessor:
                     task_match = re.match(r'^\[([ xX])\]\s*(.*)', content)
                     if task_match:
                         checked = task_match.group(1).lower() == 'x'
-                        # הוסף class ו-data attribute
+                        task_text = task_match.group(2)
+                        
+                        # צור task ID מהטקסט הנקי (לא מהתוכן המקורי)
+                        task_id = hashlib.md5(task_text.strip().encode()).hexdigest()[:8]
+                        
+                        # הוסף class ו-data attribute ל-li
                         token.attrSet('class', 'task-list-item')
                         token.attrSet('data-checked', 'true' if checked else 'false')
+                        
                         # עדכן את התוכן להסרת ה-checkbox pattern
-                        next_token.content = task_match.group(2)
-                        # הוסף checkbox כ-child
-                        next_token.children = next_token.children or []
-                        checkbox_html = f'<input type="checkbox" class="task-list-item-checkbox" {"checked" if checked else ""} data-task-id="{hashlib.md5(content.encode()).hexdigest()[:8]}">'
-                        next_token.children.insert(0, AttrDict({
-                            'type': 'html_inline',
-                            'tag': '',
-                            'content': checkbox_html,
-                            'markup': '',
-                            'info': '',
-                            'meta': {},
-                            'block': False,
-                            'hidden': False
-                        }))
+                        next_token.content = task_text
+                        
+                        # במקום לשנות את children, צור HTML מותאם אישית
+                        checkbox_html = f'<input type="checkbox" class="task-list-item-checkbox" {"checked" if checked else ""} data-task-id="{task_id}">'
+                        
+                        # שנה את התוכן של next_token כדי לכלול את ה-checkbox
+                        # נשתמש ב-HTML inline token במקום לשנות את המבנה
+                        if next_token.children and len(next_token.children) > 0:
+                            # אם יש children, הוסף את ה-checkbox לפני הראשון
+                            first_child = next_token.children[0]
+                            if first_child.type == 'text':
+                                # שלב את ה-checkbox עם הטקסט
+                                first_child.content = checkbox_html + ' ' + task_text
+                                next_token.content = ''  # נקה את התוכן הראשי
+                        else:
+                            # אם אין children, פשוט החלף את התוכן
+                            next_token.content = checkbox_html + ' ' + task_text
             
             # קרא ל-renderer המקורי
             if original_list_item_open:
