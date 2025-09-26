@@ -167,8 +167,8 @@ def _render_markdown_advanced(md_text: str) -> str:
             'smarty',              # typographer
             'toc',
             'fenced_code',
-            'codehilite',
             # PyMdown
+            'pymdownx.highlight',
             'pymdownx.superfences',
             'pymdownx.magiclink',  # autolink URLs
             'pymdownx.tilde',      # ~~strikethrough~~
@@ -178,10 +178,11 @@ def _render_markdown_advanced(md_text: str) -> str:
         ]
         # קונפיגורציה
         extension_configs = {
-            'codehilite': {
-                'guess_lang': False,
-                'noclasses': False,
+            'pymdownx.highlight': {
+                'use_pygments': False,    # שלא להדגיש בצד שרת
+                'anchor_linenums': False,
                 'linenums': False,
+                'guess_lang': False,
             },
             'pymdownx.magiclink': {
                 'repo_url_shorthand': True,
@@ -1680,7 +1681,22 @@ def raw_markdown(file_id):
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script>
     try { mermaid.initialize({ startOnLoad: true, securityLevel: 'strict' }); } catch (e) {}
-    try { document.querySelectorAll('pre code').forEach(el => window.hljs && window.hljs.highlightElement(el)); } catch (e) {}
+    // הדגשת קוד יעילה: הדגשה רק כאשר הבלוק נכנס לפריים (IntersectionObserver)
+    try {
+      if (window.hljs) {
+        const blocks = Array.from(document.querySelectorAll('pre code'));
+        const seen = new WeakSet();
+        const highlight = el => { if (!seen.has(el)) { seen.add(el); try { window.hljs.highlightElement(el); } catch(e) {} } };
+        if ('IntersectionObserver' in window) {
+          const io = new IntersectionObserver(entries => {
+            entries.forEach(e => { if (e.isIntersecting) { highlight(e.target); io.unobserve(e.target); } });
+          }, { rootMargin: '200px 0px' });
+          blocks.forEach(el => io.observe(el));
+        } else {
+          blocks.forEach(el => highlight(el));
+        }
+      }
+    } catch (e) {}
   </script>
   <script>
     // MathJax (רינדור \(x\) ו-$$y$$) במצב כללי בלבד
@@ -1688,19 +1704,52 @@ def raw_markdown(file_id):
   </script>
   <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
   <script>
-    // Task list interactivity + שמירה ב-localStorage לפי fileId
+    // Task list interactivity + סנכרון DB דו־כיווני (וגיבוי localStorage)
     (function(){
       try {
-        const key = 'md_task_state:' + (window.__MD_RENDER_CONF__ ? window.__MD_RENDER_CONF__.fileId : 'unknown');
-        const state = JSON.parse(localStorage.getItem(key) || '{}');
+        const fileId = (window.__MD_RENDER_CONF__ ? window.__MD_RENDER_CONF__.fileId : 'unknown');
+        const key = 'md_task_state:' + fileId;
+        function applyState(stateMap) {
+          try {
+            const items2 = Array.from(document.querySelectorAll('.task-list-item input[type="checkbox"]'));
+            items2.forEach((cb, idx) => {
+              if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
+              const id = cb.getAttribute('data-index');
+              if (stateMap && Object.prototype.hasOwnProperty.call(stateMap, id)) {
+                cb.checked = !!stateMap[id];
+              }
+            });
+          } catch(e) {}
+        }
+
+        // מצב מקומי ראשוני
+        const localState = JSON.parse(localStorage.getItem(key) || '{}');
+        applyState(localState);
+
+        // משיכת מצב מהשרת
+        try {
+          fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), { credentials: 'same-origin' })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(d => { if (d && d.ok) { const merged = Object.assign({}, localState, d.state || {}); applyState(merged); localStorage.setItem(key, JSON.stringify(merged)); } })
+            .catch(function(){});
+        } catch(e) {}
+
+        // שינוי -> עדכון מקומי + POST לשרת
         const items = Array.from(document.querySelectorAll('.task-list-item input[type="checkbox"]'));
         items.forEach((cb, idx) => {
-          const id = cb.getAttribute('data-index') || String(idx);
-          if (state[id] !== undefined) { cb.checked = !!state[id]; }
+          if (!cb.hasAttribute('data-index')) cb.setAttribute('data-index', String(idx));
+          const id = cb.getAttribute('data-index');
           cb.addEventListener('change', function(){
-            const s = JSON.parse(localStorage.getItem(key) || '{}');
-            s[id] = cb.checked;
-            localStorage.setItem(key, JSON.stringify(s));
+            try {
+              const s = JSON.parse(localStorage.getItem(key) || '{}');
+              s[id] = cb.checked; localStorage.setItem(key, JSON.stringify(s));
+            } catch(e) {}
+            try {
+              fetch('/api/markdown_tasks/' + encodeURIComponent(fileId), {
+                method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, checked: !!cb.checked })
+              }).catch(function(){});
+            } catch(e) {}
           });
         });
       } catch(e) {}
@@ -1730,7 +1779,7 @@ def raw_markdown(file_id):
             "default-src 'none'; "
             "base-uri 'none'; "
             "form-action 'none'; "
-            "connect-src 'none'; "
+            "connect-src 'self'; "
             "img-src data: https:; "
             "style-src 'unsafe-inline' https:; "
             "font-src data: https:; "
@@ -2273,6 +2322,69 @@ def api_ui_prefs():
             pass
         return resp
     except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# --- Markdown Task Lists state (DB sync) ---
+@app.route('/api/markdown_tasks/<file_id>', methods=['GET', 'POST'])
+@login_required
+def api_markdown_tasks(file_id):
+    """אחסון דו־כיווני של מצב Task Lists עבור קובץ Markdown.
+
+    מבנה מסמך:
+    { file_id: ObjectId, state: { '0': true, '1': false, ... }, updated_at: datetime }
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        # אימות שהקובץ שייך למשתמש
+        try:
+            file = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+        except Exception:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+        if not file:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        coll = db.md_task_states
+        try:
+            from pymongo import ASCENDING
+            coll.create_index([('file_id', ASCENDING)], name='file_unique', unique=True)
+        except Exception:
+            pass
+
+        if request.method == 'GET':
+            doc = coll.find_one({'file_id': ObjectId(file_id)}) or {}
+            return jsonify({'ok': True, 'state': (doc.get('state') or {})})
+
+        payload = request.get_json(silent=True) or {}
+        now = datetime.now(timezone.utc)
+        update_fields = {'updated_at': now}
+        # תמיכה גם ב-patch נקודתי וגם ב-state מלא
+        if 'id' in payload and 'checked' in payload:
+            tid = str(payload.get('id'))
+            val = bool(payload.get('checked'))
+            update_fields[f'state.{tid}'] = val
+        elif 'patch' in payload and isinstance(payload.get('patch'), dict):
+            for k, v in (payload.get('patch') or {}).items():
+                update_fields[f'state.{str(k)}'] = bool(v)
+        elif 'state' in payload and isinstance(payload.get('state'), dict):
+            # מחליף מצב מלא
+            coll.update_one(
+                {'file_id': ObjectId(file_id)},
+                {'$set': {'state': {str(k): bool(v) for k, v in (payload.get('state') or {}).items()}, 'updated_at': now}},
+                upsert=True
+            )
+            return jsonify({'ok': True})
+        else:
+            return jsonify({'ok': False, 'error': 'payload לא תקף'}), 400
+
+        coll.update_one({'file_id': ObjectId(file_id)}, {'$set': update_fields}, upsert=True)
+        return jsonify({'ok': True})
+    except Exception as e:
+        try:
+            import logging
+            logging.exception('api_markdown_tasks error')
+        except Exception:
+            pass
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 # --- Public statistics for landing/mini web app ---
