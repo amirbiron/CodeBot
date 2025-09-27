@@ -135,7 +135,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
         max_length = 3500
-        code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
+        code_preview = code[:max_length]
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
         if origin.get('type') == 'by_repo' and origin.get('tag'):
@@ -159,6 +159,12 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        if len(code) > max_length:
+            next_chunk = code[max_length:max_length + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:idx:{file_index}:{max_length}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
@@ -696,14 +702,31 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         user_id = update.effective_user.id
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
+        # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
+        is_large_file = False
         if not file_data:
-            await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-            return ConversationHandler.END
+            try:
+                lf = db.get_large_file(user_id, file_name)
+            except Exception:
+                lf = None
+            if lf:
+                is_large_file = True
+                file_data = {
+                    'file_name': lf.get('file_name', file_name),
+                    'code': lf.get('content', ''),
+                    'programming_language': lf.get('programming_language', 'text'),
+                    'version': 1,
+                    'description': lf.get('description', ''),
+                    '_id': lf.get('_id')
+                }
+            else:
+                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+                return ConversationHandler.END
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
         max_length = 3500
-        code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
+        code_preview = code[:max_length]
         # נסה להשיג ObjectId לצורך שיתוף
         try:
             fid = str(file_data.get('_id') or '')
@@ -727,9 +750,23 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
         ]
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        if len(code) > max_length:
+            next_chunk = code[max_length:max_length + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        if len(code) > max_length:
+            next_chunk = code[max_length:max_length + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-2, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
+        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
+        large_note_html = "\n<i>זה קובץ גדול</i>\n\n" if is_large_file else ""
         # Markdown מוצג ב-HTML כדי למנוע שבירת ``` פנימיים
         if (language or '').lower() == 'markdown':
             safe_code = html_escape(code_preview)
@@ -738,14 +775,14 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             await TelegramUtils.safe_edit_message_text(
                 query,
-                f"{header_html}<pre><code>{safe_code}</code></pre>",
+                f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
                 reply_markup=reply_markup,
                 parse_mode='HTML',
             )
         else:
             await TelegramUtils.safe_edit_message_text(
                 query,
-                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}"
+                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
                 f"```{language}\n{code_preview}\n```",
                 reply_markup=reply_markup,
                 parse_mode='Markdown',
