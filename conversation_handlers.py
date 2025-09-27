@@ -469,12 +469,13 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
-        # מסך בחירה: 4 כפתורים
+        # מסך בחירה: כפתורי ניווט ראשיים
         keyboard = [
+            [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
-            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -2551,6 +2552,22 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 f"📂 קבצים עם {tag}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+        elif data == "search_files":
+            # מעבר למצב חיפוש: בקשת שאילתא מהמשתמש
+            context.user_data['search_ctx'] = {'mode': 'all_files'}
+            kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="files")]]
+            await query.edit_message_text(
+                "🔎 *חיפוש קבצים*\n\n"
+                "הקלד/י אחת מהאפשרויות:\n"
+                "• שם קובץ או חלק ממנו (לדוגמה: main.py או main)\n"
+                "• תגית עם קידומת repo:owner/name\n"
+                "• שפה (לדוגמה: python, js)\n"
+                "או שילוב: name:util lang:python tag:repo:me/project",
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # סמן שמחכים לטקסט חיפוש
+            context.user_data['awaiting_search_text'] = True
         elif data.startswith("byrepo_delete_confirm:"):
             # שלב אישור ראשון למחיקת כל הקבצים תחת תגית ריפו
             tag = data.split(":", 1)[1]
