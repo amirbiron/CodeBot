@@ -135,7 +135,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
         max_length = 3500
-        code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
+        code_preview = code[:max_length]
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
         if origin.get('type') == 'by_repo' and origin.get('tag'):
@@ -159,6 +159,12 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        if len(code) > max_length:
+            next_chunk = code[max_length:max_length + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:idx:{file_index}:{max_length}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
@@ -720,7 +726,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
         max_length = 3500
-        code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]" if len(code) > max_length else code
+        code_preview = code[:max_length]
         # נסה להשיג ObjectId לצורך שיתוף
         try:
             fid = str(file_data.get('_id') or '')
@@ -744,6 +750,18 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
         ]
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        if len(code) > max_length:
+            next_chunk = code[max_length:max_length + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        if len(code) > max_length:
+            next_chunk = code[max_length:max_length + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-2, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"

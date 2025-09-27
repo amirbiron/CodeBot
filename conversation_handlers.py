@@ -1857,6 +1857,95 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_versions_history(update, context)
         elif data.startswith("dl_") or data.startswith("download_"):
             return await handle_download_file(update, context)
+        elif data.startswith("fv_more:"):
+            # טעינת עוד טקסט לתצוגת קוד (lazy-load) — תומך גם ב-index וגם ב-direct
+            parts = data.split(":")
+            # פורמטים נתמכים: fv_more:idx:{index}:{offset} | fv_more:direct:{file_name}:{offset}
+            if len(parts) < 4:
+                return ConversationHandler.END
+            mode = parts[1]
+            try:
+                chunk_offset = int(parts[3])
+            except Exception:
+                chunk_offset = 0
+            max_length = 3500
+            header_text = ""
+            code_to_show = ""
+            language = "text"
+            file_name = "קובץ"
+            reply_markup = None
+            if mode == "idx":
+                file_index = parts[2]
+                files_cache = context.user_data.get('files_cache', {})
+                file_data = files_cache.get(file_index) or {}
+                code = file_data.get('code', '')
+                file_name = file_data.get('file_name', 'קובץ')
+                language = file_data.get('programming_language', 'text')
+                # חישוב קטע הבא
+                next_end = min(len(code), chunk_offset + max_length)
+                code_to_show = code[:next_end]
+                # בניית מקלדת עם כפתור "הצג עוד" הבא אם יש
+                keyboard = []
+                # שחזור כפתורי פעולה עיקריים
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")])
+                last_page = context.user_data.get('files_last_page')
+                origin = context.user_data.get('files_origin') or {}
+                if origin.get('type') == 'by_repo' and origin.get('tag'):
+                    back_cb = f"by_repo:{origin.get('tag')}"
+                elif origin.get('type') == 'regular':
+                    back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+                else:
+                    back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+                if next_end < len(code):
+                    next_chunk = code[next_end:next_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:idx:{file_index}:{next_end}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            elif mode == "direct":
+                file_name = parts[2]
+                user_id = update.effective_user.id
+                from database import db
+                doc = db.get_latest_version(user_id, file_name)
+                if not doc:
+                    # נסה large_file
+                    doc = db.get_large_file(user_id, file_name) or {}
+                    code = doc.get('content', '')
+                else:
+                    code = doc.get('code', '')
+                language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
+                next_end = min(len(code), chunk_offset + max_length)
+                code_to_show = code[:next_end]
+                # כפתורים לתצוגה ישירה
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")])
+                try:
+                    fid = str(doc.get('_id') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    fid = ''
+                keyboard.append([InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")])
+                if next_end < len(code):
+                    next_chunk = code[next_end:next_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-2, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:direct:{file_name}:{next_end}")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            # רינדור מחדש עם קטע ארוך יותר
+            note_line = "\n"
+            try:
+                await query.edit_message_text(
+                    f"📄 *{file_name}* ({language}){note_line}\n" +
+                    f"```{language}\n{code_to_show}\n```",
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
         elif data.startswith("clone_"):
             if data.startswith("clone_direct_"):
                 return await handle_clone_direct(update, context)
