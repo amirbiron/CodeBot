@@ -1902,6 +1902,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     next_chunk = code[next_end:next_end + max_length]
                     next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
                     keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:idx:{file_index}:{next_end}")])
+                if next_end > max_length:
+                    prev_chunk = code[max(max_length, next_end - max_length):next_end]
+                    prev_lines = prev_chunk.count('\n') or (1 if prev_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines} שורות ⤴️", callback_data=f"fv_less:idx:{file_index}:{next_end}")])
                 keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)])
                 reply_markup = InlineKeyboardMarkup(keyboard)
             elif mode == "direct":
@@ -1933,8 +1937,102 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     next_chunk = code[next_end:next_end + max_length]
                     next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
                     keyboard.insert(-2, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:direct:{file_name}:{next_end}")])
+                if next_end > max_length:
+                    prev_chunk = code[max(max_length, next_end - max_length):next_end]
+                    prev_lines = prev_chunk.count('\n') or (1 if prev_chunk else 0)
+                    keyboard.insert(-2, [InlineKeyboardButton(f"הצג פחות {prev_lines} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{next_end}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
             # רינדור מחדש עם קטע ארוך יותר
+            note_line = "\n"
+            try:
+                await query.edit_message_text(
+                    f"📄 *{file_name}* ({language}){note_line}\n" +
+                    f"```{language}\n{code_to_show}\n```",
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+        elif data.startswith("fv_less:"):
+            # צמצום התצוגה לאחור — מציג פחות שורות
+            parts = data.split(":")
+            if len(parts) < 4:
+                return ConversationHandler.END
+            mode = parts[1]
+            try:
+                current_end = int(parts[3])
+            except Exception:
+                current_end = 0
+            max_length = 3500
+            prev_end = max(max_length, current_end - max_length)
+            code_to_show = ""
+            language = "text"
+            file_name = "קובץ"
+            reply_markup = None
+            if mode == "idx":
+                file_index = parts[2]
+                files_cache = context.user_data.get('files_cache', {})
+                file_data = files_cache.get(file_index) or {}
+                code = file_data.get('code', '')
+                file_name = file_data.get('file_name', 'קובץ')
+                language = file_data.get('programming_language', 'text')
+                code_to_show = code[:prev_end]
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")])
+                last_page = context.user_data.get('files_last_page')
+                origin = context.user_data.get('files_origin') or {}
+                if origin.get('type') == 'by_repo' and origin.get('tag'):
+                    back_cb = f"by_repo:{origin.get('tag')}"
+                elif origin.get('type') == 'regular':
+                    back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+                else:
+                    back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+                # כפתורי עוד/פחות בהתאם לשוליים
+                if prev_end < len(code):
+                    next_chunk = code[prev_end:prev_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:idx:{file_index}:{prev_end}")])
+                if prev_end > max_length:
+                    prev_chunk2 = code[max(max_length, prev_end - max_length):prev_end]
+                    prev_lines2 = prev_chunk2.count('\n') or (1 if prev_chunk2 else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines2} שורות ⤴️", callback_data=f"fv_less:idx:{file_index}:{prev_end}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            elif mode == "direct":
+                file_name = parts[2]
+                user_id = update.effective_user.id
+                from database import db
+                doc = db.get_latest_version(user_id, file_name)
+                if not doc:
+                    doc = db.get_large_file(user_id, file_name) or {}
+                    code = doc.get('content', '')
+                else:
+                    code = doc.get('code', '')
+                language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
+                code_to_show = code[:prev_end]
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")])
+                try:
+                    fid = str(doc.get('_id') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    fid = ''
+                keyboard.append([InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")])
+                if prev_end < len(code):
+                    next_chunk = code[prev_end:prev_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:direct:{file_name}:{prev_end}")])
+                if prev_end > max_length:
+                    prev_chunk2 = code[max(max_length, prev_end - max_length):prev_end]
+                    prev_lines2 = prev_chunk2.count('\n') or (1 if prev_chunk2 else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines2} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{prev_end}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            # רינדור מחדש עם קטע קצר יותר
             note_line = "\n"
             try:
                 await query.edit_message_text(
