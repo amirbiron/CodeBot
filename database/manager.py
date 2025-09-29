@@ -43,10 +43,16 @@ class DatabaseManager:
                     return SimpleNamespace(inserted_id=None)
                 def update_one(self, *args, **kwargs):
                     return SimpleNamespace(acknowledged=True, modified_count=0)
+                def delete_one(self, *args, **kwargs):
+                    return SimpleNamespace(deleted_count=0)
                 def find_one(self, *args, **kwargs):
+                    return None
+                def find_one_and_update(self, *args, **kwargs):
                     return None
                 def aggregate(self, *args, **kwargs):
                     return []
+                def create_index(self, *args, **kwargs):
+                    return None
                 def create_indexes(self, *args, **kwargs):
                     return None
                 def list_indexes(self, *args, **kwargs):
@@ -55,8 +61,19 @@ class DatabaseManager:
                     return None
                 def find(self, *args, **kwargs):
                     return []
+            class NoOpDB:
+                def __init__(self):
+                    self._collections: Dict[str, NoOpCollection] = {}
+                def __getitem__(self, name: str) -> NoOpCollection:
+                    if name not in self._collections:
+                        self._collections[name] = NoOpCollection()
+                    return self._collections[name]
+                @property
+                def name(self) -> str:
+                    return "noop_db"
+
             self.client = None
-            self.db = SimpleNamespace(users=NoOpCollection())
+            self.db = NoOpDB()
             self.collection = NoOpCollection()
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
