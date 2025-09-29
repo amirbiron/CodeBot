@@ -171,6 +171,7 @@ safe_rmrf() {
 # PR/תיעוד שינויים
 - שמות ענפים: fix/..., chore/..., feat/...
 - תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
+ - יש למלא PR לפי התבנית שב-`.github/pull_request_template.md` (כולל Docs Preview, בדיקות, צ'קליסט ו-Rollback).
  
 # Gists/קישורים חיצוניים בהנחיות משתמש
 - בכל פעם שהמשתמש מצרף Gist/קישור קוד: לעיין בתוכן לפני מימוש.
