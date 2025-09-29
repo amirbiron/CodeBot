@@ -25,17 +25,17 @@ async def cache_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if not stats.get("enabled", False):
             await update.message.reply_text(
-                "📊 **סטטיסטיקות Cache**\n\n"
+                "📊 <b>סטטיסטיקות Cache</b>\n\n"
                 "❌ Redis Cache מושבת\n"
-                "💡 להפעלה: הגדר REDIS_URL במשתני הסביבה",
-                parse_mode='Markdown'
+                "💡 להפעלה: הגדר <code>REDIS_URL</code> במשתני הסביבה",
+                parse_mode='HTML'
             )
             return
         
         if "error" in stats:
             await update.message.reply_text(
-                f"📊 **סטטיסטיקות Cache**\n\n"
-                f"⚠️ שגיאה: {html_escape(stats['error'])}",
+                f"📊 <b>סטטיסטיקות Cache</b>\n\n"
+                f"⚠️ <b>שגיאה:</b> {html_escape(stats['error'])}",
                 parse_mode='HTML'
             )
             return
