@@ -600,7 +600,7 @@ async def test_search_no_results_stays_awaiting(monkeypatch):
     mod.CodeSnippet = _CodeSnippet
     mod.LargeFile = _LargeFile
     mod.DatabaseManager = _DatabaseManager
-    mod.db = types.SimpleNamespace(search_code=lambda *_: [])
+    mod.db = types.SimpleNamespace(search_code=lambda *args, **kwargs: [])
     monkeypatch.setitem(sys.modules, "database", mod)
 
     from main import CodeKeeperBot
