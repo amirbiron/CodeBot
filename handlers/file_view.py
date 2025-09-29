@@ -698,13 +698,47 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
     try:
-        file_name = query.data.replace("view_direct_", "")
+        data = query.data
+        token = data.replace("view_direct_", "", 1)
         user_id = update.effective_user.id
         from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
+        file_data = None
+        file_name = None
         is_large_file = False
-        if not file_data:
+
+        if token.startswith("id:"):
+            file_id = token[3:]
+            try:
+                doc = db.get_file_by_id(file_id)
+            except Exception:
+                doc = None
+            if not doc:
+                try:
+                    lf = db.get_large_file_by_id(file_id)
+                except Exception:
+                    lf = None
+                if lf:
+                    is_large_file = True
+                    file_name = lf.get('file_name') or 'file'
+                    file_data = {
+                        'file_name': file_name,
+                        'code': lf.get('content', ''),
+                        'programming_language': lf.get('programming_language', 'text'),
+                        'version': 1,
+                        'description': lf.get('description', ''),
+                        '_id': lf.get('_id')
+                    }
+                else:
+                    await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                    return ConversationHandler.END
+            else:
+                file_name = doc.get('file_name') or 'file'
+                file_data = doc
+        else:
+            file_name = token
+            file_data = db.get_latest_version(user_id, file_name)
+        # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
+        if not file_data and file_name:
             try:
                 lf = db.get_large_file(user_id, file_name)
             except Exception:

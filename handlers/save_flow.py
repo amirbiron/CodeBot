@@ -350,7 +350,7 @@ async def save_file_final(update, context, filename, user_id):
             note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{filename}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_id:{fid}" if fid else f"view_direct_{filename}"),
                     InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{filename}"),
                 ],
                 [

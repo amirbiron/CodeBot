@@ -1636,7 +1636,7 @@ class CodeKeeperBot:
                     except Exception:
                         fid = ''
                     keyboard = [
-                        [InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{file_name}"), InlineKeyboardButton("📚 הצג קבצים גדולים", callback_data="show_large_files")],
+                        [InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}"), InlineKeyboardButton("📚 הצג קבצים גדולים", callback_data="show_large_files")],
                         [InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")],
                         [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")]
                     ]
@@ -1688,7 +1688,7 @@ class CodeKeeperBot:
                     except Exception:
                         fid = ''
                     keyboard = [
-                        [InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{file_name}"), InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{file_name}")],
+                        [InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}"), InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{file_name}")],
                         [InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")],
                         [InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")],
                         [InlineKeyboardButton("📚 הצג את כל הקבצים", callback_data="files")],
