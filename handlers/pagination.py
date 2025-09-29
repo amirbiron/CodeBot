@@ -14,7 +14,7 @@ def build_pagination_row(
     - page: current 1-based page index
     - total_items: total number of items
     - page_size: items per page
-    - callback_prefix: for example ``files\_page\_`` → formats as ``{prefix}{page_num}``
+    - callback_prefix: for example r``files\_page\_`` → formats as ``{prefix}{page_num}``
     """
     if page_size <= 0:
         return None
