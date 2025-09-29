@@ -2609,14 +2609,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("by_repo_page:"):
             # עימוד קבצים לפי תגית ריפו: תבנית callback "by_repo_page:{tag}:{page}"
             parts = data.split(":")
-            # צורה צפויה: ["by_repo_page", "{tag}", "{page}"]
+            # צורה אפשרית: ["by_repo_page", "repo", "me/app", "2"] או ["by_repo_page","repo:me/app","2"]
             if len(parts) < 3:
                 return ConversationHandler.END
-            tag = parts[1]
             try:
-                page = int(parts[2])
+                page = int(parts[-1])
             except Exception:
                 page = 1
+            # התגית היא כל מה שבין prefix לבין העמוד האחרון
+            tag = ":".join(parts[1:-1]) or ""
             if page < 1:
                 page = 1
             context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
