@@ -750,18 +750,13 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
         ]
-        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
+        # הוספת כפתור "הצג עוד" אם יש עוד תוכן (פעם אחת בלבד)
         if len(code) > max_length:
             next_chunk = code[max_length:max_length + max_length]
             next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
             show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            # הוסף לפני כפתור החזרה (השורה האחרונה)
             keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
-        # הוספת כפתור "הצג עוד" אם יש עוד תוכן
-        if len(code) > max_length:
-            next_chunk = code[max_length:max_length + max_length]
-            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
-            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
-            keyboard.insert(-2, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"

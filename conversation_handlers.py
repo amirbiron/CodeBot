@@ -1713,7 +1713,7 @@ async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_
         # הצגת הערה אם קיימת
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        large_note_md = "\nזה קובץ גדול\n\ן" if is_large_file else ""
+        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         await query.edit_message_text(
             f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
             f"```{language}\n{code_preview}\n```",
