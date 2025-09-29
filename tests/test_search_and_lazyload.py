@@ -877,6 +877,200 @@ async def test_back_after_view_menu_builds(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_handle_view_file_html_respects_4096(monkeypatch):
+    # Ensure handle_view_file trims safely after HTML escaping
+    import types
+
+    long_code = "<" * 8000  # expands significantly when escaped (&lt;)
+    file_index = "7"
+
+    class Q:
+        def __init__(self):
+            self.data = f"view_{file_index}"
+            self.captured = None
+            self.captured_text = None
+            self.captured_mode = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **_):
+            self.captured = reply_markup
+            self.captured_text = text
+            self.captured_mode = parse_mode
+
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+
+    ctx = types.SimpleNamespace(user_data={
+        'files_cache': {
+            file_index: {
+                'file_name': 'f.html',
+                'code': long_code,
+                'programming_language': 'html',
+                'version': 1,
+                'description': ''
+            }
+        },
+        'files_last_page': 1,
+        'files_origin': {'type': 'regular'},
+    })
+
+    from handlers.file_view import handle_view_file
+    u = U()
+    await handle_view_file(u, ctx)
+    assert u.callback_query.captured_mode == 'HTML'
+    assert u.callback_query.captured_text is not None
+    assert len(u.callback_query.captured_text) <= 4096
+    assert '<pre><code>' in u.callback_query.captured_text
+
+
+@pytest.mark.asyncio
+async def test_handle_view_version_html_respects_4096(monkeypatch):
+    # Ensure handle_view_version trims safely after HTML escaping
+    import types, sys
+
+    big = "<" * 10000
+    mod = types.ModuleType("database")
+    mod.db = types.SimpleNamespace(
+        get_version=lambda _u, _n, _v: {
+            'code': big,
+            'programming_language': 'html'
+        },
+        get_latest_version=lambda _u, _n: {'version': 1}
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from conversation_handlers import handle_view_version
+
+    class Q:
+        def __init__(self):
+            self.data = 'view_version_1_f.html'
+            self.captured_text = None
+            self.captured_mode = None
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **_):
+            self.captured_text = text
+            self.captured_mode = parse_mode
+            self.captured = reply_markup
+
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+
+    u = U()
+    ctx = types.SimpleNamespace(user_data={})
+    await handle_view_version(u, ctx)
+    assert u.callback_query.captured_mode == 'HTML'
+    assert u.callback_query.captured_text is not None
+    assert len(u.callback_query.captured_text) <= 4096
+    assert '<pre><code>' in u.callback_query.captured_text
+
+
+@pytest.mark.asyncio
+async def test_receive_new_name_prefers_id_when_available(monkeypatch):
+    # After rename, the 'view code' button should prefer view_direct_id when fid exists
+    import types, sys
+
+    mod = types.ModuleType("database")
+    mod.db = types.SimpleNamespace(
+        rename_file=lambda *_: True,
+        get_latest_version=lambda _u, name: {
+            '_id': 'OID123',
+            'file_name': name,
+            'code': 'print(1)',
+            'programming_language': 'python'
+        }
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    class Msg:
+        def __init__(self):
+            self.text = 'new.py'
+            self.captured = None
+        async def reply_text(self, *_a, **kw):
+            self.captured = kw.get('reply_markup')
+            return None
+
+    class U:
+        def __init__(self):
+            self.message = Msg()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=5)
+
+    ctx = types.SimpleNamespace(user_data={
+        'editing_file_data': {'file_name': 'old.py'},
+        'editing_file_name': 'old.py'
+    })
+
+    from handlers.file_view import receive_new_name
+    u = U()
+    await receive_new_name(u, ctx)
+    rm = u.message.captured
+    assert rm is not None
+    callbacks = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(cb == 'view_direct_id:OID123' for cb in callbacks)
+
+
+@pytest.mark.asyncio
+async def test_handle_clone_direct_prefers_id(monkeypatch):
+    # After clone direct, prefer id in the 'view code' button if new doc has _id
+    import types, sys
+
+    class FakeDB:
+        def __init__(self):
+            self.saved = []
+        def get_latest_version(self, _u, name):
+            if name == 'src.py':
+                return {'file_name': 'src.py', 'code': 'x', 'programming_language': 'python', '_id': 'SRC'}
+            # for new names
+            return {'file_name': name, '_id': 'NEWID'}
+        def save_code_snippet(self, snippet):
+            self.saved.append(snippet)
+            return True
+
+    db = FakeDB()
+    mod = types.ModuleType("database")
+    mod.db = db
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from handlers.file_view import handle_clone_direct
+
+    class Q:
+        def __init__(self):
+            self.data = 'clone_direct_src.py'
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get('reply_markup')
+            return None
+
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+
+    u = U()
+    ctx = types.SimpleNamespace(user_data={})
+    await handle_clone_direct(u, ctx)
+    rm = u.callback_query.captured
+    assert rm is not None
+    cbs = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(cb == 'view_direct_id:NEWID' for cb in cbs)
+
+
+@pytest.mark.asyncio
 async def test_code_hint_when_text_looks_like_code(monkeypatch):
     # Ensure code hint path replies
     from main import CodeKeeperBot

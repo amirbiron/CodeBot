@@ -168,26 +168,35 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        # אם הקובץ הוא Markdown – נציג ב-HTML עם <pre><code> כדי למנוע שבירת ``` פנימיים
-        if (language or '').lower() == 'markdown':
-            safe_code = html_escape(code_preview)
-            header_html = (
-                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}\n"
-            )
-            await TelegramUtils.safe_edit_message_text(
-                query,
-                f"{header_html}<pre><code>{safe_code}</code></pre>",
-                reply_markup=reply_markup,
-                parse_mode='HTML',
-            )
-        else:
-            await TelegramUtils.safe_edit_message_text(
-                query,
-                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
-                f"```{language}\n{code_preview}\n```",
-                reply_markup=reply_markup,
-                parse_mode='Markdown',
-            )
+        # אחידות: תמיד HTML עם <pre><code>, אך נכבד מגבלת 4096 לאחר escape
+        header_html = (
+            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}\n"
+        )
+        html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+        fudge = 10
+        available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+        if available_for_code < 100:
+            available_for_code = 100
+        preview_raw_limit = min(max_length, len(code))
+        safe_code = html_escape(code[:preview_raw_limit])
+        if len(safe_code) > available_for_code and preview_raw_limit > 0:
+            try:
+                factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                preview_raw_limit = max(0, int(available_for_code / factor))
+            except Exception:
+                preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+            safe_code = html_escape(code[:preview_raw_limit])
+            while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                step = max(50, len(safe_code) - available_for_code)
+                preview_raw_limit = max(0, preview_raw_limit - step)
+                safe_code = html_escape(code[:preview_raw_limit])
+        code_preview = code[:preview_raw_limit]
+        await TelegramUtils.safe_edit_message_text(
+            query,
+            f"{header_html}<pre><code>{safe_code}</code></pre>",
+            reply_markup=reply_markup,
+            parse_mode='HTML',
+        )
     except Exception as e:
         logger.error(f"Error in handle_view_file: {e}")
         await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהצגת הקוד המתקדם")
@@ -443,9 +452,15 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         from database import db
         success = db.rename_file(user_id, old_name, new_name)
         if success:
+            # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
+            try:
+                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                fid = str(latest_doc.get('_id') or '')
+            except Exception:
+                fid = ''
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
                 ],
                 [
@@ -698,13 +713,47 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
     try:
-        file_name = query.data.replace("view_direct_", "")
+        data = query.data
+        token = data.replace("view_direct_", "", 1)
         user_id = update.effective_user.id
         from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
+        file_data = None
+        file_name = None
         is_large_file = False
-        if not file_data:
+
+        if token.startswith("id:"):
+            file_id = token[3:]
+            try:
+                doc = db.get_file_by_id(file_id)
+            except Exception:
+                doc = None
+            if not doc:
+                try:
+                    lf = db.get_large_file_by_id(file_id)
+                except Exception:
+                    lf = None
+                if lf:
+                    is_large_file = True
+                    file_name = lf.get('file_name') or 'file'
+                    file_data = {
+                        'file_name': file_name,
+                        'code': lf.get('content', ''),
+                        'programming_language': lf.get('programming_language', 'text'),
+                        'version': 1,
+                        'description': lf.get('description', ''),
+                        '_id': lf.get('_id')
+                    }
+                else:
+                    await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                    return ConversationHandler.END
+            else:
+                file_name = doc.get('file_name') or 'file'
+                file_data = doc
+        else:
+            file_name = token
+            file_data = db.get_latest_version(user_id, file_name)
+        # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
+        if not file_data and file_name:
             try:
                 lf = db.get_large_file(user_id, file_name)
             except Exception:
@@ -990,20 +1039,45 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
             return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
 
         new_name = _suggest_clone_name(file_name)
-        from database import CodeSnippet
-        snippet = CodeSnippet(
-            user_id=user_id,
-            file_name=new_name,
-            code=code,
-            programming_language=language,
-            description=description,
-            tags=tags,
-        )
-        ok = db.save_code_snippet(snippet)
+        # יצירת snippet לשמירה: העדפה למחלקה מה-DB, עם נפילה חכמה לאובייקט פשוט/שמירה ישירה
+        try:
+            from database import CodeSnippet  # type: ignore
+            snippet = CodeSnippet(
+                user_id=user_id,
+                file_name=new_name,
+                code=code,
+                programming_language=language,
+                description=description,
+                tags=tags,
+            )
+            ok = db.save_code_snippet(snippet)
+        except Exception:
+            # סביבה בדיקות/סטאב: ננסה אובייקט דמוי‑snippet או נפילה לשמירה ישירה
+            try:
+                SimpleSnippet = type("Snippet", (), {})
+                snippet = SimpleSnippet()
+                snippet.user_id = user_id
+                snippet.file_name = new_name
+                snippet.code = code
+                snippet.programming_language = language
+                snippet.description = description
+                try:
+                    snippet.tags = tags
+                except Exception:
+                    pass
+                ok = db.save_code_snippet(snippet)
+            except Exception:
+                ok = db.save_file(user_id, new_name, code, language)
         if ok:
+            # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
+            try:
+                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                fid = str(latest_doc.get('_id') or '')
+            except Exception:
+                fid = ''
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
                 ],
                 [

@@ -1588,181 +1588,13 @@ async def handle_file_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     return ConversationHandler.END
 
-async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """הצגת קובץ באמצעות שם קובץ ישיר"""
-    query = update.callback_query
-    await query.answer()
     
-    try:
-        file_name = query.data.replace("view_direct_", "")
-        user_id = update.effective_user.id
-        
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        # תמיכה בקבצים גדולים: נסה להביא מקולקציית large_files אם לא נמצא רגיל
-        is_large_file = False
-        if not file_data:
-            try:
-                lf = db.get_large_file(user_id, file_name)
-            except Exception:
-                lf = None
-            if lf:
-                is_large_file = True
-                file_data = {
-                    'file_name': lf.get('file_name', file_name),
-                    'code': lf.get('content', ''),
-                    'programming_language': lf.get('programming_language', 'text'),
-                    'version': 1,
-                    'description': lf.get('description', ''),
-                    '_id': lf.get('_id')
-                }
-            else:
-                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-                return ConversationHandler.END
-        
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        version = file_data.get('version', 1)
-        
-        # חיתוך חכם של הקוד
-        max_length = 3500
-        if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]"
-        else:
-            code_preview = code
-        
-        # כפתורים מתקדמים לעריכה
-        keyboard = [
-            [
-                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
-                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"),
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"),
-                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")
-            ],
-            [InlineKeyboardButton("🔙 לרשימה", callback_data="files")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # הצגת הערה אם קיימת
-        note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
-        await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
-            f"```{language}\n{code_preview}\n```",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in handle_view_direct_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
-    
-    return ConversationHandler.END
 
-async def handle_edit_code_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """התחלת עריכת קוד באמצעות שם קובץ ישיר"""
-    query = update.callback_query
-    await query.answer()
     
-    try:
-        file_name = query.data.replace("edit_code_direct_", "")
-        user_id = update.effective_user.id
-        
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        
-        if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
-            return ConversationHandler.END
-        
-        context.user_data['editing_file_data'] = file_data
-        context.user_data['editing_file_name'] = file_name
-        
-        await query.edit_message_text(
-            f"✏️ *עריכת קוד מתקדמת*\n\n"
-            f"📄 **קובץ:** `{file_name}`\n\n"
-            f"📝 שלח את הקוד החדש והמעודכן:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown'
-        )
-        
-        return EDIT_CODE
-        
-    except Exception as e:
-        logger.error(f"Error in handle_edit_code_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכה")
-    
-    return ConversationHandler.END
 
-async def handle_edit_name_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """התחלת עריכת שם קובץ באמצעות שם קובץ ישיר"""
-    query = update.callback_query
-    await query.answer()
     
-    try:
-        file_name = query.data.replace("edit_name_direct_", "")
-        user_id = update.effective_user.id
-        
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        
-        if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
-            return ConversationHandler.END
-        
-        context.user_data['editing_file_data'] = file_data
-        context.user_data['editing_file_name'] = file_name
-        
-        await query.edit_message_text(
-            f"📝 *עריכת שם קובץ*\n\n"
-            f"📄 **שם נוכחי:** `{file_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown'
-        )
-        
-        return EDIT_NAME
-        
-    except Exception as e:
-        logger.error(f"Error in handle_edit_name_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכת שם")
-    
-    return ConversationHandler.END
 
-async def handle_edit_note_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """עריכת הערה (description) עבור קובץ בשמו הישיר"""
-    query = update.callback_query
-    await query.answer()
-    try:
-        file_name = query.data.replace("edit_note_direct_", "")
-        user_id = update.effective_user.id
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        if not file_data:
-            await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
-            return ConversationHandler.END
-        current_note = file_data.get('description', '') or '—'
-        context.user_data['editing_note_file'] = file_name
-        await query.edit_message_text(
-            f"📝 *עריכת הערה לקובץ*\n\n"
-            f"📄 **שם:** `{file_name}`\n"
-            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
-            f"✏️ שלח/י הערה חדשה (או שלח/י 'מחק' כדי להסיר).",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown'
-        )
-        return EDIT_CODE  # נשתמש באותו state קבלת טקסט; נמפה לפי דגל
-    except Exception as e:
-        logging.exception("Error in handle_edit_note_direct: %s", e)
-        await query.edit_message_text("❌ שגיאה בעריכת הערה")
-    return ConversationHandler.END
+    
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מרכז בקרה מתקדם לכל הכפתורים"""
@@ -1828,10 +1660,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 language = file_data.get('programming_language', 'text')
                 # חישוב קטע הבא
                 next_end = min(len(code), chunk_offset + max_length)
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML בסיסיות
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if next_end <= safe_code_limit:
                     code_to_show = code[:next_end]
                 else:
@@ -1869,18 +1701,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 user_id = update.effective_user.id
                 from database import db
                 doc = db.get_latest_version(user_id, file_name)
+                is_large_file = False
                 if not doc:
                     # נסה large_file
                     doc = db.get_large_file(user_id, file_name) or {}
+                    is_large_file = bool(doc)
                     code = doc.get('content', '')
                 else:
                     code = doc.get('code', '')
                 language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
                 next_end = min(len(code), chunk_offset + max_length)
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if next_end <= safe_code_limit:
                     code_to_show = code[:next_end]
                 else:
@@ -1908,14 +1742,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     prev_lines = prev_chunk.count('\n') or (1 if prev_chunk else 0)
                     keyboard.insert(-2, [InlineKeyboardButton(f"הצג פחות {prev_lines} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{next_end}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-            # רינדור מחדש עם קטע ארוך יותר
-            note_line = "\n"
+            # רינדור מחדש עם קטע ארוך יותר — HTML אחיד, ואינדיקציה לקובץ גדול במצב direct
+            note = ''
+            large_note_html = ''
+            if mode == 'idx':
+                try:
+                    note = (file_data.get('description') or '') if isinstance(file_data, dict) else ''
+                except Exception:
+                    note = ''
+            else:
+                try:
+                    note = (doc.get('description') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    note = ''
+                try:
+                    if 'is_large_file' in locals() and is_large_file:
+                        large_note_html = "\n<i>זה קובץ גדול</i>\n"
+                except Exception:
+                    pass
+            note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n"
+            safe_code_html = html_escape(code_to_show)
             try:
                 await query.edit_message_text(
-                    f"📄 *{file_name}* ({language}){note_line}\n" +
-                    f"```{language}\n{code_to_show}\n```",
+                    f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}){note_line}{large_note_html}\n" +
+                    f"<pre><code>{safe_code_html}</code></pre>",
                     reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.HTML
                 )
             except telegram.error.BadRequest as br:
                 if "message is not modified" not in str(br).lower():
@@ -1943,10 +1795,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 code = file_data.get('code', '')
                 file_name = file_data.get('file_name', 'קובץ')
                 language = file_data.get('programming_language', 'text')
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if prev_end <= safe_code_limit:
                     code_to_show = code[:prev_end]
                 else:
@@ -1982,16 +1834,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 user_id = update.effective_user.id
                 from database import db
                 doc = db.get_latest_version(user_id, file_name)
+                is_large_file = False
                 if not doc:
                     doc = db.get_large_file(user_id, file_name) or {}
+                    is_large_file = bool(doc)
                     code = doc.get('content', '')
                 else:
                     code = doc.get('code', '')
                 language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if prev_end <= safe_code_limit:
                     code_to_show = code[:prev_end]
                 else:
@@ -2018,14 +1872,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines2} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{prev_end}")])
                 keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-            # רינדור מחדש עם קטע קצר יותר
-            note_line = "\n"
+            # רינדור מחדש עם קטע קצר יותר — HTML אחיד, ואינדיקציה לקובץ גדול במצב direct
+            note = ''
+            large_note_html = ''
+            if mode == 'idx':
+                try:
+                    note = (file_data.get('description') or '') if isinstance(file_data, dict) else ''
+                except Exception:
+                    note = ''
+            else:
+                try:
+                    note = (doc.get('description') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    note = ''
+                try:
+                    if 'is_large_file' in locals() and is_large_file:
+                        large_note_html = "\n<i>זה קובץ גדול</i>\n"
+                except Exception:
+                    pass
+            note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n"
+            safe_code_html = html_escape(code_to_show)
             try:
                 await query.edit_message_text(
-                    f"📄 *{file_name}* ({language}){note_line}\n" +
-                    f"```{language}\n{code_to_show}\n```",
+                    f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}){note_line}{large_note_html}\n" +
+                    f"<pre><code>{safe_code_html}</code></pre>",
                     reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.HTML
                 )
             except telegram.error.BadRequest as br:
                 if "message is not modified" not in str(br).lower():
@@ -2109,7 +1981,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 ],
                 [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
             ]
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
             return ConversationHandler.END
         elif data.startswith("share_gist_id:"):
             fid = data.split(":", 1)[1]
@@ -2136,7 +2008,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 ],
                 [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
             ]
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
             return ConversationHandler.END
         elif data.startswith("del_") or data.startswith("delete_"):
             return await handle_delete_confirmation(update, context)
@@ -2883,12 +2755,9 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
         code = version_doc.get('code', '')
         language = version_doc.get('programming_language', 'text')
         
-        # קיצור תצוגה אם ארוך מדי
+        # קיצור תצוגה אם ארוך מדי — נכבד מגבלת 4096 לאחר escape ל-HTML
         max_length = 3500
-        if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [הקובץ קוצר, להמשך מלא הורד את הקובץ]"
-        else:
-            code_preview = code
+        code_preview = code[:max_length]
         
         if is_current:
             keyboard = [
@@ -2907,11 +2776,31 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        header_html = (
+            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version_num}\n\n"
+        )
+        html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+        fudge = 10
+        available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+        if available_for_code < 100:
+            available_for_code = 100
+        preview_raw_limit = min(max_length, len(code))
+        safe_code = html_escape(code[:preview_raw_limit])
+        if len(safe_code) > available_for_code and preview_raw_limit > 0:
+            try:
+                factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                preview_raw_limit = max(0, int(available_for_code / factor))
+            except Exception:
+                preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+            safe_code = html_escape(code[:preview_raw_limit])
+            while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                step = max(50, len(safe_code) - available_for_code)
+                preview_raw_limit = max(0, preview_raw_limit - step)
+                safe_code = html_escape(code[:preview_raw_limit])
         await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version_num}\n\n"
-            f"```{language}\n{code_preview}\n```",
+            f"{header_html}<pre><code>{safe_code}</code></pre>",
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode=ParseMode.HTML
         )
         
     except Exception as e:
