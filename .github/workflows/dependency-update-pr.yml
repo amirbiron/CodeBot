@@ -32,11 +32,18 @@ jobs:
         run: |
           set -e
           echo "Monthly dependency refresh – no-op step (Dependabot handles updates)."
+      
+      - name: Refresh stamp (only schedule/manual)
+        if: ${{ github.event_name != 'push' }}
+        run: |
+          mkdir -p .github
+          echo "refreshed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/deps-refresh-stamp.txt
 
-      - name: Create Pull Request
+      - name: Create Pull Request (skip on push)
+        if: ${{ github.event_name != 'push' }}
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "chore(deps): monthly refresh (trigger Dependabot and CI)"
+          commit-message: "chore(deps): monthly dependency refresh"
           title: "chore(deps): monthly dependency refresh"
           body: |
             Automated monthly dependency refresh.
