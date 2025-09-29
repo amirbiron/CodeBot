@@ -1660,10 +1660,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 language = file_data.get('programming_language', 'text')
                 # חישוב קטע הבא
                 next_end = min(len(code), chunk_offset + max_length)
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML בסיסיות
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if next_end <= safe_code_limit:
                     code_to_show = code[:next_end]
                 else:
@@ -1701,18 +1701,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 user_id = update.effective_user.id
                 from database import db
                 doc = db.get_latest_version(user_id, file_name)
+                is_large_file = False
                 if not doc:
                     # נסה large_file
                     doc = db.get_large_file(user_id, file_name) or {}
+                    is_large_file = bool(doc)
                     code = doc.get('content', '')
                 else:
                     code = doc.get('code', '')
                 language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
                 next_end = min(len(code), chunk_offset + max_length)
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if next_end <= safe_code_limit:
                     code_to_show = code[:next_end]
                 else:
@@ -1740,14 +1742,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     prev_lines = prev_chunk.count('\n') or (1 if prev_chunk else 0)
                     keyboard.insert(-2, [InlineKeyboardButton(f"הצג פחות {prev_lines} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{next_end}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-            # רינדור מחדש עם קטע ארוך יותר
-            note_line = "\n"
+            # רינדור מחדש עם קטע ארוך יותר — HTML אחיד, ואינדיקציה לקובץ גדול במצב direct
+            note = ''
+            large_note_html = ''
+            if mode == 'idx':
+                try:
+                    note = (file_data.get('description') or '') if isinstance(file_data, dict) else ''
+                except Exception:
+                    note = ''
+            else:
+                try:
+                    note = (doc.get('description') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    note = ''
+                try:
+                    if 'is_large_file' in locals() and is_large_file:
+                        large_note_html = "\n<i>זה קובץ גדול</i>\n"
+                except Exception:
+                    pass
+            note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n"
+            safe_code_html = html_escape(code_to_show)
             try:
                 await query.edit_message_text(
-                    f"📄 *{file_name}* ({language}){note_line}\n" +
-                    f"```{language}\n{code_to_show}\n```",
+                    f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}){note_line}{large_note_html}\n" +
+                    f"<pre><code>{safe_code_html}</code></pre>",
                     reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.HTML
                 )
             except telegram.error.BadRequest as br:
                 if "message is not modified" not in str(br).lower():
@@ -1775,10 +1795,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 code = file_data.get('code', '')
                 file_name = file_data.get('file_name', 'קובץ')
                 language = file_data.get('programming_language', 'text')
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if prev_end <= safe_code_limit:
                     code_to_show = code[:prev_end]
                 else:
@@ -1814,16 +1834,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 user_id = update.effective_user.id
                 from database import db
                 doc = db.get_latest_version(user_id, file_name)
+                is_large_file = False
                 if not doc:
                     doc = db.get_large_file(user_id, file_name) or {}
+                    is_large_file = bool(doc)
                     code = doc.get('content', '')
                 else:
                     code = doc.get('code', '')
                 language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
-                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
-                header_len = len(f"📄 *{file_name}* ({language})\n\n")
-                fences_len = len(f"```{language}\n") + len("\n```")
-                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת ותגיות HTML
+                header_len = len(f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)})\n\n")
+                tags_len = len("<pre><code>") + len("</code></pre>")
+                safe_code_limit = max(1000, 4096 - header_len - tags_len - 10)
                 if prev_end <= safe_code_limit:
                     code_to_show = code[:prev_end]
                 else:
@@ -1850,14 +1872,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines2} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{prev_end}")])
                 keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-            # רינדור מחדש עם קטע קצר יותר
-            note_line = "\n"
+            # רינדור מחדש עם קטע קצר יותר — HTML אחיד, ואינדיקציה לקובץ גדול במצב direct
+            note = ''
+            large_note_html = ''
+            if mode == 'idx':
+                try:
+                    note = (file_data.get('description') or '') if isinstance(file_data, dict) else ''
+                except Exception:
+                    note = ''
+            else:
+                try:
+                    note = (doc.get('description') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    note = ''
+                try:
+                    if 'is_large_file' in locals() and is_large_file:
+                        large_note_html = "\n<i>זה קובץ גדול</i>\n"
+                except Exception:
+                    pass
+            note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n"
+            safe_code_html = html_escape(code_to_show)
             try:
                 await query.edit_message_text(
-                    f"📄 *{file_name}* ({language}){note_line}\n" +
-                    f"```{language}\n{code_to_show}\n```",
+                    f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}){note_line}{large_note_html}\n" +
+                    f"<pre><code>{safe_code_html}</code></pre>",
                     reply_markup=reply_markup,
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.HTML
                 )
             except telegram.error.BadRequest as br:
                 if "message is not modified" not in str(br).lower():
