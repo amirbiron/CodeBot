@@ -815,28 +815,35 @@ class AdvancedBotHandlers:
         fail_count = 0
         removed_ids: List[int] = []
         delay_seconds = 0.1  # ~10 הודעות בשנייה
-        
+
         for rid in recipients:
-            try:
+            sent_ok = False
+            attempts = 0
+            while attempts < 3 and not sent_ok:
                 try:
                     await context.bot.send_message(chat_id=rid, text=safe_text, parse_mode=ParseMode.HTML)
                     success_count += 1
+                    sent_ok = True
                 except telegram.error.RetryAfter as e:
+                    attempts += 1
                     await asyncio.sleep(float(getattr(e, 'retry_after', 1.0)) + 0.5)
-                    await context.bot.send_message(chat_id=rid, text=safe_text, parse_mode=ParseMode.HTML)
-                    success_count += 1
-            except telegram.error.Forbidden:
-                fail_count += 1
-                removed_ids.append(rid)
-            except telegram.error.BadRequest as e:
-                fail_count += 1
-                if 'chat not found' in str(e).lower() or 'not found' in str(e).lower():
+                    # ננסה שוב בלולאה
+                except telegram.error.Forbidden:
+                    fail_count += 1
                     removed_ids.append(rid)
-            except Exception as e:
-                logger.warning(f"שידור לנמען {rid} נכשל: {e}")
+                    break
+                except telegram.error.BadRequest as e:
+                    fail_count += 1
+                    if 'chat not found' in str(e).lower() or 'not found' in str(e).lower():
+                        removed_ids.append(rid)
+                    break
+                except Exception as e:
+                    logger.warning(f"שידור לנמען {rid} נכשל: {e}")
+                    fail_count += 1
+                    break
+            if not sent_ok and attempts >= 3:
                 fail_count += 1
-            finally:
-                await asyncio.sleep(delay_seconds)
+            await asyncio.sleep(delay_seconds)
         
         removed_count = 0
         if removed_ids:
