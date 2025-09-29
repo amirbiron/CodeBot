@@ -31,16 +31,16 @@ jobs:
           if [ -f requirements.txt ]; then
             # Try to update direct pins in requirements.txt conservatively
             python - << 'PY'
-import re
-path = 'requirements.txt'
-data = open(path, 'r', encoding='utf-8').read()
-def bump_pin(line: str) -> str:
-    m = re.match(r"([^=<>!\s#]+)(==)([0-9a-zA-Z\.-]+)(.*)$", line)
-    return line if not m else f"{m.group(1)}=={m.group(3)}{m.group(4)}\n"
-# This placeholder keeps versions; real upgrades are handled by Dependabot/PR review.
-open(path, 'w', encoding='utf-8').write(data)
-print('Kept pinned versions; rely on Dependabot for bumps.')
-PY
+          import re
+          path = 'requirements.txt'
+          data = open(path, 'r', encoding='utf-8').read()
+          def bump_pin(line: str) -> str:
+              m = re.match(r"([^=<>!\s#]+)(==)([0-9a-zA-Z\.-]+)(.*)$", line)
+              return line if not m else f"{m.group(1)}=={m.group(3)}{m.group(4)}\n"
+          # This placeholder keeps versions; real upgrades are handled by Dependabot/PR review.
+          open(path, 'w', encoding='utf-8').write(data)
+          print('Kept pinned versions; rely on Dependabot for bumps.')
+          PY
           fi
 
       - name: Create Pull Request
