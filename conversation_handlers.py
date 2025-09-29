@@ -904,70 +904,9 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     return ConversationHandler.END
 
 async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """הצגת קוד עם אפשרויות מתקדמות"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        file_index = query.data.split('_')[1]
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-            return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'קובץ')
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        version = file_data.get('version', 1)
-        
-        # חיתוך חכם של הקוד
-        max_length = 3500
-        if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]"
-        else:
-            code_preview = code
-        
-        # כפתורים מתקדמים לעריכה
-        # חזרה צריכה להחזיר למסך "מרכז בקרה מתקדם" (file menu), לא לרשימה
-        back_to_file_menu_cb = f"file_{file_index}"
-        keyboard = [
-            [
-                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
-                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"),
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
-                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
-            ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=back_to_file_menu_cb)]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # הוסף הצגת הערה אם קיימת
-        note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        await TelegramUtils.safe_edit_message_text(
-            query,
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
-            f"```{language}\n{code_preview}\n```",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in handle_view_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
-    
-    return ConversationHandler.END
+    """מפנה למימוש המרכזי ב-handlers.file_view כדי לאפשר 'הצג עוד/פחות'."""
+    import handlers.file_view as file_view_handlers
+    return await file_view_handlers.handle_view_file(update, context)
 
 async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """התחלת עריכת קוד"""
