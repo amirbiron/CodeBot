@@ -449,3 +449,179 @@ async def test_by_repo_pagination_basic(monkeypatch):
     cache = ctx.user_data.get('files_cache')
     assert cache is not None
     assert any(k == '10' for k in cache.keys())
+
+
+@pytest.mark.asyncio
+async def test_view_file_show_more_idx_button_and_back_by_repo(monkeypatch):
+    # Arrange a long code in files_cache and origin by_repo
+    long_code = "x" * 8000
+    file_index = "3"
+
+    class Q:
+        def __init__(self):
+            self.data = f"view_{file_index}"
+            self.captured = None
+            self.captured_text = None
+            self.captured_mode = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **_):
+            self.captured = reply_markup
+            self.captured_text = text
+            self.captured_mode = parse_mode
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    ctx = types.SimpleNamespace(user_data={
+        'files_cache': {
+            file_index: {
+                'file_name': 'repo_file.py',
+                'code': long_code,
+                'programming_language': 'python',
+                'version': 1,
+                'description': ''
+            }
+        },
+        'files_last_page': 2,
+        'files_origin': {'type': 'by_repo', 'tag': 'repo:me/app'},
+    })
+
+    from handlers.file_view import handle_view_file
+    await handle_view_file(U(), ctx)
+    kb = U().callback_query.captured  # new instance; capture from previous
+    kb = ctx.user_data.get('last_kb') if hasattr(ctx.user_data, 'last_kb') else None
+    # If not stored, access from the query we called
+    kb = U().callback_query.captured if kb is None else kb
+    # For reliability, re-run and access directly
+    u = U()
+    await handle_view_file(u, ctx)
+    rm = u.callback_query.captured
+    assert rm is not None
+    labels = [b.text for row in rm.inline_keyboard for b in row]
+    assert any(t.startswith("הצג עוד ") for t in labels)
+    back_targets = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(str(cd) == "by_repo:repo:me/app" for cd in back_targets)
+
+
+@pytest.mark.asyncio
+async def test_view_direct_file_large_markdown_includes_note(monkeypatch):
+    # Stub database to return a large markdown file via large_files fallback
+    mod = types.ModuleType("database")
+    class _LargeFile: pass
+    mod.LargeFile = _LargeFile
+    content = "# Title\n" + ("line\n" * 4000)
+    mod.db = types.SimpleNamespace(
+        get_latest_version=lambda *_: None,
+        get_large_file=lambda *_: {
+            'file_name': 'doc.md',
+            'content': content,
+            'programming_language': 'markdown',
+            'description': '',
+            '_id': 'abc'
+        }
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    class Q:
+        def __init__(self):
+            self.data = "view_direct_doc.md"
+            self.captured = None
+            self.captured_text = None
+            self.captured_mode = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **_):
+            self.captured = reply_markup
+            self.captured_text = text
+            self.captured_mode = parse_mode
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    from handlers.file_view import handle_view_direct_file
+    u = U()
+    ctx = types.SimpleNamespace(user_data={})
+    await handle_view_direct_file(u, ctx)
+    # Expect HTML mode and large-file note
+    assert u.callback_query.captured_mode == 'HTML'
+    assert "זה קובץ גדול" in (u.callback_query.captured_text or "")
+
+
+@pytest.mark.asyncio
+async def test_handle_download_file_back_index(monkeypatch):
+    # Prepare context and query for index download
+    class Q:
+        def __init__(self):
+            self.data = "dl_7"
+            self.captured = None
+            self.message = types.SimpleNamespace(reply_document=self._reply_document)
+        async def answer(self):
+            return None
+        async def _reply_document(self, **_):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, **_):
+            self.captured = reply_markup
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    ctx = types.SimpleNamespace(user_data={
+        'files_cache': {
+            '7': {
+                'file_name': 'd.py',
+                'code': 'print(1)',
+                'programming_language': 'python'
+            }
+        }
+    })
+    from handlers.file_view import handle_download_file
+    u = U()
+    await handle_download_file(u, ctx)
+    rm = u.callback_query.captured
+    assert rm is not None
+    targets = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(cd == 'file_7' for cd in targets)
+
+
+@pytest.mark.asyncio
+async def test_search_no_results_stays_awaiting(monkeypatch):
+    # Stub empty search
+    mod = types.ModuleType("database")
+    class _CodeSnippet: pass
+    class _LargeFile: pass
+    class _DatabaseManager: pass
+    mod.CodeSnippet = _CodeSnippet
+    mod.LargeFile = _LargeFile
+    mod.DatabaseManager = _DatabaseManager
+    mod.db = types.SimpleNamespace(search_code=lambda *_: [])
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from main import CodeKeeperBot
+    bot = CodeKeeperBot()
+
+    class Msg:
+        def __init__(self, text):
+            self.text = text
+            self.message_id = 1
+        async def reply_text(self, *_a, **_k):
+            return None
+    class Upd:
+        def __init__(self, text):
+            self.message = Msg(text)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=2, username='u')
+    class Ctx:
+        def __init__(self):
+            self.user_data = {"awaiting_search_text": True}
+    u = Upd("name:xyz lang:python")
+    c = Ctx()
+    await bot.handle_text_message(u, c)
+    assert c.user_data.get('awaiting_search_text') is True
