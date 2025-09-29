@@ -2644,6 +2644,62 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             except telegram.error.BadRequest as br:
                 if "message is not modified" not in str(br).lower():
                     raise
+        elif data.startswith("search_page_"):
+            # עימוד תוצאות חיפוש שהוזנו בטקסט
+            try:
+                page = int(data.split("_")[-1])
+            except Exception:
+                page = 1
+            PAGE_SIZE = 10
+            filters = context.user_data.get('search_filters') or {}
+            name_filter = filters.get('name_filter') or ""
+            lang = filters.get('lang')
+            tag = filters.get('tag')
+            from database import db
+            results = db.search_code(
+                update.effective_user.id,
+                search_term=name_filter,
+                programming_language=lang,
+                tags=[tag] if tag else None,
+                limit=10000,
+            ) or []
+            # סינון נוסף לפי שם אם צריך
+            if name_filter:
+                try:
+                    nf = name_filter.lower()
+                    results = [r for r in results if nf in str(r.get('file_name', '')).lower()]
+                except Exception:
+                    pass
+            total = len(results)
+            total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE if total > 0 else 1
+            if page < 1:
+                page = 1
+            if page > total_pages:
+                page = total_pages
+            start = (page - 1) * PAGE_SIZE
+            end = min(start + PAGE_SIZE, total)
+            keyboard = []
+            context.user_data['files_cache'] = {}
+            for i in range(start, end):
+                item = results[i]
+                fname = item.get('file_name', 'קובץ')
+                lang_v = item.get('programming_language', 'text')
+                button_text = f"📄 {fname} ({lang_v})"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                context.user_data['files_cache'][str(i)] = item
+            row = []
+            if page > 1:
+                row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"search_page_{page-1}"))
+            if page < total_pages:
+                row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"search_page_{page+1}"))
+            if row:
+                keyboard.append(row)
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data="files")])
+            await query.edit_message_text(
+                f"🔎 תוצאות חיפוש — סה״כ: {total}\n" +
+                f"📄 עמוד {page} מתוך {total_pages}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         elif data.startswith("byrepo_delete_do:"):
             # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
             tag = data.split(":", 1)[1]
