@@ -66,6 +66,7 @@
 
 ## 🔗 קישורים
 - Issues קשורים: #
+- Docs Preview: <!-- הוסף כאן קישור ל-RTD Preview של ה-PR, אם קיים -->
 - מסמכים/מפרטים רלוונטיים:
 
 ## 🧯 סיכון / החזרה לאחור (Rollback)
