@@ -29,7 +29,7 @@ google-api-python-client==2.141.0
 google-auth==2.34.0
 
 # GitHub Integration
-PyGithub==2.1.1
+PyGithub==2.8.1
 
 # File Processing
 python-dotenv==1.0.0
