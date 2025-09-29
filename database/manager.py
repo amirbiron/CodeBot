@@ -3,7 +3,16 @@ import os
 from types import SimpleNamespace
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
-from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+try:
+    from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+    _PYMONGO_AVAILABLE = True
+except Exception:  # ModuleNotFoundError or any import-time error
+    MongoClient = None  # type: ignore
+    IndexModel = lambda *a, **k: None  # type: ignore
+    ASCENDING = 1  # type: ignore
+    DESCENDING = -1  # type: ignore
+    TEXT = "text"  # type: ignore
+    _PYMONGO_AVAILABLE = False
 
 from config import config
 
@@ -34,10 +43,16 @@ class DatabaseManager:
                     return SimpleNamespace(inserted_id=None)
                 def update_one(self, *args, **kwargs):
                     return SimpleNamespace(acknowledged=True, modified_count=0)
+                def delete_one(self, *args, **kwargs):
+                    return SimpleNamespace(deleted_count=0)
                 def find_one(self, *args, **kwargs):
+                    return None
+                def find_one_and_update(self, *args, **kwargs):
                     return None
                 def aggregate(self, *args, **kwargs):
                     return []
+                def create_index(self, *args, **kwargs):
+                    return None
                 def create_indexes(self, *args, **kwargs):
                     return None
                 def list_indexes(self, *args, **kwargs):
@@ -46,12 +61,29 @@ class DatabaseManager:
                     return None
                 def find(self, *args, **kwargs):
                     return []
+            class NoOpDB:
+                def __init__(self):
+                    self._collections: Dict[str, NoOpCollection] = {}
+                def __getitem__(self, name: str) -> NoOpCollection:
+                    if name not in self._collections:
+                        self._collections[name] = NoOpCollection()
+                    return self._collections[name]
+                @property
+                def name(self) -> str:
+                    return "noop_db"
+
             self.client = None
-            self.db = SimpleNamespace(users=NoOpCollection())
+            self.db = NoOpDB()
             self.collection = NoOpCollection()
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
             logger.info("DB disabled (docs/CI mode) — using no-op collections")
+
+        # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
+        if not _PYMONGO_AVAILABLE:
+            _init_noop_collections()
+            logger.info("DB disabled (pymongo not available) — using no-op collections")
+            return
 
         if disable_db:
             _init_noop_collections()

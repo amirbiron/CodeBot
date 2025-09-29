@@ -1,6 +1,5 @@
 from .models import CodeSnippet, LargeFile
 from .manager import DatabaseManager
-from .repository import Repository
 
 # יצירת אינסטנס גלובלי לשמירה על תאימות לאחור
 db = DatabaseManager()

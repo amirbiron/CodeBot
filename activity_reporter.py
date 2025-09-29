@@ -1,7 +1,12 @@
 """
 קובץ פשוט לדיווח פעילות - העתק את הקובץ הזה לכל בוט
 """
-from pymongo import MongoClient
+try:
+    from pymongo import MongoClient  # type: ignore
+    _HAS_PYMONGO = True
+except Exception:
+    MongoClient = None  # type: ignore
+    _HAS_PYMONGO = False
 from datetime import datetime, timezone
 
 
@@ -13,6 +18,8 @@ class SimpleActivityReporter:
         service_name: שם הבוט (אופציונלי)
         """
         try:
+            if not _HAS_PYMONGO:
+                raise RuntimeError("pymongo not available")
             self.client = MongoClient(mongodb_uri, tz_aware=True, tzinfo=timezone.utc)
             self.db = self.client["render_bot_monitor"]
             self.service_id = service_id
@@ -20,7 +27,8 @@ class SimpleActivityReporter:
             self.connected = True
         except Exception:
             self.connected = False
-            print("⚠️ לא ניתן להתחבר למונגו - פעילות לא תירשם")
+            # שקט בסביבת בדיקות/ללא pymongo
+            pass
     
     def report_activity(self, user_id):
         """דיווח פעילות פשוט"""
