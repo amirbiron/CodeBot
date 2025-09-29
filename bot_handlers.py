@@ -4,11 +4,13 @@ Advanced Bot Handlers for Code Keeper Bot
 """
 
 import asyncio
+import os
 import io
 import logging
 import re
 import html
 import secrets
+import telegram.error
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -70,6 +72,7 @@ class AdvancedBotHandlers:
         # self.application.add_handler(CommandHandler("languages", self.languages_command))
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         self.application.add_handler(CommandHandler("info", self.info_command))
+        self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -755,6 +758,102 @@ class AdvancedBotHandlers:
             f"🏷️ <b>תגיות:</b> {tags_str}"
         )
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+
+    def _is_admin(self, user_id: int) -> bool:
+        """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS"""
+        try:
+            raw = os.getenv('ADMIN_USER_IDS', '')
+            ids = [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
+            return user_id in ids
+        except Exception:
+            return False
+
+    async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """שידור הודעה לכל המשתמשים עם הגבלת קצב, RetryAfter וסיכום תוצאות."""
+        user_id = update.effective_user.id
+        if not self._is_admin(user_id):
+            await update.message.reply_text("❌ פקודה זמינה רק למנהלים")
+            return
+        
+        # ההודעה לשידור
+        message_text = " ".join(context.args or []).strip()
+        if not message_text:
+            await update.message.reply_text(
+                "📢 שימוש: /broadcast <message>\n"
+                "שלח את ההודעה שתשודר לכל המשתמשים."
+            )
+            return
+        
+        # שליפת נמענים מ-Mongo
+        if not hasattr(db, 'db') or db.db is None or not hasattr(db.db, 'users'):
+            await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
+            return
+        try:
+            coll = db.db.users
+            cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
+            recipients: List[int] = []
+            for doc in cursor:
+                try:
+                    uid = int(doc.get("user_id") or 0)
+                    if uid:
+                        recipients.append(uid)
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.error(f"טעינת נמענים נכשלה: {e}")
+            await update.message.reply_text("❌ שגיאה בטעינת רשימת נמענים")
+            return
+        
+        if not recipients:
+            await update.message.reply_text("ℹ️ אין נמענים לשידור.")
+            return
+        
+        # תוכן בטוח ל-HTML
+        safe_text = html.escape(message_text)
+        
+        success_count = 0
+        fail_count = 0
+        removed_ids: List[int] = []
+        delay_seconds = 0.1  # ~10 הודעות בשנייה
+        
+        for rid in recipients:
+            try:
+                try:
+                    await context.bot.send_message(chat_id=rid, text=safe_text, parse_mode=ParseMode.HTML)
+                    success_count += 1
+                except telegram.error.RetryAfter as e:
+                    await asyncio.sleep(float(getattr(e, 'retry_after', 1.0)) + 0.5)
+                    await context.bot.send_message(chat_id=rid, text=safe_text, parse_mode=ParseMode.HTML)
+                    success_count += 1
+            except telegram.error.Forbidden:
+                fail_count += 1
+                removed_ids.append(rid)
+            except telegram.error.BadRequest as e:
+                fail_count += 1
+                if 'chat not found' in str(e).lower() or 'not found' in str(e).lower():
+                    removed_ids.append(rid)
+            except Exception as e:
+                logger.warning(f"שידור לנמען {rid} נכשל: {e}")
+                fail_count += 1
+            finally:
+                await asyncio.sleep(delay_seconds)
+        
+        removed_count = 0
+        if removed_ids:
+            try:
+                coll.update_many({"user_id": {"$in": removed_ids}}, {"$set": {"blocked": True}})
+                removed_count = len(removed_ids)
+            except Exception:
+                pass
+        
+        summary = (
+            "📢 סיכום שידור\n\n"
+            f"👥 נמענים: {len(recipients)}\n"
+            f"✅ הצלחות: {success_count}\n"
+            f"❌ כשלים: {fail_count}\n"
+            f"🧹 סומנו כחסומים/לא זמינים: {removed_count}"
+        )
+        await update.message.reply_text(summary)
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בלחיצות על כפתורים"""
