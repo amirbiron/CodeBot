@@ -168,11 +168,29 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        # אחידות: תמיד HTML עם <pre><code> (כולל Markdown)
-        safe_code = html_escape(code_preview)
+        # אחידות: תמיד HTML עם <pre><code>, אך נכבד מגבלת 4096 לאחר escape
         header_html = (
             f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}\n"
         )
+        html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+        fudge = 10
+        available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+        if available_for_code < 100:
+            available_for_code = 100
+        preview_raw_limit = min(max_length, len(code))
+        safe_code = html_escape(code[:preview_raw_limit])
+        if len(safe_code) > available_for_code and preview_raw_limit > 0:
+            try:
+                factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                preview_raw_limit = max(0, int(available_for_code / factor))
+            except Exception:
+                preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+            safe_code = html_escape(code[:preview_raw_limit])
+            while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                step = max(50, len(safe_code) - available_for_code)
+                preview_raw_limit = max(0, preview_raw_limit - step)
+                safe_code = html_escape(code[:preview_raw_limit])
+        code_preview = code[:preview_raw_limit]
         await TelegramUtils.safe_edit_message_text(
             query,
             f"{header_html}<pre><code>{safe_code}</code></pre>",
