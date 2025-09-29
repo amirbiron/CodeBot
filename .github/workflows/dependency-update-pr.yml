@@ -28,28 +28,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pip-tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-tools
-
       - name: Bump requirements (best-effort)
         run: |
           set -e
-          if [ -f requirements.txt ]; then
-            # Try to update direct pins in requirements.txt conservatively
-            python - << 'PY'
-          import re
-          path = 'requirements.txt'
-          data = open(path, 'r', encoding='utf-8').read()
-          def bump_pin(line: str) -> str:
-              m = re.match(r"([^=<>!\s#]+)(==)([0-9a-zA-Z\.-]+)(.*)$", line)
-              return line if not m else f"{m.group(1)}=={m.group(3)}{m.group(4)}\n"
-          # This placeholder keeps versions; real upgrades are handled by Dependabot/PR review.
-          open(path, 'w', encoding='utf-8').write(data)
-          print('Kept pinned versions; rely on Dependabot for bumps.')
-          PY
-          fi
+          echo "Monthly dependency refresh – no-op step (Dependabot handles updates)."
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v6
