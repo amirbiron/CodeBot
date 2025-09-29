@@ -1,4 +1,6 @@
 import types
+import sys
+import pytest
 
 
 class DummyDB:
@@ -32,15 +34,16 @@ def test_search_flow_parsing_and_pagination(monkeypatch):
     ]
 
     # Patch database import site to return our dummy
-    import builtins
-    real_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "database":
-            return SimpleNamespace(db=dummy)
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    # Inject a stub 'database' module so that main.py can import CodeSnippet/DatabaseManager/db
+    mod = types.ModuleType("database")
+    class _CodeSnippet:  # minimal stub for import
+        pass
+    class _DatabaseManager:
+        pass
+    mod.CodeSnippet = _CodeSnippet
+    mod.DatabaseManager = _DatabaseManager
+    mod.db = dummy
+    monkeypatch.setitem(sys.modules, "database", mod)
 
     # Simulate main.handle_text_message search branch
     from main import BotHandlers
@@ -79,7 +82,8 @@ def test_search_flow_parsing_and_pagination(monkeypatch):
     assert len(files_cache) == 10  # first page
 
 
-def test_lazy_buttons_single_instance(monkeypatch):
+@pytest.mark.asyncio
+async def test_lazy_buttons_single_instance(monkeypatch):
     # Ensure only one Show More button is added in direct view
     from types import SimpleNamespace
 
@@ -112,22 +116,16 @@ def test_lazy_buttons_single_instance(monkeypatch):
             self.user_data = {}
 
     # Patch db.get_latest_version
-    import builtins
-    real_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "database":
-            return SimpleNamespace(db=SimpleNamespace(get_latest_version=lambda _u, _n: doc, get_large_file=lambda *_: None))
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    # stub database module
+    mod = types.ModuleType("database")
+    mod.db = SimpleNamespace(get_latest_version=lambda _u, _n: doc, get_large_file=lambda *_: None)
+    monkeypatch.setitem(sys.modules, "database", mod)
 
     # Act
     from handlers.file_view import handle_view_direct_file
-    import asyncio
     update = DummyUpdate()
     ctx = DummyContext()
-    asyncio.get_event_loop().run_until_complete(handle_view_direct_file(update, ctx))
+    await handle_view_direct_file(update, ctx)
 
     # Assert: only one Show More button present
     rm = update.callback_query.captured
