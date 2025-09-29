@@ -1935,7 +1935,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{fname}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{fname}")),
                     InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{fname}")
                 ],
                 [
