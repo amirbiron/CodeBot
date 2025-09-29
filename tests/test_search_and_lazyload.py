@@ -21,7 +21,8 @@ class DummyDB:
         return results[:limit]
 
 
-def test_search_flow_parsing_and_pagination(monkeypatch):
+@pytest.mark.asyncio
+async def test_search_flow_parsing_and_pagination(monkeypatch):
     # Arrange minimal environment
     from types import SimpleNamespace
     user_id = 123
@@ -76,8 +77,7 @@ def test_search_flow_parsing_and_pagination(monkeypatch):
     update = DummyUpdate("name:util lang:python tag:repo:me/app")
     ctx = DummyContext()
 
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(bot.handle_text_message(update, ctx))
+    await bot.handle_text_message(update, ctx)
 
     # Assert: results cached and paginated (10 per page)
     files_cache = ctx.user_data.get("files_cache")
