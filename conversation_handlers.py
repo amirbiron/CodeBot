@@ -1828,7 +1828,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 language = file_data.get('programming_language', 'text')
                 # חישוב קטע הבא
                 next_end = min(len(code), chunk_offset + max_length)
-                code_to_show = code[:next_end]
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
+                header_len = len(f"📄 *{file_name}* ({language})\n\n")
+                fences_len = len(f"```{language}\n") + len("\n```")
+                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                if next_end <= safe_code_limit:
+                    code_to_show = code[:next_end]
+                else:
+                    # הצג חלון הזזה שמסתיים ב-next_end, עם קידומת אליפסיס
+                    prefix = "…\n"
+                    available = max(0, safe_code_limit - len(prefix))
+                    start_index = max(0, next_end - available)
+                    code_to_show = (prefix if start_index > 0 else "") + code[start_index:next_end]
                 # בניית מקלדת עם כפתור "הצג עוד" הבא אם יש
                 keyboard = []
                 # שחזור כפתורי פעולה עיקריים
@@ -1866,7 +1877,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     code = doc.get('code', '')
                 language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
                 next_end = min(len(code), chunk_offset + max_length)
-                code_to_show = code[:next_end]
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
+                header_len = len(f"📄 *{file_name}* ({language})\n\n")
+                fences_len = len(f"```{language}\n") + len("\n```")
+                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                if next_end <= safe_code_limit:
+                    code_to_show = code[:next_end]
+                else:
+                    prefix = "…\n"
+                    available = max(0, safe_code_limit - len(prefix))
+                    start_index = max(0, next_end - available)
+                    code_to_show = (prefix if start_index > 0 else "") + code[start_index:next_end]
                 # כפתורים לתצוגה ישירה
                 keyboard = []
                 keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")])
@@ -1922,7 +1943,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 code = file_data.get('code', '')
                 file_name = file_data.get('file_name', 'קובץ')
                 language = file_data.get('programming_language', 'text')
-                code_to_show = code[:prev_end]
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
+                header_len = len(f"📄 *{file_name}* ({language})\n\n")
+                fences_len = len(f"```{language}\n") + len("\n```")
+                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                if prev_end <= safe_code_limit:
+                    code_to_show = code[:prev_end]
+                else:
+                    prefix = "…\n"
+                    available = max(0, safe_code_limit - len(prefix))
+                    start_index = max(0, prev_end - available)
+                    code_to_show = (prefix if start_index > 0 else "") + code[start_index:prev_end]
                 keyboard = []
                 keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")])
                 keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")])
@@ -1957,7 +1988,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 else:
                     code = doc.get('code', '')
                 language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
-                code_to_show = code[:prev_end]
+                # הגבלת אורך הודעה ל-4096 תווים כולל כותרת וגדרות קוד
+                header_len = len(f"📄 *{file_name}* ({language})\n\n")
+                fences_len = len(f"```{language}\n") + len("\n```")
+                safe_code_limit = max(1000, 4096 - header_len - fences_len - 10)
+                if prev_end <= safe_code_limit:
+                    code_to_show = code[:prev_end]
+                else:
+                    prefix = "…\n"
+                    available = max(0, safe_code_limit - len(prefix))
+                    start_index = max(0, prev_end - available)
+                    code_to_show = (prefix if start_index > 0 else "") + code[start_index:prev_end]
                 keyboard = []
                 keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")])
                 keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")])
