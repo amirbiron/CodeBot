@@ -2779,11 +2779,14 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        safe_code = html_escape(code_preview)
+        header_html = (
+            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version_num}\n\n"
+        )
         await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version_num}\n\n"
-            f"```{language}\n{code_preview}\n```",
+            f"{header_html}<pre><code>{safe_code}</code></pre>",
             reply_markup=reply_markup,
-            parse_mode='Markdown'
+            parse_mode='HTML'
         )
         
     except Exception as e:
