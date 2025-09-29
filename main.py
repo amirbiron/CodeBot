@@ -1731,6 +1731,107 @@ class CodeKeeperBot:
         user_id = update.effective_user.id
         text = update.message.text
 
+        # מצב חיפוש אינטראקטיבי (מופעל מהכפתור "🔎 חפש קובץ")
+        if context.user_data.get('awaiting_search_text'):
+            query_text = (text or '').strip()
+            context.user_data.pop('awaiting_search_text', None)
+
+            # פירוק שאילתא: תומך name:..., lang:..., tag:repo:...
+            name_substr = []
+            lang_filter = None
+            tag_filter = None
+            try:
+                tokens = [t for t in query_text.split() if t.strip()]
+                for t in tokens:
+                    lower = t.lower()
+                    if lower.startswith('name:'):
+                        name_substr.append(t.split(':', 1)[1])
+                    elif lower.startswith('lang:'):
+                        lang_filter = t.split(':', 1)[1].strip().lower() or None
+                    elif lower.startswith('tag:'):
+                        tag_filter = t.split(':', 1)[1].strip()
+                    elif lower.startswith('repo:'):
+                        tag_filter = t.strip()
+                    else:
+                        # מונחי חיפוש חופשיים בשם הקובץ
+                        name_substr.append(t)
+                name_filter = ' '.join(name_substr).strip()
+            except Exception:
+                name_filter = query_text
+
+            # אחזור תוצאות
+            from database import db
+            # נחפש בבסיס (כולל $text), ואז נסנן לפי שם קובץ אם הוגדר name_filter
+            results = db.search_code(
+                user_id,
+                search_term=name_filter if name_filter else "",
+                programming_language=lang_filter,
+                tags=[tag_filter] if tag_filter else None,
+                limit=10000,
+            ) or []
+            # סינון לפי שם קובץ אם יש name_filter
+            if name_filter:
+                try:
+                    nf = name_filter.lower()
+                    results = [r for r in results if nf in str(r.get('file_name', '')).lower()]
+                except Exception:
+                    pass
+
+            total = len(results)
+            if total == 0:
+                await update.message.reply_text(
+                    "🔎 לא נמצאו תוצאות.",
+                    reply_to_message_id=update.message.message_id,
+                )
+                # אפשר לאפשר חיפוש נוסף מיד
+                context.user_data['awaiting_search_text'] = True
+                return
+
+            # שמירת פילטרים להמשך דפדוף
+            context.user_data['search_filters'] = {
+                'name_filter': name_filter,
+                'lang': lang_filter,
+                'tag': tag_filter,
+            }
+            context.user_data['files_origin'] = { 'type': 'search' }
+
+            # בניית עמוד ראשון
+            PAGE_SIZE = 10
+            page = 1
+            context.user_data['files_last_page'] = page
+            start = (page - 1) * PAGE_SIZE
+            end = min(start + PAGE_SIZE, total)
+
+            # בניית מקלדת תוצאות
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+            keyboard = []
+            context.user_data['files_cache'] = {}
+            for i in range(start, end):
+                item = results[i]
+                fname = item.get('file_name', 'קובץ')
+                lang = item.get('programming_language', 'text')
+                button_text = f"📄 {fname} ({lang})"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                context.user_data['files_cache'][str(i)] = item
+
+            # עימוד
+            total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE if total > 0 else 1
+            row = []
+            if page > 1:
+                row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"search_page_{page-1}"))
+            if page < total_pages:
+                row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"search_page_{page+1}"))
+            if row:
+                keyboard.append(row)
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data="files")])
+
+            await update.message.reply_text(
+                f"🔎 תוצאות חיפוש — סה״כ: {total}\n" +
+                f"📄 עמוד {page} מתוך {total_pages}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+
         # ביטול חד-פעמי של הודעת "נראה שזה קטע קוד!" (למשל אחרי שמירת הערה לגיבוי)
         if context.user_data.pop('suppress_code_hint_once', False):
             return
