@@ -1588,181 +1588,13 @@ async def handle_file_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     return ConversationHandler.END
 
-async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """הצגת קובץ באמצעות שם קובץ ישיר"""
-    query = update.callback_query
-    await query.answer()
     
-    try:
-        file_name = query.data.replace("view_direct_", "")
-        user_id = update.effective_user.id
-        
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        # תמיכה בקבצים גדולים: נסה להביא מקולקציית large_files אם לא נמצא רגיל
-        is_large_file = False
-        if not file_data:
-            try:
-                lf = db.get_large_file(user_id, file_name)
-            except Exception:
-                lf = None
-            if lf:
-                is_large_file = True
-                file_data = {
-                    'file_name': lf.get('file_name', file_name),
-                    'code': lf.get('content', ''),
-                    'programming_language': lf.get('programming_language', 'text'),
-                    'version': 1,
-                    'description': lf.get('description', ''),
-                    '_id': lf.get('_id')
-                }
-            else:
-                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-                return ConversationHandler.END
-        
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        version = file_data.get('version', 1)
-        
-        # חיתוך חכם של הקוד
-        max_length = 3500
-        if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]"
-        else:
-            code_preview = code
-        
-        # כפתורים מתקדמים לעריכה
-        keyboard = [
-            [
-                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
-                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"),
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
-            ],
-            [
-                InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"),
-                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")
-            ],
-            [InlineKeyboardButton("🔙 לרשימה", callback_data="files")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # הצגת הערה אם קיימת
-        note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
-        await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
-            f"```{language}\n{code_preview}\n```",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in handle_view_direct_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
-    
-    return ConversationHandler.END
 
-async def handle_edit_code_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """התחלת עריכת קוד באמצעות שם קובץ ישיר"""
-    query = update.callback_query
-    await query.answer()
     
-    try:
-        file_name = query.data.replace("edit_code_direct_", "")
-        user_id = update.effective_user.id
-        
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        
-        if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
-            return ConversationHandler.END
-        
-        context.user_data['editing_file_data'] = file_data
-        context.user_data['editing_file_name'] = file_name
-        
-        await query.edit_message_text(
-            f"✏️ *עריכת קוד מתקדמת*\n\n"
-            f"📄 **קובץ:** `{file_name}`\n\n"
-            f"📝 שלח את הקוד החדש והמעודכן:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown'
-        )
-        
-        return EDIT_CODE
-        
-    except Exception as e:
-        logger.error(f"Error in handle_edit_code_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכה")
-    
-    return ConversationHandler.END
 
-async def handle_edit_name_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """התחלת עריכת שם קובץ באמצעות שם קובץ ישיר"""
-    query = update.callback_query
-    await query.answer()
     
-    try:
-        file_name = query.data.replace("edit_name_direct_", "")
-        user_id = update.effective_user.id
-        
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        
-        if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
-            return ConversationHandler.END
-        
-        context.user_data['editing_file_data'] = file_data
-        context.user_data['editing_file_name'] = file_name
-        
-        await query.edit_message_text(
-            f"📝 *עריכת שם קובץ*\n\n"
-            f"📄 **שם נוכחי:** `{file_name}`\n\n"
-            f"✏️ שלח שם חדש לקובץ:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown'
-        )
-        
-        return EDIT_NAME
-        
-    except Exception as e:
-        logger.error(f"Error in handle_edit_name_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכת שם")
-    
-    return ConversationHandler.END
 
-async def handle_edit_note_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """עריכת הערה (description) עבור קובץ בשמו הישיר"""
-    query = update.callback_query
-    await query.answer()
-    try:
-        file_name = query.data.replace("edit_note_direct_", "")
-        user_id = update.effective_user.id
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
-        if not file_data:
-            await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
-            return ConversationHandler.END
-        current_note = file_data.get('description', '') or '—'
-        context.user_data['editing_note_file'] = file_name
-        await query.edit_message_text(
-            f"📝 *עריכת הערה לקובץ*\n\n"
-            f"📄 **שם:** `{file_name}`\n"
-            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
-            f"✏️ שלח/י הערה חדשה (או שלח/י 'מחק' כדי להסיר).",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")]]),
-            parse_mode='Markdown'
-        )
-        return EDIT_CODE  # נשתמש באותו state קבלת טקסט; נמפה לפי דגל
-    except Exception as e:
-        logging.exception("Error in handle_edit_note_direct: %s", e)
-        await query.edit_message_text("❌ שגיאה בעריכת הערה")
-    return ConversationHandler.END
+    
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מרכז בקרה מתקדם לכל הכפתורים"""
@@ -2109,7 +1941,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 ],
                 [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
             ]
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
             return ConversationHandler.END
         elif data.startswith("share_gist_id:"):
             fid = data.split(":", 1)[1]
@@ -2136,7 +1968,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 ],
                 [InlineKeyboardButton("❌ ביטול", callback_data="cancel_share")]
             ]
-            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(kb))
+            await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
             return ConversationHandler.END
         elif data.startswith("del_") or data.startswith("delete_"):
             return await handle_delete_confirmation(update, context)
