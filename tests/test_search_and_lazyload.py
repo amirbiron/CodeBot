@@ -625,3 +625,108 @@ async def test_search_no_results_stays_awaiting(monkeypatch):
     c = Ctx()
     await bot.handle_text_message(u, c)
     assert c.user_data.get('awaiting_search_text') is True
+
+
+@pytest.mark.asyncio
+async def test_view_direct_file_non_markdown_markdown_mode(monkeypatch):
+    # Stub db to return a small python file
+    mod = types.ModuleType("database")
+    class _LargeFile: pass
+    mod.LargeFile = _LargeFile
+    mod.db = types.SimpleNamespace(
+        get_latest_version=lambda *_: {
+            'file_name': 's.py',
+            'code': 'print(1)',
+            'programming_language': 'python',
+            'description': '',
+            '_id': 'id1'
+        },
+        get_large_file=lambda *_: None
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    class Q:
+        def __init__(self):
+            self.data = "view_direct_s.py"
+            self.captured_mode = None
+            self.captured_text = None
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **_):
+            self.captured_mode = parse_mode
+            self.captured_text = text
+            self.captured = reply_markup
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    from handlers.file_view import handle_view_direct_file
+    u = U()
+    ctx = types.SimpleNamespace(user_data={})
+    await handle_view_direct_file(u, ctx)
+    assert u.callback_query.captured_mode == 'Markdown'
+    assert "זה קובץ גדול" not in (u.callback_query.captured_text or "")
+
+
+@pytest.mark.asyncio
+async def test_back_after_view_menu_builds(monkeypatch):
+    # Ensure back_after_view builds menu from last_save_success
+    fname = 'ret.py'
+    ctx = types.SimpleNamespace(user_data={
+        'last_save_success': {
+            'file_name': fname,
+            'language': 'python',
+            'note': '',
+            'file_id': 'OID'
+        }
+    })
+    from conversation_handlers import handle_callback_query
+    class Q:
+        def __init__(self):
+            self.data = f"back_after_view:{fname}"
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get('reply_markup')
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    u = U()
+    await handle_callback_query(u, ctx)
+    rm = u.callback_query.captured
+    assert rm is not None
+    callbacks = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(cb == f"view_direct_{fname}" for cb in callbacks)
+
+
+@pytest.mark.asyncio
+async def test_code_hint_when_text_looks_like_code(monkeypatch):
+    # Ensure code hint path replies
+    from main import CodeKeeperBot
+    bot = CodeKeeperBot()
+    called = {'flag': False}
+    class Msg:
+        def __init__(self, text):
+            self.text = text
+            self.message_id = 1
+        async def reply_text(self, *_a, **_k):
+            called['flag'] = True
+            return None
+    class Upd:
+        def __init__(self, text):
+            self.message = Msg(text)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=3, username='u')
+    class Ctx:
+        def __init__(self):
+            self.user_data = {}
+    await bot.handle_text_message(Upd("def f():\n    return 1\n"), Ctx())
+    assert called['flag'] is True
