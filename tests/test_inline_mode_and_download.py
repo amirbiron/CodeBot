@@ -20,6 +20,10 @@ async def test_inline_download_sends_document_to_user_when_no_message(monkeypatc
             # allow TelegramUtils.safe_edit_message_text to call us
             return None
 
+        async def answer(self, *args, **kwargs):
+            # emulate telegram.CallbackQuery.answer
+            return None
+
     class _Update:
         def __init__(self):
             self.callback_query = _Query()
@@ -123,6 +127,10 @@ async def test_inline_query_empty_and_zip_are_suppressed(monkeypatch):
     class _Gh:
         def __init__(self, *a, **k):
             pass
+
+        def get_repo(self, _):
+            # returned object won't be used for these inputs
+            return types.SimpleNamespace()
 
     monkeypatch.setattr(gh, "Github", _Gh)
 
