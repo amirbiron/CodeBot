@@ -729,6 +729,75 @@ async def test_fv_more_less_bounds_no_crash(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_fv_more_regular_origin_back_to_regular(monkeypatch):
+    # Arrange long code under files_cache and origin regular
+    code = "\n".join([f"r{i}" for i in range(10000)])
+    idx = "12"
+    class Q:
+        def __init__(self, data):
+            self.data = data
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get('reply_markup')
+    class U:
+        def __init__(self, data):
+            self.callback_query = Q(data)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    ctx = types.SimpleNamespace(user_data={
+        'files_cache': {idx: {'file_name': 'r.py', 'code': code, 'programming_language': 'python', 'version': 1}},
+        'files_last_page': 4,
+        'files_origin': {'type': 'regular'}
+    })
+    from conversation_handlers import handle_callback_query
+    u = U(f"fv_more:idx:{idx}:3500")
+    await handle_callback_query(u, ctx)
+    rm = u.callback_query.captured
+    assert rm is not None
+    cbs = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(cb == 'files_page_4' for cb in cbs)
+
+
+@pytest.mark.asyncio
+async def test_back_after_view_fallsback_to_db(monkeypatch):
+    # No last_save_success — should fetch from DB and build menu
+    fname = 'fb.py'
+    mod = types.ModuleType("database")
+    mod.db = types.SimpleNamespace(get_latest_version=lambda _u, _n: {
+        'file_name': fname,
+        'programming_language': 'python',
+        'description': '',
+        '_id': 'X'
+    })
+    monkeypatch.setitem(sys.modules, "database", mod)
+    from conversation_handlers import handle_callback_query
+    class Q:
+        def __init__(self):
+            self.data = f"back_after_view:{fname}"
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get('reply_markup')
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=2)
+    ctx = types.SimpleNamespace(user_data={})
+    u = U()
+    await handle_callback_query(u, ctx)
+    rm = u.callback_query.captured
+    assert rm is not None
+    callbacks = [b.callback_data for row in rm.inline_keyboard for b in row]
+    assert any(cb == f"view_direct_{fname}" for cb in callbacks)
+
+
+@pytest.mark.asyncio
 async def test_view_direct_file_non_markdown_markdown_mode(monkeypatch):
     # Stub db to return a small python file
     mod = types.ModuleType("database")
