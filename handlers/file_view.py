@@ -1028,7 +1028,7 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
         if ok:
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
                 ],
                 [
