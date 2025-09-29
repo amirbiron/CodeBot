@@ -2755,12 +2755,9 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
         code = version_doc.get('code', '')
         language = version_doc.get('programming_language', 'text')
         
-        # קיצור תצוגה אם ארוך מדי
+        # קיצור תצוגה אם ארוך מדי — נכבד מגבלת 4096 לאחר escape ל-HTML
         max_length = 3500
-        if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [הקובץ קוצר, להמשך מלא הורד את הקובץ]"
-        else:
-            code_preview = code
+        code_preview = code[:max_length]
         
         if is_current:
             keyboard = [
@@ -2779,14 +2776,31 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        safe_code = html_escape(code_preview)
         header_html = (
             f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version_num}\n\n"
         )
+        html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+        fudge = 10
+        available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+        if available_for_code < 100:
+            available_for_code = 100
+        preview_raw_limit = min(max_length, len(code))
+        safe_code = html_escape(code[:preview_raw_limit])
+        if len(safe_code) > available_for_code and preview_raw_limit > 0:
+            try:
+                factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                preview_raw_limit = max(0, int(available_for_code / factor))
+            except Exception:
+                preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+            safe_code = html_escape(code[:preview_raw_limit])
+            while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                step = max(50, len(safe_code) - available_for_code)
+                preview_raw_limit = max(0, preview_raw_limit - step)
+                safe_code = html_escape(code[:preview_raw_limit])
         await query.edit_message_text(
             f"{header_html}<pre><code>{safe_code}</code></pre>",
             reply_markup=reply_markup,
-            parse_mode='HTML'
+            parse_mode=ParseMode.HTML
         )
         
     except Exception as e:
