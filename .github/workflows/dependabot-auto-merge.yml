@@ -1,4 +1,4 @@
-name: Dependabot auto-approve & merge (non-Dependabot)
+name: "Dependabot Auto‑Merge (patch)"
 
 on:
   pull_request_target:
