@@ -241,7 +241,13 @@ class DatabaseManager:
         return self._get_repo().save_code_snippet(snippet)
 
     def search_snippets(self, user_id: int, search_term: str = "", programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
-        return self._get_repo().search_code(user_id, search_term, programming_language, tags, limit)
+        return self._get_repo().search_code(
+            user_id,
+            query=search_term,
+            programming_language=programming_language,
+            tags=tags,
+            limit=limit,
+        )
 
     def get_snippet(self, user_id: int, file_name: str) -> Optional[Dict]:
         return self._get_repo().get_file(user_id, file_name)
