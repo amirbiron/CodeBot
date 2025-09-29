@@ -38,9 +38,12 @@ def test_search_flow_parsing_and_pagination(monkeypatch):
     mod = types.ModuleType("database")
     class _CodeSnippet:  # minimal stub for import
         pass
+    class _LargeFile:  # minimal stub for import
+        pass
     class _DatabaseManager:
         pass
     mod.CodeSnippet = _CodeSnippet
+    mod.LargeFile = _LargeFile
     mod.DatabaseManager = _DatabaseManager
     mod.db = dummy
     monkeypatch.setitem(sys.modules, "database", mod)
@@ -118,6 +121,9 @@ async def test_lazy_buttons_single_instance(monkeypatch):
     # Patch db.get_latest_version
     # stub database module
     mod = types.ModuleType("database")
+    class _LargeFile:
+        pass
+    mod.LargeFile = _LargeFile
     mod.db = SimpleNamespace(get_latest_version=lambda _u, _n: doc, get_large_file=lambda *_: None)
     monkeypatch.setitem(sys.modules, "database", mod)
 
