@@ -1,4 +1,4 @@
-name: Monthly Dependency Update
+name: "📦 Monthly Dependency Update"
 
 on:
   schedule:
