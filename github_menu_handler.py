@@ -1,6 +1,7 @@
 # FIXED: Changed from Markdown to HTML parsing (2025-01-10)
 # This fixes Telegram parsing errors with special characters in suggestions
 
+from __future__ import annotations
 import asyncio
 import json
 import logging
@@ -111,10 +112,16 @@ class GitHubMenuHandler:
     def get_user_session(self, user_id: int) -> Dict[str, Any]:
         """מחזיר או יוצר סשן משתמש בזיכרון"""
         if user_id not in self.user_sessions:
-            # נסה לטעון ריפו מועדף מהמסד
-            from database import db
-
-            selected_repo = db.get_selected_repo(user_id)
+            # נסה לטעון ריפו מועדף מהמסד, עם נפילה בטוחה בסביבת בדיקות/CI
+            selected_repo = None
+            try:
+                from database import db  # type: ignore
+                try:
+                    selected_repo = db.get_selected_repo(user_id)
+                except Exception:
+                    selected_repo = None
+            except Exception:
+                selected_repo = None
             self.user_sessions[user_id] = {
                 "selected_repo": selected_repo,  # טען מהמסד נתונים
                 "selected_folder": None,  # None = root של הריפו
