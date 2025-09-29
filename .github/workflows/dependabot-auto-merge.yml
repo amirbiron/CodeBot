@@ -1,4 +1,4 @@
-name: "Dependabot Auto‑Merge (patch)"
+name: "🤖 Dependabot Auto‑Merge (patch)"
 
 on:
   pull_request_target:
