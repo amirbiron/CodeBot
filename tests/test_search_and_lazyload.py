@@ -282,3 +282,169 @@ async def test_search_pagination_next_prev(monkeypatch):
     assert any("הקודם" in t for t in labels)
     assert any("הבא" in t for t in labels)
 
+@pytest.mark.asyncio
+async def test_search_pagination_last_page_prev_only(monkeypatch):
+    # Reuse DB stub with 23 results
+    dummy = DummyDB()
+    dummy._docs = [
+        {"file_name": f"proj_{i}.py", "programming_language": "python", "tags": ["repo:me/app"]}
+        for i in range(23)
+    ]
+    mod = types.ModuleType("database")
+    class _CodeSnippet:
+        pass
+    class _LargeFile:
+        pass
+    class _DatabaseManager:
+        pass
+    mod.CodeSnippet = _CodeSnippet
+    mod.LargeFile = _LargeFile
+    mod.DatabaseManager = _DatabaseManager
+    mod.db = dummy
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from main import CodeKeeperBot
+    bot = CodeKeeperBot()
+
+    class Msg:
+        def __init__(self, text):
+            self.text = text
+            self.message_id = 1
+        async def reply_text(self, *_a, **_k):
+            return None
+    class Upd:
+        def __init__(self, text):
+            self.message = Msg(text)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=11, username="u")
+    class Ctx:
+        def __init__(self):
+            self.user_data = {"awaiting_search_text": True}
+
+    u = Upd("name:proj lang:python")
+    c = Ctx()
+    await bot.handle_text_message(u, c)
+
+    from conversation_handlers import handle_callback_query
+    class Q3:
+        def __init__(self):
+            self.data = "search_page_3"
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get("reply_markup")
+    class U3:
+        def __init__(self):
+            self.callback_query = Q3()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=11)
+    u3 = U3()
+    await handle_callback_query(u3, c)
+    rm = u3.callback_query.captured
+    assert rm is not None
+    labels = [b.text for row in rm.inline_keyboard for b in row]
+    assert any("הקודם" in t for t in labels)
+    assert not any("הבא" in t for t in labels)
+
+@pytest.mark.asyncio
+async def test_lazy_buttons_more_less_direct(monkeypatch):
+    # Stub database to force large_file path with long content
+    long_code = "\n".join([f"line {i}" for i in range(12000)])
+    mod = types.ModuleType("database")
+    class _LargeFile: pass
+    mod.LargeFile = _LargeFile
+    mod.db = types.SimpleNamespace(
+        get_latest_version=lambda _u, _n: None,
+        get_large_file=lambda _u, _n: {
+            'file_name': 'x.md',
+            'content': long_code,
+            'programming_language': 'markdown',
+            '_id': '1'
+        }
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from conversation_handlers import handle_callback_query
+
+    class Q:
+        def __init__(self, data):
+            self.data = data
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get("reply_markup")
+    class U:
+        def __init__(self, data):
+            self.callback_query = Q(data)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=7)
+    ctx = types.SimpleNamespace(user_data={})
+
+    # Expand from 3500 -> expect both buttons
+    u1 = U("fv_more:direct:x.md:3500")
+    await handle_callback_query(u1, ctx)
+    rm1 = u1.callback_query.captured
+    labels1 = [b.text for row in rm1.inline_keyboard for b in row]
+    assert any(t.startswith("הצג עוד ") for t in labels1)
+    assert any(t.startswith("הצג פחות ") for t in labels1)
+
+    # Shrink to base -> expect no "פחות"
+    u2 = U("fv_less:direct:x.md:7000")
+    await handle_callback_query(u2, ctx)
+    rm2 = u2.callback_query.captured
+    labels2 = [b.text for row in rm2.inline_keyboard for b in row]
+    assert any(t.startswith("הצג עוד ") for t in labels2)
+    assert not any(t.startswith("הצג פחות ") for t in labels2)
+
+@pytest.mark.asyncio
+async def test_by_repo_pagination_basic(monkeypatch):
+    # Stub db.get_user_files_by_repo to serve two pages
+    items = [
+        {"file_name": f"f_{i}.py", "programming_language": "python"}
+        for i in range(15)
+    ]
+    def get_user_files_by_repo(_uid, _tag, page=1, per_page=10):
+        start = (page - 1) * per_page
+        end = min(start + per_page, len(items))
+        return items[start:end], len(items)
+    mod = types.ModuleType("database")
+    mod.db = types.SimpleNamespace(get_user_files_by_repo=get_user_files_by_repo)
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from conversation_handlers import handle_callback_query
+
+    class Q:
+        def __init__(self, data):
+            self.data = data
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get("reply_markup")
+    class U:
+        def __init__(self, data):
+            self.callback_query = Q(data)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=5)
+    ctx = types.SimpleNamespace(user_data={})
+
+    # First page
+    u1 = U("by_repo:repo:me/app")
+    await handle_callback_query(u1, ctx)
+    rm1 = u1.callback_query.captured
+    assert rm1 is not None
+    labels1 = [b.text for row in rm1.inline_keyboard for b in row]
+    assert any("הבא" in t for t in labels1)
+
+    # Second page
+    u2 = U("by_repo_page:repo:me/app:2")
+    await handle_callback_query(u2, ctx)
+    rm2 = u2.callback_query.captured
+    labels2 = [b.text for row in rm2.inline_keyboard for b in row]
+    assert any("הקודם" in t for t in labels2)
