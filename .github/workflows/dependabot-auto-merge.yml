@@ -1,3 +1,29 @@
+name: Dependabot auto-approve & merge (non-Dependabot)
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-approve-and-merge:
+    # דלג לחלוטין כאשר השולח הוא Dependabot כדי למנוע כשל והרשאות חסרות
+    if: github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-approve PR
+        uses: peter-evans/approve-pull-request@v3
+        with:
+          pull-request-number: ${{ github.event.pull_request.number }}
+
+      - name: Auto-merge PR (squash)
+        uses: peter-evans/merge-pull-request@v2
+        with:
+          pull-request: ${{ github.event.pull_request.number }}
+          merge-method: squash
 name: Dependabot Auto-Merge (patch)
 
 on:
