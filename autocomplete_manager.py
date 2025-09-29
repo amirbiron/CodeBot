@@ -5,7 +5,33 @@ Autocomplete Manager for File Names and Tags
 
 import logging
 from typing import List, Dict, Set
-from fuzzywuzzy import fuzz, process
+try:
+    from fuzzywuzzy import fuzz, process  # type: ignore
+    _HAS_FUZZY = True
+except Exception:
+    _HAS_FUZZY = False
+    # Minimal fallbacks
+    class _Fuzz:
+        @staticmethod
+        def partial_ratio(a: str, b: str) -> int:
+            a = (a or "").lower()
+            b = (b or "").lower()
+            if not a or not b:
+                return 0
+            if a in b or b in a:
+                return int(100 * min(len(a), len(b)) / max(len(a), len(b)))
+            # crude overlap measure
+            common = sum(1 for ch in set(a) if ch in b)
+            return int(100 * common / max(len(set(a + b)), 1))
+    fuzz = _Fuzz()  # type: ignore
+    class _Process:
+        @staticmethod
+        def extract(query: str, choices, scorer=None, limit=5):
+            scorer = scorer or (lambda x, y: 0)
+            scored = [(c, int(scorer(query, c))) for c in choices]
+            scored.sort(key=lambda t: t[1], reverse=True)
+            return [(c, s) for c, s in scored[:limit]]
+    process = _Process()  # type: ignore
 from database import db
 from cache_manager import cache, cached
 

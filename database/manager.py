@@ -3,7 +3,16 @@ import os
 from types import SimpleNamespace
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
-from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+try:
+    from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+    _PYMONGO_AVAILABLE = True
+except Exception:  # ModuleNotFoundError or any import-time error
+    MongoClient = None  # type: ignore
+    IndexModel = lambda *a, **k: None  # type: ignore
+    ASCENDING = 1  # type: ignore
+    DESCENDING = -1  # type: ignore
+    TEXT = "text"  # type: ignore
+    _PYMONGO_AVAILABLE = False
 
 from config import config
 
@@ -52,6 +61,12 @@ class DatabaseManager:
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
             logger.info("DB disabled (docs/CI mode) — using no-op collections")
+
+        # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
+        if not _PYMONGO_AVAILABLE:
+            _init_noop_collections()
+            logger.info("DB disabled (pymongo not available) — using no-op collections")
+            return
 
         if disable_db:
             _init_noop_collections()
