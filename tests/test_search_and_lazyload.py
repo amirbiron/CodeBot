@@ -628,6 +628,107 @@ async def test_search_no_results_stays_awaiting(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_view_direct_file_large_markdown_with_note(monkeypatch):
+    # Large markdown + note should render HTML and include note text
+    mod = types.ModuleType("database")
+    class _LargeFile: pass
+    mod.LargeFile = _LargeFile
+    content = ("# H1\n" * 3000)
+    note = "כאן הערה"
+    mod.db = types.SimpleNamespace(
+        get_latest_version=lambda *_: None,
+        get_large_file=lambda *_: {
+            'file_name': 'doc.md',
+            'content': content,
+            'programming_language': 'markdown',
+            'description': note,
+            '_id': 'id2'
+        }
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    class Q:
+        def __init__(self):
+            self.data = "view_direct_doc.md"
+            self.captured_text = None
+            self.captured_mode = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **_):
+            self.captured_text = text
+            self.captured_mode = parse_mode
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    from handlers.file_view import handle_view_direct_file
+    u = U()
+    ctx = types.SimpleNamespace(user_data={})
+    await handle_view_direct_file(u, ctx)
+    assert u.callback_query.captured_mode == 'HTML'
+    assert "כאן הערה" in (u.callback_query.captured_text or "")
+
+
+@pytest.mark.asyncio
+async def test_safe_edit_message_text_ignores_not_modified(monkeypatch):
+    # TelegramUtils.safe_edit_message_text shouldn't raise on 'message is not modified'
+    from utils import TelegramUtils
+
+    class BR(Exception):
+        pass
+    import telegram.error
+    # monkeypatch telegram.error.BadRequest to our BR subclass instance raising
+    class FakeBadRequest(telegram.error.BadRequest):
+        pass
+
+    class Q:
+        def __init__(self):
+            pass
+        async def edit_message_text(self, *a, **k):
+            raise FakeBadRequest("Message is not modified")
+
+    # Should not raise
+    await TelegramUtils.safe_edit_message_text(Q(), "text")
+
+
+@pytest.mark.asyncio
+async def test_fv_more_less_bounds_no_crash(monkeypatch):
+    # Bounds: attempting to 'less' near base and 'more' near end shouldn't crash
+    long_code = "\n".join([f"line {i}" for i in range(1000)])
+    # db stub for direct mode
+    mod = types.ModuleType("database")
+    mod.db = types.SimpleNamespace(
+        get_latest_version=lambda *_: {'file_name': 'z.py', 'code': long_code, 'programming_language': 'python', '_id': '1'},
+        get_large_file=lambda *_: None
+    )
+    monkeypatch.setitem(sys.modules, "database", mod)
+
+    from conversation_handlers import handle_callback_query
+    class Q:
+        def __init__(self, data):
+            self.data = data
+            self.captured = None
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **kw):
+            self.captured = kw.get('reply_markup')
+    class U:
+        def __init__(self, data):
+            self.callback_query = Q(data)
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+    ctx = types.SimpleNamespace(user_data={})
+
+    # less at base (offset 3500 -> back to 3500), but our code shorter—shouldn't crash
+    await handle_callback_query(U("fv_less:direct:z.py:3500"), ctx)
+    # more near end
+    await handle_callback_query(U("fv_more:direct:z.py:3500"), ctx)
+
+
+@pytest.mark.asyncio
 async def test_view_direct_file_non_markdown_markdown_mode(monkeypatch):
     # Stub db to return a small python file
     mod = types.ModuleType("database")
