@@ -5,6 +5,9 @@
 Flask==3.0.0
 gunicorn==23.0.0
 
+# Build tooling
+setuptools>=78.1.1,<81
+
 # Database
 pymongo==4.10.1
 
