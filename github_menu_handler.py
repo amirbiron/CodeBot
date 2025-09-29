@@ -2259,29 +2259,55 @@ class GitHubMenuHandler:
             if not (token and repo_name):
                 await query.edit_message_text("❌ חסרים נתונים (בחר ריפו עם /github)")
                 return
+
+            # במצב Inline אין query.message ולכן reply_* יקרוס. נערוך את ההודעה המקורית
+            # להודעת "+ מתחיל בהורדה" ונשלח את הקובץ בפרטי למשתמש.
             try:
+                try:
+                    await TelegramUtils.safe_edit_message_text(query, "⬇️ מתחיל בהורדה…")
+                except Exception:
+                    pass
+
                 g = Github(token)
                 repo = g.get_repo(repo_name)
                 contents = repo.get_contents(path)
                 size = getattr(contents, "size", 0) or 0
+
+                # פונקציות שליחה בהתאם לסוג ההודעה
+                async def _send_text(text: str, *, parse_mode: str | None = None):
+                    if getattr(query, "message", None) is not None:
+                        await query.message.reply_text(text, parse_mode=parse_mode)
+                    else:
+                        await context.bot.send_message(chat_id=user_id, text=text, parse_mode=parse_mode)
+
+                async def _send_document(buf: BytesIO, filename: str, *, caption: str | None = None):
+                    if getattr(query, "message", None) is not None:
+                        await query.message.reply_document(document=buf, filename=filename, caption=caption)
+                    else:
+                        await context.bot.send_document(chat_id=user_id, document=buf, filename=filename, caption=caption)
+
                 if size and size > MAX_INLINE_FILE_BYTES:
                     download_url = getattr(contents, "download_url", None)
                     if download_url:
-                        await query.message.reply_text(
+                        await _send_text(
                             f'⚠️ הקובץ גדול ({format_bytes(size)}). להורדה: <a href="{download_url}">קישור ישיר</a>',
                             parse_mode="HTML",
                         )
                     else:
-                        await query.message.reply_text(
-                            f"⚠️ הקובץ גדול ({format_bytes(size)}) ולא ניתן להורידו ישירות כרגע."
-                        )
+                        await _send_text(f"⚠️ הקובץ גדול ({format_bytes(size)}) ולא ניתן להורידו ישירות כרגע.")
                 else:
                     data = contents.decoded_content
                     filename = os.path.basename(contents.path) or "downloaded_file"
-                    await query.message.reply_document(document=BytesIO(data), filename=filename)
+                    await _send_document(BytesIO(data), filename)
             except Exception as e:
                 logger.error(f"Inline download error: {e}")
-                await query.message.reply_text(f"❌ שגיאה בהורדה: {e}")
+                try:
+                    if getattr(query, "message", None) is not None:
+                        await query.message.reply_text(f"❌ שגיאה בהורדה: {e}")
+                    else:
+                        await context.bot.send_message(chat_id=user_id, text=f"❌ שגיאה בהורדה: {e}")
+                except Exception:
+                    pass
             return
 
         elif query.data.startswith("browse_page:"):
@@ -4703,7 +4729,7 @@ class GitHubMenuHandler:
                                     [
                                         [
                                             InlineKeyboardButton(
-                                                "⬇️ הורד",
+                                        "📩 הורד",
                                                 callback_data=f"inline_download_file:{item.path}",
                                             )
                                         ]
@@ -4717,17 +4743,28 @@ class GitHubMenuHandler:
             else:
                 # קובץ בודד
                 size_str = format_bytes(getattr(contents, "size", 0) or 0)
+                # נסה להוציא snippet קצר מהתוכן (ללא עלות גבוהה מדי)
+                snippet = ""
+                try:
+                    raw = contents.decoded_content or b""
+                    text = raw.decode("utf-8", errors="replace")
+                    # קח 3 שורות ראשונות/עד 180 תווים
+                    first_lines = "\n".join(text.splitlines()[:3])
+                    snippet = first_lines[:180].replace("\n", " ⏎ ")
+                except Exception:
+                    snippet = ""
+                desc = snippet if snippet else f"/{path}"
                 results.append(
                     InlineQueryResultArticle(
                         id=f"file-{path}",
                         title=f"⬇️ הורד: {os.path.basename(contents.path)} ({size_str})",
-                        description=f"/{path}",
+                        description=desc,
                         input_message_content=InputTextMessageContent(f"קובץ: /{path}"),
                         reply_markup=InlineKeyboardMarkup(
                             [
                                 [
                                     InlineKeyboardButton(
-                                        "⬇️ הורד", callback_data=f"inline_download_file:{path}"
+                                        "📩 הורד", callback_data=f"inline_download_file:{path}"
                                     )
                                 ]
                             ]
@@ -4765,7 +4802,7 @@ class GitHubMenuHandler:
                             [
                                 [
                                     InlineKeyboardButton(
-                                        "⬇️ הורד", callback_data=f"inline_download_file:{path}"
+                                        "📩 הורד", callback_data=f"inline_download_file:{path}"
                                     )
                                 ]
                             ]
