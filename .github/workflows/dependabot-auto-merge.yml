@@ -1,26 +1,94 @@
-name: "🤖 Dependabot Auto‑Merge (patch)"
+name: "🤖 Dependabot Auto-Merge (patch)"
 
 on:
-  pull_request_target:
-    types: [opened, reopened, synchronize]
-
-permissions:
-  contents: write
-  pull-requests: write
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
 
 jobs:
-  auto-approve-and-merge:
-    # דלג לחלוטין כאשר השולח הוא Dependabot כדי למנוע כשל והרשאות חסרות
-    if: github.actor != 'dependabot[bot]'
+  enable-auto-merge:
+    if: ${{ github.actor == 'dependabot[bot]' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Allowlist עבור minor (pip + docker): לאכוף auto-merge רחב יותר
+      # השארנו allowlist לדוקר, וב-pip נאשר כמעט כל minor כשמדובר ב-security
+      ALLOWLIST_PIP: |
+        .*
+      ALLOWLIST_DOCKER: |
+        python
     steps:
-      - name: Auto-approve PR
-        uses: peter-evans/approve-pull-request@v3
+      - name: Check automerge secret
+        id: automerge
+        run: |
+          if [ "${{ secrets.DEPENDABOT_AUTOMERGE }}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute allowlisted (minor updates)
+        id: allow
+        run: |
+          upd_type='${{ steps.meta.outputs.update-type }}'
+          eco='${{ steps.meta.outputs.package-ecosystem }}'
+          names='${{ steps.meta.outputs.dependency-names }}'
+          echo "Update type: $upd_type; ecosystem: $eco; deps: $names"
+          allowed=false
+          if [ "$upd_type" = "version-update:semver-minor" ]; then
+            if [ "$eco" = "pip" ]; then
+              # names is a JSON array; strip brackets/quotes and split by comma
+              list=$(echo "$names" | tr -d '[]"' | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | xargs -I{} echo {})
+              # ברירת מחדל: לאפשר minor ב-pip (נדרש עדכון תדיר ל-HIGH)
+              allowed=true
+            elif [ "$eco" = "docker" ]; then
+              # For docker, dependency-names is like the image name (e.g., python)
+              n=$(echo "$names" | tr -d '[]"' | tr ',' '\n' | head -n1 | tr '[:upper:]' '[:lower:]')
+              if echo "$ALLOWLIST_DOCKER" | tr '[:upper:]' '[:lower:]' | grep -qx "$n"; then
+                allowed=true
+              fi
+            fi
+          fi
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+
+      - name: Prefer auto-merge when security-related
+        id: security
+        run: |
+          # אם PR מוגדר כ-security update ע"י Dependabot, נאפשר auto-merge גם ל-minor
+          sec='${{ steps.meta.outputs.security-advisory-ghsa-id }}'
+          if [ -n "$sec" ]; then echo "security=true" >> "$GITHUB_OUTPUT"; else echo "security=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Approve patch/minor update (allowed)
+        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.security.outputs.security == 'true' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
+        uses: peter-evans/approve-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ github.event.pull_request.number }}
 
-      - name: Auto-merge PR (squash)
-        uses: peter-evans/merge-pull-request@v2
+      - name: Enable auto-merge (squash) for patch/minor updates
+        if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.security.outputs.security == 'true' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
+        uses: peter-evans/enable-pull-request-automerge@v3
         with:
-          pull-request: ${{ github.event.pull_request.number }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number }}
           merge-method: squash
+        continue-on-error: true
+
+      - name: Notify (manual review required)
+        if: ${{ steps.automerge.outputs.enabled == 'true' && !(steps.meta.outputs.update-type == 'version-update:semver-patch' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            MSG="⚠️ Dependabot opened PR requiring manual review:\nRepo: ${{ github.repository }}\nPR: #${{ github.event.pull_request.number }}\nType: ${{ steps.meta.outputs.update-type }}\nEcosystem: ${{ steps.meta.outputs.package-ecosystem }}\nDeps: ${{ steps.meta.outputs.dependency-names }}"
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "parse_mode=HTML" \
+              --data-urlencode "text=${MSG}"
+          fi
