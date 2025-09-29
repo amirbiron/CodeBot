@@ -88,7 +88,7 @@ asyncio-mqtt==0.13.0
 aiofiles==23.2.1
 
 # Cache
-redis==5.0.1
+redis==5.0.4
 aioredis==2.0.1
 
 # Configuration
