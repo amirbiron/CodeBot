@@ -1,4 +1,4 @@
-name: Dependabot Auto-Merge (patch)
+name: "🤖 Dependabot Auto-Merge (patch)"
 
 on:
   pull_request:
@@ -68,18 +68,31 @@ jobs:
 
       - name: Approve patch/minor update (allowed)
         if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.security.outputs.security == 'true' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
-        uses: peter-evans/approve-pull-request@v5
+        uses: actions/github-script@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ github.event.pull_request.number }}
+          script: |
+            const pr = context.payload.pull_request;
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              event: 'APPROVE'
+            });
 
       - name: Enable auto-merge (squash) for patch/minor updates
         if: ${{ steps.automerge.outputs.enabled == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.security.outputs.security == 'true' || (steps.meta.outputs.update-type == 'version-update:semver-minor' && steps.allow.outputs.allowed == 'true')) }}
-        uses: peter-evans/enable-pull-request-automerge@v3
+        uses: actions/github-script@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ github.event.pull_request.number }}
-          merge-method: squash
+          script: |
+            const pr = context.payload.pull_request;
+            try {
+              await github.graphql(
+                `mutation($prId: ID!) { enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: SQUASH}) { clientMutationId } }`,
+                { prId: pr.node_id }
+              );
+            } catch (e) {
+              core.warning(`enablePullRequestAutoMerge failed: ${e}`);
+            }
         continue-on-error: true
 
       - name: Notify (manual review required)
@@ -92,4 +105,3 @@ jobs:
               -d "parse_mode=HTML" \
               --data-urlencode "text=${MSG}"
           fi
-

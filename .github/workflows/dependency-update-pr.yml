@@ -3,7 +3,7 @@ name: "📦 Monthly Dependency Update"
 on:
   schedule:
     - cron: "0 2 1 * *"
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
     paths:
       - ".github/workflows/dependency-update-pr.yml"
@@ -28,16 +28,26 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: No-op bump (Dependabot handles updates)
-        run: echo "No direct bumps. Triggering CI/Dependabot."
+      - name: Bump requirements (best-effort)
+        run: |
+          set -e
+          echo "Monthly dependency refresh – no-op step (Dependabot handles updates)."
 
-      - name: Create Pull Request
+      - name: Refresh stamp (only schedule/manual)
+        if: ${{ github.event_name != 'push' }}
+        run: |
+          mkdir -p .github
+          echo "refreshed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/deps-refresh-stamp.txt
+
+      - name: Create Pull Request (skip on push)
+        if: ${{ github.event_name != 'push' }}
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "chore(deps): monthly refresh (trigger CI)"
+          commit-message: "chore(deps): monthly dependency refresh"
           title: "chore(deps): monthly dependency refresh"
           body: |
             Automated monthly dependency refresh.
+
             - Triggers CI and Dependabot checks
             - Please review updates and ensure tests pass
           branch: chore/monthly-deps-refresh
