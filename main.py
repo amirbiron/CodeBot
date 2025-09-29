@@ -39,7 +39,7 @@ from handlers.drive.menu import GoogleDriveMenuHandler
 from file_manager import backup_manager
 from large_files_handler import large_files_handler
 from user_stats import user_stats
-# from cache_commands import setup_cache_handlers  # disabled
+from cache_commands import setup_cache_handlers  # enabled
 # from enhanced_commands import setup_enhanced_handlers  # disabled
 from batch_commands import setup_batch_handlers
 from html import escape as html_escape
@@ -655,8 +655,8 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         
-        # הוספת פקודות cache - disabled
-        # setup_cache_handlers(self.application)
+        # הוספת פקודות cache
+        setup_cache_handlers(self.application)
         
         # הוספת פקודות משופרות (אוטו-השלמה ותצוגה מקדימה) - disabled
         # setup_enhanced_handlers(self.application)
