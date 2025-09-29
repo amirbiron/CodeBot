@@ -251,15 +251,20 @@ HELP_PAGES = [
     ),
     (
         "📚 <b>תפריט הקבצים - מה יש שם?</b>\n\n"
-        "לחיצה על 📚 פותחת 4 אפשרויות:\n\n"
-        "🗂 <b>לפי ריפו</b> - קבצים מאורגנים לפי פרויקט\n"
-        "📦 <b>קבצי ZIP</b> - כל הגיבויים והארכיונים\n"
-        "📂 <b>גדולים</b> - קבצים מעל 500 שורות\n"
-        "📁 <b>שאר</b> - כל השאר\n\n"
+        "לחיצה על 📚 פותחת אפשרויות ניהול:\n\n"
+        "🔎 <b>חפש קובץ</b> — חיפוש לפי שם/שפה/תגית:\n"
+        "• שם: הקלד/י חלק משם הקובץ (למשל: <code>main</code> או <code>utils.py</code>)\n"
+        "• שפה: הוסף/י <code>lang:python</code> / <code>lang:js</code> / ...\n"
+        "• תגית: הוסף/י <code>tag:repo:owner/name</code> (לפי פרויקט)\n"
+        "• שילוב: לדוגמה <code>name:util lang:python</code> או <code>lang:ts tag:repo:org/proj</code>\n\n"
+        "🗂 <b>לפי ריפו</b> — קבצים מאורגנים לפי פרויקט\n"
+        "📂 <b>קבצים גדולים</b> — תצוגה מדורגת לקבצים ארוכים\n"
+        "📁 <b>שאר הקבצים</b> — כל השאר\n"
+        "📦 <b>קבצי ZIP</b> — גיבויים/ארכיונים\n\n"
         "<b>לכל קובץ יש תפריט עם:</b>\n"
         "👁️ הצג | ✏️ ערוך | 📝 שנה שם\n"
         "📚 היסטוריה | 📥 הורד | 🗑️ מחק\n\n"
-        "<b>טיפ:</b> הקבצים מוצגים 10 בעמוד עם ניווט נוח"
+        "<b>טיפ:</b> יש עימוד (10 לעמוד) וגם 'הצג עוד/פחות' בתצוגת קוד"
     ),
     (
         "🔍 <b>ניתוח ובדיקת ריפו</b>\n\n"
@@ -469,8 +474,9 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         all_files = db.get_user_files(user_id, limit=10000)
         files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
         
-        # מסך בחירה: 4 כפתורים
+        # מסך בחירה: כפתורי ניווט ראשיים
         keyboard = [
+            [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
@@ -898,70 +904,9 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     return ConversationHandler.END
 
 async def handle_view_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """הצגת קוד עם אפשרויות מתקדמות"""
-    query = update.callback_query
-    await query.answer()
-    
-    try:
-        file_index = query.data.split('_')[1]
-        files_cache = context.user_data.get('files_cache', {})
-        file_data = files_cache.get(file_index)
-        
-        if not file_data:
-            await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-            return ConversationHandler.END
-        
-        file_name = file_data.get('file_name', 'קובץ')
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        version = file_data.get('version', 1)
-        
-        # חיתוך חכם של הקוד
-        max_length = 3500
-        if len(code) > max_length:
-            code_preview = code[:max_length] + "\n\n... [📱 הצג המשך - השתמש בהורדה לקובץ המלא]"
-        else:
-            code_preview = code
-        
-        # כפתורים מתקדמים לעריכה
-        # חזרה צריכה להחזיר למסך "מרכז בקרה מתקדם" (file menu), לא לרשימה
-        back_to_file_menu_cb = f"file_{file_index}"
-        keyboard = [
-            [
-                InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
-                InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"),
-                InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
-                InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
-            ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=back_to_file_menu_cb)]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # הוסף הצגת הערה אם קיימת
-        note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
-        await TelegramUtils.safe_edit_message_text(
-            query,
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}\n"
-            f"```{language}\n{code_preview}\n```",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in handle_view_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
-    
-    return ConversationHandler.END
+    """מפנה למימוש המרכזי ב-handlers.file_view כדי לאפשר 'הצג עוד/פחות'."""
+    import handlers.file_view as file_view_handlers
+    return await file_view_handlers.handle_view_file(update, context)
 
 async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """התחלת עריכת קוד"""
@@ -1654,10 +1599,26 @@ async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_
         
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
-        
+        # תמיכה בקבצים גדולים: נסה להביא מקולקציית large_files אם לא נמצא רגיל
+        is_large_file = False
         if not file_data:
-            await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
-            return ConversationHandler.END
+            try:
+                lf = db.get_large_file(user_id, file_name)
+            except Exception:
+                lf = None
+            if lf:
+                is_large_file = True
+                file_data = {
+                    'file_name': lf.get('file_name', file_name),
+                    'code': lf.get('content', ''),
+                    'programming_language': lf.get('programming_language', 'text'),
+                    'version': 1,
+                    'description': lf.get('description', ''),
+                    '_id': lf.get('_id')
+                }
+            else:
+                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+                return ConversationHandler.END
         
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
@@ -1691,8 +1652,9 @@ async def handle_view_direct_file(update: Update, context: ContextTypes.DEFAULT_
         # הצגת הערה אם קיימת
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
+        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         await query.edit_message_text(
-            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}"
+            f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
             f"```{language}\n{code_preview}\n```",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -1840,6 +1802,193 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_versions_history(update, context)
         elif data.startswith("dl_") or data.startswith("download_"):
             return await handle_download_file(update, context)
+        elif data.startswith("fv_more:"):
+            # טעינת עוד טקסט לתצוגת קוד (lazy-load) — תומך גם ב-index וגם ב-direct
+            parts = data.split(":")
+            # פורמטים נתמכים: fv_more:idx:{index}:{offset} | fv_more:direct:{file_name}:{offset}
+            if len(parts) < 4:
+                return ConversationHandler.END
+            mode = parts[1]
+            try:
+                chunk_offset = int(parts[3])
+            except Exception:
+                chunk_offset = 0
+            max_length = 3500
+            header_text = ""
+            code_to_show = ""
+            language = "text"
+            file_name = "קובץ"
+            reply_markup = None
+            if mode == "idx":
+                file_index = parts[2]
+                files_cache = context.user_data.get('files_cache', {})
+                file_data = files_cache.get(file_index) or {}
+                code = file_data.get('code', '')
+                file_name = file_data.get('file_name', 'קובץ')
+                language = file_data.get('programming_language', 'text')
+                # חישוב קטע הבא
+                next_end = min(len(code), chunk_offset + max_length)
+                code_to_show = code[:next_end]
+                # בניית מקלדת עם כפתור "הצג עוד" הבא אם יש
+                keyboard = []
+                # שחזור כפתורי פעולה עיקריים
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")])
+                last_page = context.user_data.get('files_last_page')
+                origin = context.user_data.get('files_origin') or {}
+                if origin.get('type') == 'by_repo' and origin.get('tag'):
+                    back_cb = f"by_repo:{origin.get('tag')}"
+                elif origin.get('type') == 'regular':
+                    back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+                else:
+                    back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+                if next_end < len(code):
+                    next_chunk = code[next_end:next_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:idx:{file_index}:{next_end}")])
+                if next_end > max_length:
+                    prev_chunk = code[max(max_length, next_end - max_length):next_end]
+                    prev_lines = prev_chunk.count('\n') or (1 if prev_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines} שורות ⤴️", callback_data=f"fv_less:idx:{file_index}:{next_end}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            elif mode == "direct":
+                file_name = parts[2]
+                user_id = update.effective_user.id
+                from database import db
+                doc = db.get_latest_version(user_id, file_name)
+                if not doc:
+                    # נסה large_file
+                    doc = db.get_large_file(user_id, file_name) or {}
+                    code = doc.get('content', '')
+                else:
+                    code = doc.get('code', '')
+                language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
+                next_end = min(len(code), chunk_offset + max_length)
+                code_to_show = code[:next_end]
+                # כפתורים לתצוגה ישירה
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")])
+                try:
+                    fid = str(doc.get('_id') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    fid = ''
+                keyboard.append([InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")])
+                if next_end < len(code):
+                    next_chunk = code[next_end:next_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-2, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:direct:{file_name}:{next_end}")])
+                if next_end > max_length:
+                    prev_chunk = code[max(max_length, next_end - max_length):next_end]
+                    prev_lines = prev_chunk.count('\n') or (1 if prev_chunk else 0)
+                    keyboard.insert(-2, [InlineKeyboardButton(f"הצג פחות {prev_lines} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{next_end}")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            # רינדור מחדש עם קטע ארוך יותר
+            note_line = "\n"
+            try:
+                await query.edit_message_text(
+                    f"📄 *{file_name}* ({language}){note_line}\n" +
+                    f"```{language}\n{code_to_show}\n```",
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+        elif data.startswith("fv_less:"):
+            # צמצום התצוגה לאחור — מציג פחות שורות
+            parts = data.split(":")
+            if len(parts) < 4:
+                return ConversationHandler.END
+            mode = parts[1]
+            try:
+                current_end = int(parts[3])
+            except Exception:
+                current_end = 0
+            max_length = 3500
+            prev_end = max(max_length, current_end - max_length)
+            code_to_show = ""
+            language = "text"
+            file_name = "קובץ"
+            reply_markup = None
+            if mode == "idx":
+                file_index = parts[2]
+                files_cache = context.user_data.get('files_cache', {})
+                file_data = files_cache.get(file_index) or {}
+                code = file_data.get('code', '')
+                file_name = file_data.get('file_name', 'קובץ')
+                language = file_data.get('programming_language', 'text')
+                code_to_show = code[:prev_end]
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}")])
+                last_page = context.user_data.get('files_last_page')
+                origin = context.user_data.get('files_origin') or {}
+                if origin.get('type') == 'by_repo' and origin.get('tag'):
+                    back_cb = f"by_repo:{origin.get('tag')}"
+                elif origin.get('type') == 'regular':
+                    back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+                else:
+                    back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+                # כפתורי עוד/פחות בהתאם לשוליים
+                if prev_end < len(code):
+                    next_chunk = code[prev_end:prev_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:idx:{file_index}:{prev_end}")])
+                if prev_end > max_length:
+                    prev_chunk2 = code[max(max_length, prev_end - max_length):prev_end]
+                    prev_lines2 = prev_chunk2.count('\n') or (1 if prev_chunk2 else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines2} שורות ⤴️", callback_data=f"fv_less:idx:{file_index}:{prev_end}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            elif mode == "direct":
+                file_name = parts[2]
+                user_id = update.effective_user.id
+                from database import db
+                doc = db.get_latest_version(user_id, file_name)
+                if not doc:
+                    doc = db.get_large_file(user_id, file_name) or {}
+                    code = doc.get('content', '')
+                else:
+                    code = doc.get('code', '')
+                language = (doc.get('programming_language') if isinstance(doc, dict) else 'text') or 'text'
+                code_to_show = code[:prev_end]
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"), InlineKeyboardButton("📝 ערוך שם", callback_data=f"edit_name_direct_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_direct_{file_name}"), InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")])
+                keyboard.append([InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{file_name}"), InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_direct_{file_name}")])
+                try:
+                    fid = str(doc.get('_id') or '') if isinstance(doc, dict) else ''
+                except Exception:
+                    fid = ''
+                keyboard.append([InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")])
+                if prev_end < len(code):
+                    next_chunk = code[prev_end:prev_end + max_length]
+                    next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג עוד {next_lines} שורות ⤵️", callback_data=f"fv_more:direct:{file_name}:{prev_end}")])
+                if prev_end > max_length:
+                    prev_chunk2 = code[max(max_length, prev_end - max_length):prev_end]
+                    prev_lines2 = prev_chunk2.count('\n') or (1 if prev_chunk2 else 0)
+                    keyboard.insert(-1, [InlineKeyboardButton(f"הצג פחות {prev_lines2} שורות ⤴️", callback_data=f"fv_less:direct:{file_name}:{prev_end}")])
+                keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+            # רינדור מחדש עם קטע קצר יותר
+            note_line = "\n"
+            try:
+                await query.edit_message_text(
+                    f"📄 *{file_name}* ({language}){note_line}\n" +
+                    f"```{language}\n{code_to_show}\n```",
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
         elif data.startswith("clone_"):
             if data.startswith("clone_direct_"):
                 return await handle_clone_direct(update, context)
@@ -2313,27 +2462,33 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             action = data.split(":", 1)[1]
             return await execute_batch_on_current_selection(update, context, action)
         elif data.startswith("by_repo:"):
-            # הצגת קבצים לפי תגית ריפו + אפשרות מחיקה מרוכזת
+            # הצגת קבצים לפי תגית ריפו + אפשרות מחיקה מרוכזת, עם עימוד
             tag = data.split(":", 1)[1]
-            # סימון מקור הרשימה: "לפי ריפו" עם התגית שנבחרה
             context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=10000)
+            files, total = db.get_user_files_by_repo(user_id, tag, page=1, per_page=FILES_PAGE_SIZE)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים עבור התגית הזו.")
                 return ConversationHandler.END
+            # נשמור את מספר העמוד הנוכחי עבור ניווט חזרה
+            context.user_data['files_last_page'] = 1
             keyboard = []
-            # שמירת קאש לכל הקבצים לשימוש בעימוד/פתיחה
             context.user_data['files_cache'] = {}
-            for i, f in enumerate(files[:20]):
+            start_index = 0
+            for offset, f in enumerate(files):
+                i = start_index + offset
                 name = f.get('file_name', 'ללא שם')
                 language = f.get('programming_language', 'text')
                 emoji = get_file_emoji(language)
                 button_text = f"{emoji} {name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
                 context.user_data['files_cache'][str(i)] = f
-            # פעולת מחיקה לריפו הנוכחי (prefix ייחודי כדי לא להיתפס ע"י GitHub handler)
+            # שורת עימוד
+            pagination_row = build_pagination_row(1, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
+            if pagination_row:
+                keyboard.append(pagination_row)
+            # פעולת מחיקה לריפו הנוכחי
             keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
@@ -2341,6 +2496,22 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 f"📂 קבצים עם {tag}:",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+        elif data == "search_files":
+            # מעבר למצב חיפוש: בקשת שאילתא מהמשתמש
+            context.user_data['search_ctx'] = {'mode': 'all_files'}
+            kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="files")]]
+            await query.edit_message_text(
+                "🔎 *חיפוש קבצים*\n\n"
+                "הקלד/י אחת מהאפשרויות:\n"
+                "• שם קובץ או חלק ממנו (לדוגמה: main.py או main)\n"
+                "• תגית עם קידומת repo:owner/name\n"
+                "• שפה (לדוגמה: python, js)\n"
+                "או שילוב: name:util lang:python tag:repo:me/project",
+                reply_markup=InlineKeyboardMarkup(kb),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            # סמן שמחכים לטקסט חיפוש
+            context.user_data['awaiting_search_text'] = True
         elif data.startswith("byrepo_delete_confirm:"):
             # שלב אישור ראשון למחיקת כל הקבצים תחת תגית ריפו
             tag = data.split(":", 1)[1]
@@ -2374,6 +2545,106 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        elif data.startswith("by_repo_page:"):
+            # עימוד קבצים לפי תגית ריפו: תבנית callback "by_repo_page:{tag}:{page}"
+            parts = data.split(":")
+            # צורה אפשרית: ["by_repo_page", "repo", "me/app", "2"] או ["by_repo_page","repo:me/app","2"]
+            if len(parts) < 3:
+                return ConversationHandler.END
+            try:
+                page = int(parts[-1])
+            except Exception:
+                page = 1
+            # התגית היא כל מה שבין prefix לבין העמוד האחרון
+            tag = ":".join(parts[1:-1]) or ""
+            if page < 1:
+                page = 1
+            context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
+            context.user_data['files_last_page'] = page
+            from database import db
+            user_id = update.effective_user.id
+            files, total = db.get_user_files_by_repo(user_id, tag, page=page, per_page=FILES_PAGE_SIZE)
+            keyboard = []
+            context.user_data['files_cache'] = {}
+            start_index = (page - 1) * FILES_PAGE_SIZE
+            for offset, f in enumerate(files):
+                i = start_index + offset
+                name = f.get('file_name', 'ללא שם')
+                language = f.get('programming_language', 'text')
+                emoji = get_file_emoji(language)
+                button_text = f"{emoji} {name}"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                context.user_data['files_cache'][str(i)] = f
+            pagination_row = build_pagination_row(page, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
+            if pagination_row:
+                keyboard.append(pagination_row)
+            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
+            keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
+            try:
+                await query.edit_message_text(
+                    f"📂 קבצים עם {tag}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except telegram.error.BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+        elif data.startswith("search_page_"):
+            # עימוד תוצאות חיפוש שהוזנו בטקסט
+            try:
+                page = int(data.split("_")[-1])
+            except Exception:
+                page = 1
+            PAGE_SIZE = 10
+            filters = context.user_data.get('search_filters') or {}
+            name_filter = filters.get('name_filter') or ""
+            lang = filters.get('lang')
+            tag = filters.get('tag')
+            from database import db
+            results = db.search_code(
+                update.effective_user.id,
+                query=name_filter,
+                programming_language=lang,
+                tags=[tag] if tag else None,
+                limit=10000,
+            ) or []
+            # סינון נוסף לפי שם אם צריך
+            if name_filter:
+                try:
+                    nf = name_filter.lower()
+                    results = [r for r in results if nf in str(r.get('file_name', '')).lower()]
+                except Exception:
+                    pass
+            total = len(results)
+            total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE if total > 0 else 1
+            if page < 1:
+                page = 1
+            if page > total_pages:
+                page = total_pages
+            start = (page - 1) * PAGE_SIZE
+            end = min(start + PAGE_SIZE, total)
+            keyboard = []
+            context.user_data['files_cache'] = {}
+            for i in range(start, end):
+                item = results[i]
+                fname = item.get('file_name', 'קובץ')
+                lang_v = item.get('programming_language', 'text')
+                button_text = f"📄 {fname} ({lang_v})"
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                context.user_data['files_cache'][str(i)] = item
+            row = []
+            if page > 1:
+                row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"search_page_{page-1}"))
+            if page < total_pages:
+                row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"search_page_{page+1}"))
+            if row:
+                keyboard.append(row)
+            keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data="files")])
+            await query.edit_message_text(
+                f"🔎 תוצאות חיפוש — סה״כ: {total}\n" +
+                f"📄 עמוד {page} מתוך {total_pages}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         elif data.startswith("byrepo_delete_do:"):
             # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
             tag = data.split(":", 1)[1]

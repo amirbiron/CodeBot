@@ -13,7 +13,7 @@
   <div class="alert alert-success">{{ success }}</div>
   {% endif %}
 
-  <form id="uploadForm" method="post" enctype="multipart/form-data" style="display: grid; gap: 1rem;">
+  <form method="post" enctype="multipart/form-data" style="display: grid; gap: 1rem;">
     <div>
       <label>שם קובץ</label>
       <input type="text" name="file_name" placeholder="example.py" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
@@ -50,65 +50,5 @@
     </div>
   </form>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-(function(){
-  const form = document.getElementById('uploadForm');
-  if (!form) return;
-  form.addEventListener('submit', async function(ev){
-    try {
-      // אם רץ במיני-ווב של טלגרם – נשלח תמיד ב-fetch + Authorization
-      if (window.Telegram && window.Telegram.WebApp) {
-        ev.preventDefault();
-        const fd = new FormData(form);
-        // אם המשתמש הזין טקסט ב-<textarea name="code"> ונבחר גם קובץ, הקובץ גובר; אם אין קובץ – ניצור Blob מהטקסט
-        const hasFile = fd.get('code_file') && (fd.get('code_file').name || '').length > 0;
-        if (!hasFile) {
-          const codeText = (fd.get('code') || '').toString();
-          // דפדפנים מצרפים את ה-string כ-field רגיל; זה תקין, נשמור על זה בנוסף
-          // כדי לעקוף WAFים מסוימים, ניתן גם לצרף קובץ וירטואלי (אופציונלי). נשאיר כבוי כברירת מחדל.
-        }
-
-        const initData = (window.Telegram.WebApp.initData || '').trim();
-        const resp = await fetch('/upload', {
-          method: 'POST',
-          body: fd,
-          headers: {
-            'Authorization': initData ? ('Bearer ' + initData) : '',
-            'Accept': 'application/json',
-            'X-Requested-With': 'fetch'
-          },
-          credentials: 'include'
-        });
-        const okJson = resp.headers.get('content-type') && resp.headers.get('content-type').includes('application/json');
-        if (okJson) {
-          const data = await resp.json();
-          if (data && data.ok) {
-            const target = data.redirect || '/files';
-            window.location.assign(target);
-            return;
-          }
-          const error = (data && data.error) ? data.error : 'שגיאה בהעלאה';
-          alert(error);
-          return;
-        }
-        // fallback: אם חזר HTML (למשל redirect), ננווט ידנית
-        if (resp.redirected) {
-          window.location.assign(resp.url);
-        } else if (resp.ok) {
-          window.location.assign('/files');
-        } else {
-          alert('שגיאה בהעלאה (' + resp.status + ')');
-        }
-      }
-    } catch (e) {
-      try { console.error('upload error', e); } catch(_e){}
-      alert('שגיאה בהעלאה: ' + (e && e.message ? e.message : e));
-    }
-  }, { passive: false });
-})();
-</script>
 {% endblock %}
 
