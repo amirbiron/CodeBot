@@ -434,9 +434,15 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         from database import db
         success = db.rename_file(user_id, old_name, new_name)
         if success:
+            # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
+            try:
+                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                fid = str(latest_doc.get('_id') or '')
+            except Exception:
+                fid = ''
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
                 ],
                 [
@@ -1026,6 +1032,12 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
         )
         ok = db.save_code_snippet(snippet)
         if ok:
+            # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
+            try:
+                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                fid = str(latest_doc.get('_id') or '')
+            except Exception:
+                fid = ''
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
