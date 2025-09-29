@@ -3,7 +3,11 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from bson import ObjectId
+try:
+    from bson import ObjectId  # type: ignore
+except Exception:
+    class ObjectId(str):  # minimal stub for tests without bson
+        pass
 
 from cache_manager import cache, cached
 from .manager import DatabaseManager

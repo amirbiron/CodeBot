@@ -419,6 +419,7 @@ class CodeKeeperBot:
                     def __init__(self):
                         self.handlers = []
                         self.bot_data = {}
+                        self._error_handlers = []
                         class _JobQ:
                             def run_once(self, *a, **k):
                                 return None
@@ -427,6 +428,8 @@ class CodeKeeperBot:
                         self.handlers.append((a, k))
                     def remove_handler(self, *a, **k):
                         return None
+                    def add_error_handler(self, *a, **k):
+                        self._error_handlers.append((a, k))
                 self.application = _MiniApp()
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
