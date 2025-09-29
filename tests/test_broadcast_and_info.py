@@ -74,6 +74,7 @@ async def test_broadcast_counts_and_summary(monkeypatch):
         def __init__(self):
             self.user_data = {}
             self.bot = types.SimpleNamespace(send_message=send_message)
+            self.args = ["hello everyone"]
 
     # Patch RetryAfter in module to simple exception with attribute
     class _RetryAfter(Exception):
