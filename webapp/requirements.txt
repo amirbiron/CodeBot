@@ -28,4 +28,4 @@ pytz==2023.3
 cryptography==42.0.5
 
 # Cache
-redis==5.0.4
+redis==6.4.0
