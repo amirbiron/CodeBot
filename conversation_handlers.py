@@ -2664,7 +2664,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             from database import db
             results = db.search_code(
                 update.effective_user.id,
-                search_term=name_filter,
+                query=name_filter,
                 programming_language=lang,
                 tags=[tag] if tag else None,
                 limit=10000,

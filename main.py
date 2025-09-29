@@ -1764,7 +1764,7 @@ class CodeKeeperBot:
             # נחפש בבסיס (כולל $text), ואז נסנן לפי שם קובץ אם הוגדר name_filter
             results = db.search_code(
                 user_id,
-                search_term=name_filter if name_filter else "",
+                query=name_filter if name_filter else "",
                 programming_language=lang_filter,
                 tags=[tag_filter] if tag_filter else None,
                 limit=10000,

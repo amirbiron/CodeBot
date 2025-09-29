@@ -7,7 +7,7 @@ class DummyDB:
     def __init__(self):
         self._docs = []
 
-    def search_code(self, user_id, search_term="", programming_language=None, tags=None, limit=10000):
+    def search_code(self, user_id, query="", programming_language=None, tags=None, limit=10000):
         # very naive filter for tests only
         results = list(self._docs)
         if programming_language:
@@ -15,8 +15,8 @@ class DummyDB:
         if tags:
             tag = tags[0]
             results = [d for d in results if tag in (d.get("tags") or [])]
-        if search_term:
-            st = search_term.lower()
+        if query:
+            st = query.lower()
             results = [d for d in results if st in str(d.get("file_name", "")).lower()]
         return results[:limit]
 
