@@ -4647,43 +4647,18 @@ class GitHubMenuHandler:
             return
         g = Github(token)
         repo = g.get_repo(repo_name)
-        # ללא קלט: הצג עזרה קצרה
+        # ללא קלט: אל תחזיר תוצאות (מבטל 'פקודות' אינליין מיותרות)
         if not q:
-            results = [
-                InlineQueryResultArticle(
-                    id="help-1",
-                    title="zip <path> — הורד תיקייה כ־ZIP",
-                    description="לדוגמה: zip src/components",
-                    input_message_content=InputTextMessageContent("בחר תיקייה להורדה כ־ZIP"),
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("פתח /github", callback_data="github_menu")]]
-                    ),
-                ),
-                InlineQueryResultArticle(
-                    id="help-2",
-                    title="file <path> — הורד קובץ בודד",
-                    description="לדוגמה: file README.md או src/app.py",
-                    input_message_content=InputTextMessageContent("בחר קובץ להורדה"),
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("פתח /github", callback_data="github_menu")]]
-                    ),
-                ),
-                InlineQueryResultArticle(
-                    id="help-3",
-                    title=f"ריפו נוכחי: {repo_name}",
-                    description="הקלד נתיב מלא לרשימה/קובץ",
-                    input_message_content=InputTextMessageContent(f"ריפו: {repo_name}"),
-                ),
-            ]
-            await inline_query.answer(results, cache_time=1, is_personal=True)
+            await inline_query.answer([], cache_time=1, is_personal=True)
             return
         # פרסור פשוט: zip <path> / file <path> או נתיב ישיר
         is_zip = False
         is_file = False
         path = q
         if q.lower().startswith("zip "):
-            is_zip = True
-            path = q[4:].strip()
+            # מבטלים תמיכת zip באינליין
+            await inline_query.answer([], cache_time=1, is_personal=True)
+            return
         elif q.lower().startswith("file "):
             is_file = True
             path = q[5:].strip()
@@ -4692,27 +4667,7 @@ class GitHubMenuHandler:
             contents = repo.get_contents(path)
             # תיקייה
             if isinstance(contents, list):
-                # תוצאה ל־ZIP
-                results.append(
-                    InlineQueryResultArticle(
-                        id=f"zip-{path or 'root'}",
-                        title=f"📦 ZIP לתיקייה: /{path or ''}",
-                        description=f"{repo_name} — אריזת תיקייה והורדה",
-                        input_message_content=InputTextMessageContent(
-                            f"ZIP לתיקייה: /{path or ''}"
-                        ),
-                        reply_markup=InlineKeyboardMarkup(
-                            [
-                                [
-                                    InlineKeyboardButton(
-                                        "📦 הורד ZIP", callback_data=f"download_zip:{path}"
-                                    )
-                                ]
-                            ]
-                        ),
-                    )
-                )
-                # הצג כמה קבצים ראשונים בתיקייה להורדה מהירה
+                # הצג כמה קבצים ראשונים בתיקייה להורדה מהירה (ללא הצעת ZIP)
                 shown = 0
                 for item in contents:
                     if getattr(item, "type", "") == "file":
@@ -4772,26 +4727,8 @@ class GitHubMenuHandler:
                     )
                 )
         except Exception:
-            # אם לצורך zip/file מפורש, החזר כפתור גם אם לא קיים (ייתכן נתיב שגוי)
-            if is_zip and path:
-                results.append(
-                    InlineQueryResultArticle(
-                        id=f"zip-maybe-{path}",
-                        title=f"📦 ZIP: /{path}",
-                        description="ניסיון אריזה לתיקייה (אם קיימת)",
-                        input_message_content=InputTextMessageContent(f"ZIP לתיקייה: /{path}"),
-                        reply_markup=InlineKeyboardMarkup(
-                            [
-                                [
-                                    InlineKeyboardButton(
-                                        "📦 הורד ZIP", callback_data=f"download_zip:{path}"
-                                    )
-                                ]
-                            ]
-                        ),
-                    )
-                )
-            elif is_file and path:
+            # החזר רק תוצאת קובץ אם נתבקשה מפורשות
+            if is_file and path:
                 results.append(
                     InlineQueryResultArticle(
                         id=f"file-maybe-{path}",
@@ -4810,14 +4747,8 @@ class GitHubMenuHandler:
                     )
                 )
             else:
-                results.append(
-                    InlineQueryResultArticle(
-                        id="not-found",
-                        title="לא נמצאה התאמה",
-                        description="הקלד: zip <path> או file <path> או נתיב מלא",
-                        input_message_content=InputTextMessageContent("לא נמצאה התאמה לשאילתה"),
-                    )
-                )
+                # בלי הודעות עזרה/דמה – נחזיר ריק
+                pass
         await inline_query.answer(results[:50], cache_time=1, is_personal=True)
 
     async def show_notifications_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
