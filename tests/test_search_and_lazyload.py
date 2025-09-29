@@ -439,12 +439,14 @@ async def test_by_repo_pagination_basic(monkeypatch):
     await handle_callback_query(u1, ctx)
     rm1 = u1.callback_query.captured
     assert rm1 is not None
-    labels1 = [b.text for row in rm1.inline_keyboard for b in row]
-    assert any("הבא" in t for t in labels1)
+    # Verify next page callback exists (page 2)
+    cb1 = [b.callback_data for row in rm1.inline_keyboard for b in row]
+    assert any(str(cd).startswith("by_repo_page:repo:me/app:2") for cd in cb1)
 
     # Second page
     u2 = U("by_repo_page:repo:me/app:2")
     await handle_callback_query(u2, ctx)
     rm2 = u2.callback_query.captured
-    labels2 = [b.text for row in rm2.inline_keyboard for b in row]
-    assert any("הקודם" in t for t in labels2)
+    cb2 = [b.callback_data for row in rm2.inline_keyboard for b in row]
+    # On page 2 (last page), expect prev to page 1
+    assert any(str(cd).startswith("by_repo_page:repo:me/app:1") for cd in cb2)
