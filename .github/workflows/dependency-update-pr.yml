@@ -1,9 +1,17 @@
-name: "📦 Monthly Dependency Update"
+name: Monthly Dependency Update
 
 on:
   schedule:
     - cron: "0 2 1 * *"  # Every month on the 1st at 02:00 UTC
   workflow_dispatch: {}
+  push:
+    paths:
+      - ".github/workflows/dependency-update-pr.yml"
+      - "requirements.txt"
+      - "requirements.prod.txt"
+      - "webapp/requirements.txt"
+      - "docs/requirements.txt"
+      - "constraints.txt"
 
 jobs:
   update-deps:
