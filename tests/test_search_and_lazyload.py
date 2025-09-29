@@ -49,8 +49,8 @@ def test_search_flow_parsing_and_pagination(monkeypatch):
     monkeypatch.setitem(sys.modules, "database", mod)
 
     # Simulate main.handle_text_message search branch
-    from main import BotHandlers
-    bot = BotHandlers()
+    from main import CodeKeeperBot
+    bot = CodeKeeperBot()
 
     class DummyMessage:
         def __init__(self, text):
