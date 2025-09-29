@@ -69,6 +69,7 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("tags", self.tags_command))
         # self.application.add_handler(CommandHandler("languages", self.languages_command))
         self.application.add_handler(CommandHandler("recent", self.recent_command))
+        self.application.add_handler(CommandHandler("info", self.info_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -696,20 +697,64 @@ class AdvancedBotHandlers:
             )
             return
         
-        response = f"📅 **קבצים מ-{days_back} הימים האחרונים:**\n\n"
+        response = f"📅 <b>קבצים מ-{days_back} הימים האחרונים:</b>\n\n"
         
         for file_data in recent_files[:15]:  # מקסימום 15 קבצים
             dt_now = datetime.now(timezone.utc) if file_data['updated_at'].tzinfo else datetime.now()
             days_ago = (dt_now - file_data['updated_at']).days
             time_str = f"היום" if days_ago == 0 else f"לפני {days_ago} ימים"
-            
-            response += f"📄 **{file_data['file_name']}**\n"
-            response += f"   🔤 {file_data['programming_language']} | 📅 {time_str}\n\n"
+            safe_name = html.escape(str(file_data.get('file_name', '')))
+            safe_lang = html.escape(str(file_data.get('programming_language', 'unknown')))
+            response += f"📄 <code>{safe_name}</code>\n"
+            response += f"   🔤 {safe_lang} | 📅 {time_str}\n\n"
         
         if len(recent_files) > 15:
             response += f"📄 ועוד {len(recent_files) - 15} קבצים..."
         
-        await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+
+    async def info_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מידע מהיר על קובץ ללא פתיחה"""
+        reporter.report_activity(update.effective_user.id)
+        user_id = update.effective_user.id
+        
+        if not context.args:
+            await update.message.reply_text(
+                "ℹ️ אנא ציין שם קובץ:\n"
+                "דוגמה: <code>/info script.py</code>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        file_name = " ".join(context.args)
+        file_data = db.get_latest_version(user_id, file_name)
+        if not file_data:
+            await update.message.reply_text(
+                f"❌ קובץ <code>{html.escape(file_name)}</code> לא נמצא.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        
+        safe_name = html.escape(str(file_data.get('file_name', file_name)))
+        safe_lang = html.escape(str(file_data.get('programming_language', 'unknown')))
+        size_chars = len(file_data.get('code', '') or '')
+        updated_at = file_data.get('updated_at')
+        try:
+            updated_str = updated_at.strftime('%d/%m/%Y %H:%M') if updated_at else '-'
+        except Exception:
+            updated_str = str(updated_at) if updated_at else '-'
+        tags = file_data.get('tags') or []
+        tags_str = ", ".join(f"#{html.escape(str(t))}" for t in tags) if tags else "-"
+        
+        message = (
+            "ℹ️ <b>מידע על קובץ</b>\n\n"
+            f"📄 <b>שם:</b> <code>{safe_name}</code>\n"
+            f"🔤 <b>שפה:</b> {safe_lang}\n"
+            f"📏 <b>גודל:</b> {size_chars} תווים\n"
+            f"📅 <b>עודכן:</b> {html.escape(updated_str)}\n"
+            f"🏷️ <b>תגיות:</b> {tags_str}"
+        )
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בלחיצות על כפתורים"""

@@ -8,7 +8,10 @@ import logging
 import os
 from functools import wraps
 from typing import Any, Dict, List, Optional, Union
-import redis
+try:
+    import redis  # type: ignore
+except Exception:  # redis אינו חובה – נריץ במצב מושבת אם חסר
+    redis = None  # type: ignore[assignment]
 import asyncio
 from datetime import datetime, timedelta
 
@@ -25,6 +28,10 @@ class CacheManager:
     def connect(self):
         """התחברות ל-Redis"""
         try:
+            if redis is None:
+                self.is_enabled = False
+                logger.info("חבילת redis לא מותקנת – Cache מושבת")
+                return
             redis_url = os.getenv('REDIS_URL')
             if not redis_url or redis_url.strip() == "" or redis_url.startswith("disabled"):
                 self.is_enabled = False
