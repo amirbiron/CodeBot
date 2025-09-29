@@ -1,5 +1,25 @@
 # תבנית Pull Request
 
+<!--
+<h3>What</h3>
+<p>תיאור קצר של מה שינינו.</p>
+
+<h3>Why</h3>
+<p>למה השינוי נדרש, מה הבעיה שפתרנו.</p>
+
+<h3>Tests</h3>
+<ul>
+  <li>בדיקות שרצו והצליחו</li>
+  <li>קישורים ל-Checks רלוונטיים</li>
+  <li>סיכוני Rollback אם יש</li>
+  <li>קישור ל-Docs Preview אם רלוונטי</li>
+  <li>השפעה על Deploy (אם יש)</li>
+  <li>CI Required Checks: 🔍 Code Quality & Security; 🧪 Unit Tests (3.11); 🧪 Unit Tests (3.12)</li>
+  <li>אין סודות/PII בקוד</li>
+  <li>אין מחיקות מסוכנות (ראו .cursorrules)</li>
+</ul>
+-->
+
 ## 🔗 Docs Preview
 - הדביקו כאן את קישור ה‑Preview של אתר התיעוד (נמצא ב‑PR → Checks → "animal-rescue-docs"):
 
