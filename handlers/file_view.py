@@ -800,15 +800,12 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 parse_mode='HTML',
             )
         else:
-            safe_code = html_escape(code_preview)
-            header_html = (
-                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}"
-            )
             await TelegramUtils.safe_edit_message_text(
                 query,
-                f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
+                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
+                f"```{language}\n{code_preview}\n```",
                 reply_markup=reply_markup,
-                parse_mode='HTML',
+                parse_mode='Markdown',
             )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
