@@ -20,13 +20,6 @@
 </ul>
 -->
 
-## 🔗 Docs Preview
-- הדביקו כאן את קישור ה‑Preview של אתר התיעוד (נמצא ב‑PR → Checks → "animal-rescue-docs"):
-
-```
-Docs Preview: <הדביקו כאן את הקישור מה‑Checks>
-```
-
 ## ✨ תיאור קצר
 - מה שיניתם ולמה? (2-3 משפטים)
 
@@ -46,6 +39,11 @@ Docs Preview: <הדביקו כאן את הקישור מה‑Checks>
 - [ ] Unit
 - [ ] Integration
 - [ ] Manual
+
+## 🧪 בדיקות נדרשות ב‑PR
+- 🔍 Code Quality & Security
+- 🧪 Unit Tests (3.11)
+- 🧪 Unit Tests (3.12)
 
 ## 📝 סוג שינוי
 - [ ] feat: פיצ'ר חדש
@@ -70,5 +68,5 @@ Docs Preview: <הדביקו כאן את הקישור מה‑Checks>
 - Issues קשורים: #
 - מסמכים/מפרטים רלוונטיים:
 
-## Risk / Rollback
+## 🧯 סיכון / החזרה לאחור (Rollback)
 - תוכנית חזרה לאחור במקרה תקלה:
