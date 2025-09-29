@@ -34,8 +34,8 @@ async def cache_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if "error" in stats:
             await update.message.reply_text(
-                f"📊 **סטטיסטיקות Cache**\n\n"
-                f"⚠️ שגיאה: {html_escape(stats['error'])}",
+                f"📊 <b>סטטיסטיקות Cache</b>\n\n"
+                f"⚠️ <b>שגיאה:</b> {html_escape(stats['error'])}",
                 parse_mode='HTML'
             )
             return
