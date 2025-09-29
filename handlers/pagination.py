@@ -9,12 +9,12 @@ def build_pagination_row(
     page_size: int,
     callback_prefix: str,
 ) -> Optional[List[InlineKeyboardButton]]:
-    """Return a row of pagination buttons [prev,next] or None if not needed.
+    r"""Return a row of pagination buttons [prev,next] or None if not needed.
 
     - page: current 1-based page index
     - total_items: total number of items
     - page_size: items per page
-    - callback_prefix: for example ``files\_page\_`` → formats as ``{prefix}{page_num}``
+    - callback_prefix: for example ``files_page_`` → formats as ``{prefix}{page_num}``
     """
     if page_size <= 0:
         return None
