@@ -478,9 +478,9 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
+            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
-            [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(

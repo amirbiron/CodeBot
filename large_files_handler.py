@@ -171,8 +171,10 @@ class LargeFilesHandler:
         emoji = get_language_emoji(language)
         size_kb = file_size / 1024
         
+        # בריחה בטוחה לשם קובץ בתוך Markdown: נשתמש ב-code span כדי לנטרל תווים בעייתיים
+        safe_file_name = str(file_name).replace('`', '\\`')
         text = (
-            f"📄 **{file_name}**\n\n"
+            f"📄 `{safe_file_name}`\n\n"
             f"{emoji} **שפה:** {language}\n"
             f"💾 **גודל:** {size_kb:.1f}KB ({file_size:,} בתים)\n"
             f"📏 **שורות:** {lines_count:,}\n"
@@ -207,7 +209,9 @@ class LargeFilesHandler:
         # בדיקה אם הקובץ קטן מספיק להצגה בצ'אט
         if len(content) <= self.preview_max_chars:
             # הצגה ישירה בצ'אט
-            formatted_content = f"```{language}\n{content}\n```"
+            # עטיפת תוכן בבלוק קוד; נבריח backticks בתוך התוכן כדי לא לשבור Markdown
+            safe_content = str(content).replace('```', '\\`\\`\\`')
+            formatted_content = f"```{language}\n{safe_content}\n```"
             
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -227,7 +231,8 @@ class LargeFilesHandler:
         else:
             # הקובץ גדול מדי - נציג תצוגה מקדימה ונשלח כקובץ
             preview = content[:self.preview_max_chars] + "\n\n... [המשך הקובץ נשלח כקובץ מצורף]"
-            formatted_preview = f"```{language}\n{preview}\n```"
+            safe_preview = str(preview).replace('```', '\\`\\`\\`')
+            formatted_preview = f"```{language}\n{safe_preview}\n```"
             
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -249,10 +254,10 @@ class LargeFilesHandler:
             file_bytes = BytesIO(content.encode('utf-8'))
             file_bytes.name = file_name
             
+            # בכיתוב של המסמך, נבריח שם קובץ ונמנע Markdown
             await query.message.reply_document(
                 document=file_bytes,
-                caption=f"📄 הקובץ המלא: **{file_name}**",
-                parse_mode='Markdown'
+                caption=f"📄 הקובץ המלא: {file_name}",
             )
     
     async def download_large_file(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -280,8 +285,7 @@ class LargeFilesHandler:
         # שליחת הקובץ
         await query.message.reply_document(
             document=file_bytes,
-            caption=f"📥 **{file_name}**\n🔤 שפה: {language}\n💾 גודל: {len(content):,} תווים",
-            parse_mode='Markdown'
+            caption=f"📥 {file_name}\n🔤 שפה: {language}\n💾 גודל: {len(content):,} תווים",
         )
         
         # חזרה לתפריט הקובץ
