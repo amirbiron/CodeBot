@@ -50,9 +50,13 @@
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
 #md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
-  background: #0f172a0d; /* fallback עדין כדי להבחין בבלוק */
+  background: #f5f5f5 !important; /* רקע אפור בהיר וברור */
   border: 1px solid #e5e7eb;
   border-radius: 8px;
+}
+#md-content pre code {
+  display: block;
+  overflow-x: auto;
 }
 #md-content code:not(pre code) {
   background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
