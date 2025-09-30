@@ -152,7 +152,7 @@ const CDN = {
   mdAnchor: 'https://cdn.jsdelivr.net/npm/markdown-it-anchor@8.6.7/dist/markdown-it-anchor.min.js',
   mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
   mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
-  hljs: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js',
+  hljs: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js',
   hljsCss: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css',
   katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
   katexJs: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
@@ -198,10 +198,19 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
 
     // הדגשת תחביר לאחר הרינדור: הדגשה ממוקדת בתוך #md-content בלבד
     try {
-      if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+      if (window.hljs) {
         container.querySelectorAll('pre code').forEach(el => {
-          if (el.classList.contains('hljs')) return;
-          window.hljs.highlightElement(el);
+          try {
+            if (el.classList.contains('hljs')) return;
+            var hasLang = /\blanguage-/.test(el.className || '');
+            if (hasLang && typeof window.hljs.highlightElement === 'function') {
+              window.hljs.highlightElement(el);
+            } else if (typeof window.hljs.highlightAuto === 'function') {
+              var res = window.hljs.highlightAuto(el.textContent || '');
+              el.innerHTML = res.value;
+              el.classList.add('hljs');
+            }
+          } catch(__) {}
         });
       }
     } catch(_) { }
