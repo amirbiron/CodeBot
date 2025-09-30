@@ -25,8 +25,8 @@ jobs:
           secs=$(( duration_sec % 60 ))
           printf 'duration=%sm %ss\n' "$mins" "$secs" >> "$GITHUB_OUTPUT"
 
-          # Format local time (UTC by default); adjust if needed
-          ts_fmt=$(date -d "$completed_at" '+%d/%m/%Y %H:%M')
+          # Format time in Israel timezone (handles DST automatically)
+          ts_fmt=$(TZ="Asia/Jerusalem" date -d "$completed_at" '+%d/%m/%Y %H:%M')
           echo "finished_at=${ts_fmt}" >> "$GITHUB_OUTPUT"
 
           # Derive PR info if available
