@@ -49,10 +49,13 @@ pre code,
 }
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
 #md-content .hljs { overflow-x: auto; display: block; }
-code:not(pre code) {
-  background: rgba(255,255,255,0.08);
+#md-content code:not(pre code) {
+  background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
+  color: #111111;                 /* טקסט כהה לקריאות */
+  border: 1px solid #e5e7eb;      /* מסגרת עדינה */
   padding: 0.2rem 0.4rem;
   border-radius: 6px;
+  font-family: 'Fira Code', 'Consolas', monospace;
 }
 /* ציטוטים */
 #md-content blockquote {
