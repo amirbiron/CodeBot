@@ -60,29 +60,25 @@
   overflow-x: auto;
 }
 #md-content .code-block { position: relative; margin: 1rem 0; }
-<<<<<<< HEAD
 #md-content .code-block pre {
   margin: 0;
   padding: .6rem 1rem;           /* מרווח בסיסי קטן ונעים */
   padding-right: 3.25rem;        /* מקום לכפתור Copy מימין */
 }
-=======
-#md-content .code-block pre { margin: 0; padding-top: 2.2rem; padding-right: 2.5rem; }
->>>>>>> origin/main
 #md-content .md-copy-btn {
   position: absolute;
   top: 6px;
   right: 6px;
   font-size: 12px;
   padding: 4px 8px;
-  border: 1px solid #d1d5db;
-  background: rgba(255,255,255,0.92);
+  background: transparent;
+  border: none;
   border-radius: 6px;
   cursor: pointer;
-  color: #111111;
+  color: #666;
   z-index: 2;
 }
-#md-content .md-copy-btn:hover { background: #ffffff; }
+#md-content .md-copy-btn:hover { color: #000; }
 #md-content .md-copy-btn.copied { background: #d1fae5; border-color: #10b981; }
 #md-content code:not(pre code) {
   background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
@@ -123,11 +119,18 @@ input.md-task-checkbox {
   </div>
 
   <div id="md-content" class="glass-card" style="padding:1rem;"></div>
+  <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
 </div>
 
 <script>
 // תוכן ה-Markdown מועבר בבטחה JSON-encoded
-const MD_TEXT = {{ md_code | tojson | safe }};
+const MD_TEXT = (function(){
+  try {
+    var el = document.getElementById('mdText');
+    if (!el) return "";
+    return JSON.parse(el.textContent || '""');
+  } catch(_) { return ""; }
+})();
 
 // שמירת מצב רשימות משימות (לפי קובץ) ב-localStorage
 const STORAGE_KEY = `md_tasks_state:{{ file.id }}`;
