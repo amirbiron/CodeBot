@@ -42,7 +42,7 @@
   padding: 0;                    /* ננטרל padding פנימי כדי לא לייצר מרווח כפול */
   border-radius: 8px;
   font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 15px;               /* גודל נעים */
+  font-size: 16px;               /* נגישות טובה יותר */
   line-height: 1.5;              /* רווח אנכי טוב */
   white-space: pre-wrap !important;  /* עטיפת שורות ארוכות */
   word-break: break-word !important;
@@ -51,10 +51,11 @@
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
 #md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
-  background: #f6f8fa;           /* רקע אפור עדין בסגנון GitHub */
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
+  background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%); /* כחול כהה יותר מהרקע */
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
   margin: 1em 0;
 }
@@ -65,25 +66,44 @@
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
   margin: 0;
-  padding: 12px;                 /* יישור לריווח הכללי */
-  padding-top: 2.2rem;           /* מקום לשורת כפתורים עליונה */
+  padding: 20px;                 /* יישור לריווח הכללי */
+  padding-top: 2.6rem;           /* מקום לשורת כפתורים עליונה */
 }
 #md-content .md-copy-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 12px;
-  padding: 4px 8px;
-  background: transparent;
-  border: 1px solid transparent; /* למניעת קפיצת פריסה בעת שינוי מצב */
-  box-sizing: border-box;
+  top: 12px;
+  left: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
   cursor: pointer;
-  color: #555;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
   z-index: 2;
 }
-#md-content .md-copy-btn:hover { color: #000; }
-#md-content .md-copy-btn.copied { background: #d1fae5; border-color: #10b981; }
+#md-content .md-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+#md-content .md-copy-btn.copied {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.6);
+}
+#md-content .md-copy-btn.copy-error {
+  background: rgba(220, 38, 38, 0.25);
+  border-color: rgba(220, 38, 38, 0.55);
+}
+#md-content .md-copy-btn::before {
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3E%3Crect x='9' y='9' width='13' height='13' rx='2'/%3E%3Cpath d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  vertical-align: middle;
+}
 #md-content code:not(pre code) {
   background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
   color: #111111;                 /* טקסט כהה לקריאות */
@@ -156,7 +176,7 @@ const CDN = {
   mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
   mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
   hljs: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
-  hljsCss: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css',
+  hljsCss: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css',
   katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
   katexJs: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
   katexAuto: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js',
@@ -264,18 +284,44 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'md-copy-btn';
-        btn.textContent = 'העתק';
+        btn.setAttribute('aria-label', 'העתק קוד');
+        btn.title = 'העתק קוד';
         btn.addEventListener('click', async () => {
+          const codeEl = wrapper.querySelector('code');
+          const text = codeEl ? codeEl.innerText : pre.innerText;
+          // ניקוי מצבי עבר
+          btn.classList.remove('copied');
+          btn.classList.remove('copy-error');
+          // ניסיון ראשון: Clipboard API
           try {
-            const codeEl = wrapper.querySelector('code');
-            const text = codeEl ? codeEl.innerText : pre.innerText;
             await navigator.clipboard.writeText(text);
-            btn.textContent = 'הועתק!';
             btn.classList.add('copied');
-            setTimeout(() => { btn.textContent = 'העתק'; btn.classList.remove('copied'); }, 1500);
-          } catch(e) {
-            btn.textContent = 'נכשל';
-            setTimeout(() => { btn.textContent = 'העתק'; }, 1200);
+            setTimeout(() => { btn.classList.remove('copied'); }, 1500);
+            return;
+          } catch(_) {}
+
+          // Fallback: execCommand('copy') עם textarea זמני
+          let success = false;
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            success = document.execCommand('copy');
+            document.body.removeChild(ta);
+          } catch(_) {
+            success = false;
+          }
+
+          if (success) {
+            btn.classList.add('copied');
+            setTimeout(() => { btn.classList.remove('copied'); }, 1500);
+          } else {
+            btn.classList.add('copy-error');
+            setTimeout(() => { btn.classList.remove('copy-error'); }, 1500);
           }
         });
         wrapper.appendChild(btn);
