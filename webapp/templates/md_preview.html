@@ -105,18 +105,18 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
   try{
     injectCss(CDN.hljsCss);
     injectCss(CDN.katexCss);
-    await loadScript(CDN.md);
-    await loadScript(CDN.mdEmoji);
-    await loadScript(CDN.mdTask);
-    await loadScript(CDN.mdAnchor);
-    await loadScript(CDN.mdFootnote);
-    await loadScript(CDN.mdTocDone);
-    await loadScript(CDN.hljs);
-    await loadScript(CDN.katexJs);
-    await loadScript(CDN.katexAuto);
-    await loadScript(CDN.mermaid);
+    try { await loadScript(CDN.md); } catch(_){}
+    try { await loadScript(CDN.mdEmoji); } catch(_){}
+    try { await loadScript(CDN.mdTask); } catch(_){}
+    try { await loadScript(CDN.mdAnchor); } catch(_){}
+    try { await loadScript(CDN.mdFootnote); } catch(_){}
+    try { await loadScript(CDN.mdTocDone); } catch(_){}
+    try { await loadScript(CDN.hljs); } catch(_){}
+    try { await loadScript(CDN.katexJs); } catch(_){}
+    try { await loadScript(CDN.katexAuto); } catch(_){}
+    try { await loadScript(CDN.mermaid); } catch(_){}
 
-    const md = window.markdownit({
+    const md = (window.markdownit ? window.markdownit : (()=>({render:(s)=>s})))({
       breaks: true,
       linkify: true,
       typographer: true,
@@ -124,15 +124,15 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       highlight: function (str, lang) {
         try {
           // שימוש ב-highlight.js common languages
-          return window.hljs.highlightAuto(str).value;
+          return (window.hljs ? window.hljs.highlightAuto(str).value : '');
         } catch(e) { return ''; }
       }
     })
-      .use(window.markdownitEmoji)
-      .use(window.markdownitTaskLists, { label: true, enabled: true })
-      .use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' })
-      .use(window.markdownitFootnote)
-      .use(window.markdownitTocDoneRight);
+    if (window.markdownitEmoji) md.use(window.markdownitEmoji);
+    if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
+    if (window.markdownitAnchor) md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
+    if (window.markdownitFootnote) md.use(window.markdownitFootnote);
+    if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
 
     // רינדור ראשוני
     const container = document.getElementById('md-content');
@@ -142,10 +142,11 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     container.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; });
 
     // KaTeX אוטו-רנדר (בבטחה; אין html גולמי)
-    try { window.renderMathInElement(container, { delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}] }); } catch(_){ }
+    try { if (window.renderMathInElement) window.renderMathInElement(container, { delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}] }); } catch(_){ }
 
     // Mermaid: רנדר דיאגרמות בקוד fence ```mermaid
     try {
+      if (!window.mermaid) throw new Error('mermaid missing');
       window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
       const blocks = container.querySelectorAll('code.language-mermaid, pre code.language-mermaid');
       let i=0;

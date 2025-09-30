@@ -883,11 +883,15 @@ def files():
     files_list = []
     for file in files_cursor:
         code_str = file.get('code') or ''
+        fname = file.get('file_name') or ''
+        lang_raw = (file.get('programming_language') or '').lower() or 'text'
+        # Fallback: אם שמור כ-text אבל הסיומת היא .md – נתייג כ-markdown לתצוגה
+        lang_display = 'markdown' if (lang_raw in {'', 'text'} and fname.lower().endswith('.md')) else lang_raw
         files_list.append({
             'id': str(file['_id']),
-            'file_name': file['file_name'],
-            'language': file.get('programming_language', 'text'),
-            'icon': get_language_icon(file.get('programming_language', '')),
+            'file_name': fname,
+            'language': lang_display,
+            'icon': get_language_icon(lang_display),
             'description': file.get('description', ''),
             'tags': file.get('tags', []),
             'size': format_file_size(len(code_str.encode('utf-8'))),
@@ -948,7 +952,13 @@ def view_file(file_id):
     
     # הדגשת syntax
     code = file.get('code', '')
-    language = file.get('programming_language', 'text')
+    language = (file.get('programming_language') or 'text').lower()
+    # תקן תיוג: אם נשמר כ-text אך הסיומת .md – תייג כ-markdown לתצוגה וכפתור 🌐
+    try:
+        if (not language or language == 'text') and str(file.get('file_name') or '').lower().endswith('.md'):
+            language = 'markdown'
+    except Exception:
+        pass
     
     # הגבלת גודל תצוגה - 1MB
     MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
@@ -1422,6 +1432,9 @@ def md_preview(file_id):
 
     file_name = (file.get('file_name') or '').strip()
     language = (file.get('programming_language') or '').strip().lower()
+    # אם סומן כ-text אך הסיומת .md – התייחס אליו כ-markdown
+    if (not language or language == 'text') and file_name.lower().endswith('.md'):
+        language = 'markdown'
     code = file.get('code') or ''
 
     # הצג תצוגת Markdown רק אם זה אכן Markdown
