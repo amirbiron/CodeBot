@@ -44,3 +44,17 @@ def test_noop_db_when_pymongo_unavailable(monkeypatch):
     mgr = dm.DatabaseManager()
     # Name property should exist on the no-op DB stub
     assert getattr(mgr.db, "name", "") == "noop_db"
+
+
+def test_noop_db_private_attr_raises(monkeypatch):
+    # Ensure attribute names starting with '_' raise AttributeError per stub contract
+    monkeypatch.setenv("DISABLE_DB", "1")
+    monkeypatch.setenv("BOT_TOKEN", "dummy")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017")
+
+    import database.manager as dm
+    mgr = dm.DatabaseManager()
+
+    import pytest
+    with pytest.raises(AttributeError):
+        _ = mgr.db._hidden_collection
