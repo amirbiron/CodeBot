@@ -68,6 +68,11 @@ class DatabaseManager:
                     if name not in self._collections:
                         self._collections[name] = NoOpCollection()
                     return self._collections[name]
+                def __getattr__(self, name: str) -> NoOpCollection:
+                    # מאפשר גישה בסגנון נקודה: db.users, db.large_files, וכו'
+                    if name.startswith('_'):
+                        raise AttributeError(name)
+                    return self.__getitem__(name)
                 @property
                 def name(self) -> str:
                     return "noop_db"

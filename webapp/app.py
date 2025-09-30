@@ -1399,6 +1399,44 @@ def raw_html(file_id):
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
+@app.route('/md/<file_id>')
+@login_required
+def md_preview(file_id):
+    """תצוגת Markdown מעוצבת ועשירה, עם הרחבות GFM/KaTeX/Mermaid.
+
+    מציג קבצי Markdown (.md) בדפדפן ברינדור עשיר. לא מבצע הרצת סקריפטים מהתוכן.
+    הרינדור עצמו מתבצע בצד הלקוח באמצעות ספריות CDN (markdown-it + plugins),
+    ומופעלות תוספות ביצועים כגון טעינה עצלה לתמונות ו-render מדורג למסמכים ארוכים.
+    """
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        file = db.code_snippets.find_one({
+            '_id': ObjectId(file_id),
+            'user_id': user_id
+        })
+    except Exception:
+        abort(404)
+    if not file:
+        abort(404)
+
+    file_name = (file.get('file_name') or '').strip()
+    language = (file.get('programming_language') or '').strip().lower()
+    code = file.get('code') or ''
+
+    # הצג תצוגת Markdown רק אם זה אכן Markdown
+    is_md = language == 'markdown' or file_name.lower().endswith('.md')
+    if not is_md:
+        return redirect(url_for('view_file', file_id=file_id))
+
+    file_data = {
+        'id': str(file.get('_id')),
+        'file_name': file_name or 'README.md',
+        'language': 'markdown',
+    }
+    # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
+    return render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
+
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
 def create_public_share(file_id):
