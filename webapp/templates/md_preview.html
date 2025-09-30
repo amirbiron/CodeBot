@@ -144,12 +144,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       linkify: true,
       typographer: true,
       html: false,
-      highlight: function (str, lang) {
-        try {
-          // שימוש ב-highlight.js common languages
-          return (window.hljs ? window.hljs.highlightAuto(str).value : '');
-        } catch(e) { return ''; }
-      }
+      // לא לבצע הדגשה בשלב ה-render של markdown-it; נבצע post-process עם hljs
+      highlight: function (_str, _lang) { return ''; }
     })
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
@@ -160,6 +156,15 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
+
+    // הדגשת תחביר לאחר הרינדור: הוסף מחלקת hljs ותצבע
+    try {
+      if (window.hljs && typeof window.hljs.highlightAll === 'function') {
+        window.hljs.highlightAll();
+      } else if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+        container.querySelectorAll('pre code').forEach(el => window.hljs.highlightElement(el));
+      }
+    } catch(_) { }
 
     // Lazy loading לתמונות
     container.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; });
