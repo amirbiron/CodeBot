@@ -166,12 +166,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
 
-    // הדגשת תחביר לאחר הרינדור: הוסף מחלקת hljs ותצבע
+    // הדגשת תחביר לאחר הרינדור: תן ל-highlight.js לסמן ולעצב
     try {
-      // ודא שלכל קטע קוד יש מחלקת hljs כדי לקבל סטיילים גם בלי זיהוי שפה
-      container.querySelectorAll('pre code').forEach(el => {
-        el.classList.add('hljs');
-      });
       if (window.hljs && typeof window.hljs.highlightAll === 'function') {
         window.hljs.highlightAll();
       } else if (window.hljs && typeof window.hljs.highlightElement === 'function') {
