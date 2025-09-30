@@ -72,14 +72,15 @@
   font-size: 12px;
   padding: 4px 8px;
   background: transparent;
-  border: none;
+  border: 1px solid transparent; /* למניעת קפיצת פריסה בעת שינוי מצב */
+  box-sizing: border-box;
   border-radius: 6px;
   cursor: pointer;
   color: #666;
   z-index: 2;
 }
-#md-content .md-copy-btn:hover { color: #000; }
-#md-content .md-copy-btn.copied { background: #d1fae5; border: 1px solid #10b981; }
+#md-content .md-copy-btn:hover { background: #ffffff; color: #000; }
+#md-content .md-copy-btn.copied { background: #d1fae5; border-color: #10b981; }
 #md-content code:not(pre code) {
   background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
   color: #111111;                 /* טקסט כהה לקריאות */
