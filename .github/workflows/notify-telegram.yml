@@ -1,0 +1,133 @@
+name: Notify Telegram
+
+on:
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+
+jobs:
+  notify:
+    name: Send Telegram Notification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    if: |
+      github.event.workflow_run.event == 'pull_request'
+    steps:
+      - name: Compute metadata
+        id: meta
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_TITLE: ${{ github.event.workflow_run.pull_requests[0].title }}
+          REPO: ${{ github.repository }}
+          RUN_HTML_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          started_at="${{ github.event.workflow_run.run_started_at }}"
+          completed_at="${{ github.event.workflow_run.updated_at }}"
+          start_ts=$(date -d "$started_at" +%s)
+          end_ts=$(date -d "$completed_at" +%s)
+          duration_sec=$(( end_ts - start_ts ))
+          mins=$(( duration_sec / 60 ))
+          secs=$(( duration_sec % 60 ))
+          printf 'duration=%sm %ss\n' "$mins" "$secs" >> "$GITHUB_OUTPUT"
+
+          # Format time in Israel timezone (handles DST automatically)
+          ts_fmt=$(TZ="Asia/Jerusalem" date -d "$completed_at" '+%d/%m/%Y %H:%M')
+          echo "finished_at=${ts_fmt}" >> "$GITHUB_OUTPUT"
+
+          # Derive PR info safely from env (no shell expansion injection)
+          pr_number="${PR_NUMBER:-}"
+          pr_title="${PR_TITLE:-}"
+          repo="${REPO:-}"
+          run_url="${RUN_HTML_URL:-}"
+          if [ -n "$pr_number" ]; then
+            pr_url="https://github.com/${repo}/pull/${pr_number}"
+          else
+            pr_url="$run_url"
+          fi
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          {
+            echo "pr_title<<__TXT__"
+            printf '%s\n' "$pr_title"
+            echo "__TXT__"
+          } >> "$GITHUB_OUTPUT"
+          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+          echo "run_url=${run_url}" >> "$GITHUB_OUTPUT"
+
+          # Workflow details
+          echo "workflow_name=${{ github.event.workflow_run.name }}" >> "$GITHUB_OUTPUT"
+          echo "conclusion=${{ github.event.workflow_run.conclusion }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build message
+        id: msg
+        env:
+          CONCLUSION: ${{ steps.meta.outputs.conclusion }}
+          FINISHED_AT: ${{ steps.meta.outputs.finished_at }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
+          PR_TITLE: ${{ steps.meta.outputs.pr_title }}
+          WORKFLOW_NAME: ${{ steps.meta.outputs.workflow_name }}
+          DURATION: ${{ steps.meta.outputs.duration }}
+          PR_URL: ${{ steps.meta.outputs.pr_url }}
+          RUN_URL: ${{ steps.meta.outputs.run_url }}
+        run: |
+          status_emoji='✅'
+          case "$CONCLUSION" in
+            success) status_emoji='✅' ;;
+            cancelled) status_emoji='⏹️' ;;
+            failure) status_emoji='❌' ;;
+            * ) status_emoji='ℹ️' ;;
+          esac
+
+          # Escape characters for Telegram MarkdownV2
+          esc() {
+            printf '%s' "$1" | sed -e 's/[\\_\\*\\[\\]\\(\\)~`>#\\+\\-=|{}\\.!]/\\&/g'
+          }
+
+          title="$(esc "GitHub Actions – הסתיים ${status_emoji}")"
+          time_line="⏰ $FINISHED_AT"
+
+          pr_line=""
+          if [ -n "$PR_NUMBER" ]; then
+            pr_line="🔄 PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
+          fi
+
+          wf_line="⚙️ Workflow: $(esc "$WORKFLOW_NAME")"
+          dur_line="⏱️ זמן ריצה: $(esc "$DURATION")"
+
+          link_line=""
+          if [ -n "$PR_NUMBER" ]; then
+            link_label_pr='צפה ב\-PR'
+            link_line="\n🔗 [${link_label_pr}]($PR_URL)"
+          else
+            link_label_run='צפה בריצה'
+            link_line="\n🔗 [${link_label_run}]($RUN_URL)"
+          fi
+
+          message="${title}\n${time_line}\n\n"
+          if [ -n "$pr_line" ]; then
+            message="${message}${pr_line}\n"
+          fi
+          message="${message}${wf_line}\n${dur_line}${link_line}"
+          {
+            echo "text<<__MSG__"
+            printf '%b\n' "$message"
+            echo "__MSG__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Send Telegram message
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TEXT: ${{ steps.msg.outputs.text }}
+        run: |
+          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+            echo "BOT_TOKEN or CHAT_ID is missing" >&2
+            exit 1
+          fi
+          api_url="https://api.telegram.org/bot${BOT_TOKEN}/sendMessage"
+          # Use MarkdownV2 for safe formatting
+          jq -nc --arg chat_id "$CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text, parse_mode:"MarkdownV2", disable_web_page_preview:true}' \
+            | curl -sS -X POST "$api_url" -H 'Content-Type: application/json' -d @- | cat
+
