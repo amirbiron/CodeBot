@@ -246,7 +246,7 @@ function goBackToFile(ev){
       return false;
     }
   } catch(_){ }
-  window.location.href = '/file/{{ file.id }}';
+  try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
   return false;
 }
 </script>
