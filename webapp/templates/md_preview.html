@@ -170,7 +170,6 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     try {
       if (window.hljs && typeof window.hljs.highlightElement === 'function') {
         container.querySelectorAll('pre code').forEach(el => {
-          // דלג אם כבר הודגש (hljs מוסף ע"י הספרייה לאחר עיבוד)
           if (el.classList.contains('hljs')) return;
           window.hljs.highlightElement(el);
         });
