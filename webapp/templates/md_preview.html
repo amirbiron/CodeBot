@@ -10,6 +10,12 @@
   margin: 0 auto;
   padding: 1rem;
 }
+#md-content {
+  background: #ffffff;
+  color: #111111;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
 #md-content img {
   max-width: 100%;
   height: auto;
@@ -22,11 +28,11 @@
   display: block;
 }
 #md-content table th, #md-content table td {
-  border: 1px solid rgba(255,255,255,0.15);
+  border: 1px solid #e5e7eb;
   padding: 0.5rem 0.75rem;
 }
 #md-content table thead {
-  background: rgba(255,255,255,0.06);
+  background: #f8fafc;
 }
 /* קוד */
 pre code {
@@ -35,11 +41,22 @@ pre code {
   border-radius: 8px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 14px;
+  white-space: pre-wrap;        /* עטיפת שורות ארוכות */
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
+pre { overflow-x: auto; max-width: 100%; }
 code:not(pre code) {
   background: rgba(255,255,255,0.08);
   padding: 0.2rem 0.4rem;
   border-radius: 6px;
+}
+/* ציטוטים */
+#md-content blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: #f8fafc;
+  border-inline-start: 4px solid #e5e7eb;
 }
 /* רשימות משימות */
 input.md-task-checkbox {
@@ -59,8 +76,8 @@ input.md-task-checkbox {
         <div class="muted" style="margin-top:.25rem;">Markdown</div>
       </div>
     </div>
-    <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
-      <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon">↩️ חזרה לקובץ</a>
+  <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      <a href="#" onclick="return goBackToFile(event)" class="btn btn-secondary btn-icon">↩️ חזרה לקובץ</a>
     </div>
   </div>
 
@@ -91,7 +108,7 @@ const CDN = {
   mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
   mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
   hljs: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js',
-  hljsCss: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css',
+  hljsCss: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css',
   katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
   katexJs: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
   katexAuto: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js',
@@ -212,6 +229,20 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     container.innerHTML = '<div class="alert alert-error">שגיאה ברינדור Markdown</div>';
   }
 })();
+
+// ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
+function goBackToFile(ev){
+  try { if (ev) ev.preventDefault(); } catch(_){ }
+  try {
+    const sameOriginRef = document.referrer && new URL(document.referrer, window.location.origin).origin === window.location.origin;
+    if (window.history && window.history.length > 1 && sameOriginRef) {
+      window.history.back();
+      return false;
+    }
+  } catch(_){ }
+  window.location.href = '/file/{{ file.id }}';
+  return false;
+}
 </script>
 {% endblock %}
 
