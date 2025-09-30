@@ -62,9 +62,18 @@ jobs:
 
       - name: Build message
         id: msg
+        env:
+          CONCLUSION: ${{ steps.meta.outputs.conclusion }}
+          FINISHED_AT: ${{ steps.meta.outputs.finished_at }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
+          PR_TITLE: ${{ steps.meta.outputs.pr_title }}
+          WORKFLOW_NAME: ${{ steps.meta.outputs.workflow_name }}
+          DURATION: ${{ steps.meta.outputs.duration }}
+          PR_URL: ${{ steps.meta.outputs.pr_url }}
+          RUN_URL: ${{ steps.meta.outputs.run_url }}
         run: |
           status_emoji='✅'
-          case "${{ steps.meta.outputs.conclusion }}" in
+          case "$CONCLUSION" in
             success) status_emoji='✅' ;;
             cancelled) status_emoji='⏹️' ;;
             failure) status_emoji='❌' ;;
@@ -73,22 +82,27 @@ jobs:
 
           # Escape characters for Telegram MarkdownV2
           esc() {
-            printf '%s' "$1" | sed -e 's/[\\_\*\[\]\(\)~`>#\+\-=|{}\.!]/\\&/g'
+            printf '%s' "$1" | sed -e 's/[\\_\\*\\[\\]\\(\\)~`>#\\+\\-=|{}\\.!]/\\&/g'
           }
 
-          title="GitHub Actions – הסתיים ${status_emoji}"
-          time_line="⏰ ${{ steps.meta.outputs.finished_at }}"
+          title="$(esc "GitHub Actions – הסתיים ${status_emoji}")"
+          time_line="⏰ $FINISHED_AT"
+
           pr_line=""
-          if [ -n "${{ steps.meta.outputs.pr_number }}" ]; then
-            pr_line="🔄 PR #${{ steps.meta.outputs.pr_number }}: $(esc "${{ steps.meta.outputs.pr_title }}")"
+          if [ -n "$PR_NUMBER" ]; then
+            pr_line="🔄 PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
           fi
-          wf_line="⚙️ Workflow: $(esc "${{ steps.meta.outputs.workflow_name }}")"
-          dur_line="⏱️ זמן ריצה: ${{ steps.meta.outputs.duration }}"
+
+          wf_line="⚙️ Workflow: $(esc "$WORKFLOW_NAME")"
+          dur_line="⏱️ זמן ריצה: $(esc "$DURATION")"
+
           link_line=""
-          if [ -n "${{ steps.meta.outputs.pr_number }}" ]; then
-            link_line="\n🔗 [צפה ב-PR](${{ steps.meta.outputs.pr_url }})"
+          if [ -n "$PR_NUMBER" ]; then
+            link_label_pr='צפה ב\-PR'
+            link_line="\n🔗 [${link_label_pr}]($PR_URL)"
           else
-            link_line="\n🔗 [צפה בריצה](${{ steps.meta.outputs.run_url }})"
+            link_label_run='צפה בריצה'
+            link_line="\n🔗 [${link_label_run}]($RUN_URL)"
           fi
 
           message="${title}\n${time_line}\n\n"
@@ -106,6 +120,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          TEXT: ${{ steps.msg.outputs.text }}
         run: |
           if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
             echo "BOT_TOKEN or CHAT_ID is missing" >&2
@@ -113,6 +128,6 @@ jobs:
           fi
           api_url="https://api.telegram.org/bot${BOT_TOKEN}/sendMessage"
           # Use MarkdownV2 for safe formatting
-          jq -nc --arg chat_id "$CHAT_ID" --arg text "${{ steps.msg.outputs.text }}" '{chat_id:$chat_id, text:$text, parse_mode:"MarkdownV2", disable_web_page_preview:true}' \
+          jq -nc --arg chat_id "$CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text, parse_mode:"MarkdownV2", disable_web_page_preview:true}' \
             | curl -sS -X POST "$api_url" -H 'Content-Type: application/json' -d @- | cat
 
