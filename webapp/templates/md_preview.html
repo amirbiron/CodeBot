@@ -39,7 +39,7 @@
 #md-content pre > code,
 #md-content code.hljs {
   display: block;
-  padding: 1rem;
+  padding: 0;                    /* ננטרל padding פנימי כדי לא לייצר מרווח כפול */
   border-radius: 8px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 14px;
@@ -53,14 +53,17 @@
   background: #f5f5f5 !important; /* רקע אפור בהיר וברור */
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  position: relative; /* עבור כפתור העתקה בפינה */
 }
 #md-content pre code {
   display: block;
   overflow-x: auto;
 }
 #md-content .code-block { position: relative; margin: 1rem 0; }
-#md-content .code-block pre { margin: 0; padding-top: 2.2rem; padding-right: 2.5rem; }
+#md-content .code-block pre {
+  margin: 0;
+  padding: .6rem 1rem;           /* מרווח בסיסי קטן ונעים */
+  padding-right: 3.25rem;        /* מקום לכפתור Copy מימין */
+}
 #md-content .md-copy-btn {
   position: absolute;
   top: 6px;
