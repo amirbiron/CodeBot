@@ -6,7 +6,7 @@
 <style>
 /* אזור התצוגה והביצועים */
 #md-root {
-  max-width: 980px;
+  max-width: min(1400px, 98vw);
   margin: 0 auto;
   padding: 1rem;
 }
@@ -19,6 +19,13 @@
 #md-content img {
   max-width: 100%;
   height: auto;
+}
+/* הרחבת הקונטיינר בעמוד Markdown כדי לצמצם את הסגול בצדדים */
+.main-content > .container {
+  max-width: 100% !important;
+  width: 100% !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
 }
 /* טבלאות בסגנון GitHub */
 #md-content table {
@@ -57,7 +64,8 @@
   padding: 20px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
-  margin: 1em 0;
+  margin: 1em -8px;                 /* הרחבה מעבר לרוחב הכרטיס */
+  width: calc(100% + 16px);         /* נותן תחושה רחבה יותר */
 }
 #md-content pre code {
   display: block;
