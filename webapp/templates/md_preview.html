@@ -241,8 +241,6 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
-    // שמירת מקור לתמיכה בהדגשת חיפוש
-    container.setAttribute('data-original-html', container.innerHTML);
 
     // הדגשת תחביר לאחר הרינדור: הדגשה ממוקדת בתוך #md-content בלבד
     try {
@@ -264,6 +262,16 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       }
     } catch(_) { }
 
+    // אחרי הדגשת hljs – נשמור מקור רק לכל בלוק קוד (לא לכל הקונטיינר)
+    try {
+      const blocks = container.querySelectorAll('pre code');
+      blocks.forEach(code => {
+        if (!code.hasAttribute('data-original-html')) {
+          code.setAttribute('data-original-html', code.innerHTML);
+        }
+      });
+    } catch(_) {}
+
     // חיפוש והדגשה בתוך קטעי קוד בלבד
     (function(){
       const input = document.getElementById('mdSearchInput');
@@ -272,10 +280,16 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       if (!input || !clearBtn || !countEl) return;
 
       function restore() {
-        try {
-          const src = container.getAttribute('data-original-html') || '';
-          container.innerHTML = src;
-        } catch(_) {}
+        // משחזר כל בלוק קוד מהמקור שנשמר בו, בלי לגעת בשאר ה-HTML והדגשות hljs
+        const blocks = container.querySelectorAll('pre code');
+        blocks.forEach(code => {
+          try {
+            const orig = code.getAttribute('data-original-html');
+            if (orig != null) {
+              code.innerHTML = orig;
+            }
+          } catch(_) {}
+        });
       }
 
       function highlightTerm(term) {
