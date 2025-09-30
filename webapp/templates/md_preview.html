@@ -34,8 +34,10 @@
 #md-content table thead {
   background: #f8fafc;
 }
-/* קוד */
-pre code {
+/* קוד (fenced) */
+pre code,
+#md-content pre > code,
+#md-content code.hljs {
   display: block;
   padding: 1rem;
   border-radius: 8px;
@@ -45,7 +47,8 @@ pre code {
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-pre { overflow-x: auto; max-width: 100%; }
+#md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
+#md-content .hljs { overflow-x: auto; display: block; }
 code:not(pre code) {
   background: rgba(255,255,255,0.08);
   padding: 0.2rem 0.4rem;
