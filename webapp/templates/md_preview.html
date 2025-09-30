@@ -59,11 +59,8 @@
   display: block;
   overflow-x: auto;
 }
-<<<<<<< HEAD
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre { margin: 0; padding-top: 2.2rem; padding-right: 2.5rem; }
-=======
->>>>>>> origin/main
 #md-content .md-copy-btn {
   position: absolute;
   top: 6px;
@@ -228,7 +225,6 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       }
     } catch(_){ }
 
-<<<<<<< HEAD
     // כפתור העתקה לכל בלוק קוד (עטיפה ב-.code-block כדי לא להסתיר טקסט)
     try {
       const pres = Array.from(container.querySelectorAll('pre'));
@@ -240,23 +236,17 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           pre.replaceWith(wrapper);
           wrapper.appendChild(pre);
         }
-=======
-    // כפתור העתקה לכל בלוק קוד
-    try {
-      const codeBlocks = container.querySelectorAll('pre');
-      codeBlocks.forEach(pre => {
->>>>>>> origin/main
+        // אל תיצור כפתור נוסף אם כבר קיים בתוך ה-wrapper
+        if (wrapper.querySelector('button.md-copy-btn')) {
+          return;
+        }
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'md-copy-btn';
         btn.textContent = 'Copy';
         btn.addEventListener('click', async () => {
           try {
-<<<<<<< HEAD
             const codeEl = wrapper.querySelector('code');
-=======
-            const codeEl = pre.querySelector('code');
->>>>>>> origin/main
             const text = codeEl ? codeEl.innerText : pre.innerText;
             await navigator.clipboard.writeText(text);
             btn.textContent = 'Copied!';
@@ -267,11 +257,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
             setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
           }
         });
-<<<<<<< HEAD
         wrapper.appendChild(btn);
-=======
-        pre.appendChild(btn);
->>>>>>> origin/main
       });
     } catch(_){ }
 
