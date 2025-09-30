@@ -53,11 +53,27 @@
   background: #f5f5f5 !important; /* רקע אפור בהיר וברור */
   border: 1px solid #e5e7eb;
   border-radius: 8px;
+  position: relative; /* עבור כפתור העתקה בפינה */
 }
 #md-content pre code {
   display: block;
   overflow-x: auto;
 }
+#md-content .md-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  background: rgba(255,255,255,0.92);
+  border-radius: 6px;
+  cursor: pointer;
+  color: #111111;
+  z-index: 2;
+}
+#md-content .md-copy-btn:hover { background: #ffffff; }
+#md-content .md-copy-btn.copied { background: #d1fae5; border-color: #10b981; }
 #md-content code:not(pre code) {
   background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
   color: #111111;                 /* טקסט כהה לקריאות */
@@ -171,6 +187,10 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       if (window.hljs && typeof window.hljs.highlightElement === 'function') {
         container.querySelectorAll('pre code').forEach(el => {
           if (el.classList.contains('hljs')) return;
+          // אם אין שפה, הגדר כ-plaintext כדי להבטיח סגנון בסיסי
+          if (![...el.classList].some(c => c.startsWith('language-'))) {
+            el.classList.add('language-plaintext');
+          }
           window.hljs.highlightElement(el);
         });
       }
@@ -201,6 +221,31 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
         }
       }
+    } catch(_){ }
+
+    // כפתור העתקה לכל בלוק קוד
+    try {
+      const codeBlocks = container.querySelectorAll('pre');
+      codeBlocks.forEach(pre => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'md-copy-btn';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', async () => {
+          try {
+            const codeEl = pre.querySelector('code');
+            const text = codeEl ? codeEl.innerText : pre.innerText;
+            await navigator.clipboard.writeText(text);
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+          } catch(e) {
+            btn.textContent = 'Failed';
+            setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+          }
+        });
+        pre.appendChild(btn);
+      });
     } catch(_){ }
 
     // רשימות משימות אינטראקטיביות: שמירה/שחזור מצב
