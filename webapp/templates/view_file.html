@@ -568,11 +568,25 @@ function goBack(ev){
         const countEl = document.getElementById('codeSearchCount');
         if (!container || !input || !clearBtn || !countEl) return;
 
-        // שמירת HTML מקורי
-        container.setAttribute('data-original-html', container.innerHTML);
+    // נשמור מקור לכל בלוק קוד/שורש הדגשה בלבד (לא לכל המכולה)
+    (function cacheOriginalPerRoot(){
+        const roots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
+        roots.forEach(root => {
+            if (!root.hasAttribute('data-original-html')) {
+                root.setAttribute('data-original-html', root.innerHTML);
+            }
+        });
+    })();
 
         function restore(){
-            try { container.innerHTML = container.getAttribute('data-original-html') || container.innerHTML; } catch(_) {}
+            // משחזר רק את שורשי הקוד ששמרנו עבורם מקור, לא את כל המכולה
+            const roots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
+            roots.forEach(root => {
+                try {
+                    const orig = root.getAttribute('data-original-html');
+                    if (orig != null) root.innerHTML = orig;
+                } catch(_) {}
+            });
         }
 
         function highlightTerm(term){
