@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}{{ file.file_name }} - Markdown Preview{% endblock %}
+
+{% block extra_css %}
+<style>
+/* אזור התצוגה והביצועים */
+#md-root {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+#md-content img {
+  max-width: 100%;
+  height: auto;
+}
+/* טבלאות בסגנון GitHub */
+#md-content table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: auto;
+  display: block;
+}
+#md-content table th, #md-content table td {
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 0.5rem 0.75rem;
+}
+#md-content table thead {
+  background: rgba(255,255,255,0.06);
+}
+/* קוד */
+pre code {
+  display: block;
+  padding: 1rem;
+  border-radius: 8px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 14px;
+}
+code:not(pre code) {
+  background: rgba(255,255,255,0.08);
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+}
+/* רשימות משימות */
+input.md-task-checkbox {
+  margin-inline-end: .5rem;
+  transform: scale(1.1);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="md-root">
+  <div class="file-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;gap:.75rem;">
+      <span style="font-size:2rem;">📝</span>
+      <div>
+        <h1 style="margin:0;font-size:1.6rem;">{{ file.file_name }}</h1>
+        <div class="muted" style="margin-top:.25rem;">Markdown</div>
+      </div>
+    </div>
+    <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon">↩️ חזרה לקובץ</a>
+    </div>
+  </div>
+
+  <div id="md-content" class="glass-card" style="padding:1rem;"></div>
+</div>
+
+<script>
+// תוכן ה-Markdown מועבר בבטחה JSON-encoded
+const MD_TEXT = {{ md_code | tojson | safe }};
+
+// שמירת מצב רשימות משימות (לפי קובץ) ב-localStorage
+const STORAGE_KEY = `md_tasks_state:{{ file.id }}`;
+function loadTaskState(){
+  try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }catch(_){ return {}; }
+}
+function saveTaskState(state){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state || {})); }catch(_){ }
+}
+const taskState = loadTaskState();
+
+// טעינת ספריות דרך CDN
+// markdown-it + plugins (GFM-like), KaTeX, Mermaid, highlight.js
+const CDN = {
+  md: 'https://cdn.jsdelivr.net/npm/markdown-it@13.0.2/dist/markdown-it.min.js',
+  mdEmoji: 'https://cdn.jsdelivr.net/npm/markdown-it-emoji@2.0.2/dist/markdown-it-emoji.min.js',
+  mdTask: 'https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/markdown-it-task-lists.min.js',
+  mdAnchor: 'https://cdn.jsdelivr.net/npm/markdown-it-anchor@8.6.7/dist/markdown-it-anchor.min.js',
+  mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
+  mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
+  hljs: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js',
+  hljsCss: 'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css',
+  katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
+  katexJs: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
+  katexAuto: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js',
+  mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js'
+};
+
+function injectCss(href){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+
+(async function(){
+  try{
+    injectCss(CDN.hljsCss);
+    injectCss(CDN.katexCss);
+    await loadScript(CDN.md);
+    await loadScript(CDN.mdEmoji);
+    await loadScript(CDN.mdTask);
+    await loadScript(CDN.mdAnchor);
+    await loadScript(CDN.mdFootnote);
+    await loadScript(CDN.mdTocDone);
+    await loadScript(CDN.hljs);
+    await loadScript(CDN.katexJs);
+    await loadScript(CDN.katexAuto);
+    await loadScript(CDN.mermaid);
+
+    const md = window.markdownit({
+      breaks: true,
+      linkify: true,
+      typographer: true,
+      html: false,
+      highlight: function (str, lang) {
+        try {
+          // שימוש ב-highlight.js common languages
+          return window.hljs.highlightAuto(str).value;
+        } catch(e) { return ''; }
+      }
+    })
+      .use(window.markdownitEmoji)
+      .use(window.markdownitTaskLists, { label: true, enabled: true })
+      .use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' })
+      .use(window.markdownitFootnote)
+      .use(window.markdownitTocDoneRight);
+
+    // רינדור ראשוני
+    const container = document.getElementById('md-content');
+    container.innerHTML = md.render(MD_TEXT || '');
+
+    // Lazy loading לתמונות
+    container.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; });
+
+    // KaTeX אוטו-רנדר (בבטחה; אין html גולמי)
+    try { window.renderMathInElement(container, { delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}] }); } catch(_){ }
+
+    // Mermaid: רנדר דיאגרמות בקוד fence ```mermaid
+    try {
+      window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+      const blocks = container.querySelectorAll('code.language-mermaid, pre code.language-mermaid');
+      let i=0;
+      for (const el of blocks) {
+        const parent = el.closest('pre') || el.parentElement;
+        const svgId = 'mmd_' + (++i);
+        const code = el.textContent;
+        const wrapper = document.createElement('div');
+        parent.replaceWith(wrapper);
+        try {
+          const { svg } = await window.mermaid.render(svgId, code);
+          wrapper.innerHTML = svg;
+        } catch(e) {
+          wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
+        }
+      }
+    } catch(_){ }
+
+    // רשימות משימות אינטראקטיביות: שמירה/שחזור מצב
+    // ב-render, markdown-it-task-lists הופך ל-input[type=checkbox]
+    const boxes = container.querySelectorAll('input[type="checkbox"]');
+    let idx = 0;
+    boxes.forEach(cb => {
+      cb.classList.add('md-task-checkbox');
+      const key = 'i' + (idx++);
+      // שחזור מצב
+      if (Object.prototype.hasOwnProperty.call(taskState, key)) {
+        cb.checked = !!taskState[key];
+      }
+      cb.addEventListener('change', () => {
+        taskState[key] = cb.checked;
+        saveTaskState(taskState);
+      });
+    });
+
+    // וירטואליזציה בסיסית למסמכים ארוכים (חלוקה לקטעים לפי כותרות)
+    try {
+      const MAX_NODES = 2000;
+      const nodes = Array.from(container.childNodes);
+      if (nodes.length > MAX_NODES) {
+        const chunk = document.createDocumentFragment();
+        nodes.slice(0, MAX_NODES).forEach(n => chunk.appendChild(n));
+        const rest = nodes.slice(MAX_NODES);
+        container.innerHTML = '';
+        container.appendChild(chunk);
+        const more = document.createElement('button');
+        more.className = 'btn btn-secondary btn-icon';
+        more.textContent = 'טען עוד…';
+        more.addEventListener('click', () => {
+          const frag = document.createDocumentFragment();
+          rest.forEach(n => frag.appendChild(n));
+          container.appendChild(frag);
+          more.remove();
+        });
+        container.appendChild(document.createElement('hr'));
+        container.appendChild(more);
+      }
+    } catch(_){ }
+
+  } catch (e) {
+    console.error('Markdown preview failed', e);
+    const container = document.getElementById('md-content');
+    container.innerHTML = '<div class="alert alert-error">שגיאה ברינדור Markdown</div>';
+  }
+})();
+</script>
+{% endblock %}
+

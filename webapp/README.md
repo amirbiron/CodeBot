@@ -8,6 +8,14 @@
 - **דשבורד מלא** - סטטיסטיקות וסקירה כללית
 - **ניהול קבצים** - חיפוש, סינון ומיון מתקדם
 - **צפייה בקוד** - עם הדגשת syntax ומספרי שורות
+- **תצוגת Markdown מתקדמת (🌐)** לקבצי `.md`:
+  - GFM: כותרות, הדגשות, רשימות, ציטוטים, קישורים/תמונות, קוד inline/בלוקים
+  - Task Lists אינטראקטיביות (שמירה ב‑localStorage לכל קובץ)
+  - טבלאות, strikethrough, autolinks, emoji
+  - נוסחאות KaTeX (inline/block)
+  - דיאגרמות Mermaid (fenced ```mermaid)
+  - הדגשת קוד עם Highlight.js
+  - Lazy‑loading לתמונות ו‑virtualization בסיסי למסמכים ארוכים
 - **הורדת קבצים** - שמירה מקומית של הקוד
 - **עיצוב מודרני** - Glass Morphism responsive
 
@@ -95,7 +103,9 @@ webapp/
     ├── login.html     # התחברות
     ├── dashboard.html # דשבורד
     ├── files.html     # רשימת קבצים
-    ├── view_file.html # צפייה בקובץ
+    ├── view_file.html # צפייה בקובץ (כולל כפתור 🌐 ל‑HTML/Markdown)
+    ├── html_preview.html # תצוגת HTML ב‑iframe בטוח
+    └── md_preview.html   # תצוגת Markdown עשירה בצד לקוח
     ├── 404.html       # שגיאה 404
     └── 500.html       # שגיאה 500
 ```
@@ -111,7 +121,9 @@ webapp/
 | `/dashboard` | GET | דשבורד | ✅ |
 | `/files` | GET | רשימת קבצים | ✅ |
 | `/file/<id>` | GET | צפייה בקובץ | ✅ |
-| `/file/<id>/download` | GET | הורדת קובץ | ✅ |
+| `/download/<id>` | GET | הורדת קובץ | ✅ |
+| `/html/<id>` | GET | תצוגת HTML בטוחה | ✅ |
+| `/md/<id>` | GET | תצוגת Markdown עשירה | ✅ |
 | `/api/stats` | GET | סטטיסטיקות JSON | ✅ |
 
 ## בעיות נפוצות ופתרונות 🔧
