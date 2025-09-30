@@ -336,6 +336,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             מסך מלא
         </button>
     </div>
+    <div class="search-bar" id="code-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin-bottom:.75rem;">
+        <input id="codeSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
+        <span id="codeSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
+        <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
+    </div>
     <div class="code-container">
         {{ highlighted_code|safe }}
     </div>
@@ -543,5 +548,67 @@ function goBack(ev){
     window.location.href = '/files';
     return false;
 }
+</script>
+<script>
+// הדגשת חיפוש בקוד (ב-Pygments HTML)
+(function(){
+    try {
+        const container = document.querySelector('#codeCard .code-container');
+        const input = document.getElementById('codeSearchInput');
+        const clearBtn = document.getElementById('codeSearchClear');
+        const countEl = document.getElementById('codeSearchCount');
+        if (!container || !input || !clearBtn || !countEl) return;
+
+        // שמירת HTML מקורי
+        container.setAttribute('data-original-html', container.innerHTML);
+
+        function restore(){
+            try { container.innerHTML = container.getAttribute('data-original-html') || container.innerHTML; } catch(_) {}
+        }
+
+        function highlightTerm(term){
+            // בתוך הקוד בלבד: הדגשה בתוך התאים של ה-highlighttable/ .highlight
+            let total = 0;
+            const codeRoots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
+            codeRoots.forEach(root => {
+                try {
+                    const original = root.getAttribute('data-original-html') || root.innerHTML;
+                    root.setAttribute('data-original-html', original);
+                    if (!term) { root.innerHTML = original; return; }
+                    const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const rx = new RegExp(`(${safe})`, 'gi');
+                    const replaced = original.replace(rx, '<span class="md-highlight">$1</span>');
+                    root.innerHTML = replaced;
+                    total += (original.match(rx) || []).length;
+                } catch(_) {}
+            });
+            return total;
+        }
+
+        function updateCount(n, term){
+            if (!term) { countEl.textContent = ''; return; }
+            countEl.textContent = n > 0 ? `${n} תוצאות` : 'אין תוצאות';
+        }
+
+        function scrollToFirst(){
+            const first = container.querySelector('.md-highlight');
+            if (first) try { first.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(_){ }
+        }
+
+        input.addEventListener('input', () => {
+            const term = (input.value || '').trim();
+            restore();
+            const n = highlightTerm(term);
+            updateCount(n, term);
+            if (term && n > 0) scrollToFirst();
+        });
+
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            restore();
+            updateCount(0, '');
+        });
+    } catch(_) {}
+})();
 </script>
 {% endblock %}

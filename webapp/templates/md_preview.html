@@ -55,6 +55,13 @@
   word-break: break-word !important;
   overflow-wrap: anywhere !important;
 }
+#md-content .md-highlight {
+  background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+  color: #000;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
 #md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
@@ -151,7 +158,14 @@ input.md-task-checkbox {
     </div>
   </div>
 
-  <div id="md-content" class="glass-card" style="padding:1rem;"></div>
+  <div class="glass-card" style="padding:1rem;">
+    <div class="search-bar" id="md-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-8px -8px 0 -8px;">
+      <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
+      <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
+      <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
+    </div>
+    <div id="md-content"></div>
+  </div>
   <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
 </div>
 
@@ -227,6 +241,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
+    // שמירת מקור לתמיכה בהדגשת חיפוש
+    container.setAttribute('data-original-html', container.innerHTML);
 
     // הדגשת תחביר לאחר הרינדור: הדגשה ממוקדת בתוך #md-content בלבד
     try {
@@ -247,6 +263,64 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         });
       }
     } catch(_) { }
+
+    // חיפוש והדגשה בתוך קטעי קוד בלבד
+    (function(){
+      const input = document.getElementById('mdSearchInput');
+      const clearBtn = document.getElementById('mdSearchClear');
+      const countEl = document.getElementById('mdSearchCount');
+      if (!input || !clearBtn || !countEl) return;
+
+      function restore() {
+        try {
+          const src = container.getAttribute('data-original-html') || '';
+          container.innerHTML = src;
+        } catch(_) {}
+      }
+
+      function highlightTerm(term) {
+        // מדגיש רק בתוך pre > code כדי לא לשבור HTML מחוץ לקוד
+        const blocks = container.querySelectorAll('pre code');
+        let total = 0;
+        blocks.forEach(code => {
+          try {
+            const original = code.getAttribute('data-original-html') || code.innerHTML;
+            code.setAttribute('data-original-html', original);
+            if (!term) { code.innerHTML = original; return; }
+            const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const rx = new RegExp(`(${safe})`, 'gi');
+            const replaced = original.replace(rx, '<span class="md-highlight">$1</span>');
+            code.innerHTML = replaced;
+            total += (original.match(rx) || []).length;
+          } catch(_) {}
+        });
+        return total;
+      }
+
+      function updateCount(n, term){
+        if (!term) { countEl.textContent = ''; return; }
+        countEl.textContent = n > 0 ? `${n} תוצאות` : 'אין תוצאות';
+      }
+
+      function scrollToFirst(){
+        const first = container.querySelector('.md-highlight');
+        if (first) try { first.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_){ }
+      }
+
+      input.addEventListener('input', () => {
+        const term = (input.value || '').trim();
+        restore();
+        const n = highlightTerm(term);
+        updateCount(n, term);
+        if (term && n > 0) scrollToFirst();
+      });
+
+      clearBtn.addEventListener('click', () => {
+        input.value = '';
+        restore();
+        updateCount(0, '');
+      });
+    })();
 
     // Lazy loading לתמונות
     container.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; });
