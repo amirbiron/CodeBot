@@ -35,7 +35,7 @@
   background: #f8fafc;
 }
 /* קוד (fenced) */
-pre code,
+#md-content pre code,
 #md-content pre > code,
 #md-content code.hljs {
   display: block;
@@ -43,9 +43,9 @@ pre code,
   border-radius: 8px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 14px;
-  white-space: pre-wrap;        /* עטיפת שורות ארוכות */
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  white-space: pre-wrap !important;  /* עטיפת שורות ארוכות */
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
 }
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
 #md-content .hljs { overflow-x: auto; display: block; }
@@ -246,7 +246,7 @@ function goBackToFile(ev){
       return false;
     }
   } catch(_){ }
-  window.location.href = '/file/{{ file.id }}';
+  try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
   return false;
 }
 </script>
