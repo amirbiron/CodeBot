@@ -90,6 +90,10 @@
   background: rgba(76, 175, 80, 0.3);
   border-color: rgba(76, 175, 80, 0.6);
 }
+#md-content .md-copy-btn.copy-error {
+  background: rgba(220, 38, 38, 0.25);
+  border-color: rgba(220, 38, 38, 0.55);
+}
 #md-content .md-copy-btn::before {
   content: "";
   display: inline-block;
@@ -283,15 +287,41 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         btn.setAttribute('aria-label', 'העתק קוד');
         btn.title = 'העתק קוד';
         btn.addEventListener('click', async () => {
+          const codeEl = wrapper.querySelector('code');
+          const text = codeEl ? codeEl.innerText : pre.innerText;
+          // ניקוי מצבי עבר
+          btn.classList.remove('copied');
+          btn.classList.remove('copy-error');
+          // ניסיון ראשון: Clipboard API
           try {
-            const codeEl = wrapper.querySelector('code');
-            const text = codeEl ? codeEl.innerText : pre.innerText;
             await navigator.clipboard.writeText(text);
             btn.classList.add('copied');
             setTimeout(() => { btn.classList.remove('copied'); }, 1500);
-          } catch(e) {
+            return;
+          } catch(_) {}
+
+          // Fallback: execCommand('copy') עם textarea זמני
+          let success = false;
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            success = document.execCommand('copy');
+            document.body.removeChild(ta);
+          } catch(_) {
+            success = false;
+          }
+
+          if (success) {
             btn.classList.add('copied');
-            setTimeout(() => { btn.classList.remove('copied'); }, 1200);
+            setTimeout(() => { btn.classList.remove('copied'); }, 1500);
+          } else {
+            btn.classList.add('copy-error');
+            setTimeout(() => { btn.classList.remove('copy-error'); }, 1500);
           }
         });
         wrapper.appendChild(btn);
