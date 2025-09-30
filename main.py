@@ -414,7 +414,7 @@ class CodeKeeperBot:
                     .build()
                 )
             except Exception:
-                # בנאי ידני מינימלי: אובייקט עם הממשקים הדרושים לטסטים
+                # בנאי ידני מינימלי: אובייקט עם הממשקים הדרושים לטסטים/סביבות חסרות
                 class _MiniApp:
                     def __init__(self):
                         self.handlers = []
@@ -430,6 +430,9 @@ class CodeKeeperBot:
                         return None
                     def add_error_handler(self, *a, **k):
                         self._error_handlers.append((a, k))
+                    async def run_polling(self, *a, **k):
+                        # Fallback שקט: אין polling אמיתי; מאפשר start ללא קריסה
+                        return None
                 self.application = _MiniApp()
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
