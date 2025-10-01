@@ -17,8 +17,7 @@ jobs:
       - name: Compute metadata
         id: meta
         env:
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-          PR_TITLE: ${{ github.event.workflow_run.pull_requests[0].title }}
+          PULLS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
           REPO: ${{ github.repository }}
           RUN_HTML_URL: ${{ github.event.workflow_run.html_url }}
         run: |
@@ -36,8 +35,10 @@ jobs:
           echo "finished_at=${ts_fmt}" >> "$GITHUB_OUTPUT"
 
           # Derive PR info safely from env (no shell expansion injection)
-          pr_number="${PR_NUMBER:-}"
-          pr_title="${PR_TITLE:-}"
+          pulls_json="${PULLS_JSON:-[]}"
+          # Use jq to extract PR number/title if present; fall back to empty
+          pr_number=$(printf '%s' "$pulls_json" | jq -r 'if type=="array" and length>0 and .[0].number then (.[0].number|tostring) else "" end')
+          pr_title=$(printf '%s' "$pulls_json" | jq -r 'if type=="array" and length>0 and .[0].title then .[0].title else "" end')
           repo="${REPO:-}"
           run_url="${RUN_HTML_URL:-}"
           if [ -n "$pr_number" ]; then
