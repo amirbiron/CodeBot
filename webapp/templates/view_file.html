@@ -356,10 +356,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             מסך מלא
         </button>
     </div>
-    <div class="search-bar" id="code-search" style="position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin-bottom:.75rem;">
-        <input id="codeSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1 1 220px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
+    <div class="search-bar" id="code-search" style="position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:0 -.25rem .75rem;">
+        <input id="codeSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1 1 220px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;padding-right:1rem;">
         <span id="codeSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;flex:0 0 auto;"></span>
-        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
+        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">◀</button>
+        <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon" title="קודם" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
         <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">✕</button>
     </div>
     <div class="code-container">
@@ -578,6 +579,7 @@ function goBack(ev){
         const input = document.getElementById('codeSearchInput');
         const clearBtn = document.getElementById('codeSearchClear');
         const nextBtn = document.getElementById('codeSearchNext');
+        const prevBtn = document.getElementById('codeSearchPrev');
         const countEl = document.getElementById('codeSearchCount');
         if (!container || !input || !clearBtn || !countEl) return;
         let justAutoFocused = false;
@@ -653,6 +655,16 @@ function goBack(ev){
             updateCount(all.length, input.value.trim());
         }
 
+        function focusPrev(){
+            const all = Array.from(container.querySelectorAll('.md-highlight'));
+            if (all.length === 0) return;
+            const current = container.querySelector('.md-highlight.is-active');
+            const idx = current ? all.indexOf(current) : 0;
+            const prev = all[(idx - 1 + all.length) % all.length];
+            setActiveAndScroll(prev);
+            updateCount(all.length, input.value.trim());
+        }
+
         input.addEventListener('input', () => {
             const term = (input.value || '').trim();
             restore();
@@ -684,6 +696,22 @@ function goBack(ev){
                     updateCount(container.querySelectorAll('.md-highlight').length, term);
                 } else {
                     focusNext();
+                }
+            });
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
+                const term = (input.value || '').trim();
+                if (!term) return;
+                const active = container.querySelector('.md-highlight.is-active');
+                if (justAutoFocused || !active) {
+                    const first = container.querySelector('.md-highlight');
+                    if (first) setActiveAndScroll(first);
+                    justAutoFocused = false;
+                    updateCount(container.querySelectorAll('.md-highlight').length, term);
+                } else {
+                    focusPrev();
                 }
             });
         }
