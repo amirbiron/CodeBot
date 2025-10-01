@@ -77,16 +77,22 @@
   background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%);
   border: 0;                        /* הסרת מסגרת דקה שמצטיירת כסגולה */
   border-radius: 12px;
-  padding: 20px;
+  padding: 16px;                    /* בסיס */
+  /* במובייל – תן עוד ריווח בצד ימין (RTL) כדי שלא יהיה דבוק לקצה */
+  padding-right: clamp(22px, 6vw, 36px);
+  padding-left: clamp(16px, 5vw, 28px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
   margin: 1em 0;                    /* אין מרווח שלילי – לא שוברים פריסה */
   width: 100%;                      /* מילוי רוחב הכרטיס, ללא גלישה */
   color: #e8eaed;                   /* Fallback: טקסט בהיר אם hljs לא נטען */
+  box-sizing: border-box;
 }
 #md-content pre code {
   display: block;
   overflow-x: auto;
+  /* ריווח פנימי קל לקוד עצמו לטובת קצה ימני נעים יותר */
+  padding-right: 2px;
 }
 #md-content {
   overflow: hidden; /* מונע פסלים/גלישות סביב תוכן הכרטיס */
@@ -156,8 +162,8 @@
 #md-content blockquote {
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
-  background: #f8fafc;
-  border-inline-start: 4px solid #e5e7eb;
+  background: #eef2f7; /* מעט כהה יותר לניגודיות טובה על לבן */
+  border-inline-start: 4px solid #cbd5e1; /* קו צד כהה במקצת */
 }
 /* רשימות משימות */
 input.md-task-checkbox {
