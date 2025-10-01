@@ -33,6 +33,12 @@
   padding-left: 8px !important;
   padding-right: 8px !important;
 }
+/* בעמוד Markdown בלבד: צמצום הפס הסגול משמאל – מרחיבים את הכרטיס שמאלה */
+.main-content .glass-card {
+  margin-left: 0 !important;        /* שמאל קרוב יותר לקצה */
+  margin-right: 0.5rem !important;  /* שומרים על ימין קיים */
+  width: calc(100% - 0.5rem) !important;
+}
 /* טבלאות בסגנון GitHub */
 #md-content table {
   width: 100%;
