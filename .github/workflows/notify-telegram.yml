@@ -13,14 +13,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    if: |
-      github.event.workflow_run.event == 'pull_request'
+    if: github.event.workflow_run.event == 'pull_request'
     steps:
       - name: Compute metadata
         id: meta
         env:
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-          PR_TITLE: ${{ github.event.workflow_run.pull_requests[0].title }}
+          PULLS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
           REPO: ${{ github.repository }}
           RUN_HTML_URL: ${{ github.event.workflow_run.html_url }}
         run: |
@@ -38,8 +36,10 @@ jobs:
           echo "finished_at=${ts_fmt}" >> "$GITHUB_OUTPUT"
 
           # Derive PR info safely from env (no shell expansion injection)
-          pr_number="${PR_NUMBER:-}"
-          pr_title="${PR_TITLE:-}"
+          pulls_json="${PULLS_JSON:-[]}"
+          # Use jq to extract PR number/title if present; fall back to empty
+          pr_number=$(printf '%s' "$pulls_json" | jq -r 'if type=="array" and length>0 and .[0].number then (.[0].number|tostring) else "" end')
+          pr_title=$(printf '%s' "$pulls_json" | jq -r 'if type=="array" and length>0 and .[0].title then .[0].title else "" end')
           repo="${REPO:-}"
           run_url="${RUN_HTML_URL:-}"
           if [ -n "$pr_number" ]; then
@@ -60,6 +60,34 @@ jobs:
           echo "workflow_name=${{ github.event.workflow_run.name }}" >> "$GITHUB_OUTPUT"
           echo "conclusion=${{ github.event.workflow_run.conclusion }}" >> "$GITHUB_OUTPUT"
 
+      - name: Inspect jobs (tests and required checks)
+        id: tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          reposlug="${GITHUB_REPOSITORY}"
+          url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$url")
+          # Extract unit test jobs and code-quality job
+          ut_jobs=$(printf '%s' "$json" | jq -c '[.jobs[] | select(.name|startswith("🧪 Unit Tests ("))]')
+          ut_total=$(printf '%s' "$ut_jobs" | jq -r 'length')
+          ut_success=$(printf '%s' "$ut_jobs" | jq -r 'if length>0 then ([ .[].conclusion ] | all(.=="success")) else false end')
+          ut_failed=$(printf '%s' "$ut_jobs" | jq -r '[ .[] | select(.conclusion!="success") | .name ] | join(", ")')
+          ut_failed_links=$(printf '%s' "$ut_jobs" | jq -r '[ .[] | select(.conclusion!="success") | .html_url ] | join("\n")')
+          cq_conc=$(printf '%s' "$json" | jq -r '([.jobs[] | select(.name=="🔍 Code Quality & Security")][0].conclusion // "")')
+
+          printf 'ut_total=%s\n' "$ut_total" >> "$GITHUB_OUTPUT"
+          printf 'ut_success=%s\n' "$ut_success" >> "$GITHUB_OUTPUT"
+          printf 'ut_failed=%s\n' "$ut_failed" >> "$GITHUB_OUTPUT"
+          {
+            echo "ut_failed_links<<__TXT__"
+            printf '%s\n' "$ut_failed_links"
+            echo "__TXT__"
+          } >> "$GITHUB_OUTPUT"
+          printf 'codeq_conclusion=%s\n' "$cq_conc" >> "$GITHUB_OUTPUT"
+
       - name: Build message
         id: msg
         env:
@@ -71,13 +99,16 @@ jobs:
           DURATION: ${{ steps.meta.outputs.duration }}
           PR_URL: ${{ steps.meta.outputs.pr_url }}
           RUN_URL: ${{ steps.meta.outputs.run_url }}
+          UT_TOTAL: ${{ steps.tests.outputs.ut_total }}
+          UT_SUCCESS: ${{ steps.tests.outputs.ut_success }}
+          UT_FAILED: ${{ steps.tests.outputs.ut_failed }}
+          UT_FAILED_LINKS: ${{ steps.tests.outputs.ut_failed_links }}
+          CODEQ: ${{ steps.tests.outputs.codeq_conclusion }}
         run: |
           status_emoji='✅'
           case "$CONCLUSION" in
             success) status_emoji='✅' ;;
-            cancelled) status_emoji='⏹️' ;;
-            failure) status_emoji='❌' ;;
-            * ) status_emoji='ℹ️' ;;
+            *) status_emoji='' ;;
           esac
 
           # Escape characters for Telegram MarkdownV2
@@ -85,31 +116,46 @@ jobs:
             printf '%s' "$1" | sed -e 's/[\\_\\*\\[\\]\\(\\)~`>#\\+\\-=|{}\\.!]/\\&/g'
           }
 
-          title="$(esc "GitHub Actions – הסתיים ${status_emoji}")"
-          time_line="⏰ $FINISHED_AT"
+          title_text="GitHub Actions – הסתיים"
+          if [ -n "$status_emoji" ]; then
+            title_text="$title_text ${status_emoji}"
+          fi
+          title="$(esc "$title_text")"
+          time_line="זמן סיום: $(esc "$FINISHED_AT")"
 
           pr_line=""
           if [ -n "$PR_NUMBER" ]; then
-            pr_line="🔄 PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
+            pr_line="PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
           fi
 
-          wf_line="⚙️ Workflow: $(esc "$WORKFLOW_NAME")"
-          dur_line="⏱️ זמן ריצה: $(esc "$DURATION")"
+          wf_line="Workflow: $(esc "$WORKFLOW_NAME")"
+          dur_line="זמן ריצה: $(esc "$DURATION")"
+          tests_line="טסטים: $(esc "${UT_TOTAL:-0}") (הכל עבר? $(esc "${UT_SUCCESS:-false}"))"
+          if [ -n "${UT_FAILED:-}" ]; then
+            tests_line="${tests_line}\nנכשלים: $(esc "${UT_FAILED}")"
+          fi
+
+          # Action hint: when everything is green – allow merge; otherwise ask to check
+          action_line="יש כשלונות – בדקו את הקישורים"
+          # If the workflow concluded successfully AND (no UT jobs or UT all green) → allow merge
+          if [ "${CONCLUSION}" = "success" ] && { [ "${UT_TOTAL:-0}" -eq 0 ] || [ "${UT_SUCCESS:-false}" = "true" ]; }; then
+            action_line="✅ הכל ירוק – אפשר למזג"
+          fi
 
           link_line=""
           if [ -n "$PR_NUMBER" ]; then
             link_label_pr='צפה ב\-PR'
-            link_line="\n🔗 [${link_label_pr}]($PR_URL)"
+            link_line="\n[${link_label_pr}]($PR_URL)"
           else
             link_label_run='צפה בריצה'
-            link_line="\n🔗 [${link_label_run}]($RUN_URL)"
+            link_line="\n[${link_label_run}]($RUN_URL)"
           fi
 
           message="${title}\n${time_line}\n\n"
           if [ -n "$pr_line" ]; then
             message="${message}${pr_line}\n"
           fi
-          message="${message}${wf_line}\n${dur_line}${link_line}"
+          message="${message}${wf_line}\n${dur_line}\n${tests_line}\n${action_line}${link_line}"
           {
             echo "text<<__MSG__"
             printf '%b\n' "$message"
