@@ -172,7 +172,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TEXT: ${{ steps.msg.outputs.text }}
         run: |
-          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+          if [ -z "${BOT_TOKEN:-}" ] || [ -ז "${CHAT_ID:-}" ]; then
             echo "BOT_TOKEN or CHAT_ID is missing" >&2
             exit 1
           fi
