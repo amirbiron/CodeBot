@@ -93,12 +93,18 @@
   padding: 0 2px;
 }
 #md-content {
-  overflow: hidden; /* מונע פסלים/גלישות סביב תוכן הכרטיס */
+  /* לא נחסום גלישה כדי שלא ייחתכו מספרים/תווים מחוץ לקופסה (למשל ברשימות) */
+  overflow: visible;
 }
 /* מניעת גלישה אופקית של טקסט מחוץ לקוד/inline-code */
 #md-content p, #md-content li, #md-content blockquote {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+/* ברשימות ממוספרות/תבליטים ב-RTL המספר/סמל יישב בתוך הבלוק, לא מחוצה לו */
+#md-content ol, #md-content ul {
+  list-style-position: inside;
+  padding-inline-end: 0.5rem; /* מרווח קל מימין שלא יבלע את הספרות */
 }
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
