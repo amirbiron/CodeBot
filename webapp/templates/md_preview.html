@@ -177,6 +177,17 @@
   background: #eef2f7; /* מעט כהה יותר לניגודיות טובה על לבן */
   border-inline-start: 4px solid #cbd5e1; /* קו צד כהה במקצת */
 }
+/* שם קובץ ארוך – מניעת חריגה במסגרת הכותרת */
+#md-file-name-wrap { min-width: 0; }
+#md-file-name {
+  margin: 0;
+  font-size: 1.6rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+}
 /* רשימות משימות */
 input.md-task-checkbox {
   margin-inline-end: .5rem;
@@ -188,10 +199,10 @@ input.md-task-checkbox {
 {% block content %}
 <div id="md-root">
   <div class="file-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
-    <div style="display:flex;align-items:center;gap:.75rem;">
+    <div style="display:flex;align-items:center;gap:.75rem;min-width:0;">
       <span style="font-size:2rem;">📝</span>
-      <div>
-        <h1 style="margin:0;font-size:1.6rem;">{{ file.file_name }}</h1>
+      <div id="md-file-name-wrap">
+        <h1 id="md-file-name">{{ file.file_name }}</h1>
         <div class="muted" style="margin-top:.25rem;">Markdown</div>
       </div>
     </div>
@@ -693,6 +704,24 @@ function goBackToFile(ev){
   try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
   return false;
 }
+
+// התאמת גודל שם הקובץ: מצמצם פונט הדרגתי עד שנכנס בשורה אחת (עם מינימום מוגן)
+(function(){
+  try {
+    var el = document.getElementById('md-file-name');
+    if (!el) return;
+    el.setAttribute('title', el.textContent || '');
+    var sizeRem = 1.6;    // גודל יעד התחלתי (התואם ל-CSS)
+    var minRem = 1.0;     // מינימום – לא קטן מדי
+    el.style.fontSize = sizeRem + 'rem';
+    var guard = 0;
+    while (guard < 15 && el.scrollWidth > el.clientWidth && sizeRem > minRem) {
+      sizeRem -= 0.1;
+      el.style.fontSize = sizeRem.toFixed(2) + 'rem';
+      guard++;
+    }
+  } catch(_) { }
+})();
 </script>
 {% endblock %}
 
