@@ -62,17 +62,17 @@
   border-radius: 3px;
   font-weight: 600;
 }
-#md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
+#md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; width: 100%; }
 #md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
-  background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%); /* כחול כהה יותר מהרקע */
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%);
+  border: 0;                        /* הסרת מסגרת דקה שמצטיירת כסגולה */
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
-  margin: 1em -8px;                 /* הרחבה מעבר לרוחב הכרטיס */
-  width: calc(100% + 16px);         /* נותן תחושה רחבה יותר */
+  margin: 1em 0;                    /* אין מרווח שלילי – לא שוברים פריסה */
+  width: 100%;                      /* מילוי רוחב הכרטיס, ללא גלישה */
   color: #e8eaed;                   /* Fallback: טקסט בהיר אם hljs לא נטען */
 }
 #md-content pre code {
@@ -128,6 +128,11 @@
   border-radius: 6px;
   font-family: 'Fira Code', 'Consolas', monospace;
 }
+/* חיווי למופע פעיל בחיפוש */
+#md-content .md-highlight.is-active {
+  outline: 2px solid #ffd700;
+  outline-offset: 1px;
+}
 /* ציטוטים */
 #md-content blockquote {
   margin: 0.75rem 0;
@@ -162,6 +167,7 @@ input.md-task-checkbox {
     <div class="search-bar" id="md-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-8px -8px 0 -8px;">
       <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
       <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
+      <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">▶</button>
       <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
     </div>
     <div id="md-content"></div>
@@ -276,6 +282,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     (function(){
       const input = document.getElementById('mdSearchInput');
       const clearBtn = document.getElementById('mdSearchClear');
+      const nextBtn = document.getElementById('mdSearchNext');
       const countEl = document.getElementById('mdSearchCount');
       if (!input || !clearBtn || !countEl) return;
 
@@ -313,26 +320,73 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
 
       function updateCount(n, term){
         if (!term) { countEl.textContent = ''; return; }
-        countEl.textContent = n > 0 ? `${n} תוצאות` : 'אין תוצאות';
+        const active = container.querySelector('.md-highlight.is-active');
+        const activeIndex = active ? (Array.from(container.querySelectorAll('.md-highlight')).indexOf(active) + 1) : 0;
+        countEl.textContent = n > 0 ? (activeIndex ? `${activeIndex}/${n}` : `${n} תוצאות`) : 'אין תוצאות';
       }
 
-      function scrollToFirst(){
+      function setActiveAndScroll(target){
+        try { container.querySelectorAll('.md-highlight.is-active').forEach(el => el.classList.remove('is-active')); } catch(_){ }
+        if (!target) return;
+        try { target.classList.add('is-active'); } catch(_){ }
+        try { target.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(_){ }
+      }
+
+      function focusFirst(){
         const first = container.querySelector('.md-highlight');
-        if (first) try { first.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_){ }
+        if (first) setActiveAndScroll(first);
+      }
+
+      function focusNext(){
+        const all = Array.from(container.querySelectorAll('.md-highlight'));
+        if (all.length === 0) return;
+        const current = container.querySelector('.md-highlight.is-active');
+        const idx = current ? all.indexOf(current) : -1;
+        const next = all[(idx + 1) % all.length];
+        setActiveAndScroll(next);
+        updateCount(all.length, input.value.trim());
       }
 
       input.addEventListener('input', () => {
         const term = (input.value || '').trim();
         restore();
         const n = highlightTerm(term);
+        if (term && n > 0) {
+          focusFirst();
+        }
         updateCount(n, term);
-        if (term && n > 0) scrollToFirst();
       });
 
       clearBtn.addEventListener('click', () => {
         input.value = '';
         restore();
         updateCount(0, '');
+      });
+
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+          const term = (input.value || '').trim();
+          if (!term) return;
+          focusNext();
+        });
+      }
+
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          const all = container.querySelectorAll('.md-highlight');
+          if (all.length === 0) return;
+          if (ev.shiftKey) {
+            const arr = Array.from(all);
+            const current = container.querySelector('.md-highlight.is-active');
+            const idx = current ? arr.indexOf(current) : 0;
+            const prev = arr[(idx - 1 + arr.length) % arr.length];
+            setActiveAndScroll(prev);
+            updateCount(arr.length, input.value.trim());
+          } else {
+            focusNext();
+          }
+        }
       });
     })();
 
