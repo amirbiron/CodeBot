@@ -14,7 +14,7 @@
   background: #ffffff;
   color: #111111;
   border-radius: 10px;
-  border: 1px solid #e5e7eb;
+  border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
 }
 #md-content img {
   max-width: 100%;
@@ -78,6 +78,14 @@
 #md-content pre code {
   display: block;
   overflow-x: auto;
+}
+#md-content {
+  overflow: hidden; /* מונע פסלים/גלישות סביב תוכן הכרטיס */
+}
+/* מניעת גלישה אופקית של טקסט מחוץ לקוד/inline-code */
+#md-content p, #md-content li, #md-content blockquote {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
@@ -164,11 +172,11 @@ input.md-task-checkbox {
   </div>
 
   <div class="glass-card" style="padding:1rem;">
-    <div class="search-bar" id="md-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-8px -8px 0 -8px;">
-      <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
-      <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
-      <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">▶</button>
-      <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
+    <div class="search-bar" id="md-search" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-8px -8px 0 -8px;">
+      <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1 1 220px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
+      <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;flex:0 0 auto;"></span>
+      <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
+      <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">✕</button>
     </div>
     <div id="md-content"></div>
   </div>
@@ -285,6 +293,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       const nextBtn = document.getElementById('mdSearchNext');
       const countEl = document.getElementById('mdSearchCount');
       if (!input || !clearBtn || !countEl) return;
+      let justAutoFocused = false;
 
       function restore() {
         // משחזר כל בלוק קוד מהמקור שנשמר בו, בלי לגעת בשאר ה-HTML והדגשות hljs
@@ -353,6 +362,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         const n = highlightTerm(term);
         if (term && n > 0) {
           focusFirst();
+          justAutoFocused = true;
         }
         updateCount(n, term);
       });
@@ -361,13 +371,22 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         input.value = '';
         restore();
         updateCount(0, '');
+        justAutoFocused = false;
       });
 
       if (nextBtn) {
         nextBtn.addEventListener('click', () => {
           const term = (input.value || '').trim();
           if (!term) return;
-          focusNext();
+          const active = container.querySelector('.md-highlight.is-active');
+          if (justAutoFocused || !active) {
+            const first = container.querySelector('.md-highlight');
+            if (first) setActiveAndScroll(first);
+            justAutoFocused = false;
+            updateCount(container.querySelectorAll('.md-highlight').length, term);
+          } else {
+            focusNext();
+          }
         });
       }
 
@@ -384,7 +403,15 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
             setActiveAndScroll(prev);
             updateCount(arr.length, input.value.trim());
           } else {
-            focusNext();
+            const active = container.querySelector('.md-highlight.is-active');
+            if (justAutoFocused || !active) {
+              const first = container.querySelector('.md-highlight');
+              if (first) setActiveAndScroll(first);
+              justAutoFocused = false;
+              updateCount(all.length, input.value.trim());
+            } else {
+              focusNext();
+            }
           }
         }
       });
