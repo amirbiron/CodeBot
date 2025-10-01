@@ -132,6 +132,13 @@ jobs:
             tests_line="${tests_line}\n⚠️ נכשלים: $(esc "${UT_FAILED}")"
           fi
 
+          # Action hint: when everything is green – allow merge; otherwise ask to check
+          action_line="❌ יש כשלונות – בדקו את הקישורים"
+          # If the workflow concluded successfully AND (no UT jobs or UT all green) → allow merge
+          if [ "${CONCLUSION}" = "success" ] && { [ "${UT_TOTAL:-0}" -eq 0 ] || [ "${UT_SUCCESS:-false}" = "true" ]; }; then
+            action_line="✅ הכל ירוק – אפשר למזג"
+          fi
+
           link_line=""
           if [ -n "$PR_NUMBER" ]; then
             link_label_pr='צפה ב\-PR'
@@ -145,7 +152,7 @@ jobs:
           if [ -n "$pr_line" ]; then
             message="${message}${pr_line}\n"
           fi
-          message="${message}${wf_line}\n${dur_line}\n${tests_line}${link_line}"
+          message="${message}${wf_line}\n${dur_line}\n${tests_line}\n${action_line}${link_line}"
           {
             echo "text<<__MSG__"
             printf '%b\n' "$message"
