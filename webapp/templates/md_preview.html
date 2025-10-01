@@ -55,7 +55,8 @@
 #md-content pre > code,
 #md-content code.hljs {
   display: block;
-  padding: 0;                    /* ננטרל padding פנימי כדי לא לייצר מרווח כפול */
+  /* נשמור על ריווח מינימלי בתוך תגית הקוד עצמה – דק שלא יבטל הדגשות */
+  padding: 0 2px 0 0;            /* תוספת עדינה מימין ב-RTL */
   border-radius: 8px;
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 16px;               /* נגישות טובה יותר */
@@ -107,8 +108,12 @@
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
   margin: 0;
-  padding: 20px;                 /* יישור לריווח הכללי */
+  /* ריווח דינמי שלא יצמד לימין ב-RTL, ועדיין שומר מקום לכפתורי העתקה */
+  padding: 16px;
+  padding-right: clamp(22px, 6vw, 36px);
+  padding-left: clamp(16px, 5vw, 28px);
   padding-top: 2.6rem;           /* מקום לשורת כפתורים עליונה */
+  box-sizing: border-box;
 }
 #md-content .md-copy-btn {
   position: absolute;
@@ -207,7 +212,7 @@ input.md-task-checkbox {
       <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
       <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">✕</button>
     </div>
-    <div id="md-content" style="margin-inline:-8px;width:calc(100% + 16px);"></div>
+    <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
   </div>
   {% if not is_public %}
   <div class="glass-card" style="margin-top: 1rem;">
