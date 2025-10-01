@@ -62,6 +62,13 @@
   border-radius: 3px;
   font-weight: 600;
 }
+#md-content .md-highlight.current {
+  background: linear-gradient(90deg, #ffd700 0%, #ffcf2e 100%);
+  color: #000;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
+  border: 2px solid #ffa500;
+}
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
 #md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
@@ -71,15 +78,17 @@
   padding: 20px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
-  margin: 1em -8px;                 /* הרחבה מעבר לרוחב הכרטיס */
-  width: calc(100% + 16px);         /* נותן תחושה רחבה יותר */
+  overflow-y: auto;
+  margin: 1em 0;                    /* מניעת מסגרת/גלישה סביב */
+  width: 100%;
+  box-sizing: border-box;
   color: #e8eaed;                   /* Fallback: טקסט בהיר אם hljs לא נטען */
 }
 #md-content pre code {
   display: block;
   overflow-x: auto;
 }
-#md-content .code-block { position: relative; margin: 1rem 0; }
+#md-content .code-block { position: relative; margin: 1rem 0; width: 100%; max-width: 100%; }
 #md-content .code-block pre {
   margin: 0;
   padding: 20px;                 /* יישור לריווח הכללי */
@@ -159,9 +168,13 @@ input.md-task-checkbox {
   </div>
 
   <div class="glass-card" style="padding:1rem;">
-    <div class="search-bar" id="md-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-8px -8px 0 -8px;">
-      <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
-      <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
+    <div class="search-bar" id="md-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:0 0 .5rem 0;">
+      <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;" onkeyup="return false;">
+      <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:70px;text-align:center;"></span>
+      <div class="nav-buttons" style="display:flex;gap:.25rem;">
+        <button id="mdSearchPrev" type="button" class="btn btn-secondary btn-icon" title="הקודם" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">▲</button>
+        <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">▼</button>
+      </div>
       <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
     </div>
     <div id="md-content"></div>
@@ -277,7 +290,12 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       const input = document.getElementById('mdSearchInput');
       const clearBtn = document.getElementById('mdSearchClear');
       const countEl = document.getElementById('mdSearchCount');
+      const btnPrev = document.getElementById('mdSearchPrev');
+      const btnNext = document.getElementById('mdSearchNext');
       if (!input || !clearBtn || !countEl) return;
+
+      let currentIndex = 0;
+      let totalMatches = 0;
 
       function restore() {
         // משחזר כל בלוק קוד מהמקור שנשמר בו, בלי לגעת בשאר ה-HTML והדגשות hljs
@@ -296,6 +314,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         // מדגיש רק בתוך pre > code כדי לא לשבור HTML מחוץ לקוד
         const blocks = container.querySelectorAll('pre code');
         let total = 0;
+        let counter = 0;
         blocks.forEach(code => {
           try {
             const original = code.getAttribute('data-original-html') || code.innerHTML;
@@ -303,7 +322,10 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
             if (!term) { code.innerHTML = original; return; }
             const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const rx = new RegExp(`(${safe})`, 'gi');
-            const replaced = original.replace(rx, '<span class="md-highlight">$1</span>');
+            const replaced = original.replace(rx, function(match){
+              counter += 1;
+              return '<span class="md-highlight" data-match="' + String(counter) + '">' + match + '</span>';
+            });
             code.innerHTML = replaced;
             total += (original.match(rx) || []).length;
           } catch(_) {}
@@ -313,26 +335,39 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
 
       function updateCount(n, term){
         if (!term) { countEl.textContent = ''; return; }
-        countEl.textContent = n > 0 ? `${n} תוצאות` : 'אין תוצאות';
+        if (n > 0) countEl.textContent = `${currentIndex || 0} / ${n}`; else countEl.textContent = 'אין תוצאות';
       }
 
-      function scrollToFirst(){
-        const first = container.querySelector('.md-highlight');
-        if (first) try { first.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_){ }
+      function scrollToIndex(){
+        const el = container.querySelector('.md-highlight[data-match="' + String(currentIndex) + '"]');
+        if (el) try { el.scrollIntoView({behavior:'smooth', block:'center', inline:'nearest'}); } catch(_){ }
+        container.querySelectorAll('.md-highlight').forEach(h => h.classList.remove('current'));
+        if (el) el.classList.add('current');
       }
 
       input.addEventListener('input', () => {
         const term = (input.value || '').trim();
         restore();
-        const n = highlightTerm(term);
-        updateCount(n, term);
-        if (term && n > 0) scrollToFirst();
+        totalMatches = highlightTerm(term);
+        currentIndex = totalMatches > 0 ? 1 : 0;
+        updateCount(totalMatches, term);
+        if (term && totalMatches > 0) scrollToIndex();
       });
 
       clearBtn.addEventListener('click', () => {
         input.value = '';
         restore();
+        currentIndex = 0; totalMatches = 0;
         updateCount(0, '');
+      });
+
+      function next(){ if (!totalMatches) return; currentIndex += 1; if (currentIndex > totalMatches) currentIndex = 1; updateCount(totalMatches, input.value.trim()); scrollToIndex(); }
+      function prev(){ if (!totalMatches) return; currentIndex -= 1; if (currentIndex < 1) currentIndex = totalMatches; updateCount(totalMatches, input.value.trim()); scrollToIndex(); }
+      if (btnNext) btnNext.addEventListener('click', next);
+      if (btnPrev) btnPrev.addEventListener('click', prev);
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === 'ArrowDown') { ev.preventDefault(); next(); }
+        else if (ev.key === 'ArrowUp') { ev.preventDefault(); prev(); }
       });
     })();
 

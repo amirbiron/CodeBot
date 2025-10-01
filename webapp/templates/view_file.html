@@ -347,7 +347,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
     <div class="search-bar" id="code-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin-bottom:.75rem;">
         <input id="codeSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
-        <span id="codeSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
+        <span id="codeSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:70px;text-align:center;"></span>
+        <div class="nav-buttons" style="display:flex;gap:.25rem;">
+            <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon" title="הקודם" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">▲</button>
+            <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;">▼</button>
+        </div>
         <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
     </div>
     <div class="code-container">
@@ -566,6 +570,8 @@ function goBack(ev){
         const input = document.getElementById('codeSearchInput');
         const clearBtn = document.getElementById('codeSearchClear');
         const countEl = document.getElementById('codeSearchCount');
+        const btnPrev = document.getElementById('codeSearchPrev');
+        const btnNext = document.getElementById('codeSearchNext');
         if (!container || !input || !clearBtn || !countEl) return;
 
     // נשמור מקור לכל בלוק קוד/שורש הדגשה בלבד (לא לכל המכולה)
@@ -577,6 +583,9 @@ function goBack(ev){
             }
         });
     })();
+
+        let currentIndex = 0;
+        let totalMatches = 0;
 
         function restore(){
             // משחזר רק את שורשי הקוד ששמרנו עבורם מקור, לא את כל המכולה
@@ -592,6 +601,7 @@ function goBack(ev){
         function highlightTerm(term){
             // בתוך הקוד בלבד: הדגשה בתוך התאים של ה-highlighttable/ .highlight
             let total = 0;
+            let counter = 0;
             const codeRoots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
             codeRoots.forEach(root => {
                 try {
@@ -600,7 +610,10 @@ function goBack(ev){
                     if (!term) { root.innerHTML = original; return; }
                     const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     const rx = new RegExp(`(${safe})`, 'gi');
-                    const replaced = original.replace(rx, '<span class="md-highlight">$1</span>');
+                    const replaced = original.replace(rx, function(match){
+                        counter += 1;
+                        return '<span class="md-highlight" data-match="' + String(counter) + '">' + match + '</span>';
+                    });
                     root.innerHTML = replaced;
                     total += (original.match(rx) || []).length;
                 } catch(_) {}
@@ -610,26 +623,39 @@ function goBack(ev){
 
         function updateCount(n, term){
             if (!term) { countEl.textContent = ''; return; }
-            countEl.textContent = n > 0 ? `${n} תוצאות` : 'אין תוצאות';
+            if (n > 0) countEl.textContent = `${currentIndex || 0} / ${n}`; else countEl.textContent = 'אין תוצאות';
         }
 
-        function scrollToFirst(){
-            const first = container.querySelector('.md-highlight');
-            if (first) try { first.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(_){ }
+        function scrollToIndex(){
+            const el = container.querySelector('.md-highlight[data-match="' + String(currentIndex) + '"]');
+            if (el) try { el.scrollIntoView({ behavior:'smooth', block:'center', inline:'nearest' }); } catch(_){ }
+            container.querySelectorAll('.md-highlight').forEach(h => h.classList.remove('current'));
+            if (el) el.classList.add('current');
         }
 
         input.addEventListener('input', () => {
             const term = (input.value || '').trim();
             restore();
-            const n = highlightTerm(term);
-            updateCount(n, term);
-            if (term && n > 0) scrollToFirst();
+            totalMatches = highlightTerm(term);
+            currentIndex = totalMatches > 0 ? 1 : 0;
+            updateCount(totalMatches, term);
+            if (term && totalMatches > 0) scrollToIndex();
         });
 
         clearBtn.addEventListener('click', () => {
             input.value = '';
             restore();
+            currentIndex = 0; totalMatches = 0;
             updateCount(0, '');
+        });
+
+        function next(){ if (!totalMatches) return; currentIndex += 1; if (currentIndex > totalMatches) currentIndex = 1; updateCount(totalMatches, input.value.trim()); scrollToIndex(); }
+        function prev(){ if (!totalMatches) return; currentIndex -= 1; if (currentIndex < 1) currentIndex = totalMatches; updateCount(totalMatches, input.value.trim()); scrollToIndex(); }
+        if (btnNext) btnNext.addEventListener('click', next);
+        if (btnPrev) btnPrev.addEventListener('click', prev);
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' || ev.key === 'ArrowDown') { ev.preventDefault(); next(); }
+            else if (ev.key === 'ArrowUp') { ev.preventDefault(); prev(); }
         });
     } catch(_) {}
 })();
