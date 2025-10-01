@@ -704,6 +704,24 @@ function goBackToFile(ev){
   try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
   return false;
 }
+
+// התאמת גודל שם הקובץ: מצמצם פונט הדרגתי עד שנכנס בשורה אחת (עם מינימום מוגן)
+(function(){
+  try {
+    var el = document.getElementById('md-file-name');
+    if (!el) return;
+    el.setAttribute('title', el.textContent || '');
+    var sizeRem = 1.6;    // גודל יעד התחלתי (התואם ל-CSS)
+    var minRem = 1.0;     // מינימום – לא קטן מדי
+    el.style.fontSize = sizeRem + 'rem';
+    var guard = 0;
+    while (guard < 15 && el.scrollWidth > el.clientWidth && sizeRem > minRem) {
+      sizeRem -= 0.1;
+      el.style.fontSize = sizeRem.toFixed(2) + 'rem';
+      guard++;
+    }
+  } catch(_) { }
+})();
 </script>
 {% endblock %}
 
