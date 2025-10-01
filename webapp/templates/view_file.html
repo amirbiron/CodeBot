@@ -706,10 +706,9 @@ function goBack(ev){
                 if (!term) return;
                 const active = container.querySelector('.md-highlight.is-active');
                 if (justAutoFocused || !active) {
-                    const first = container.querySelector('.md-highlight');
-                    if (first) setActiveAndScroll(first);
+                    // יישור להתנהגות Shift+Enter: עבור למופע האחרון
+                    focusPrev();
                     justAutoFocused = false;
-                    updateCount(container.querySelectorAll('.md-highlight').length, term);
                 } else {
                     focusPrev();
                 }
