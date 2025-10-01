@@ -16,10 +16,7 @@
   color: #111111;
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
-  padding: 14px; /* בסיס לכל המסכים */
-  /* במובייל/מסכים צרים – הגדל ריווח מימין כדי שלא יהיה צמוד לקצה */
-  padding-right: clamp(22px, 6vw, 36px);
-  padding-left: clamp(14px, 4vw, 28px);
+  padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
 }
 /* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
 #mdCard:fullscreen { height: 100vh; overflow: auto; }
@@ -79,9 +76,9 @@
   border: 0;                        /* הסרת מסגרת דקה שמצטיירת כסגולה */
   border-radius: 12px;
   padding: 16px;                    /* בסיס */
-  /* במובייל – תן עוד ריווח בצד ימין (RTL) כדי שלא יהיה דבוק לקצה */
+  /* ריווח פנימי סימטרי בתוך הבלוק – כדי שהקוד לא ייגע בגבולות */
   padding-right: clamp(22px, 6vw, 36px);
-  padding-left: clamp(16px, 5vw, 28px);
+  padding-left: clamp(22px, 6vw, 36px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
   margin: 1em 0;                    /* אין מרווח שלילי – לא שוברים פריסה */
@@ -92,8 +89,8 @@
 #md-content pre code {
   display: block;
   overflow-x: auto;
-  /* ריווח פנימי קל לקוד עצמו לטובת קצה ימני נעים יותר */
-  padding-right: 2px;
+  /* ריווח עדין בתוך תגית הקוד עצמה */
+  padding: 0 2px;
 }
 #md-content {
   overflow: hidden; /* מונע פסלים/גלישות סביב תוכן הכרטיס */
@@ -102,16 +99,14 @@
 #md-content p, #md-content li, #md-content blockquote {
   overflow-wrap: anywhere;
   word-break: break-word;
-  /* ריווח שורה כדי שהטקסט לא ידבק לעמודה הימנית בזמן גלילה */
-  margin-right: 2px;
 }
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
   margin: 0;
-  /* ריווח דינמי שלא יצמד לימין ב-RTL, ועדיין שומר מקום לכפתורי העתקה */
+  /* ריווח סימטרי בתוך הבלוק עצמו – לא משפיע על המיקום של הבלוק בדף */
   padding: 16px;
   padding-right: clamp(22px, 6vw, 36px);
-  padding-left: clamp(16px, 5vw, 28px);
+  padding-left: clamp(22px, 6vw, 36px);
   padding-top: 2.6rem;           /* מקום לשורת כפתורים עליונה */
   box-sizing: border-box;
 }
