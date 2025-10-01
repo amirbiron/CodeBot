@@ -1978,16 +1978,34 @@ def api_public_stats():
 # --- Public share route ---
 @app.route('/share/<share_id>')
 def public_share(share_id):
-    """הצגת שיתוף פנימי בצורה ציבורית ללא התחברות."""
+    """הצגת שיתוף פנימי בצורה ציבורית ללא התחברות.
+
+    תומך בפרמטר view=md כדי להציג קבצי Markdown בעמוד התצוגה הייעודי (עם כפתורי שיתוף).
+    """
     doc = get_internal_share(share_id)
     if not doc:
         return render_template('404.html'), 404
 
-    # הדגשת קוד בסיסית (ללא סשן)
     code = doc.get('code', '')
-    language = doc.get('language', 'text') or 'text'
+    language = (doc.get('language', 'text') or 'text').lower()
     file_name = doc.get('file_name', 'snippet.txt')
     description = doc.get('description', '')
+
+    # אם view=md והמסמך Markdown – נרנדר את עמוד md_preview עם דגל is_public
+    try:
+        view = (request.args.get('view') or '').strip().lower()
+    except Exception:
+        view = ''
+    is_markdown = (language == 'markdown') or (isinstance(file_name, str) and file_name.lower().endswith('.md'))
+    if view == 'md' and is_markdown:
+        file_data = {
+            'id': share_id,
+            'file_name': file_name or 'README.md',
+            'language': 'markdown',
+        }
+        return render_template('md_preview.html', user={}, file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN, is_public=True)
+
+    # ברירת מחדל: תצוגת קוד (כמו קודם)
     try:
         lexer = get_lexer_by_name(language, stripall=True)
     except Exception:
@@ -2000,7 +2018,6 @@ def public_share(share_id):
     highlighted_code = highlight(code, lexer, formatter)
     css = formatter.get_style_defs('.source')
 
-    # חישוב מטא
     size = len(code.encode('utf-8'))
     lines = len(code.split('\n'))
     created_at = doc.get('created_at')
@@ -2012,7 +2029,6 @@ def public_share(share_id):
         except Exception:
             created_at_str = ''
 
-    # הצגת הדף תוך שימוש בתבנית קיימת כדי לשמור עיצוב
     file_data = {
         'id': share_id,
         'file_name': file_name,
@@ -2026,7 +2042,6 @@ def public_share(share_id):
         'updated_at': created_at_str,
         'version': 1,
     }
-    # השתמש ב-base.html גם ללא התחברות
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
 
 # Error handlers

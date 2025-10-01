@@ -167,7 +167,9 @@ input.md-task-checkbox {
       </div>
     </div>
   <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
+      {% if not is_public %}
       <a href="#" onclick="return goBackToFile(event)" class="btn btn-secondary btn-icon">↩️ חזרה לקובץ</a>
+      {% endif %}
     </div>
   </div>
 
@@ -180,6 +182,24 @@ input.md-task-checkbox {
     </div>
     <div id="md-content" style="margin-inline:-16px;width:calc(100% + 32px);"></div>
   </div>
+  {% if not is_public %}
+  <div class="glass-card" style="margin-top: 1rem;">
+    <h2 class="section-title">
+      <i class="fas fa-share-alt"></i>
+      שיתוף
+    </h2>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+      <button onclick="shareToTelegramMd()" class="btn btn-secondary btn-icon">
+        <i class="fab fa-telegram"></i>
+        שתף בטלגרם
+      </button>
+      <button onclick="copyLinkMd()" class="btn btn-secondary btn-icon">
+        <i class="fas fa-link"></i>
+        העתק קישור
+      </button>
+    </div>
+  </div>
+  {% endif %}
   <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
 </div>
 
@@ -557,6 +577,44 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     container.innerHTML = '<div class="alert alert-error">שגיאה ברינדור Markdown</div>';
   }
 })();
+
+// יצירת קישור ציבורי שמכוון לתצוגת Markdown (view=md)
+async function ensurePublicLinkMd(){
+  try {
+    const resp = await fetch(`/api/share/{{ file.id }}`, { method: 'POST' });
+    const data = await resp.json();
+    let baseUrl = window.location.origin;
+    let url = (data && data.ok && data.url) ? data.url : window.location.href;
+    try {
+      const u = new URL(url, window.location.origin);
+      u.searchParams.set('view', 'md');
+      return u.toString();
+    } catch(_) {
+      return url + (url.includes('?') ? '&' : '?') + 'view=md';
+    }
+  } catch (e) {
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set('view','md');
+      return u.toString();
+    } catch(_) {
+      return window.location.href;
+    }
+  }
+}
+
+async function copyLinkMd(){
+  const url = await ensurePublicLinkMd();
+  try { await navigator.clipboard.writeText(url); alert('הקישור הציבורי הועתק!'); }
+  catch(e){ console.error('copy failed', e); alert('לא הצלחנו להעתיק את הקישור'); }
+}
+
+async function shareToTelegramMd(){
+  const url = await ensurePublicLinkMd();
+  const text = `צפה במסמך Markdown ב-Code Keeper:\n${url}`;
+  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+  try { window.open(telegramUrl, '_blank'); } catch(_) { window.location.href = telegramUrl; }
+}
 
 // ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
 function goBackToFile(ev){
