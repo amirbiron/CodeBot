@@ -184,6 +184,14 @@
     border-radius: 3px;
     font-weight: 600;
 }
+/* הדגשת התוצאה הנוכחית */
+.md-highlight.current {
+    background: linear-gradient(90deg, #ffd700 0%, #ffcf2e 100%);
+    color: #000;
+    font-weight: 700;
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
+    border: 2px solid #ffa500;
+}
 
 /* הרחבת התצוגה לרוחב מלא בעמוד צפייה בקובץ */
 .main-content > .container {
@@ -576,7 +584,8 @@ function goBack(ev){
 
     // נשמור מקור לכל בלוק קוד/שורש הדגשה בלבד (לא לכל המכולה)
     (function cacheOriginalPerRoot(){
-        const roots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
+        // קח רק בלוקי קוד פנימיים כדי למנוע חפיפה (למשל td.code > div.highlight > pre)
+        const roots = container.querySelectorAll('.highlighttable td.code pre, .source .highlight pre, pre');
         roots.forEach(root => {
             if (!root.hasAttribute('data-original-html')) {
                 root.setAttribute('data-original-html', root.innerHTML);
@@ -588,8 +597,8 @@ function goBack(ev){
         let totalMatches = 0;
 
         function restore(){
-            // משחזר רק את שורשי הקוד ששמרנו עבורם מקור, לא את כל המכולה
-            const roots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
+            // משחזר רק את בלוקי הקוד הפנימיים ששמרנו
+            const roots = container.querySelectorAll('.highlighttable td.code pre, .source .highlight pre, pre');
             roots.forEach(root => {
                 try {
                     const orig = root.getAttribute('data-original-html');
@@ -599,10 +608,10 @@ function goBack(ev){
         }
 
         function highlightTerm(term){
-            // בתוך הקוד בלבד: הדגשה בתוך התאים של ה-highlighttable/ .highlight
+            // הדגשה רק על ה-pre הפנימיים, כדי למנוע דריסה כפולה
             let total = 0;
             let counter = 0;
-            const codeRoots = container.querySelectorAll('.highlight, .highlighttable td.code, .source .highlight, pre');
+            const codeRoots = container.querySelectorAll('.highlighttable td.code pre, .source .highlight pre, pre');
             codeRoots.forEach(root => {
                 try {
                     const original = root.getAttribute('data-original-html') || root.innerHTML;
