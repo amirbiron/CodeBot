@@ -126,7 +126,8 @@ jobs:
 
           pr_line=""
           if [ -n "$PR_NUMBER" ]; then
-            pr_line="PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
+            # ה-# חייב להיות מאוסקייפ ב-MarkdownV2
+            pr_line="$(esc "PR #${PR_NUMBER}: ${PR_TITLE}")"
           fi
 
           wf_line="Workflow: $(esc "$WORKFLOW_NAME")"
@@ -144,12 +145,14 @@ jobs:
           fi
 
           link_line=""
+          # ב-MarkdownV2 סוגריים מרובעים ועגולים צריכים אסקייפ; נפצל ללייבלים/קישורים מאוסקייפים
+          esc_url() { printf '%s' "$1" | sed -e 's/[()]/\\&/g'; }
           if [ -n "$PR_NUMBER" ]; then
             link_label_pr='צפה ב\-PR'
-            link_line="\n[${link_label_pr}]($PR_URL)"
+            link_line="\n\[${link_label_pr}\]($(esc_url "$PR_URL"))"
           else
             link_label_run='צפה בריצה'
-            link_line="\n[${link_label_run}]($RUN_URL)"
+            link_line="\n\[${link_label_run}\]($(esc_url "$RUN_URL"))"
           fi
 
           message="${title}\n${time_line}\n\n"
@@ -169,7 +172,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TEXT: ${{ steps.msg.outputs.text }}
         run: |
-          if [ -z "${BOT_TOKEN:-}" ] || [ -ז "${CHAT_ID:-}" ]; then
+          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
             echo "BOT_TOKEN or CHAT_ID is missing" >&2
             exit 1
           fi
