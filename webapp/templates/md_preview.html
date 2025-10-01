@@ -18,6 +18,9 @@
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
   padding: 14px 18px; /* מרווח פנימי כך שהטקסט לא דבוק לימין */
 }
+/* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
+#mdCard:fullscreen { height: 100vh; overflow: auto; }
+#mdCard:-webkit-full-screen { height: 100vh; overflow: auto; }
 #md-content img {
   max-width: 100%;
   height: auto;
