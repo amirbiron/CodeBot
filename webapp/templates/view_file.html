@@ -608,8 +608,7 @@ function goBack(ev){
         }
 
         function highlightTerm(term){
-            // הדגשה רק על ה-pre הפנימיים, כדי למנוע דריסה כפולה
-            let total = 0;
+            // הדגשה רק על ה-pre הפנימיים, עם עיבוד של textNodes כדי לא לשבור HTML
             let counter = 0;
             const codeRoots = container.querySelectorAll('.highlighttable td.code pre, .source .highlight pre, pre');
             codeRoots.forEach(root => {
@@ -618,16 +617,47 @@ function goBack(ev){
                     root.setAttribute('data-original-html', original);
                     if (!term) { root.innerHTML = original; return; }
                     const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const rx = new RegExp(`(${safe})`, 'gi');
-                    const replaced = original.replace(rx, function(match){
-                        counter += 1;
-                        return '<span class="md-highlight" data-match="' + String(counter) + '">' + match + '</span>';
+                    const rx = new RegExp(safe, 'gi');
+                    // עיבוד טקסטים באמצעות TreeWalker
+                    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+                        acceptNode: function(node){
+                            try {
+                                if (!node || !node.nodeValue) return NodeFilter.FILTER_REJECT;
+                                if (node.parentElement && node.parentElement.closest('.md-highlight')) return NodeFilter.FILTER_REJECT;
+                                return NodeFilter.FILTER_ACCEPT;
+                            } catch(_) { return NodeFilter.FILTER_REJECT; }
+                        }
                     });
-                    root.innerHTML = replaced;
-                    total += (original.match(rx) || []).length;
+                    const textNodes = [];
+                    let n;
+                    while ((n = walker.nextNode())) { textNodes.push(n); }
+                    textNodes.forEach(tn => {
+                        try {
+                            const text = tn.nodeValue;
+                            rx.lastIndex = 0;
+                            if (!rx.test(text)) return; // no match in this node
+                            rx.lastIndex = 0;
+                            const frag = document.createDocumentFragment();
+                            let last = 0; let m;
+                            while ((m = rx.exec(text)) !== null) {
+                                const start = m.index; const end = start + m[0].length;
+                                if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
+                                const span = document.createElement('span');
+                                span.className = 'md-highlight';
+                                counter += 1;
+                                span.setAttribute('data-match', String(counter));
+                                span.textContent = m[0];
+                                frag.appendChild(span);
+                                last = end;
+                                if (m[0].length === 0) rx.lastIndex++; // בטחון ללולאה
+                            }
+                            if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+                            tn.parentNode.replaceChild(frag, tn);
+                        } catch(_) {}
+                    });
                 } catch(_) {}
             });
-            return total;
+            return counter;
         }
 
         function updateCount(n, term){
