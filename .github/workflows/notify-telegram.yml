@@ -59,6 +59,34 @@ jobs:
           echo "workflow_name=${{ github.event.workflow_run.name }}" >> "$GITHUB_OUTPUT"
           echo "conclusion=${{ github.event.workflow_run.conclusion }}" >> "$GITHUB_OUTPUT"
 
+      - name: Inspect jobs (tests and required checks)
+        id: tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          reposlug="${GITHUB_REPOSITORY}"
+          url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$url")
+          # Extract unit test jobs and code-quality job
+          ut_jobs=$(printf '%s' "$json" | jq -c '[.jobs[] | select(.name|startswith("🧪 Unit Tests ("))]')
+          ut_total=$(printf '%s' "$ut_jobs" | jq -r 'length')
+          ut_success=$(printf '%s' "$ut_jobs" | jq -r 'if length>0 then ([ .[].conclusion ] | all(.=="success")) else false end')
+          ut_failed=$(printf '%s' "$ut_jobs" | jq -r '[ .[] | select(.conclusion!="success") | .name ] | join(", ")')
+          ut_failed_links=$(printf '%s' "$ut_jobs" | jq -r '[ .[] | select(.conclusion!="success") | .html_url ] | join("\n")')
+          cq_conc=$(printf '%s' "$json" | jq -r '([.jobs[] | select(.name=="🔍 Code Quality & Security")][0].conclusion // "")')
+
+          printf 'ut_total=%s\n' "$ut_total" >> "$GITHUB_OUTPUT"
+          printf 'ut_success=%s\n' "$ut_success" >> "$GITHUB_OUTPUT"
+          printf 'ut_failed=%s\n' "$ut_failed" >> "$GITHUB_OUTPUT"
+          {
+            echo "ut_failed_links<<__TXT__"
+            printf '%s\n' "$ut_failed_links"
+            echo "__TXT__"
+          } >> "$GITHUB_OUTPUT"
+          printf 'codeq_conclusion=%s\n' "$cq_conc" >> "$GITHUB_OUTPUT"
+
       - name: Build message
         id: msg
         env:
@@ -70,6 +98,11 @@ jobs:
           DURATION: ${{ steps.meta.outputs.duration }}
           PR_URL: ${{ steps.meta.outputs.pr_url }}
           RUN_URL: ${{ steps.meta.outputs.run_url }}
+          UT_TOTAL: ${{ steps.tests.outputs.ut_total }}
+          UT_SUCCESS: ${{ steps.tests.outputs.ut_success }}
+          UT_FAILED: ${{ steps.tests.outputs.ut_failed }}
+          UT_FAILED_LINKS: ${{ steps.tests.outputs.ut_failed_links }}
+          CODEQ: ${{ steps.tests.outputs.codeq_conclusion }}
         run: |
           status_emoji='✅'
           case "$CONCLUSION" in
@@ -94,6 +127,10 @@ jobs:
 
           wf_line="⚙️ Workflow: $(esc "$WORKFLOW_NAME")"
           dur_line="⏱️ זמן ריצה: $(esc "$DURATION")"
+          tests_line="🧪 טסטים: $(esc "${UT_TOTAL:-0}") (הכל עבר? $(esc "${UT_SUCCESS:-false}"))"
+          if [ -n "${UT_FAILED:-}" ]; then
+            tests_line="${tests_line}\n⚠️ נכשלים: $(esc "${UT_FAILED}")"
+          fi
 
           link_line=""
           if [ -n "$PR_NUMBER" ]; then
@@ -108,7 +145,7 @@ jobs:
           if [ -n "$pr_line" ]; then
             message="${message}${pr_line}\n"
           fi
-          message="${message}${wf_line}\n${dur_line}${link_line}"
+          message="${message}${wf_line}\n${dur_line}\n${tests_line}${link_line}"
           {
             echo "text<<__MSG__"
             printf '%b\n' "$message"
