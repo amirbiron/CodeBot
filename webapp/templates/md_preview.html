@@ -16,7 +16,10 @@
   color: #111111;
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
-  padding: 14px 18px; /* מרווח פנימי כך שהטקסט לא דבוק לימין */
+  padding: 14px; /* בסיס לכל המסכים */
+  /* במובייל/מסכים צרים – הגדל ריווח מימין כדי שלא יהיה צמוד לקצה */
+  padding-right: clamp(22px, 6vw, 36px);
+  padding-left: clamp(14px, 4vw, 28px);
 }
 /* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
 #mdCard:fullscreen { height: 100vh; overflow: auto; }
@@ -92,6 +95,8 @@
 #md-content p, #md-content li, #md-content blockquote {
   overflow-wrap: anywhere;
   word-break: break-word;
+  /* ריווח שורה כדי שהטקסט לא ידבק לעמודה הימנית בזמן גלילה */
+  margin-right: 2px;
 }
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
@@ -196,7 +201,7 @@ input.md-task-checkbox {
       <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
       <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">✕</button>
     </div>
-    <div id="md-content" style="margin-inline:-16px;width:calc(100% + 32px);"></div>
+    <div id="md-content" style="margin-inline:-8px;width:calc(100% + 16px);"></div>
   </div>
   {% if not is_public %}
   <div class="glass-card" style="margin-top: 1rem;">

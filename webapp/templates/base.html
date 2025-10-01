@@ -190,6 +190,10 @@
             box-sizing: border-box;
             min-width: 0;
         }
+        /* ברזולוציות צרות – הוסף padding פנימי קל לימין לפיצוי על RTL ותפריטים */
+        @media (max-width: 480px) {
+            .main-content .glass-card { padding-right: 18px; }
+        }
         
         .btn {
             display: inline-flex;
