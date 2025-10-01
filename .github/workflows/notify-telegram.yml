@@ -107,9 +107,7 @@ jobs:
           status_emoji='✅'
           case "$CONCLUSION" in
             success) status_emoji='✅' ;;
-            cancelled) status_emoji='⏹️' ;;
-            failure) status_emoji='⚠️' ;;
-            * ) status_emoji='ℹ️' ;;
+            *) status_emoji='' ;;
           esac
 
           # Escape characters for Telegram MarkdownV2
@@ -117,23 +115,27 @@ jobs:
             printf '%s' "$1" | sed -e 's/[\\_\\*\\[\\]\\(\\)~`>#\\+\\-=|{}\\.!]/\\&/g'
           }
 
-          title="$(esc "GitHub Actions – הסתיים ${status_emoji}")"
-          time_line="⏰ $FINISHED_AT"
+          title_text="GitHub Actions – הסתיים"
+          if [ -n "$status_emoji" ]; then
+            title_text="$title_text ${status_emoji}"
+          fi
+          title="$(esc "$title_text")"
+          time_line="זמן סיום: $(esc "$FINISHED_AT")"
 
           pr_line=""
           if [ -n "$PR_NUMBER" ]; then
-            pr_line="🔄 PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
+            pr_line="PR #$(esc "$PR_NUMBER"): $(esc "$PR_TITLE")"
           fi
 
-          wf_line="⚙️ Workflow: $(esc "$WORKFLOW_NAME")"
-          dur_line="⏱️ זמן ריצה: $(esc "$DURATION")"
-          tests_line="🧪 טסטים: $(esc "${UT_TOTAL:-0}") (הכל עבר? $(esc "${UT_SUCCESS:-false}"))"
+          wf_line="Workflow: $(esc "$WORKFLOW_NAME")"
+          dur_line="זמן ריצה: $(esc "$DURATION")"
+          tests_line="טסטים: $(esc "${UT_TOTAL:-0}") (הכל עבר? $(esc "${UT_SUCCESS:-false}"))"
           if [ -n "${UT_FAILED:-}" ]; then
-            tests_line="${tests_line}\n⚠️ נכשלים: $(esc "${UT_FAILED}")"
+            tests_line="${tests_line}\nנכשלים: $(esc "${UT_FAILED}")"
           fi
 
           # Action hint: when everything is green – allow merge; otherwise ask to check
-          action_line="⚠️ יש כשלונות – בדקו את הקישורים"
+          action_line="יש כשלונות – בדקו את הקישורים"
           # If the workflow concluded successfully AND (no UT jobs or UT all green) → allow merge
           if [ "${CONCLUSION}" = "success" ] && { [ "${UT_TOTAL:-0}" -eq 0 ] || [ "${UT_SUCCESS:-false}" = "true" ]; }; then
             action_line="✅ הכל ירוק – אפשר למזג"
@@ -142,10 +144,10 @@ jobs:
           link_line=""
           if [ -n "$PR_NUMBER" ]; then
             link_label_pr='צפה ב\-PR'
-            link_line="\n🔗 [${link_label_pr}]($PR_URL)"
+            link_line="\n[${link_label_pr}]($PR_URL)"
           else
             link_label_run='צפה בריצה'
-            link_line="\n🔗 [${link_label_run}]($RUN_URL)"
+            link_line="\n[${link_label_run}]($RUN_URL)"
           fi
 
           message="${title}\n${time_line}\n\n"
