@@ -415,6 +415,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           }
         }
       });
+
+      // הוסר הקוד הכפול מהמיין; נשארת רק הלוגיקה החדשה שלא מדלגת על הראשונה
     })();
 
     // Lazy loading לתמונות

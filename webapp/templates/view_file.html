@@ -659,7 +659,10 @@ function goBack(ev){
             const n = highlightTerm(term);
             if (term && n > 0) {
                 focusFirst();
+<<<<<<< HEAD
                 justAutoFocused = true; // לחיצה ראשונה על "הבא" לא תדלג
+=======
+>>>>>>> origin/main
             }
             updateCount(n, term);
         });
@@ -711,6 +714,33 @@ function goBack(ev){
                     } else {
                         focusNext();
                     }
+                }
+            }
+        });
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                const term = (input.value || '').trim();
+                if (!term) return;
+                focusNext();
+            });
+        }
+
+        // קיצור מקשים: Enter = הבא (עם Shift = קודם)
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                const all = container.querySelectorAll('.md-highlight');
+                if (all.length === 0) return;
+                if (ev.shiftKey) {
+                    const arr = Array.from(all);
+                    const current = container.querySelector('.md-highlight.is-active');
+                    const idx = current ? arr.indexOf(current) : 0;
+                    const prev = arr[(idx - 1 + arr.length) % arr.length];
+                    setActiveAndScroll(prev);
+                    updateCount(arr.length, input.value.trim());
+                } else {
+                    focusNext();
                 }
             }
         });
