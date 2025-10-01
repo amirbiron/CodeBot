@@ -3,47 +3,6 @@ name: Notify Telegram
 on:
   workflow_run:
     workflows: ["CI/CD Pipeline"]
-    types: [completed]
-
-jobs:
-  notify:
-    name: Send Telegram Notification
-    runs-on: ubuntu-latest
-    if: github.event.workflow_run.event == 'pull_request'
-    steps:
-      - name: Prepare message
-        id: prep
-        run: |
-          set -euo pipefail
-          title='CI/CD Pipeline – Status'
-          conclusion='${{ github.event.workflow_run.conclusion }}'
-          if [ "${conclusion}" = "success" ]; then
-            title="${title} ✅"
-          fi
-          # Escape MarkdownV2 reserved characters for Telegram
-          esc() { printf '%s' "$1" | sed -e 's/[\\_\*\[\]\(\)~`>#\+\-=|{}\.!]/\\&/g'; }
-          msg="$(esc "${title}")\nRun: $(esc "${{ github.event.workflow_run.html_url }}")"
-          echo "text<<__MSG__" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$msg" >> "$GITHUB_OUTPUT"
-          echo "__MSG__" >> "$GITHUB_OUTPUT"
-
-      - name: Send Telegram message
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          TEXT: ${{ steps.prep.outputs.text }}
-        run: |
-          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
-            echo "BOT_TOKEN or CHAT_ID is missing" >&2
-            exit 1
-          fi
-          jq -nc --arg chat_id "$CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text, parse_mode:"MarkdownV2", disable_web_page_preview:true}' |
-            curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" -H 'Content-Type: application/json' -d @-
-name: Notify Telegram
-
-on:
-  workflow_run:
-    workflows: ["CI/CD Pipeline"]
     types:
       - completed
 
@@ -210,7 +169,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TEXT: ${{ steps.msg.outputs.text }}
         run: |
-          if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+          if [ -z "${BOT_TOKEN:-}" ] || [ -ז "${CHAT_ID:-}" ]; then
             echo "BOT_TOKEN or CHAT_ID is missing" >&2
             exit 1
           fi
