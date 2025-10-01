@@ -703,6 +703,8 @@ function goBack(ev){
                     const idx = current ? arr.indexOf(current) : 0;
                     const prev = arr[(idx - 1 + arr.length) % arr.length];
                     setActiveAndScroll(prev);
+                    // יציאה ממצב "מוקד אוטומטי" כדי שהבא יתקדם כראוי
+                    justAutoFocused = false;
                     updateCount(arr.length, input.value.trim());
                 } else {
                     const active = container.querySelector('.md-highlight.is-active');

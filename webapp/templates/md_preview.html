@@ -401,6 +401,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
             const idx = current ? arr.indexOf(current) : 0;
             const prev = arr[(idx - 1 + arr.length) % arr.length];
             setActiveAndScroll(prev);
+            // reset auto-focus state so forward navigation advances
+            justAutoFocused = false;
             updateCount(arr.length, input.value.trim());
           } else {
             const active = container.querySelector('.md-highlight.is-active');
