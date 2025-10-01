@@ -184,6 +184,11 @@
     border-radius: 3px;
     font-weight: 600;
 }
+/* חיווי למופע הפעיל */
+.md-highlight.is-active {
+    outline: 2px solid #ffd700;
+    outline-offset: 1px;
+}
 
 /* הרחבת התצוגה לרוחב מלא בעמוד צפייה בקובץ */
 .main-content > .container {
@@ -348,6 +353,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     <div class="search-bar" id="code-search" style="display:flex;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin-bottom:.75rem;">
         <input id="codeSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
         <span id="codeSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;"></span>
+        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">▶</button>
         <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);">✕</button>
     </div>
     <div class="code-container">
@@ -565,6 +571,7 @@ function goBack(ev){
         const container = document.querySelector('#codeCard .code-container');
         const input = document.getElementById('codeSearchInput');
         const clearBtn = document.getElementById('codeSearchClear');
+        const nextBtn = document.getElementById('codeSearchNext');
         const countEl = document.getElementById('codeSearchCount');
         if (!container || !input || !clearBtn || !countEl) return;
 
@@ -610,26 +617,76 @@ function goBack(ev){
 
         function updateCount(n, term){
             if (!term) { countEl.textContent = ''; return; }
-            countEl.textContent = n > 0 ? `${n} תוצאות` : 'אין תוצאות';
+            const active = container.querySelector('.md-highlight.is-active');
+            const activeIndex = active ? (Array.from(container.querySelectorAll('.md-highlight')).indexOf(active) + 1) : 0;
+            countEl.textContent = n > 0 ? (activeIndex ? `${activeIndex}/${n}` : `${n} תוצאות`) : 'אין תוצאות';
         }
 
-        function scrollToFirst(){
+        function setActiveAndScroll(target){
+            try {
+                container.querySelectorAll('.md-highlight.is-active').forEach(el => el.classList.remove('is-active'));
+            } catch(_){}
+            if (!target) return;
+            try { target.classList.add('is-active'); } catch(_){}
+            try { target.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(_){ }
+        }
+
+        function focusFirst(){
             const first = container.querySelector('.md-highlight');
-            if (first) try { first.scrollIntoView({ behavior:'smooth', block:'center' }); } catch(_){ }
+            if (first) setActiveAndScroll(first);
+        }
+
+        function focusNext(){
+            const all = Array.from(container.querySelectorAll('.md-highlight'));
+            if (all.length === 0) return;
+            const current = container.querySelector('.md-highlight.is-active');
+            const idx = current ? all.indexOf(current) : -1;
+            const next = all[(idx + 1) % all.length];
+            setActiveAndScroll(next);
+            updateCount(all.length, input.value.trim());
         }
 
         input.addEventListener('input', () => {
             const term = (input.value || '').trim();
             restore();
             const n = highlightTerm(term);
+            if (term && n > 0) {
+                focusFirst();
+            }
             updateCount(n, term);
-            if (term && n > 0) scrollToFirst();
         });
 
         clearBtn.addEventListener('click', () => {
             input.value = '';
             restore();
             updateCount(0, '');
+        });
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+                const term = (input.value || '').trim();
+                if (!term) return;
+                focusNext();
+            });
+        }
+
+        // קיצור מקשים: Enter = הבא (עם Shift = קודם)
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                const all = container.querySelectorAll('.md-highlight');
+                if (all.length === 0) return;
+                if (ev.shiftKey) {
+                    const arr = Array.from(all);
+                    const current = container.querySelector('.md-highlight.is-active');
+                    const idx = current ? arr.indexOf(current) : 0;
+                    const prev = arr[(idx - 1 + arr.length) % arr.length];
+                    setActiveAndScroll(prev);
+                    updateCount(arr.length, input.value.trim());
+                } else {
+                    focusNext();
+                }
+            }
         });
     } catch(_) {}
 })();
