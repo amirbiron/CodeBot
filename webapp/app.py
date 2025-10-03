@@ -139,6 +139,36 @@ def get_db():
             raise
     return db
 
+# --- Ensure indexes for recent_opens once per process ---
+_recent_opens_indexes_ready = False
+
+def ensure_recent_opens_indexes() -> None:
+    """יוצר אינדקסים נחוצים לאוסף recent_opens פעם אחת בתהליך."""
+    global _recent_opens_indexes_ready
+    if _recent_opens_indexes_ready:
+        return
+    try:
+        _db = get_db()
+        coll = _db.recent_opens
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            coll.create_index([('user_id', ASCENDING), ('file_name', ASCENDING)], name='user_file_unique', unique=True)
+            coll.create_index([('user_id', ASCENDING), ('last_opened_at', DESCENDING)], name='user_last_opened_idx')
+        except Exception:
+            # גם אם יצירת אינדקס נכשלה, לא נכשיל את היישום
+            pass
+        _recent_opens_indexes_ready = True
+    except Exception:
+        # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
+        pass
+
+@app.before_first_request
+def _init_indexes_once():
+    try:
+        ensure_recent_opens_indexes()
+    except Exception:
+        pass
+
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
     try:
@@ -1125,13 +1155,8 @@ def view_file(file_id):
     
     # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי
     try:
-        from pymongo import ASCENDING, DESCENDING  # ייבוא מקומי כדי להימנע משינויי טופ-לבל
+        ensure_recent_opens_indexes()
         coll = db.recent_opens
-        try:
-            coll.create_index([('user_id', ASCENDING), ('file_name', ASCENDING)], name='user_file_unique', unique=True)
-            coll.create_index([('user_id', ASCENDING), ('last_opened_at', DESCENDING)], name='user_last_opened_idx')
-        except Exception:
-            pass
         now = datetime.now(timezone.utc)
         coll.update_one(
             {'user_id': user_id, 'file_name': file.get('file_name')},
