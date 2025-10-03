@@ -11,6 +11,8 @@ except Exception:
 
 from cache_manager import cache, cached
 from .manager import DatabaseManager
+from utils import normalize_code
+from config import config
 from .models import CodeSnippet, LargeFile
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,12 @@ class Repository:
 
     def save_code_snippet(self, snippet: CodeSnippet) -> bool:
         try:
+            # Normalize code before persisting
+            try:
+                if config.NORMALIZE_CODE_ON_SAVE:
+                    snippet.code = normalize_code(snippet.code)
+            except Exception:
+                pass
             existing = self.get_latest_version(snippet.user_id, snippet.file_name)
             if existing:
                 snippet.version = existing['version'] + 1
@@ -108,6 +116,12 @@ class Repository:
                 merged_tags = list(prev_tags or [])
             except Exception:
                 merged_tags = []
+        # Normalize code before constructing snippet
+        try:
+            if config.NORMALIZE_CODE_ON_SAVE:
+                code = normalize_code(code)
+        except Exception:
+            pass
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=file_name,
@@ -318,6 +332,12 @@ class Repository:
     # Large files operations
     def save_large_file(self, large_file: LargeFile) -> bool:
         try:
+            # Normalize content before persist
+            try:
+                if config.NORMALIZE_CODE_ON_SAVE:
+                    large_file.content = normalize_code(large_file.content)
+            except Exception:
+                pass
             existing = self.get_large_file(large_file.user_id, large_file.file_name)
             if existing:
                 self.delete_large_file(large_file.user_id, large_file.file_name)
