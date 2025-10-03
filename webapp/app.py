@@ -768,6 +768,10 @@ def files():
             })
             query['$and'].append({'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}})
             query['$and'].append({'is_archive': {'$ne': True}})
+        elif category_filter == 'recent':
+            # תצוגת "נפתחו לאחרונה" – נשתמש באוסף recent_opens
+            # נחזיר מוקדם תבנית שמחכה ל-files_list שנבנה מטבלת recent_opens
+            pass
     
     # ספירת סך הכל (אם לא חושב כבר)
     if not category_filter:
@@ -821,6 +825,81 @@ def files():
     sort_order = DESCENDING if sort_by.startswith('-') else 1
     sort_field = sort_by.lstrip('-')
     
+    # קטגוריה מיוחדת: recent
+    if category_filter == 'recent':
+        # שליפת רשימת MRU מהאוסף recent_opens לפי user_id, ממוינת מהאחרון לראשון
+        files_list = []
+        try:
+            recent_cursor = db.recent_opens.find({'user_id': user_id}).sort('last_opened_at', DESCENDING).limit(100)
+            recent_items = list(recent_cursor)
+            total_count = len(recent_items)
+            for item in recent_items:
+                fname = item.get('file_name') or ''
+                # קח את הגרסה האחרונה הפעילה של אותו file_name לתצוגה עקבית
+                try:
+                    latest = db.code_snippets.find_one(
+                        {
+                            'user_id': user_id,
+                            'file_name': fname,
+                            '$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}}
+                            ]
+                        },
+                        sort=[('version', -1)]
+                    )
+                except Exception:
+                    latest = None
+                if not latest:
+                    # אם אין תיעוד תואם – דלג
+                    continue
+                code_str = latest.get('code') or ''
+                lang_raw = (latest.get('programming_language') or '').lower() or 'text'
+                lang_display = 'markdown' if (lang_raw in {'', 'text'} and str(fname).lower().endswith('.md')) else lang_raw
+                files_list.append({
+                    'id': str(latest.get('_id')),
+                    'file_name': fname,
+                    'language': lang_display,
+                    'icon': get_language_icon(lang_display),
+                    'description': latest.get('description', ''),
+                    'tags': latest.get('tags', []),
+                    'size': format_file_size(len(code_str.encode('utf-8'))),
+                    'lines': len(code_str.splitlines()),
+                    'created_at': format_datetime_display(latest.get('created_at')),
+                    'updated_at': format_datetime_display(latest.get('updated_at')),
+                    'last_opened_at': format_datetime_display(item.get('last_opened_at')),
+                })
+        except Exception:
+            files_list = []
+            total_count = 0
+        # רשימת שפות לפילטר - רק מקבצים פעילים
+        languages = db.code_snippets.distinct(
+            'programming_language',
+            {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }
+        )
+        languages = sorted([lang for lang in languages if lang]) if languages else []
+        total_pages = 1
+        return render_template('files.html',
+                             user=session['user_data'],
+                             files=files_list,
+                             total_count=total_count,
+                             languages=languages,
+                             search_query=search_query,
+                             language_filter=language_filter,
+                             category_filter=category_filter,
+                             sort_by=sort_by,
+                             page=1,
+                             total_pages=total_pages,
+                             has_prev=False,
+                             has_next=False,
+                             bot_username=BOT_USERNAME_CLEAN)
+
     # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
@@ -950,6 +1029,32 @@ def view_file(file_id):
     if not file:
         abort(404)
     
+    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי
+    try:
+        from pymongo import ASCENDING, DESCENDING  # ייבוא מקומי כדי להימנע משינויי טופ-לבל
+        coll = db.recent_opens
+        try:
+            coll.create_index([('user_id', ASCENDING), ('file_name', ASCENDING)], name='user_file_unique', unique=True)
+            coll.create_index([('user_id', ASCENDING), ('last_opened_at', DESCENDING)], name='user_last_opened_idx')
+        except Exception:
+            pass
+        now = datetime.now(timezone.utc)
+        coll.update_one(
+            {'user_id': user_id, 'file_name': file.get('file_name')},
+            {'$set': {
+                'user_id': user_id,
+                'file_name': file.get('file_name'),
+                'last_opened_at': now,
+                'last_opened_file_id': file.get('_id'),
+                'language': (file.get('programming_language') or 'text'),
+                'updated_at': now,
+            }, '$setOnInsert': {'created_at': now}},
+            upsert=True
+        )
+    except Exception:
+        # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
+        pass
+
     # הדגשת syntax
     code = file.get('code', '')
     language = (file.get('programming_language') or 'text').lower()
