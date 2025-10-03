@@ -11,6 +11,10 @@
         <i class="fas fa-th"></i>
         כל הקבצים
     </a>
+    <a href="/files?category=recent" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+        <i class="fas fa-history"></i>
+        נפתחו לאחרונה
+    </a>
     <a href="/files?category=repo" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fab fa-github"></i>
         לפי ריפו
@@ -51,6 +55,10 @@
             
             <select name="sort" class="filter-select"
                     style="padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
+                {% if category_filter == 'recent' %}
+                <option value="-last_opened_at" {% if sort_by == '-last_opened_at' %}selected{% endif %}>נפתח לאחרונה</option>
+                <option value="last_opened_at" {% if sort_by == 'last_opened_at' %}selected{% endif %}>נפתח מזמן</option>
+                {% endif %}
                 <option value="-created_at" {% if sort_by == '-created_at' %}selected{% endif %}>חדש ביותר</option>
                 <option value="created_at" {% if sort_by == 'created_at' %}selected{% endif %}>ישן ביותר</option>
                 <option value="file_name" {% if sort_by == 'file_name' %}selected{% endif %}>שם (א-ת)</option>
@@ -84,6 +92,8 @@
             | קטגוריה: קבצי ZIP (גיבויים שמורים בבוט)
             {% elif category_filter == 'large' %}
             | קטגוריה: קבצים גדולים (מעל 100KB)
+            {% elif category_filter == 'recent' %}
+            | קטגוריה: נפתחו לאחרונה
             {% elif category_filter == 'other' %}
             | קטגוריה: שאר הקבצים
             {% endif %}
@@ -176,6 +186,9 @@
                 <div style="display: flex; gap: 2rem; margin-top: 1rem; opacity: 0.7; font-size: 0.9rem;">
                     <span><i class="fas fa-calendar"></i> נוצר: {{ file.created_at }}</span>
                     <span><i class="fas fa-edit"></i> עודכן: {{ file.updated_at }}</span>
+                    {% if category_filter == 'recent' and file.last_opened_at %}
+                    <span><i class="fas fa-clock"></i> נפתח: {{ file.last_opened_at }}</span>
+                    {% endif %}
                 </div>
             </div>
             

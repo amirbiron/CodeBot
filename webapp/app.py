@@ -139,6 +139,36 @@ def get_db():
             raise
     return db
 
+# --- Ensure indexes for recent_opens once per process ---
+_recent_opens_indexes_ready = False
+
+def ensure_recent_opens_indexes() -> None:
+    """יוצר אינדקסים נחוצים לאוסף recent_opens פעם אחת בתהליך."""
+    global _recent_opens_indexes_ready
+    if _recent_opens_indexes_ready:
+        return
+    try:
+        _db = get_db()
+        coll = _db.recent_opens
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            coll.create_index([('user_id', ASCENDING), ('file_name', ASCENDING)], name='user_file_unique', unique=True)
+            coll.create_index([('user_id', ASCENDING), ('last_opened_at', DESCENDING)], name='user_last_opened_idx')
+        except Exception:
+            # גם אם יצירת אינדקס נכשלה, לא נכשיל את היישום
+            pass
+        _recent_opens_indexes_ready = True
+    except Exception:
+        # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
+        pass
+
+@app.before_first_request
+def _init_indexes_once():
+    try:
+        ensure_recent_opens_indexes()
+    except Exception:
+        pass
+
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
     try:
@@ -623,6 +653,12 @@ def files():
     repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
     per_page = 20
+    # ברירת מחדל למיון בקטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון
+    try:
+        if (category_filter or '').strip().lower() == 'recent' and not (request.args.get('sort') or '').strip():
+            sort_by = '-last_opened_at'
+    except Exception:
+        pass
     
     # בניית שאילתה - כולל סינון קבצים פעילים בלבד
     query = {
@@ -768,6 +804,10 @@ def files():
             })
             query['$and'].append({'file_name': {'$not': {'$regex': r'\.zip$', '$options': 'i'}}})
             query['$and'].append({'is_archive': {'$ne': True}})
+        elif category_filter == 'recent':
+            # תצוגת "נפתחו לאחרונה" – נשתמש באוסף recent_opens
+            # נחזיר מוקדם תבנית שמחכה ל-files_list שנבנה מטבלת recent_opens
+            pass
     
     # ספירת סך הכל (אם לא חושב כבר)
     if not category_filter:
@@ -821,6 +861,169 @@ def files():
     sort_order = DESCENDING if sort_by.startswith('-') else 1
     sort_field = sort_by.lstrip('-')
     
+    # קטגוריה מיוחדת: recent
+    if category_filter == 'recent':
+        # שליפת שמות קבצים אחרונים לפי user_id והזמן האחרון שנפתחו
+        try:
+            recent_docs = list(db.recent_opens.find({'user_id': user_id}, {'file_name': 1, 'last_opened_at': 1, '_id': 0}))
+        except Exception:
+            recent_docs = []
+
+        if not recent_docs:
+            # אין קבצים שנפתחו לאחרונה
+            languages = db.code_snippets.distinct(
+                'programming_language',
+                {
+                    'user_id': user_id,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                }
+            )
+            languages = sorted([lang for lang in languages if lang]) if languages else []
+            return render_template('files.html',
+                                 user=session['user_data'],
+                                 files=[],
+                                 total_count=0,
+                                 languages=languages,
+                                 search_query=search_query,
+                                 language_filter=language_filter,
+                                 category_filter=category_filter,
+                                 sort_by=sort_by,
+                                 page=page,
+                                 total_pages=1,
+                                 has_prev=False,
+                                 has_next=False,
+                                 bot_username=BOT_USERNAME_CLEAN)
+
+        # מיפוי שם->זמן פתיחה אחרון ומערך שמות
+        recent_map = {}
+        file_names = []
+        for r in recent_docs:
+            fname = (r.get('file_name') or '').strip()
+            if not fname:
+                continue
+            file_names.append(fname)
+            recent_map[fname] = r.get('last_opened_at')
+
+        # בניית שאילתה עם כל המסננים שכבר חושבו + סינון לשמות שנפתחו לאחרונה
+        recent_query = {
+            'user_id': user_id,
+            '$and': [{
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }]
+        }
+        # לשמור עקביות עם החיפוש/מסננים הכלליים
+        if search_query:
+            recent_query['$and'].append({'$or': [
+                {'file_name': {'$regex': search_query, '$options': 'i'}},
+                {'description': {'$regex': search_query, '$options': 'i'}},
+                {'tags': {'$in': [search_query.lower()]}}
+            ]})
+        if language_filter:
+            recent_query['programming_language'] = language_filter
+        # צמצום לשמות שנפתחו לאחרונה
+        recent_query['file_name'] = {'$in': file_names or ['__none__']}
+
+        # אגרגציה: גרסה אחרונה לכל שם קובץ + פלטר לתוכן לא ריק
+        sort_field_local = sort_by.lstrip('-') if sort_by else 'last_opened_at'
+        sort_dir = -1 if (sort_by or '').startswith('-') else 1
+
+        pipeline = [
+            {'$match': recent_query},
+            {'$addFields': {
+                'code_size': {
+                    '$cond': {
+                        'if': {'$and': [
+                            {'$ne': ['$code', None]},
+                            {'$eq': [{'$type': '$code'}, 'string']}
+                        ]},
+                        'then': {'$strLenBytes': '$code'},
+                        'else': 0
+                    }
+                }
+            }},
+            {'$match': {'code_size': {'$gt': 0}}},
+            {'$sort': {'file_name': 1, 'version': -1}},
+            {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+            {'$replaceRoot': {'newRoot': '$latest'}},
+        ]
+
+        # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
+        if sort_field_local in {'file_name', 'created_at', 'updated_at'}:
+            pipeline.append({'$sort': {sort_field_local: sort_dir}})
+
+        try:
+            latest_items = list(db.code_snippets.aggregate(pipeline))
+        except Exception:
+            latest_items = []
+
+        # מיון לפי זמן פתיחה אחרון (במידה ונדרש)
+        if sort_field_local not in {'file_name', 'created_at', 'updated_at'}:
+            # treat as last_opened_at
+            latest_items.sort(key=lambda d: (recent_map.get(d.get('file_name') or ''), (d.get('file_name') or '')), reverse=(sort_dir == -1))
+
+        # פג'ינציה
+        total_count = len(latest_items)
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * per_page
+        end = start + per_page
+        page_items = latest_items[start:end]
+
+        # המרה לפורמט תבנית
+        files_list = []
+        for latest in page_items:
+            fname = latest.get('file_name') or ''
+            code_str = latest.get('code') or ''
+            lang_raw = (latest.get('programming_language') or '').lower() or 'text'
+            lang_display = 'markdown' if (lang_raw in {'', 'text'} and fname.lower().endswith('.md')) else lang_raw
+            files_list.append({
+                'id': str(latest.get('_id')),
+                'file_name': fname,
+                'language': lang_display,
+                'icon': get_language_icon(lang_display),
+                'description': latest.get('description', ''),
+                'tags': latest.get('tags', []),
+                'size': format_file_size(len(code_str.encode('utf-8'))),
+                'lines': len(code_str.splitlines()),
+                'created_at': format_datetime_display(latest.get('created_at')),
+                'updated_at': format_datetime_display(latest.get('updated_at')),
+                'last_opened_at': format_datetime_display(recent_map.get(fname)),
+            })
+
+        # רשימת שפות לפילטר - רק מקבצים פעילים
+        languages = db.code_snippets.distinct(
+            'programming_language',
+            {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }
+        )
+        languages = sorted([lang for lang in languages if lang]) if languages else []
+
+        return render_template('files.html',
+                             user=session['user_data'],
+                             files=files_list,
+                             total_count=total_count,
+                             languages=languages,
+                             search_query=search_query,
+                             language_filter=language_filter,
+                             category_filter=category_filter,
+                             sort_by=sort_by,
+                             page=page,
+                             total_pages=total_pages,
+                             has_prev=page > 1,
+                             has_next=page < total_pages,
+                             bot_username=BOT_USERNAME_CLEAN)
+
     # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
@@ -950,6 +1153,27 @@ def view_file(file_id):
     if not file:
         abort(404)
     
+    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי
+    try:
+        ensure_recent_opens_indexes()
+        coll = db.recent_opens
+        now = datetime.now(timezone.utc)
+        coll.update_one(
+            {'user_id': user_id, 'file_name': file.get('file_name')},
+            {'$set': {
+                'user_id': user_id,
+                'file_name': file.get('file_name'),
+                'last_opened_at': now,
+                'last_opened_file_id': file.get('_id'),
+                'language': (file.get('programming_language') or 'text'),
+                'updated_at': now,
+            }, '$setOnInsert': {'created_at': now}},
+            upsert=True
+        )
+    except Exception:
+        # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
+        pass
+
     # הדגשת syntax
     code = file.get('code', '')
     language = (file.get('programming_language') or 'text').lower()
