@@ -134,6 +134,11 @@ def get_db():
             # בדיקת חיבור
             client.server_info()
             db = client[DATABASE_NAME]
+            # קריאה חד-פעמית להבטחת אינדקסים באוסף recent_opens
+            try:
+                ensure_recent_opens_indexes()
+            except Exception:
+                pass
         except Exception as e:
             print(f"Failed to connect to MongoDB: {e}")
             raise
@@ -162,12 +167,7 @@ def ensure_recent_opens_indexes() -> None:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
         pass
 
-@app.before_first_request
-def _init_indexes_once():
-    try:
-        ensure_recent_opens_indexes()
-    except Exception:
-        pass
+# (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
 
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
