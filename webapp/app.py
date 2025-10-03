@@ -167,16 +167,7 @@ def ensure_recent_opens_indexes() -> None:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
         pass
 
-<<<<<<< HEAD
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
-=======
-@app.before_first_request
-def _init_indexes_once():
-    try:
-        ensure_recent_opens_indexes()
-    except Exception:
-        pass
->>>>>>> origin/main
 
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
