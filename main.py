@@ -235,8 +235,11 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # רישום בסיסי לגמרי מחוץ ל-try כדי לא לחסום את הפלואו
     try:
+        # כדי לשמר ספי milestones, אם דוגמים — נכפיל את המשקל בהתאם להסתברות הדגימה
         if sampled:
-            user_stats.log_user(update.effective_user.id, update.effective_user.username)
+            # p=0.25 -> weight=4; אם משתנה — נשאב מהקונפיג בעתיד
+            weight = 4
+            user_stats.log_user(update.effective_user.id, update.effective_user.username, weight=weight)
     except Exception:
         pass
 
