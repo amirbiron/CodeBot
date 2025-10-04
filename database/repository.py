@@ -655,7 +655,20 @@ class Repository:
                 {"$sort": {"tag": 1}},
                 {"$limit": max(1, int(max_tags or 100))},
             ]
-            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            # נרמל לפורמט מובטח: [{"tag": str, "count": int}]
+            out: List[Dict] = []
+            for it in raw:
+                if isinstance(it, dict):
+                    tag_val = it.get("tag") if "tag" in it else it.get("_id")
+                    try:
+                        cnt_val = int(it.get("count") or 0)
+                    except Exception:
+                        cnt_val = 0
+                    out.append({"tag": tag_val, "count": cnt_val})
+                elif isinstance(it, str):
+                    out.append({"tag": it, "count": 1})
+            return out
         except Exception as e:
             logger.error(f"get_repo_tags_with_counts failed: {e}")
             return []
