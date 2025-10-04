@@ -1,5 +1,4 @@
 # Android & AI Style Rules
-# Android & AI Style Rules
 
 > מתי להשתמש: בכל שינוי/PR – כללי סגנון ותשובות. ראו גם: Commit/PR.
 
@@ -119,14 +118,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 הערה: טבלת דוגמאות ל־Conventional Commits והצ'קליסט לפני merge נשמרים בתבנית ה‑PR (`.github/pull_request_template.md`).
 
-## צ'קליסט לפני merge
 
-- אימות סוג הקומיט והודעה לפי הטבלה לעיל
-- PR ממלא תבנית מלאה (What/Why/Tests, Docs Preview, Rollback)
-- סטטוסי CI כולם ירוקים לפי Required Checks
-- אין סודות/PII בהיסטוריה, לוגים וקבצים מצורפים
-- תעודכן תיעוד/CHANGELOG אם נדרש
-- צילום/וידאו UI מצורף אם רלוונטי
 
 # CI / Required Checks
 
