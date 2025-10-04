@@ -19,6 +19,9 @@ class CodeSnippet:
     created_at: datetime = None
     updated_at: datetime = None
     is_active: bool = True
+    # שדות סל מיחזור: מתי נמחק ומתי יפוג התוקף למחיקה סופית
+    deleted_at: datetime = None
+    deleted_expires_at: datetime = None
 
     def __post_init__(self):
         if self.tags is None:
@@ -27,6 +30,7 @@ class CodeSnippet:
             self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
             self.updated_at = datetime.now(timezone.utc)
+        # אם הפריט מוגדר כלא-פעיל אך אין timestamps למחיקה, השאר ריק — נקבע בזמן מחיקה
 
 
 @dataclass
@@ -43,6 +47,8 @@ class LargeFile:
     created_at: datetime = None
     updated_at: datetime = None
     is_active: bool = True
+    deleted_at: datetime = None
+    deleted_expires_at: datetime = None
 
     def __post_init__(self):
         if self.tags is None:

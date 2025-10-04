@@ -28,6 +28,9 @@ class BotConfig:
     MAX_CODE_SIZE: int = 100000  # מקסימום 100KB לקטע קוד
     MAX_FILES_PER_USER: int = 1000
     SUPPORTED_LANGUAGES: list = None
+
+    # סל מיחזור: כמה ימים פריט נשמר לפני מחיקה אוטומטית
+    RECYCLE_TTL_DAYS: int = 7
     
     # כתובת בסיס ציבורית להצגת קישורים פנימיים (לשירות web)
     PUBLIC_BASE_URL: Optional[str] = None
@@ -106,6 +109,7 @@ def load_config() -> BotConfig:
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
         PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
         WEBAPP_URL=os.getenv('WEBAPP_URL'),
+        RECYCLE_TTL_DAYS=int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'),
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה
