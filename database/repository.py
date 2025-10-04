@@ -660,7 +660,17 @@ class Repository:
             out: List[Dict] = []
             for it in raw:
                 if isinstance(it, dict):
-                    tag_val = it.get("tag") if "tag" in it else it.get("_id")
+                    tag_val = None
+                    if "tag" in it and isinstance(it.get("tag"), str):
+                        tag_val = it.get("tag")
+                    elif "_id" in it:
+                        _idv = it.get("_id")
+                        if isinstance(_idv, str):
+                            tag_val = _idv
+                        elif isinstance(_idv, dict):
+                            tag_val = _idv.get("tag") or str(_idv)
+                    if tag_val is None:
+                        continue
                     try:
                         cnt_val = int(it.get("count") or 0)
                     except Exception:
