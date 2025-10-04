@@ -301,7 +301,8 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
                 try:
-                    if milestone in {200, 500, 1000}:
+                    # התראה לאדמין ממילון milestones משמעותיים (כעת 500+)
+                    if milestone >= 500:
                         uname = (username or f"User_{user_id}")
                         display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
                         await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
