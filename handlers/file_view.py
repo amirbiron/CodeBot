@@ -621,15 +621,15 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         keyboard = [[
-            InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_del_{file_index}"),
+            InlineKeyboardButton("✅ כן, העבר לסל מיחזור", callback_data=f"confirm_del_{file_index}"),
             InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}"),
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"⚠️ *אישור מחיקה*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
-            f"🗑️ האם אתה בטוח שברצונך למחוק את הקובץ?\n"
-            f"⚠️ **פעולה זו לא ניתנת לביטול!**",
+            f"🗑️ האם להעביר את הקובץ לסל המיחזור?\n"
+            f"♻️ ניתן לשחזר מתוך סל המיחזור עד פקיעת התוקף",
             reply_markup=reply_markup,
             parse_mode='Markdown',
         )
@@ -657,9 +657,9 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             keyboard = [[InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
-                f"✅ *הקובץ נמחק בהצלחה!*\n\n"
-                f"📄 **קובץ שנמחק:** `{file_name}`\n"
-                f"🗑️ **הקובץ הוסר לחלוטין מהמערכת**",
+                f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
+                f"📄 **קובץ:** `{file_name}`\n"
+                f"♻️ ניתן לשחזר אותו מתפריט '🗑️ סל מיחזור' עד למחיקה אוטומטית",
                 reply_markup=reply_markup,
                 parse_mode='Markdown',
             )
