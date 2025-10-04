@@ -715,6 +715,59 @@ class CodeKeeperBot:
         # self.application.add_handler(CommandHandler("list", self.list_command))  # מחוק - מטופל על ידי הכפתור "📚 הצג את כל הקבצים שלי"
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
+        # Admin-only: recycle backfill TTL for soft-deleted items
+        async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                admin_ids = get_admin_ids()
+                if not (admin_ids and update.effective_user.id in admin_ids):
+                    return
+                # Parse days (X)
+                try:
+                    days = int(context.args[0]) if context.args else int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7')
+                except Exception:
+                    days = 7
+                days = max(1, min(days, 365))
+                from datetime import datetime, timedelta, timezone
+                now = datetime.now(timezone.utc)
+                exp = now + timedelta(days=days)
+                # Perform backfill on both collections
+                updated_regular = 0
+                updated_large = 0
+                try:
+                    res = db.collection.update_many(
+                        {"is_active": False, "deleted_expires_at": {"$exists": False}},
+                        {"$set": {"deleted_at": now, "deleted_expires_at": exp}},
+                    )
+                    updated_regular = int(res.modified_count or 0)
+                except Exception:
+                    pass
+                try:
+                    res2 = db.large_files_collection.update_many(
+                        {"is_active": False, "deleted_expires_at": {"$exists": False}},
+                        {"$set": {"deleted_at": now, "deleted_expires_at": exp}},
+                    )
+                    updated_large = int(res2.modified_count or 0)
+                except Exception:
+                    pass
+                # Ensure TTL index (idempotent)
+                try:
+                    from pymongo import ASCENDING
+                    db.collection.create_index([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0)
+                except Exception:
+                    pass
+                try:
+                    from pymongo import ASCENDING
+                    db.large_files_collection.create_index([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0)
+                except Exception:
+                    pass
+                await update.message.reply_text(
+                    f"♻️ Backfill completed for recycle bin TTL (days={days}).\n"
+                    f"📄 Regular: {updated_regular} updated\n"
+                    f"📄 Large: {updated_large} updated"
+                )
+            except Exception as e:
+                await update.message.reply_text(f"❌ Backfill failed: {e}")
+        self.application.add_handler(CommandHandler("recycle_backfill", recycle_backfill_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
         
         # הוספת פקודות cache
