@@ -183,21 +183,7 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            # הקשחה: ודא צורה עקבית של {tag, count} גם אם אמולטור בדיקות מחזיר מבנה מעט שונה
-            out: List[Dict] = []
-            for it in raw:
-                try:
-                    if isinstance(it, dict):
-                        if 'tag' in it:
-                            out.append({'tag': it.get('tag'), 'count': int((it.get('count') or 0))})
-                        elif '_id' in it and 'count' in it:
-                            out.append({'tag': it.get('_id'), 'count': int((it.get('count') or 0))})
-                    elif isinstance(it, str):
-                        out.append({'tag': it, 'count': 1})
-                except Exception:
-                    continue
-            return out
+            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
         except Exception as e:
             logger.error(f"שגיאה בקבלת קבצי משתמש: {e}")
             return []
@@ -220,7 +206,21 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            # הקשחה: ודא צורה עקבית של {tag, count} גם אם אמולטור בדיקות מחזיר מבנה מעט שונה
+            out: List[Dict] = []
+            for it in raw:
+                try:
+                    if isinstance(it, dict):
+                        if 'tag' in it:
+                            out.append({'tag': it.get('tag'), 'count': int((it.get('count') or 0))})
+                        elif '_id' in it and 'count' in it:
+                            out.append({'tag': it.get('_id'), 'count': int((it.get('count') or 0))})
+                    elif isinstance(it, str):
+                        out.append({'tag': it, 'count': 1})
+                except Exception:
+                    continue
+            return out
         except Exception as e:
             logger.error(f"שגיאה בחיפוש קוד: {e}")
             return []

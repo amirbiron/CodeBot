@@ -19,7 +19,12 @@ class DummyCollection:
                             if isinstance(v, dict) and "$regex" in v:
                                 import re
                                 rx = re.compile(v["$regex"])  # lowercase 'repo:' per convention
-                                if not any(rx.search(str(t) or "") for t in (d.get("tags") or [])):
+                                tags = d.get("tags") or []
+                                if isinstance(tags, list):
+                                    matched = any(rx.search(str(t) or "") for t in tags)
+                                else:
+                                    matched = bool(rx.search(str(tags) or ""))
+                                if not matched:
                                     ok = False
                                     break
                             else:
