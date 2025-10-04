@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, WAIT_ADD_CODE_MODE, LONG_COLLECT
 from services import code_service
 from utils import TextUtils
+from utils import normalize_code  # נרמול קלט כדי להסיר תווים נסתרים מוקדם
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,11 @@ async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> in
         return LONG_COLLECT
 
     text = _sanitize_part(text)
+    # נרמול מוקדם: הסרת תווים נסתרים/כיווניות ואיחוד שורות
+    try:
+        text = normalize_code(text)
+    except Exception:
+        pass
     parts = context.user_data.get('long_collect_parts')
     if parts is None:
         parts = []
@@ -232,6 +238,11 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return LONG_COLLECT
     code_text = "\n".join(parts)
+    # נרמול כלל הטקסט המאוחד (אידמפוטנטי)
+    try:
+        code_text = normalize_code(code_text)
+    except Exception:
+        pass
     context.user_data['code_to_save'] = code_text
     # אזהרת סודות באיחוד הכולל
     try:
@@ -262,6 +273,11 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def get_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     code = update.message.text
+    # נרמול מוקדם כדי למנוע תווים נסתרים כבר בשלב האיסוף
+    try:
+        code = normalize_code(code)
+    except Exception:
+        pass
     context.user_data['code_to_save'] = code
     lines = len(code.split('\n'))
     chars = len(code)
@@ -327,6 +343,11 @@ async def get_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def save_file_final(update, context, filename, user_id):
     context.user_data['filename_to_save'] = filename
     code = context.user_data.get('code_to_save')
+    # הבטחת נרמול לפני שמירה (אידמפוטנטי)
+    try:
+        code = normalize_code(code)
+    except Exception:
+        pass
     try:
         detected_language = code_service.detect_language(code, filename)
         from database import db, CodeSnippet
