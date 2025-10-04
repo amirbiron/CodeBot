@@ -114,12 +114,23 @@ async def test_recycle_restore_and_purge_failure_alerts(monkeypatch):
     mod.db = DummyDB(Repo())
     monkeypatch.setitem(__import__('sys').modules, "database", mod)
 
+    # Ensure message edits don't require real Telegram
+    captured = {}
+    async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
+        captured["text"] = text
+    from utils import TelegramUtils
+    monkeypatch.setattr(TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
+
     class Q:
         def __init__(self, data):
             self.data = data
             self.answers = []
         async def answer(self, *a, **k):
             self.answers.append(k)
+        async def edit_message_text(self, *a, **k):
+            # Should not be called due to safe_edit_message_text monkeypatch,
+            # but provide a no-op to avoid AttributeError.
+            return None
 
     class U:
         def __init__(self, data):
