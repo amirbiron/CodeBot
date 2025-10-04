@@ -2542,11 +2542,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             warn_text = (
                 f"⚠️ עומד/ת להעביר <b>{total}</b> קבצים של <code>{tag}</code> לסל המיחזור.\n"
-<<<<<<< HEAD
                 f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
-=======
-                f"הקבצים יהיו ניתנים לשחזור עד {config.RECYCLE_TTL_DAYS} ימים, ולאחר מכן יימחקו אוטומטית.\n"
->>>>>>> 4ff2012 (feat: Implement recycle bin functionality)
                 "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n\n"
                 "אם זה בטעות, חזור/י אחורה."
             )
@@ -2729,11 +2725,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             msg = (
                 f"✅ הועברו לסל {deleted} קבצים תחת <code>{tag}</code>.\n"
-<<<<<<< HEAD
                 f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
-=======
-                f"♻️ ניתן לשחזר מסל המיחזור עד {config.RECYCLE_TTL_DAYS} ימים."
->>>>>>> 4ff2012 (feat: Implement recycle bin functionality)
             )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לתפריט ריפו", callback_data="by_repo_menu")],
