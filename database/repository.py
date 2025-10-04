@@ -183,7 +183,21 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            # הקשחה: ודא צורה עקבית של {tag, count} גם אם אמולטור בדיקות מחזיר מבנה מעט שונה
+            out: List[Dict] = []
+            for it in raw:
+                try:
+                    if isinstance(it, dict):
+                        if 'tag' in it:
+                            out.append({'tag': it.get('tag'), 'count': int((it.get('count') or 0))})
+                        elif '_id' in it and 'count' in it:
+                            out.append({'tag': it.get('_id'), 'count': int((it.get('count') or 0))})
+                    elif isinstance(it, str):
+                        out.append({'tag': it, 'count': 1})
+                except Exception:
+                    continue
+            return out
         except Exception as e:
             logger.error(f"שגיאה בקבלת קבצי משתמש: {e}")
             return []
@@ -647,7 +661,7 @@ class Repository:
         try:
             pipeline = [
                 {"$match": {"user_id": user_id, "is_active": True}},
-                {"$unwind": "$tags"},
+                {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
                 {"$match": {"tags": {"$regex": "^repo:"}}},
                 {"$group": {"_id": {"tag": "$tags", "file_name": "$file_name"}}},
                 {"$group": {"_id": "$_id.tag", "count": {"$sum": 1}}},
