@@ -1144,7 +1144,7 @@ def normalize_code(text: str,
             try:
                 out = "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in out)
             except Exception:
-                # If classification fails for any reason, keep original text
+                # If classification fails, skip Zs replacement and keep current text
                 pass
 
         # Remove zero-width and directional formatting characters
