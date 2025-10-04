@@ -31,6 +31,9 @@ ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+# נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
+from utils import normalize_code  # noqa: E402
+
 # יצירת האפליקציה
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -1285,6 +1288,8 @@ def edit_file_page(file_id):
         try:
             file_name = (request.form.get('file_name') or '').strip()
             code = request.form.get('code') or ''
+            # נרמול התוכן כדי להסיר תווים נסתרים וליישר פורמט עוד לפני שמירה
+            code = normalize_code(code)
             language = (request.form.get('language') or '').strip() or (file.get('programming_language') or 'text')
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
@@ -1766,6 +1771,9 @@ def upload_file_web():
                             code = ''
                     if not file_name:
                         file_name = uploaded.filename or ''
+
+            # נרמול התוכן (בין אם הגיע מהטופס או מקובץ שהועלה)
+            code = normalize_code(code)
 
             if not file_name:
                 error = 'יש להזין שם קובץ'
