@@ -23,13 +23,25 @@ class DummyCollection:
                                     ok = False
                                     break
                             else:
-                                if v not in (d.get("tags") or []):
+                                tags = d.get("tags") or []
+                                if isinstance(tags, list):
+                                    if v not in tags:
+                                        ok = False
+                                        break
+                                else:
+                                    if tags != v:
+                                        ok = False
+                                        break
+                        else:
+                            val = d.get(k)
+                            if isinstance(val, list):
+                                if v not in val:
                                     ok = False
                                     break
-                        else:
-                            if d.get(k) != v:
-                                ok = False
-                                break
+                            else:
+                                if val != v:
+                                    ok = False
+                                    break
                     if ok:
                         out.append(d)
                 rows = out
@@ -54,7 +66,11 @@ class DummyCollection:
             elif "$group" in st and st["$group"].get("_id") == "$_id.tag":
                 counts = {}
                 for d in rows:
-                    tag = d.get("tags") if isinstance(d.get("tags"), str) else d.get("_id", {}).get("tag")
+                    _id = d.get("_id")
+                    if isinstance(_id, dict) and "tag" in _id:
+                        tag = _id.get("tag")
+                    else:
+                        tag = d.get("tags") if isinstance(d.get("tags"), str) else None
                     counts[tag] = counts.get(tag, 0) + 1
                 rows = [{"_id": k, "count": v} for k, v in counts.items()]
             elif "$project" in st:
@@ -67,12 +83,14 @@ class DummyCollection:
                             nd[k] = d.get(k)
                         elif isinstance(v, str) and v.startswith("$"):
                             path = v[1:]
-                            if path == "_id":
-                                nd[k] = d.get("_id")
-                            elif path.startswith("_id."):
-                                sub = path.split(".", 1)[1]
-                                _id = d.get("_id")
-                                nd[k] = _id.get(sub) if isinstance(_id, dict) else None
+                            cur = d
+                            for part in path.split('.'):
+                                if isinstance(cur, dict):
+                                    cur = cur.get(part)
+                                else:
+                                    cur = None
+                                    break
+                            nd[k] = cur
                     out.append(nd)
                 rows = out
             elif "$sort" in st:

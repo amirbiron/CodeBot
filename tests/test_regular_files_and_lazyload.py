@@ -63,8 +63,13 @@ class DummyCollection:
                             if not rx.search(str(val or "")):
                                 return False
                 else:
-                    if val != cond:
-                        return False
+                    # equality: support array membership semantics like Mongo
+                    if isinstance(val, list):
+                        if cond not in val:
+                            return False
+                    else:
+                        if val != cond:
+                            return False
             return True
 
         def distinct_latest(rows):
@@ -121,6 +126,10 @@ class DummyCollection:
             elif "$limit" in st:
                 rows = rows[: st["$limit"]]
             elif "$count" in st:
+                # count distinct file_name when present (closer to pipeline intent), fallback to len
+                if rows and isinstance(rows[0], dict) and "file_name" in rows[0]:
+                    uniq = len({r.get("file_name") for r in rows})
+                    return [{"count": uniq}]
                 return [{"count": len(rows)}]
         return rows
 
