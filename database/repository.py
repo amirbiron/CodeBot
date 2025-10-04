@@ -640,6 +640,78 @@ class Repository:
             logger.error(f"שגיאה בקבלת כל הקבצים: {e}")
             return {"regular_files": [], "large_files": []}
 
+    # --- Repo tags and names helpers (מטא־דאטה בלבד) ---
+    @cached(expire_seconds=30, key_prefix="repo_tags_counts")
+    def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
+        """מחזיר רשימת תגיות repo: עם ספירת קבצים ייחודיים לכל תגית (distinct file_name)."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$unwind": "$tags"},
+                {"$match": {"tags": {"$regex": "^repo:"}}},
+                {"$group": {"_id": {"tag": "$tags", "file_name": "$file_name"}}},
+                {"$group": {"_id": "$_id.tag", "count": {"$sum": 1}}},
+                {"$project": {"_id": 0, "tag": "$_id", "count": 1}},
+                {"$sort": {"tag": 1}},
+                {"$limit": max(1, int(max_tags or 100))},
+            ]
+            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+        except Exception as e:
+            logger.error(f"get_repo_tags_with_counts failed: {e}")
+            return []
+
+    @cached(expire_seconds=20, key_prefix="repo_file_names")
+    def get_user_file_names_by_repo(self, user_id: int, repo_tag: str) -> List[str]:
+        """מחזיר רשימת שמות קבצים ייחודיים תחת תגית ריפו (ללא תוכן)."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True, "tags": repo_tag}},
+                {"$group": {"_id": "$file_name"}},
+                {"$project": {"_id": 0, "file_name": "$_id"}},
+                {"$sort": {"file_name": 1}},
+            ]
+            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
+        except Exception as e:
+            logger.error(f"get_user_file_names_by_repo failed: {e}")
+            return []
+
+    @cached(expire_seconds=120, key_prefix="user_file_names")
+    def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
+        """שמות קבצים אחרונים (distinct לפי file_name), ממוינים לפי updated_at של הגרסה האחרונה."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$sort": {"updated_at": -1}},
+                {"$project": {"_id": 0, "file_name": 1}},
+                {"$limit": max(1, int(limit or 1000))},
+            ]
+            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
+        except Exception as e:
+            logger.error(f"get_user_file_names failed: {e}")
+            return []
+
+    @cached(expire_seconds=120, key_prefix="user_tags_flat")
+    def get_user_tags_flat(self, user_id: int) -> List[str]:
+        """כל התגיות הייחודיות למשתמש (כולל repo:), ללא תוכן וללא כפילויות."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
+                {"$group": {"_id": "$tags"}},
+                {"$project": {"_id": 0, "tag": "$_id"}},
+                {"$sort": {"tag": 1}},
+            ]
+            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return [d.get("tag") for d in docs if isinstance(d, dict) and d.get("tag")]
+        except Exception as e:
+            logger.error(f"get_user_tags_flat failed: {e}")
+            return []
+
     # Users auxiliary data
     def save_github_token(self, user_id: int, token: str) -> bool:
         try:
