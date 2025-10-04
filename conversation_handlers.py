@@ -646,14 +646,14 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     user_id = update.effective_user.id
     from database import db
     try:
-        # שלוף דף ספציפי מה-DB ללא תוכן קוד
+        # שלוף דף ספציפי מה-DB ללא תוכן קוד (ה-DB כבר מהדק עמוד חוקי במידת הצורך)
         data = query.data
         try:
-            page = int(data.split("_")[-1])
+            requested_page = int(data.split("_")[-1])
         except Exception:
-            page = context.user_data.get('files_last_page') or 1
-        page = max(1, page)
-        files, total_files = db.get_regular_files_paginated(user_id, page=page, per_page=FILES_PAGE_SIZE)
+            requested_page = context.user_data.get('files_last_page') or 1
+        requested_page = max(1, requested_page)
+        files, total_files = db.get_regular_files_paginated(user_id, page=requested_page, per_page=FILES_PAGE_SIZE)
         if total_files == 0:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
@@ -664,19 +664,18 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
             return ConversationHandler.END
 
-        context.user_data['files_last_page'] = page
-        context.user_data['files_origin'] = { 'type': 'regular' }
+        # חישוב מספר העמודים והידוק 'page_used' לעמוד חוקי, תואם לפריטים שחזרו מה-DB
         total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
-        if page > total_pages:
-            page = total_pages
-            files, _ = db.get_regular_files_paginated(user_id, page=page, per_page=FILES_PAGE_SIZE)
+        page_used = min(max(1, requested_page), total_pages)
+        context.user_data['files_last_page'] = page_used
+        context.user_data['files_origin'] = { 'type': 'regular' }
 
         # בנה מקלדת לדף המבוקש
         keyboard = []
         multi_on = bool(context.user_data.get('rf_multi_delete'))
         selected_ids = set(context.user_data.get('rf_selected_ids') or [])
         context.user_data['files_cache'] = {}
-        start_index = (page - 1) * FILES_PAGE_SIZE
+        start_index = (page_used - 1) * FILES_PAGE_SIZE
         for offset, file in enumerate(files):
             i = start_index + offset
             file_name = file.get('file_name', 'קובץ ללא שם')
@@ -686,13 +685,13 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
                 file_id = str(file.get('_id') or '')
                 checked = "☑️" if file_id in selected_ids else "⬜️"
                 button_text = f"{checked} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page}:{file_id}")])
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page_used}:{file_id}")])
             else:
                 context.user_data['files_cache'][str(i)] = file
                 button_text = f"{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
-        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
+        pagination_row = build_pagination_row(page_used, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
             keyboard.append(pagination_row)
 
@@ -710,7 +709,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
 
         header_text = (
             f"📚 <b>הקבצים השמורים שלך</b> — סה״כ: {total_files}\n"
-            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            f"📄 עמוד {page_used} מתוך {total_pages}\n\n"
             "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
         )
 
