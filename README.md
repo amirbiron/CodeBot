@@ -18,8 +18,6 @@
 [![Coverage](https://img.shields.io/codecov/c/github/amirbiron/CodeBot?branch=main)](https://app.codecov.io/gh/amirbiron/CodeBot/branch/main)
 [![Requirements Status](https://requires.io/github/amirbiron/CodeBot/requirements.svg?branch=main)](https://requires.io/github/amirbiron/CodeBot/requirements/?branch=main)
 
-**🌐 קישור מהיר:** עיינו ב-[README של ה‑WebApp](webapp/README.md).
-
 ## 📋 תוכן עניינים
 
 - התחלה מהירה
@@ -265,15 +263,14 @@ Render הוא הפלטפורמה הטובה ביותר לפריסת הבוט:
 #### שלב 2: פריסה לRender
 1. הרשם ל-[Render.com](https://render.com)
 2. התחבר עם GitHub account
-3. לחץ על **"New Web Service"**
+3. לחץ על **"Background Worker"**
 4. בחר את ה-repository שלך
 5. מלא את ההגדרות:
    ```
    Name: code-keeper-bot
    Region: US East (Ohio) 
    Branch: main
-   Build Command: pip install -r requirements.txt
-   Start Command: python main.py
+   Dockerfile Path: ./Dockerfile
    ```
 
 #### שלב 3: הגדרת משתני סביבה
@@ -344,6 +341,39 @@ docker run -d --env-file .env code-keeper-bot
 ```
 
 ## 📚 שימוש
+
+### התחלת עבודה
+1. שלח `/start` לבוט
+2. קבל הודעת ברוכים הבאים
+3. שלח `/help` לעזרה מפורטת
+
+### שמירת קוד ראשון
+```
+/save hello.py
+```
+לאחר מכן שלח את הקוד:
+```python
+def hello_world():
+    print("Hello, World!")
+    return "success"
+
+if __name__ == "__main__":
+    hello_world()
+```
+
+### הוספת תגיות
+```
+/save api_client.py #python #api #client
+```
+
+### חיפוש קוד
+```
+/search python          # חיפוש לפי שפה
+/search #api            # חיפוש לפי תגית
+/search function        # חיפוש חופשי
+```
+
+### 🏷️ נקודת שמירה בגיט (Git Checkpoint)
 
 ## 🧹 ניקוי קוד אוטומטי
 
@@ -448,6 +478,31 @@ if __name__ == "__main__":
 > - יצירת נקודת שמירה יוצרת רפרנס (ref) לסנאפשוט של ה-commit הנוכחי (tag או branch), לא קובץ חדש.
 > - לשינוי הקידומת לשם נקודת שמירה, הגדר משתנה סביבה למשל: `GIT_CHECKPOINT_PREFIX=snap`.
 
+## 🧹 ניקוי קוד אוטומטי
+
+הבוט מנקה תווים נסתרים ומנרמל את הקוד אוטומטית לפני שמירה, כדי למנוע דלטות מבלבלות ותקלות הדבקה.
+
+- **מה מנורמל**:
+  - הסרת BOM בתחילת הקובץ
+  - המרת שורות ל-LF (CRLF/CR → LF)
+  - החלפת NBSP/NNBSP לרווח רגיל
+  - הסרת תווי רוחב‑אפס (ZWSP/ZWNJ/ZWJ) וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)
+  - הסרת תווי בקרה לא מודפסים (Cc) מלבד טאב/שורה חדשה
+  - הסרת רווחים בסוף שורות
+
+- **היכן חל**: כל מסלולי השמירה (`save_code_snippet`, `save_file`, `save_large_file`).
+
+- **ברירת מחדל**: פעיל.
+
+- **כיבוי/הפעלה**: באמצעות משתנה סביבה `NORMALIZE_CODE_ON_SAVE`.
+
+```env
+# .env
+NORMALIZE_CODE_ON_SAVE=false  # לכיבוי (ברירת מחדל: true)
+```
+
+הניקוי אינו משנה לוגיקת קוד, אך עשוי להשפיע על דיפים (הסרת רווחי סוף שורה/תווים נסתרים).
+
 ## 📖 תיעוד API
 
 ### 📚 תיעוד מקיף ומפורט
@@ -493,8 +548,8 @@ docs/
 ### 🌐 תיעוד אונליין
 
 התיעוד זמין גם באופן מקוון:
-- [Read the Docs](https://code-keeper-bot.readthedocs.io) (בקרוב)
-- [GitHub Pages](https://yourusername.github.io/code-keeper-bot) (בקרוב)
+- [Read the Docs](https://codebot.readthedocs.io/en/latest/)
+- [GitHub Pages](https://amirbiron.github.io/CodeBot/)
 
 ### ✏️ תרומה לתיעוד
 
@@ -797,8 +852,7 @@ print('זיכרון:', get_memory_usage())
 - **Telegram**: [@moominAmir](https://t.me/moominAmir)
 
 ### קהילה
-- [Telegram Group](https://t.me/code_keeper_bot_community)
-- [Discord Server](https://discord.gg/your_invite)
+- [Telegram Group](https://t.me/+nh9skKRgTEVkZmJk)
 
 ## 📋 מצב הפרויקט
 
