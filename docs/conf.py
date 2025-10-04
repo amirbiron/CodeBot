@@ -86,7 +86,8 @@ templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'api/get-pip.rst']
 
 # The language for content
-language = 'he'
+# שפת תוכן ברירת מחדל. RTD לעיתים מגדיר EN מחוץ ל-conf; לא נכשל אם יש שונות.
+language = os.environ.get('SPHINX_LANGUAGE', 'he')
 
 # -- Options for HTML output -------------------------------------------------
 html_theme = 'sphinx_rtd_theme'
