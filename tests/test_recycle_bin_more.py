@@ -115,7 +115,8 @@ def test_repository_delete_by_id_and_large_files(monkeypatch):
 
     # large files delete (by name and by id)
     ok1 = repo.delete_large_file(user_id=3, file_name="big.txt")
-    ok2 = repo.delete_large_file_by_id("id42")
+    from bson import ObjectId as _OID
+    ok2 = repo.delete_large_file_by_id(str(_OID()))
     assert ok1 and ok2
 
     # list_deleted_files
