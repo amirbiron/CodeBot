@@ -22,12 +22,13 @@ def test_normalize_code_preserves_non_cf_escapes():
     assert out.count("\\u0041") == 1
 
 
-def test_normalize_code_strips_literal_U_cf():
-    # U+E0001 (LANGUAGE TAG) and U+E0100 (Variation Selector-17) are 'Cf'
+def test_normalize_code_strips_literal_U_cf_and_preserves_non_cf():
+    # U+E0001 (LANGUAGE TAG) is 'Cf' and should be stripped
+    # U+E0100 (Variation Selector-17) is 'Mn' and should be preserved by default
     text = "X\\U000E0001Y Z\\U000E0100W"
     out = normalize_code(text)
-    for esc in ["\\U000E0001", "\\U000E0100"]:
-        assert esc not in out
+    assert "\\U000E0001" not in out
+    assert "\\U000E0100" in out
     # Ensure surrounding characters still present
     assert "X" in out and "Y" in out and "Z" in out and "W" in out
 

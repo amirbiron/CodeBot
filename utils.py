@@ -1110,7 +1110,8 @@ def normalize_code(text: str,
                    remove_directional_marks: bool = True,
                    trim_trailing_whitespace: bool = True,
                    remove_other_format_chars: bool = True,
-                   remove_escaped_format_escapes: bool = True) -> str:
+                   remove_escaped_format_escapes: bool = True,
+                   remove_variation_selectors: bool = True) -> str:
     """נרמול קוד לפני שמירה.
 
     פעולות עיקריות:
@@ -1150,6 +1151,11 @@ def normalize_code(text: str,
                         cat = unicodedata.category(ch)
                         if cat == 'Cf':
                             return ""
+                        # Remove Unicode Variation Selectors (U+FE00..U+FE0F)
+                        if remove_variation_selectors:
+                            v = int(hexcode, 16)
+                            if 0xFE00 <= v <= 0xFE0F:
+                                return ""
                     except Exception:
                         pass
                     return m.group(0)  # keep original escape
@@ -1164,6 +1170,11 @@ def normalize_code(text: str,
                         ch = chr(int(hexcode, 16))
                         if unicodedata.category(ch) == 'Cf':
                             return ""
+                        # Remove Ideographic Variation Selectors (U+E0100..U+E01EF)
+                        if remove_variation_selectors:
+                            v = int(hexcode, 16)
+                            if 0xE0100 <= v <= 0xE01EF:
+                                return ""
                     except Exception:
                         pass
                     return m.group(0)
@@ -1225,6 +1236,12 @@ def normalize_code(text: str,
                     return False
                 if remove_directional_marks and ch in directional:
                     return False
+                # Remove Variation Selectors if requested
+                if remove_variation_selectors:
+                    cp = ord(ch)
+                    # VS1..VS16 (U+FE00..U+FE0F) and Ideographic VS (U+E0100..U+E01EF)
+                    if (0xFE00 <= cp <= 0xFE0F) or (0xE0100 <= cp <= 0xE01EF):
+                        return False
                 # Drop other control chars (Cc), keep others
                 cat = unicodedata.category(ch)
                 if cat == 'Cc' and ch not in ("\t", "\n", "\r"):
