@@ -570,9 +570,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     from database import db
     
     try:
-        all_files = db.get_user_files(user_id, limit=10000)
-        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
-        
+        # עימוד אמיתי בצד ה-DB + ללא החזרת תוכן קוד
+        files, total_files = db.get_regular_files_paginated(user_id, page=1, per_page=FILES_PAGE_SIZE)
         if not files:
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
@@ -587,22 +586,19 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             )
         else:
             # עימוד והצגת דף ראשון
-            total_files = len(files)
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             page = 1
             context.user_data['files_last_page'] = page
             context.user_data['files_origin'] = { 'type': 'regular' }
             # אתחול מצב מחיקה מרובה
-            context.user_data['rf_all_files'] = files
             context.user_data['rf_multi_delete'] = False
             context.user_data['rf_selected_ids'] = []
-            start_index = (page - 1) * FILES_PAGE_SIZE
-            end_index = min(start_index + FILES_PAGE_SIZE, total_files)
 
             keyboard = []
             context.user_data['files_cache'] = {}
-            for i in range(start_index, end_index):
-                file = files[i]
+            start_index = 0
+            for offset, file in enumerate(files):
+                i = start_index + offset
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
                 context.user_data['files_cache'][str(i)] = file
@@ -650,10 +646,15 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     user_id = update.effective_user.id
     from database import db
     try:
-        # קרא את כל הקבצים כדי לחשב עימוד, אך הצג רק "שאר הקבצים"
-        all_files = db.get_user_files(user_id, limit=10000)
-        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
-        if not files:
+        # שלוף דף ספציפי מה-DB ללא תוכן קוד
+        data = query.data
+        try:
+            page = int(data.split("_")[-1])
+        except Exception:
+            page = context.user_data.get('files_last_page') or 1
+        page = max(1, page)
+        files, total_files = db.get_regular_files_paginated(user_id, page=page, per_page=FILES_PAGE_SIZE)
+        if total_files == 0:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
@@ -663,32 +664,21 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
             return ConversationHandler.END
 
-        # ניתוח מספר העמוד המבוקש
-        data = query.data
-        try:
-            page = int(data.split("_")[-1])
-        except Exception:
-            page = context.user_data.get('files_last_page') or 1
         context.user_data['files_last_page'] = page
         context.user_data['files_origin'] = { 'type': 'regular' }
-        if page < 1:
-            page = 1
-
-        total_files = len(files)
         total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
         if page > total_pages:
             page = total_pages
-
-        start_index = (page - 1) * FILES_PAGE_SIZE
-        end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+            files, _ = db.get_regular_files_paginated(user_id, page=page, per_page=FILES_PAGE_SIZE)
 
         # בנה מקלדת לדף המבוקש
         keyboard = []
         multi_on = bool(context.user_data.get('rf_multi_delete'))
         selected_ids = set(context.user_data.get('rf_selected_ids') or [])
         context.user_data['files_cache'] = {}
-        for i in range(start_index, end_index):
-            file = files[i]
+        start_index = (page - 1) * FILES_PAGE_SIZE
+        for offset, file in enumerate(files):
+            i = start_index + offset
             file_name = file.get('file_name', 'קובץ ללא שם')
             language = file.get('programming_language', 'text')
             emoji = get_file_emoji(language)
@@ -2231,17 +2221,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         deleted += 1
                 except Exception:
                     continue
-            # רענון רשימת הקבצים ושחזור מצב רגיל
+            # רענון רשימת הקבצים ושחזור מצב רגיל (דף עדכני) ישירות מה-DB
             try:
-                all_files = db.get_user_files(user_id, limit=10000)
-                files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
+                last_page = context.user_data.get('files_last_page') or 1
+                files, total_files = db.get_regular_files_paginated(user_id, page=last_page, per_page=FILES_PAGE_SIZE)
             except Exception:
-                files = []
-            context.user_data['rf_all_files'] = files
+                files, total_files = [], 0
             context.user_data['rf_selected_ids'] = []
             context.user_data['rf_multi_delete'] = False
             # עדכן עמוד אחרון בהתאם לסה"כ אחרי מחיקה
-            total_files = len(files)
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             last_page = context.user_data.get('files_last_page') or 1
             if last_page > total_pages:

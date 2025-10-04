@@ -242,6 +242,72 @@ class Repository:
             logger.error(f"שגיאה בקבלת קבצי ריפו: {e}")
             return [], 0
 
+    @cached(expire_seconds=20, key_prefix="regular_files")
+    def get_regular_files_paginated(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
+        """רשימת "שאר הקבצים" (ללא תגיות שמתחילות ב-"repo:") עם עימוד אמיתי וספירה.
+
+        מחזיר מסמכים מגרסה אחרונה לכל `file_name`, עם שדות מטא־דאטה בלבד לתפריטים:
+        _id, file_name, programming_language, updated_at, description, tags.
+        """
+        try:
+            page = max(1, int(page or 1))
+            per_page = max(1, int(per_page or 10))
+            skip = (page - 1) * per_page
+
+            # שליפת פריטים לעמוד המבוקש
+            items_pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                # בחר גרסה אחרונה לכל שם קובץ ביעילות (נשען על user_active_file_latest_idx)
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                # סינון "שאר הקבצים": ללא תגיות שמתחילות ב-repo:
+                {"$match": {
+                    "$or": [
+                        {"tags": {"$exists": False}},
+                        {"tags": {"$eq": []}},
+                        {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
+                    ]
+                }},
+                {"$sort": {"updated_at": -1}},
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    # אל תחזיר תוכן קוד לתפריטים
+                    "code": 0,
+                }},
+                {"$skip": skip},
+                {"$limit": per_page},
+            ]
+            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
+
+            # ספירה (distinct לפי file_name לאחר סינון)
+            count_pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$match": {
+                    "$or": [
+                        {"tags": {"$exists": False}},
+                        {"tags": {"$eq": []}},
+                        {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
+                    ]
+                }},
+                {"$group": {"_id": "$file_name"}},
+                {"$count": "count"},
+            ]
+            cnt = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
+            total = int((cnt[0].get("count") if cnt else 0) or 0)
+            return items, total
+        except Exception as e:
+            logger.error(f"get_regular_files_paginated failed: {e}")
+            return [], 0
+
     def delete_file(self, user_id: int, file_name: str) -> bool:
         try:
             now = datetime.now(timezone.utc)
