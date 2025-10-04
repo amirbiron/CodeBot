@@ -117,17 +117,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - לפני merge: תיאור ברור, תוכנית בדיקות, סיכוני Rollback, עדכון docs.
 - UI: צרפו צילום/וידאו תוצאות אם רלוונטי.
 
-## טבלת Conventional Commits – דוגמאות
-
-| סוג | דוגמה להודעה | מתי להשתמש |
-| --- | --- | --- |
-| feat | feat: הוספת מסך הגדרות | פיצ'ר חדש למשתמש |
-| fix | fix: תיקון קריסה בעת התחברות | תיקון באג מול משתמשים/פרודקשן |
-| chore | chore: שדרוג Gradle ל-8.9 | תחזוקה, כלי פיתוח, housekeeping |
-| docs | docs: עדכון README עם הוראות התקנה | שינויי תיעוד בלבד |
-| refactor | refactor: חילוץ Repository ל-UseCases | שינוי מבני ללא שינוי התנהגות |
-| test | test: הוספת בדיקות ל-LoginViewModel | הוספת/עדכון בדיקות |
-| build | build: הוספת flavor staging ל-CI | שינויים בבילד/תלויות/תצורה |
+הערה: טבלת דוגמאות ל־Conventional Commits והצ'קליסט לפני merge נשמרים בתבנית ה‑PR (`.github/pull_request_template.md`).
 
 ## צ'קליסט לפני merge
 
