@@ -1117,7 +1117,7 @@ def normalize_code(text: str,
     - המרת CRLF/CR ל-LF
     - החלפת רווחים לא-שוברים (NBSP/NNBSP) לרווח רגיל
     - הסרת תווי רוחב-אפס וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)
-    - הסרת תווי בקרה (Cc) פרט ל-\t, \n, \r
+    - הסרת תווי בקרה (Cc) פרט ל-\\t, \\n, \\r
     - הסרת רווחי סוף שורה
     """
     try:
