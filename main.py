@@ -239,7 +239,11 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if sampled:
             # p=0.25 -> weight=4; אם משתנה — נשאב מהקונפיג בעתיד
             weight = 4
-            user_stats.log_user(update.effective_user.id, update.effective_user.username, weight=weight)
+            try:
+                user_stats.log_user(update.effective_user.id, update.effective_user.username, weight=weight)
+            except TypeError:
+                # תאימות לאחור לטסטים/סביבה ישנה ללא פרמטר weight
+                user_stats.log_user(update.effective_user.id, update.effective_user.username)
     except Exception:
         pass
 
