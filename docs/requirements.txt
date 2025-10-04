@@ -2,7 +2,8 @@
 # =========================
 # Dependencies needed for building the documentation
 
-# Core Sphinx (RTD מתקין Sphinx בנפרד; אין צורך להצמיד כאן)
+# Core Sphinx
+sphinx<8,>=7.4.0
 sphinx-rtd-theme==3.0.1
 
 # Sphinx Extensions
