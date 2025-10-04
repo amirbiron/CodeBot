@@ -163,7 +163,8 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
         results = []
         for coll_name, friendly in (("collection", "קבצים רגילים"), ("large_files_collection", "קבצים גדולים")):
             coll = getattr(_db, coll_name, None)
-            if not coll:
+            # חשוב: אל תשתמשו ב-truthiness על קולקציה של PyMongo
+            if coll is None:
                 results.append((friendly, 0, 0, "collection-missing"))
                 continue
             # ensure TTL index idempotently
