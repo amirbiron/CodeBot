@@ -12,6 +12,7 @@ Code Service Module
 """
 
 from typing import Any, Dict, List, Tuple
+from utils import normalize_code
 
 # Thin wrapper around existing code_processor to allow future swap/refactor
 try:
@@ -110,9 +111,15 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             - error_message: הודעת שגיאה (אם יש)
     """
     if code_processor is None:
-        # Minimal fallback: accept as-is
-        return True, code, ""
-    return code_processor.validate_code_input(code, file_name, user_id)
+        # Minimal fallback: normalize only
+        return True, normalize_code(code), ""
+    ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
+    # Ensure normalization on the cleaned result (idempotent)
+    try:
+        cleaned = normalize_code(cleaned)
+    except Exception:
+        pass
+    return ok, cleaned, msg
 
 
 def analyze_code(code: str, language: str) -> Dict[str, Any]:

@@ -58,6 +58,8 @@ class BotConfig:
     BOT_LABEL: str = "CodeBot"
     # הוספת hash קצר לשמות קבצים (למניעת כפילויות) — כבוי כברירת מחדל
     DRIVE_ADD_HASH: bool = False
+    # נרמול קוד לפני שמירה (הסרה/ניקוי תווים נסתרים)
+    NORMALIZE_CODE_ON_SAVE: bool = True
     
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
@@ -98,6 +100,7 @@ def load_config() -> BotConfig:
         DOCUMENTATION_URL=os.getenv('DOCUMENTATION_URL', 'https://amirbiron.github.io/CodeBot/'),
         BOT_LABEL=os.getenv('BOT_LABEL', 'CodeBot'),
         DRIVE_ADD_HASH=os.getenv('DRIVE_ADD_HASH', 'false').lower() == 'true',
+        NORMALIZE_CODE_ON_SAVE=os.getenv('NORMALIZE_CODE_ON_SAVE', 'true').lower() == 'true',
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),

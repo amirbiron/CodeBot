@@ -4,6 +4,7 @@ General Utility Functions for Code Keeper Bot
 """
 
 import asyncio
+import unicodedata
 import hashlib
 import json
 import logging
@@ -1096,3 +1097,95 @@ def install_sensitive_filter():
     f = SensitiveDataFilter()
     for h in root.handlers:
         h.addFilter(f)
+
+
+# --- Code normalization ---
+def normalize_code(text: str,
+                   *,
+                   strip_bom: bool = True,
+                   normalize_newlines: bool = True,
+                   replace_nbsp: bool = True,
+                   remove_zero_width: bool = True,
+                   remove_directional_marks: bool = True,
+                   trim_trailing_whitespace: bool = True,
+                   remove_other_format_chars: bool = False) -> str:
+    """נרמול קוד לפני שמירה.
+
+    פעולות עיקריות:
+
+    - הסרת BOM בתחילת הטקסט
+    - המרת CRLF/CR ל-LF
+    - החלפת רווחים לא-שוברים (NBSP/NNBSP) לרווח רגיל
+    - הסרת תווי רוחב-אפס וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)
+    - הסרת תווי בקרה (Cc) פרט ל-\\t, \\n, \\r
+    - הסרת רווחי סוף שורה
+    """
+    try:
+        if not isinstance(text, str):
+            return text if text is not None else ""
+
+        out = text
+
+        # Strip BOM at start
+        if strip_bom and out.startswith("\ufeff"):
+            out = out.lstrip("\ufeff")
+
+        # Normalize newlines to LF
+        if normalize_newlines:
+            out = out.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Replace non-breaking spaces with regular space
+        if replace_nbsp:
+            out = out.replace("\u00A0", " ").replace("\u202F", " ")
+
+        # Remove zero-width and directional formatting characters
+        if remove_zero_width or remove_directional_marks:
+            zero_width = {
+                "\u200B",  # ZWSP
+                "\u200C",  # ZWNJ
+                "\u200D",  # ZWJ
+                "\u2060",  # WJ
+                "\uFEFF",  # ZWNBSP/BOM
+            }
+            directional = {
+                "\u200E",  # LRM
+                "\u200F",  # RLM
+                "\u202A",  # LRE
+                "\u202B",  # RLE
+                "\u202C",  # PDF
+                "\u202D",  # LRO
+                "\u202E",  # RLO
+                "\u2066",  # LRI
+                "\u2067",  # RLI
+                "\u2068",  # FSI
+                "\u2069",  # PDI
+            }
+
+            def _should_keep(ch: str) -> bool:
+                # Keep tabs/newlines/carriage returns
+                if ch in ("\t", "\n", "\r"):
+                    return True
+                # Drop specific sets
+                if remove_zero_width and ch in zero_width:
+                    return False
+                if remove_directional_marks and ch in directional:
+                    return False
+                # Drop other control chars (Cc), keep others
+                cat = unicodedata.category(ch)
+                if cat == 'Cc' and ch not in ("\t", "\n", "\r"):
+                    return False
+                # Optionally remove other format chars (Cf) beyond explicit sets
+                if cat == 'Cf' and remove_other_format_chars:
+                    return False
+                return True
+
+            out = "".join(ch for ch in out if _should_keep(ch))
+
+        # Trim trailing whitespace for each line
+        if trim_trailing_whitespace:
+            out = "\n".join(line.rstrip(" \t") for line in out.split("\n"))
+
+        return out
+    except Exception:
+        # במקרה של שגיאה, החזר את הטקסט המקורי
+        return text
