@@ -261,6 +261,14 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not pending:
                 return
             milestone = max(pending)
+            # התראת אדמין מוקדמת (לצורך ניטור), בנוסף להתראה אחרי עדכון DB
+            try:
+                if milestone >= 500:
+                    uname = (username or f"User_{user_id}")
+                    display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                    await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
+            except Exception:
+                pass
             res = users_collection.update_one(
                 {"user_id": user_id, "milestones_sent": {"$ne": milestone}},
                 {"$addToSet": {"milestones_sent": milestone}, "$set": {"updated_at": datetime.now(timezone.utc)}}
