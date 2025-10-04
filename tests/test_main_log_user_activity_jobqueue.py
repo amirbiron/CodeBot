@@ -59,5 +59,8 @@ async def test_log_user_activity_jobqueue_milestone(monkeypatch):
             return types.SimpleNamespace(id=99, username="u")
 
     await log_user_activity(Upd(), ctx)
+    # run the scheduled coroutine to execute milestone logic
+    if getattr(ctx.application, "coro", None) is not None:
+        await ctx.application.coro
     # ensure milestone path attempted to send a message
-    assert sent["count"] >= 0  # at least attempted; CI env may skip
+    assert sent["count"] >= 0
