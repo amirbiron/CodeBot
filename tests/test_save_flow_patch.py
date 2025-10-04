@@ -125,6 +125,8 @@ def test_get_code_normalizes_zero_width():
     class _Msg:
         def __init__(self, text: str):
             self.text = text
+            # שדה document נדרש בענף לוגיקה של long_collect_receive
+            self.document = None
 
         async def reply_text(self, *args, **kwargs):
             pass
@@ -151,6 +153,8 @@ def test_long_collect_receive_normalizes_text():
     class _Msg:
         def __init__(self, text: str):
             self.text = text
+            # נדרש עבור הענף הבודק קבצים ב-long_collect_receive
+            self.document = None
 
         async def reply_text(self, *args, **kwargs):
             pass
