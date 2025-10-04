@@ -79,6 +79,7 @@ async def test_recycle_pagination_and_invalid_actions(monkeypatch):
 def test_repository_delete_by_id_and_large_files(monkeypatch):
     from database.repository import Repository
     from datetime import datetime
+    from bson import ObjectId
 
     class DummyCollection:
         def __init__(self):
@@ -102,8 +103,9 @@ def test_repository_delete_by_id_and_large_files(monkeypatch):
 
     repo = Repository(DummyManager())
 
-    # delete_file_by_id
-    rc = repo.delete_file_by_id("abc")
+    # delete_file_by_id with a valid ObjectId
+    valid_id = str(ObjectId())
+    rc = repo.delete_file_by_id(valid_id)
     assert rc == 1
     _flt, _upd = repo.manager.collection.updated
     assert _flt["_id"] is not None
@@ -120,6 +122,7 @@ def test_repository_delete_by_id_and_large_files(monkeypatch):
     items, total = repo.list_deleted_files(user_id=1, page=1, per_page=10)
     assert isinstance(items, list) and isinstance(total, int)
 
-    # restore and purge
-    assert repo.restore_file_by_id(user_id=1, file_id="z") is True
-    assert repo.purge_file_by_id(user_id=1, file_id="z") is True
+    # restore and purge with valid ObjectId
+    oid2 = str(ObjectId())
+    assert repo.restore_file_by_id(user_id=1, file_id=oid2) is True
+    assert repo.purge_file_by_id(user_id=1, file_id=oid2) is True
