@@ -16,7 +16,6 @@
 [![Performance Tests](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml)
 
 [![Coverage](https://img.shields.io/codecov/c/github/amirbiron/CodeBot?branch=main)](https://app.codecov.io/gh/amirbiron/CodeBot/branch/main)
-[![Requirements Status](https://requires.io/github/amirbiron/CodeBot/requirements.svg?branch=main)](https://requires.io/github/amirbiron/CodeBot/requirements/?branch=main)
 
 ## 📋 תוכן עניינים
 
