@@ -81,12 +81,17 @@ def _safe_rmtree_tmp(target_path: str) -> None:
 
 
 def safe_html_escape(text):
-    """Escape text for Telegram HTML; preserves \n/\r/\t and keeps existing HTML entities."""
+    """Escape text for Telegram HTML; preserves \n/\r/\t and keeps existing HTML entities.
+
+    מרחיב ניקוי תווים בלתי נראים: ZWSP/ZWNJ/ZWJ, BOM/ZWNBSP, ותווי כיווניות LRM/RLM/LRE/RLE/PDF/LRO/RLO/LRI/RLI/FSI/PDI.
+    """
     if text is None:
         return ""
     s = escape(str(text))
-    # נקה תווים בלתי נראים
-    s = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", s)
+    # נקה תווים בלתי נראים (Zero-width) + BOM
+    s = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", s)
+    # נקה סימוני כיווניות (Cf) נפוצים שגורמים לבלבול בהצגה
+    s = re.sub(r"[\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]", "", s)
     # נקה תווי בקרה אך השאר \n, \r, \t
     s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", s)
     return s
