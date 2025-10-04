@@ -1111,7 +1111,7 @@ def normalize_code(text: str,
                    trim_trailing_whitespace: bool = True,
                    remove_other_format_chars: bool = True,
                    remove_escaped_format_escapes: bool = True,
-                   remove_variation_selectors: bool = True) -> str:
+                   remove_variation_selectors: bool = False) -> str:
     """נרמול קוד לפני שמירה.
 
     פעולות עיקריות:

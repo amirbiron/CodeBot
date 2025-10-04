@@ -22,15 +22,19 @@ def test_normalize_code_preserves_non_cf_escapes():
     assert out.count("\\u0041") == 1
 
 
-def test_normalize_code_strips_literal_U_cf_and_preserves_non_cf():
-    # U+E0001 (LANGUAGE TAG) is 'Cf' and should be stripped
-    # U+E0100 (Variation Selector-17) is 'Mn' and should be preserved by default
+def test_normalize_code_strips_literal_U_variation_selectors_when_enabled():
+    # U+E0001 (LANGUAGE TAG, Cf) should be stripped always
+    # U+E0100 (Variation Selector-17, Mn) should be stripped only when remove_variation_selectors=True
     text = "X\\U000E0001Y Z\\U000E0100W"
-    out = normalize_code(text)
-    assert "\\U000E0001" not in out
-    assert "\\U000E0100" in out
+    out_default = normalize_code(text)
+    assert "\\U000E0001" not in out_default
+    assert "\\U000E0100" in out_default  # default: keep VS17
+
+    out_strip_vs = normalize_code(text, remove_variation_selectors=True)
+    assert "\\U000E0001" not in out_strip_vs
+    assert "\\U000E0100" not in out_strip_vs
     # Ensure surrounding characters still present
-    assert "X" in out and "Y" in out and "Z" in out and "W" in out
+    assert "X" in out_strip_vs and "Y" in out_strip_vs and "Z" in out_strip_vs and "W" in out_strip_vs
 
 
 def test_normalize_code_disable_strip_literal_escapes():
