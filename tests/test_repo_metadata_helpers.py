@@ -64,15 +64,20 @@ class DummyCollection:
                     nd = {}
                     for k, v in proj.items():
                         if v in (1, True):
-                            if k == "tag" and proj.get("tag") == "$_id":
-                                nd["tag"] = d.get("_id")
-                            else:
-                                nd[k] = d.get(k)
+                            nd[k] = d.get(k)
+                        elif isinstance(v, str) and v.startswith("$"):
+                            path = v[1:]
+                            if path == "_id":
+                                nd[k] = d.get("_id")
+                            elif path.startswith("_id."):
+                                sub = path.split(".", 1)[1]
+                                _id = d.get("_id")
+                                nd[k] = _id.get(sub) if isinstance(_id, dict) else None
                     out.append(nd)
                 rows = out
             elif "$sort" in st:
                 key = list(st["$sort"].keys())[0]
-                rows = sorted(rows, key=lambda x: x.get(key))
+                rows = sorted(rows, key=lambda x: (x.get(key) is None, x.get(key)))
             elif "$limit" in st:
                 rows = rows[: st["$limit"]]
         return rows

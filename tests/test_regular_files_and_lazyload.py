@@ -8,38 +8,66 @@ class DummyCollection:
         self._docs = list(docs)
 
     def aggregate(self, pipeline, allowDiskUse=False):  # noqa: N803
-        # Minimal emulation for pipelines used in repository.py
         data = list(self._docs)
 
-        def _apply_match(stage, rows):
-            cond = stage.get("$match") or {}
-            out = []
-            for d in rows:
-                ok = True
-                for k, v in cond.items():
-                    if k == "tags":
-                        # either exact tag or regex
-                        if isinstance(v, dict) and "$regex" in v:
+        def eval_match(doc, expr):
+            # supports $or, field matches with $exists/$eq/$not/$elemMatch/$regex and plain equality
+            if not isinstance(expr, dict):
+                return False
+            if "$or" in expr:
+                return any(eval_match(doc, sub) for sub in expr["$or"])
+            for key, cond in expr.items():
+                if key == "$or":
+                    continue
+                val = doc.get(key)
+                if isinstance(cond, dict):
+                    if "$exists" in cond:
+                        exists = cond["$exists"]
+                        if bool(val is not None) != bool(exists):
+                            return False
+                    if "$eq" in cond:
+                        if val != cond["$eq"]:
+                            return False
+                    if "$not" in cond:
+                        inner = cond["$not"]
+                        # handle $elemMatch inside $not
+                        if "$elemMatch" in inner:
+                            arr = val or []
+                            if isinstance(arr, str):
+                                arr = [arr]
+                            em = inner["$elemMatch"]
+                            if "$regex" in em:
+                                import re
+                                rx = re.compile(em["$regex"])
+                                # not any element matches
+                                if any(rx.search(str(t) or "") for t in arr):
+                                    return False
+                    if "$elemMatch" in cond:
+                        arr = val or []
+                        if isinstance(arr, str):
+                            arr = [arr]
+                        em = cond["$elemMatch"]
+                        if "$regex" in em:
                             import re
-                            rx = re.compile(v["$regex"])  # lower-case only per project convention
-                            tags = d.get("tags") or []
-                            if not any(rx.search(str(t) or "") for t in tags):
-                                ok = False
-                                break
+                            rx = re.compile(em["$regex"])
+                            if not any(rx.search(str(t) or "") for t in arr):
+                                return False
+                    if "$regex" in cond:
+                        import re
+                        rx = re.compile(cond["$regex"]) 
+                        # field could be string or list
+                        if isinstance(val, list):
+                            if not any(rx.search(str(t) or "") for t in val):
+                                return False
                         else:
-                            if v not in (d.get("tags") or []):
-                                ok = False
-                                break
-                    else:
-                        if d.get(k) != v:
-                            ok = False
-                            break
-                if ok:
-                    out.append(d)
-            return out
+                            if not rx.search(str(val or "")):
+                                return False
+                else:
+                    if val != cond:
+                        return False
+            return True
 
-        def _distinct_latest_by_filename(rows):
-            # sort by file_name asc, version desc; then group first
+        def distinct_latest(rows):
             rows_sorted = sorted(rows, key=lambda x: (str(x.get("file_name", "")), -int(x.get("version", 1))))
             seen = {}
             for d in rows_sorted:
@@ -49,32 +77,30 @@ class DummyCollection:
             return list(seen.values())
 
         rows = data
-        # support simple count pipeline recognition
-        if pipeline and pipeline[-1].get("$count") == "count":
-            # apply matches and grouping by file_name
+
+        # detect count pipeline
+        if pipeline and isinstance(pipeline[-1], dict) and pipeline[-1].get("$count") == "count":
+            tmp = rows
             for st in pipeline:
                 if "$match" in st:
-                    rows = _apply_match(st, rows)
+                    tmp = [d for d in tmp if eval_match(d, st["$match"])]
                 elif "$group" in st and st["$group"].get("_id") == "$file_name":
-                    # collapse to distinct file_name
-                    rows = _distinct_latest_by_filename(rows)
-            return [{"count": len(rows)}]
+                    tmp = distinct_latest(tmp)
+            return [{"count": len(tmp)}]
 
-        # general items pipeline
         for st in pipeline:
             if "$match" in st:
-                rows = _apply_match(st, rows)
+                rows = [d for d in rows if eval_match(d, st["$match"])]
             elif "$sort" in st:
                 key = st["$sort"]
-                # support updated_at desc and (file_name asc, version desc)
-                if list(key.keys()) == ["updated_at"]:
+                if list(key.keys()) == ["updated_at"] and key["updated_at"] == -1:
                     rows = sorted(rows, key=lambda x: x.get("updated_at") or dt.datetime.min.replace(tzinfo=dt.timezone.utc), reverse=True)
                 else:
                     rows = sorted(rows, key=lambda x: (str(x.get("file_name", "")), -int(x.get("version", 1))))
             elif "$group" in st and st["$group"].get("_id") == "$file_name":
-                rows = _distinct_latest_by_filename(rows)
+                rows = distinct_latest(rows)
             elif "$replaceRoot" in st:
-                # rows already latest docs
+                # no-op in this simplified emulation
                 pass
             elif "$project" in st:
                 proj = st["$project"]
@@ -84,9 +110,8 @@ class DummyCollection:
                     for k, v in proj.items():
                         if v in (1, True):
                             nd[k] = d.get(k)
-                    # remove excluded fields (code=0)
                     for k, v in proj.items():
-                        if v in (0, False) and k in nd:
+                        if v in (0, False):
                             nd.pop(k, None)
                     out.append(nd)
                 rows = out
