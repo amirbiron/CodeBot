@@ -248,7 +248,7 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": file_name},
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -269,9 +269,17 @@ class Repository:
         if not file_names:
             return 0
         try:
+            now = datetime.now(timezone.utc)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}},
-                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
+                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "is_active": True},
+                {"$set": {
+                    "is_active": False,
+                    "updated_at": now,
+                    "deleted_at": now,
+                    "deleted_expires_at": expires,
+                }},
             )
             cache.invalidate_user_cache(user_id)
             return int(result.modified_count or 0)
@@ -285,7 +293,7 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"_id": ObjectId(file_id)},
+                {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,

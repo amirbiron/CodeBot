@@ -22,9 +22,10 @@ def test_soft_delete_files_by_names_paths(monkeypatch):
     count = repo.soft_delete_files_by_names(7, ["a.py", "b.py", "a.py"])  # duplicates deduped in filter
     assert count == 3
     flt, upd = coll.last
-    assert flt["user_id"] == 7 and "file_name" in flt and "$in" in flt["file_name"]
+    assert flt["user_id"] == 7 and "file_name" in flt and "$in" in flt["file_name"] and flt["is_active"] is True
     assert upd["$set"]["is_active"] is False
     assert isinstance(upd["$set"]["updated_at"], datetime)
+    assert "deleted_at" in upd["$set"] and "deleted_expires_at" in upd["$set"]
 
     # empty list returns 0 and does not call update_many
     coll2 = DummyCollection(modified_count=5)
