@@ -260,42 +260,10 @@ class Repository:
         _id, file_name, programming_language, updated_at, description, tags.
         """
         try:
-            page = max(1, int(page or 1))
+            req_page = max(1, int(page or 1))
             per_page = max(1, int(per_page or 10))
-            skip = (page - 1) * per_page
 
-            # שליפת פריטים לעמוד המבוקש
-            items_pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
-                # בחר גרסה אחרונה לכל שם קובץ ביעילות (נשען על user_active_file_latest_idx)
-                {"$sort": {"file_name": 1, "version": -1}},
-                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
-                {"$replaceRoot": {"newRoot": "$latest"}},
-                # סינון "שאר הקבצים": ללא תגיות שמתחילות ב-repo:
-                {"$match": {
-                    "$or": [
-                        {"tags": {"$exists": False}},
-                        {"tags": {"$eq": []}},
-                        {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
-                    ]
-                }},
-                {"$sort": {"updated_at": -1}},
-                {"$project": {
-                    "_id": 1,
-                    "file_name": 1,
-                    "programming_language": 1,
-                    "updated_at": 1,
-                    "description": 1,
-                    "tags": 1,
-                    # אל תחזיר תוכן קוד לתפריטים
-                    "code": 0,
-                }},
-                {"$skip": skip},
-                {"$limit": per_page},
-            ]
-            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
-
-            # ספירה (distinct לפי file_name לאחר סינון)
+            # ספירה (distinct לפי file_name לאחר סינון) — תחילה, כדי לאפשר עימוד מהודק ללא רה-פצ' של הקורא
             count_pipeline = [
                 {"$match": {"user_id": user_id, "is_active": True}},
                 {"$sort": {"file_name": 1, "version": -1}},
@@ -313,6 +281,39 @@ class Repository:
             ]
             cnt = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
             total = int((cnt[0].get("count") if cnt else 0) or 0)
+
+            # הידוק עמוד חוקי בהתאם לספירה
+            total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+            page_used = min(max(1, req_page), total_pages)
+            skip = (page_used - 1) * per_page
+
+            # שליפת פריטים לעמוד החוקי (לאחר הידוק), חד-פעמי
+            items_pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$match": {
+                    "$or": [
+                        {"tags": {"$exists": False}},
+                        {"tags": {"$eq": []}},
+                        {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
+                    ]
+                }},
+                {"$sort": {"updated_at": -1}},
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "code": 0,
+                }},
+                {"$skip": skip},
+                {"$limit": per_page},
+            ]
+            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
             return items, total
         except Exception as e:
             logger.error(f"get_regular_files_paginated failed: {e}")
