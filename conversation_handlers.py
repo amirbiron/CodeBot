@@ -1571,7 +1571,11 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+        try:
+            _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+            _ttl_days = max(1, int(_ttl_raw))
+        except Exception:
+            _ttl_days = 7
         await query.edit_message_text(
             f"⚠️ *אישור העברה לסל*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
@@ -1612,7 +1616,11 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             await query.edit_message_text(
                 f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
                 f"📄 **קובץ:** `{file_name}`\n"
@@ -2176,7 +2184,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 await query.answer("לא נבחרו קבצים", show_alert=True)
                 return ConversationHandler.END
             last_page = context.user_data.get('files_last_page') or 1
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             warn = (
                 f"⚠️ עומד/ת להעביר <b>{count_sel}</b> קבצים לסל המיחזור.\n"
                 f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
@@ -2191,7 +2203,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "rf_delete_double_confirm":
             # אישור שני
             last_page = context.user_data.get('files_last_page') or 1
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             text2 = (
                 "🧨 אישור סופי להעברה לסל\n"
                 f"הקבצים יועברו לסל המיחזור ויישארו לשחזור עד {_ttl_days} ימים.\n"
@@ -2231,7 +2247,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             if last_page > total_pages:
                 last_page = total_pages or 1
             context.user_data['files_last_page'] = last_page
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             msg = (
                 f"✅ הועברו לסל {deleted} קבצים.\n"
                 f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
@@ -2539,7 +2559,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             user_id = update.effective_user.id
             files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
             total = len(files)
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             warn_text = (
                 f"⚠️ עומד/ת להעביר <b>{total}</b> קבצים של <code>{tag}</code> לסל המיחזור.\n"
                 f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
@@ -2554,7 +2578,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("byrepo_delete_double_confirm:"):
             # שלב אישור שני
             tag = data.split(":", 1)[1]
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             text2 = (
                 "🧨 אישור סופי להעברה לסל\n"
                 f"כל הקבצים תחת <code>{tag}</code> יועברו לסל המיחזור ויישארו לשחזור עד {_ttl_days} ימים.\n"
@@ -2722,7 +2750,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         last_edit_ts = now_ts or last_edit_ts
                     except Exception:
                         pass
-            _ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             msg = (
                 f"✅ הועברו לסל {deleted} קבצים תחת <code>{tag}</code>.\n"
                 f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
