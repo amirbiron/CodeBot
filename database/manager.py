@@ -173,6 +173,7 @@ class DatabaseManager:
                 ("created_at", DESCENDING),
             ], name="lang_tags_date_idx"),
             IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], name="full_text_search_idx"),
+            IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
         ]
 
         large_files_indexes = [
@@ -203,6 +204,7 @@ class DatabaseManager:
                 ("tags", ASCENDING),
                 ("file_size", DESCENDING),
             ], name="user_tags_size_idx"),
+            IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
         ]
 
         # backup_ratings indexes

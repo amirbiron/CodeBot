@@ -541,6 +541,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
@@ -750,6 +751,100 @@ from handlers.save_flow import get_note as get_note
 
 from handlers.save_flow import save_file_final as save_file_final
 
+# --- Recycle bin paging constants ---
+RECYCLE_PAGE_SIZE = 10
+
+async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
+    try:
+        user_id = update.effective_user.id
+        data = query.data or "recycle_page_1"
+        try:
+            page = int(str(data).split("_")[-1]) if str(data).startswith("recycle_page_") else 1
+        except Exception:
+            page = 1
+        from database import db
+        page = max(1, page)
+        items, total = db._get_repo().list_deleted_files(user_id, page=page, per_page=RECYCLE_PAGE_SIZE)
+        total_pages = (total + RECYCLE_PAGE_SIZE - 1) // RECYCLE_PAGE_SIZE if total > 0 else 1
+        keyboard = []
+        for it in items:
+            fid = str(it.get('_id') or '')
+            name = it.get('file_name', 'file')
+            keyboard.append([
+                InlineKeyboardButton(f"♻️ שחזר: {name}", callback_data=f"recycle_restore:{fid}"),
+                InlineKeyboardButton("🧨 מחיקה סופית", callback_data=f"recycle_purge:{fid}")
+            ])
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"recycle_page_{page-1}"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"recycle_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        header = (
+            f"🗑️ <b>סל מיחזור</b> — {total} פריטים\n"
+            f"📄 עמוד {page} מתוך {total_pages}"
+        )
+        await TelegramUtils.safe_edit_message_text(query, header, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"show_recycle_bin failed: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בטעינת סל המיחזור")
+    return ConversationHandler.END
+
+async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
+    try:
+        user_id = update.effective_user.id
+        fid = (query.data or '').split(':', 1)[-1]
+        if not fid:
+            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            return ConversationHandler.END
+        from database import db
+        ok = db._get_repo().restore_file_by_id(user_id, fid)
+        if ok:
+            await TelegramUtils.safe_answer(query, "♻️ שוחזר", show_alert=False)
+        else:
+            await TelegramUtils.safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
+        return await show_recycle_bin(update, context)
+    except Exception as e:
+        logger.error(f"recycle_restore failed: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשחזור")
+    return ConversationHandler.END
+
+async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
+    try:
+        user_id = update.effective_user.id
+        fid = (query.data or '').split(':', 1)[-1]
+        if not fid:
+            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            return ConversationHandler.END
+        from database import db
+        ok = db._get_repo().purge_file_by_id(user_id, fid)
+        if ok:
+            await TelegramUtils.safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
+        else:
+            await TelegramUtils.safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
+        return await show_recycle_bin(update, context)
+    except Exception as e:
+        logger.error(f"recycle_purge failed: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה במחיקה סופית")
+    return ConversationHandler.END
 async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, service: str, file_id: str) -> int:
     """שיתוף קובץ יחיד לפי ObjectId בשירות מבוקש (gist/pastebin)."""
     query = update.callback_query
@@ -2018,6 +2113,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_file_info(update, context)
         elif data == "files" or data == "refresh_files":
             return await show_all_files_callback(update, context)
+        elif data == "recycle_bin":
+            return await show_recycle_bin(update, context)
+        elif data.startswith("recycle_page_"):
+            return await show_recycle_bin(update, context)
+        elif data.startswith("recycle_restore:"):
+            return await recycle_restore(update, context)
+        elif data.startswith("recycle_purge:"):
+            return await recycle_purge(update, context)
         elif data == "by_repo_menu":
             return await show_by_repo_menu_callback(update, context)
         elif data == "add_code_regular":

@@ -1,6 +1,6 @@
 import logging
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
@@ -244,9 +244,17 @@ class Repository:
 
     def delete_file(self, user_id: int, file_name: str) -> bool:
         try:
+            now = datetime.now(timezone.utc)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": file_name},
-                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
+                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"$set": {
+                    "is_active": False,
+                    "updated_at": now,
+                    "deleted_at": now,
+                    "deleted_expires_at": expires,
+                }},
             )
             if result.modified_count > 0:
                 cache.invalidate_user_cache(user_id)
@@ -261,9 +269,17 @@ class Repository:
         if not file_names:
             return 0
         try:
+            now = datetime.now(timezone.utc)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}},
-                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
+                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "is_active": True},
+                {"$set": {
+                    "is_active": False,
+                    "updated_at": now,
+                    "deleted_at": now,
+                    "deleted_expires_at": expires,
+                }},
             )
             cache.invalidate_user_cache(user_id)
             return int(result.modified_count or 0)
@@ -273,8 +289,19 @@ class Repository:
 
     def delete_file_by_id(self, file_id: str) -> int:
         try:
-            result = self.manager.collection.delete_one({"_id": ObjectId(file_id)})
-            return int(result.deleted_count or 0)
+            now = datetime.now(timezone.utc)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            expires = now + timedelta(days=max(1, ttl_days))
+            result = self.manager.collection.update_many(
+                {"_id": ObjectId(file_id), "is_active": True},
+                {"$set": {
+                    "is_active": False,
+                    "updated_at": now,
+                    "deleted_at": now,
+                    "deleted_expires_at": expires,
+                }}
+            )
+            return int(result.modified_count or 0)
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ לפי _id: {e}")
             return 0
@@ -380,9 +407,17 @@ class Repository:
 
     def delete_large_file(self, user_id: int, file_name: str) -> bool:
         try:
+            now = datetime.now(timezone.utc)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.large_files_collection.update_many(
                 {"user_id": user_id, "file_name": file_name, "is_active": True},
-                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}},
+                {"$set": {
+                    "is_active": False,
+                    "updated_at": now,
+                    "deleted_at": now,
+                    "deleted_expires_at": expires,
+                }},
             )
             return bool(result.modified_count and result.modified_count > 0)
         except Exception as e:
@@ -391,10 +426,99 @@ class Repository:
 
     def delete_large_file_by_id(self, file_id: str) -> bool:
         try:
-            result = self.manager.large_files_collection.delete_one({"_id": ObjectId(file_id)})
-            return bool(result.deleted_count and result.deleted_count > 0)
+            now = datetime.now(timezone.utc)
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+            expires = now + timedelta(days=max(1, ttl_days))
+            result = self.manager.large_files_collection.update_many(
+                {"_id": ObjectId(file_id), "is_active": True},
+                {"$set": {
+                    "is_active": False,
+                    "updated_at": now,
+                    "deleted_at": now,
+                    "deleted_expires_at": expires,
+                }},
+            )
+            return bool(result.modified_count and result.modified_count > 0)
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ גדול לפי ID: {e}")
+            return False
+
+    # --- Recycle bin operations ---
+    def list_deleted_files(self, user_id: int, page: int = 1, per_page: int = 20) -> Tuple[List[Dict], int]:
+        try:
+            # Combine soft-deleted regular and large files, sorted by deleted_at desc (then updated_at)
+            match = {"user_id": user_id, "is_active": False}
+            # Fetch all and merge-sort in Python for simplicity and correctness across two collections
+            try:
+                reg_docs = list(self.manager.collection.find(match))
+            except Exception:
+                reg_docs = []
+            try:
+                large_docs = list(self.manager.large_files_collection.find(match))
+            except Exception:
+                large_docs = []
+
+            def _key(doc: Dict[str, Any]):
+                dt = doc.get("deleted_at") or doc.get("updated_at") or doc.get("created_at")
+                # Normalize to sortable value; newer first, so we invert by using timestamp
+                try:
+                    import datetime as _dt
+                    if isinstance(dt, _dt.datetime):
+                        return (dt, doc.get("updated_at") or dt)
+                except Exception:
+                    pass
+                return (None, None)
+
+            combined = reg_docs + large_docs
+            combined.sort(key=_key, reverse=True)
+
+            total = len(combined)
+            if page < 1:
+                page = 1
+            if per_page < 1:
+                per_page = 20
+            start = (page - 1) * per_page
+            end = start + per_page
+            return combined[start:end], int(total)
+        except Exception as e:
+            logger.error(f"list_deleted_files failed: {e}")
+            return [], 0
+
+    def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
+        try:
+            now = datetime.now(timezone.utc)
+            res = self.manager.collection.update_many(
+                {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
+                {"$set": {"is_active": True, "updated_at": now},
+                 "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
+            )
+            modified = int(res.modified_count or 0)
+            if modified == 0:
+                # Try large files collection
+                res2 = self.manager.large_files_collection.update_many(
+                    {"_id": ObjectId(file_id), "user_id": user_id, "is_active": False},
+                    {"$set": {"is_active": True, "updated_at": now},
+                     "$unset": {"deleted_at": "", "deleted_expires_at": ""}},
+                )
+                modified += int(res2.modified_count or 0)
+            if modified > 0:
+                cache.invalidate_user_cache(user_id)
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"restore_file_by_id failed: {e}")
+            return False
+
+    def purge_file_by_id(self, user_id: int, file_id: str) -> bool:
+        try:
+            res = self.manager.collection.delete_many({"_id": ObjectId(file_id), "user_id": user_id, "is_active": False})
+            deleted = int(res.deleted_count or 0)
+            if deleted == 0:
+                res2 = self.manager.large_files_collection.delete_many({"_id": ObjectId(file_id), "user_id": user_id, "is_active": False})
+                deleted += int(res2.deleted_count or 0)
+            return bool(deleted and deleted > 0)
+        except Exception as e:
+            logger.error(f"purge_file_by_id failed: {e}")
             return False
 
     def get_all_user_files_combined(self, user_id: int) -> Dict[str, List[Dict]]:
