@@ -372,7 +372,7 @@ class Repository:
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache אמינה
             user_id_for_invalidation: Optional[int] = None
             try:
-                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id)}, {"user_id": 1})
+                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
                 if isinstance(pre_doc, dict):
                     user_id_for_invalidation = pre_doc.get("user_id")
             except Exception:
@@ -523,7 +523,7 @@ class Repository:
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache
             user_id_for_invalidation: Optional[int] = None
             try:
-                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id)}, {"user_id": 1})
+                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
                 if isinstance(pre_doc, dict):
                     user_id_for_invalidation = pre_doc.get("user_id")
             except Exception:

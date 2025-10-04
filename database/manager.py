@@ -366,7 +366,7 @@ class DatabaseManager:
     def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
         return self._get_repo().soft_delete_files_by_names(user_id, file_names)
 
-    def delete_file_by_id(self, file_id: str) -> int:
+    def delete_file_by_id(self, file_id: str) -> bool:
         return self._get_repo().delete_file_by_id(file_id)
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
