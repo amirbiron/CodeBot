@@ -363,7 +363,7 @@ class Repository:
             logger.error(f"שגיאה במחיקה רכה מרובה: {e}")
             return 0
 
-    def delete_file_by_id(self, file_id: str) -> int:
+    def delete_file_by_id(self, file_id: str) -> bool:
         try:
             now = datetime.now(timezone.utc)
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
@@ -385,16 +385,16 @@ class Repository:
                     "deleted_expires_at": expires,
                 }}
             )
-            modified = int(result.modified_count or 0)
+            modified = int(getattr(result, 'modified_count', 0) or 0)
             if modified > 0 and user_id_for_invalidation is not None:
                 try:
                     cache.invalidate_user_cache(int(user_id_for_invalidation))
                 except Exception:
                     pass
-            return modified
+            return bool(modified and modified > 0)
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ לפי _id: {e}")
-            return 0
+            return False
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
         try:

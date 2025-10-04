@@ -27,9 +27,9 @@ def _repo_with_mutation_stubs():
 
 
 @pytest.mark.parametrize("method,args,expect_modified", [
-    ("delete_file_by_id", ("OID",), 1),
-    ("restore_file_by_id", (7, "OID"), True),
-    ("purge_file_by_id", (7, "OID"), True),
+    ("delete_file_by_id", ("507f1f77bcf86cd799439011",), 1),
+    ("restore_file_by_id", (7, "507f1f77bcf86cd799439011"), True),
+    ("purge_file_by_id", (7, "507f1f77bcf86cd799439011"), True),
 ])
 def test_mutations_invalidate_cache(monkeypatch, method, args, expect_modified):
     repo = _repo_with_mutation_stubs()
