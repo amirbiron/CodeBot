@@ -1,19 +1,4 @@
-# תוכן עניינים
-- [Android & AI Style Rules](#android-ai-style)
-- [הימנעות ממחיקות קבצים בטסטים ובסקריפטים](#safe-deletes)
-- [קישור לתיעוד והקשר](#docs-context)
-- [כללי שימוש ב-AI/CodeBot](#ai-usage)
-- [Android/Kotlin/Compose](#android-kotlin-compose)
-- [Commit/PR](#commit-pr)
-- [CI / Required Checks](#ci-required-checks)
-- [סודות ולוגים](#secrets-logs)
-- [מעטפת Bash למחיקה בטוחה](#bash-safe-rm)
-- [Sphinx/RTD (תיעוד)](#sphinx-rtd)
-- [Telegram Bot – מניעת "Message is not modified"](#telegram-bot)
-- [GitHub – "📥 הורד קובץ מריפו"](#github-download)
-- [Gists/קישורים חיצוניים בהנחיות משתמש](#gists)
-
-<a id="android-ai-style"></a>
+# Android & AI Style Rules
 # Android & AI Style Rules
 
 > מתי להשתמש: בכל שינוי/PR – כללי סגנון ותשובות. ראו גם: Commit/PR.
@@ -27,7 +12,6 @@
 
 ---
 
-<a id="safe-deletes"></a>
 # הימנעות ממחיקות קבצים בטסטים ובסקריפטים
 
 > מתי להשתמש: טסטים/סקריפטים שנוגעים לקבצים/ניקוי. ראו גם: CI / Required Checks, מעטפת Bash למחיקה בטוחה.
@@ -96,7 +80,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 ---
 
-<a id="docs-context"></a>
 # קישור לתיעוד והקשר
 
 > מתי להשתמש: בכל PR/מסמך – מדיניות וקישורים רלוונטיים.
@@ -104,7 +87,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - קראו והסתמכו על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
 - קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד.
 
-<a id="ai-usage"></a>
 # כללי שימוש ב-AI/CodeBot
 
 > מתי להשתמש: בכל שימוש ב‑AI/אוטומציה בקוד וב‑PRים.
@@ -114,7 +96,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - פקודות שמורצות אוטומטית: ללא sudo, לא אינטראקטיביות, ורק בתיקיות tmp.
 - תעדו ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו.
 
-<a id="android-kotlin-compose"></a>
 # Android/Kotlin/Compose
 
 > מתי להשתמש: בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים. ראו גם: CI / Required Checks.
@@ -125,7 +106,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - ארכיטקטורה: MVVM, Single Source of Truth, Repository/UseCases, DI עם Hilt.
 - Compose: State hoisting, remember/derivedStateOf, הימנעות מ-side effects בתוך Composables, שימוש ב-LaunchedEffect/DisposableEffect, בדיקות עם compose-ui-test.
 
-<a id="commit-pr"></a>
 # Commit/PR
 
 > מתי להשתמש: כשכותבים קומיטים או פותחים Pull Request. ראו גם: CI / Required Checks, קישור לתיעוד והקשר.
@@ -158,7 +138,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - תעודכן תיעוד/CHANGELOG אם נדרש
 - צילום/וידאו UI מצורף אם רלוונטי
 
-<a id="ci-required-checks"></a>
 # CI / Required Checks
 
 > מתי להשתמש: לפני merge ובבדיקת סטטוסי CI. ראו גם: הימנעות ממחיקות קבצים בטסטים ובסקריפטים.
@@ -173,7 +152,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
 - לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
 
-<a id="secrets-logs"></a>
 # סודות ולוגים
 
 > מתי להשתמש: בעת לוגים/קונפיג/אינטגרציות – מניעת דליפת מידע רגיש.
@@ -181,7 +159,6 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - אין לשמור סודות בקוד או בלוגים; שימוש ב-ENV/Secret Manager.
 - אל תרשמו PII; בצעו השחרה (redaction) לערכים רגישים בלוגים.
 
-<a id="bash-safe-rm"></a>
 # מעטפת Bash למחיקה בטוחה
 
 > מתי להשתמש: כשכותבים סקריפטי Bash שמבצעים מחיקות/ניקוי.
@@ -201,7 +178,6 @@ safe_rmrf() {
 }
 ```
 
-<a id="sphinx-rtd"></a>
 # Sphinx/RTD (תיעוד)
 
 > מתי להשתמש: בעת בנייה/עדכון תיעוד Sphinx/RTD.
@@ -213,7 +189,6 @@ safe_rmrf() {
 
  
 
-<a id="telegram-bot"></a>
 # Telegram Bot – מניעת "Message is not modified"
 
 > מתי להשתמש: בפיתוח/תחזוקת בוט Telegram בעת עריכת הודעות.
@@ -237,7 +212,6 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
         raise
 ```
 
-<a id="github-download"></a>
 # GitHub – "📥 הורד קובץ מריפו"
 
 > מתי להשתמש: בפלואו הורדת קבצים מהריפו – התנהגות UI בטוחה.
@@ -245,7 +219,6 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 - במצב הורדה לא מציגים כפתורי מחיקה או מצב מחיקה.
 - חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש).
 
-<a id="gists"></a>
 # Gists/קישורים חיצוניים בהנחיות משתמש
 
 > מתי להשתמש: כשהמשתמש מצרף Gist/קישור בבקשה הנדסית.
