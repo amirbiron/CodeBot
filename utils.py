@@ -1105,10 +1105,11 @@ def normalize_code(text: str,
                    strip_bom: bool = True,
                    normalize_newlines: bool = True,
                    replace_nbsp: bool = True,
+                   replace_all_space_separators: bool = True,
                    remove_zero_width: bool = True,
                    remove_directional_marks: bool = True,
                    trim_trailing_whitespace: bool = True,
-                   remove_other_format_chars: bool = False) -> str:
+                   remove_other_format_chars: bool = True) -> str:
     """נרמול קוד לפני שמירה.
 
     פעולות עיקריות:
@@ -1137,6 +1138,14 @@ def normalize_code(text: str,
         # Replace non-breaking spaces with regular space
         if replace_nbsp:
             out = out.replace("\u00A0", " ").replace("\u202F", " ")
+
+        # Replace all Unicode space separators (Zs) with regular ASCII space
+        if replace_all_space_separators:
+            try:
+                out = "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in out)
+            except Exception:
+                # If classification fails for any reason, keep original text
+                pass
 
         # Remove zero-width and directional formatting characters
         if remove_zero_width or remove_directional_marks:
