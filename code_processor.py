@@ -27,6 +27,7 @@ from pygments.util import ClassNotFound
 
 from config import config
 from cache_manager import cache, cached
+from utils import normalize_code
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +121,17 @@ class CodeProcessor:
             except Exception:
                 is_markdown = False
 
-            # סניטציה ראשונית (דלג עבור Markdown)
+            # סניטציה ראשונית (דלג עבור Markdown), ואז נרמול להסרת תווים נסתרים
             cleaned_code = code if is_markdown else self.sanitize_code_blocks(code)
+            try:
+                # בקבצי Markdown נשמר רווחי סוף שורה (Hard line breaks)
+                cleaned_code = normalize_code(
+                    cleaned_code,
+                    trim_trailing_whitespace=not is_markdown
+                )
+            except Exception:
+                # במקרה של כשל בנרמול, נמשיך עם הטקסט לאחר הסניטציה הבסיסית
+                pass
             cleaned_length = len(cleaned_code)
             
             # רישום הצלחת סניטציה
