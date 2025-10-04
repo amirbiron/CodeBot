@@ -1109,7 +1109,9 @@ def normalize_code(text: str,
                    remove_zero_width: bool = True,
                    remove_directional_marks: bool = True,
                    trim_trailing_whitespace: bool = True,
-                   remove_other_format_chars: bool = True) -> str:
+                   remove_other_format_chars: bool = True,
+                   remove_escaped_format_escapes: bool = True,
+                   remove_variation_selectors: bool = False) -> str:
     """נרמול קוד לפני שמירה.
 
     פעולות עיקריות:
@@ -1126,6 +1128,61 @@ def normalize_code(text: str,
             return text if text is not None else ""
 
         out = text
+
+        # Handle sequences like "\u200B" that represent hidden/format chars literally
+        # We do NOT decode arbitrary escapes; only strip escapes that would decode to Cf/hidden sets
+        if remove_escaped_format_escapes and ("\\u" in out or "\\U" in out):
+            try:
+                import re as _re
+                # Known hidden/format codepoints we target explicitly
+                known_hex4 = {
+                    "200B", "200C", "200D", "2060", "FEFF",  # zero-width set
+                    "200E", "200F", "202A", "202B", "202C", "202D", "202E",  # directional
+                    "2066", "2067", "2068", "2069",  # directional isolates
+                }
+
+                def _strip_if_hidden(m: 're.Match[str]') -> str:
+                    hexcode = m.group(1).upper()
+                    # Quick allowlist: only remove if in known set or Unicode category Cf
+                    if hexcode in known_hex4:
+                        return ""
+                    try:
+                        ch = chr(int(hexcode, 16))
+                        cat = unicodedata.category(ch)
+                        if cat == 'Cf':
+                            return ""
+                        # Remove Unicode Variation Selectors (U+FE00..U+FE0F)
+                        if remove_variation_selectors:
+                            v = int(hexcode, 16)
+                            if 0xFE00 <= v <= 0xFE0F:
+                                return ""
+                    except Exception:
+                        pass
+                    return m.group(0)  # keep original escape
+
+                # Replace \uXXXX sequences
+                out = _re.sub(r"\\u([0-9a-fA-F]{4})", _strip_if_hidden, out)
+
+                # Replace \UXXXXXXXX sequences (rare for these marks, but safe)
+                def _strip_if_hidden_u8(m: 're.Match[str]') -> str:
+                    hexcode = m.group(1).upper()
+                    try:
+                        ch = chr(int(hexcode, 16))
+                        if unicodedata.category(ch) == 'Cf':
+                            return ""
+                        # Remove Ideographic Variation Selectors (U+E0100..U+E01EF)
+                        if remove_variation_selectors:
+                            v = int(hexcode, 16)
+                            if 0xE0100 <= v <= 0xE01EF:
+                                return ""
+                    except Exception:
+                        pass
+                    return m.group(0)
+
+                out = _re.sub(r"\\U([0-9a-fA-F]{8})", _strip_if_hidden_u8, out)
+            except Exception:
+                # Best-effort: ignore on failure
+                pass
 
         # Strip BOM at start
         if strip_bom and out.startswith("\ufeff"):
@@ -1179,6 +1236,12 @@ def normalize_code(text: str,
                     return False
                 if remove_directional_marks and ch in directional:
                     return False
+                # Remove Variation Selectors if requested
+                if remove_variation_selectors:
+                    cp = ord(ch)
+                    # VS1..VS16 (U+FE00..U+FE0F) and Ideographic VS (U+E0100..U+E01EF)
+                    if (0xFE00 <= cp <= 0xFE0F) or (0xE0100 <= cp <= 0xE01EF):
+                        return False
                 # Drop other control chars (Cc), keep others
                 cat = unicodedata.category(ch)
                 if cat == 'Cc' and ch not in ("\t", "\n", "\r"):

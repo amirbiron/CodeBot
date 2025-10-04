@@ -4,10 +4,13 @@ from code_processor import code_processor
 
 
 def test_validator_removes_hidden_chars_non_markdown():
+    # both literal hidden chars and escaped sequences should be handled
     text = (
         "This\u200b is\u200f a\u200d test\u202c string\u200e with\u2060 hidden\u202d characters!\n"
         "Line\u200b two\u202e also\u200f has\u200d some\u202a sneaky\u2060 stuff.\n"
-        "Even\u200b more\u202c here\u2060..."
+        "Even\u200b more\u202c here\u2060...\n"
+        # add escaped sequences literally typed by user
+        "This\\u200b should be cleaned too.\\u202E"
     )
     ok, cleaned, msg = code_processor.validate_code_input(text, filename="Nikui.py", user_id=123)
     assert ok is True
