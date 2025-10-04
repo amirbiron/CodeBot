@@ -130,6 +130,87 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     except Exception:
         pass
 
+# ===== Admin: /recycle_backfill =====
+async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ממלא deleted_at ו-deleted_expires_at לרשומות מחוקות רכות וחושב TTL.
+
+    שימוש: /recycle_backfill [X]
+    X = ימים לתוקף סל (ברירת מחדל מהקונפיג RECYCLE_TTL_DAYS)
+    הפקודה זמינה למנהלים בלבד.
+    """
+    try:
+        user_id = update.effective_user.id if update and update.effective_user else 0
+        admin_ids = get_admin_ids()
+        if not admin_ids or user_id not in admin_ids:
+            try:
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+            except Exception:
+                pass
+            return
+
+        # קביעת TTL בימים
+        try:
+            ttl_days = int(context.args[0]) if context.args else int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+        except Exception:
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+        ttl_days = max(1, ttl_days)
+
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(days=ttl_days)
+
+        # ודא אינדקסי TTL ואח"כ Backfill בשתי הקולקציות
+        from database import db as _db
+        results = []
+        for coll_name, friendly in (("collection", "קבצים רגילים"), ("large_files_collection", "קבצים גדולים")):
+            coll = getattr(_db, coll_name, None)
+            if not coll:
+                results.append((friendly, 0, 0, "collection-missing"))
+                continue
+            # ensure TTL index idempotently
+            try:
+                coll.create_index("deleted_expires_at", expireAfterSeconds=0, name="deleted_ttl")
+            except Exception:
+                # לא קריטי; נמשיך
+                pass
+
+            modified_deleted_at = 0
+            modified_deleted_exp = 0
+            # backfill deleted_at where missing
+            try:
+                if hasattr(coll, 'update_many'):
+                    r1 = coll.update_many({"is_active": False, "deleted_at": {"$exists": False}}, {"$set": {"deleted_at": now}})
+                    modified_deleted_at = int(getattr(r1, 'modified_count', 0) or 0)
+            except Exception:
+                pass
+            # backfill deleted_expires_at where missing
+            try:
+                if hasattr(coll, 'update_many'):
+                    r2 = coll.update_many({"is_active": False, "deleted_expires_at": {"$exists": False}}, {"$set": {"deleted_expires_at": expires}})
+                    modified_deleted_exp = int(getattr(r2, 'modified_count', 0) or 0)
+            except Exception:
+                pass
+
+            results.append((friendly, modified_deleted_at, modified_deleted_exp, None))
+
+        # דו"ח
+        lines = [
+            f"🧹 Backfill סל מיחזור (TTL={ttl_days} ימים)",
+        ]
+        for friendly, c_at, c_exp, err in results:
+            if err:
+                lines.append(f"• {friendly}: דילוג ({err})")
+            else:
+                lines.append(f"• {friendly}: deleted_at={c_at}, deleted_expires_at={c_exp}")
+        try:
+            await update.message.reply_text("\n".join(lines))
+        except Exception:
+            pass
+    except Exception as e:
+        try:
+            await update.message.reply_text(f"❌ שגיאה ב-backfill: {html_escape(str(e))}")
+        except Exception:
+            pass
+
 async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     רישום פעילות משתמש במערכת.
@@ -709,6 +790,8 @@ class CodeKeeperBot:
             logger.info(f"Handler {i}: {type(handler).__name__}")
 
         # --- שלב 2: רישום שאר הפקודות ---
+        # פקודת מנהלים: recycle_backfill
+        self.application.add_handler(CommandHandler("recycle_backfill", recycle_backfill_command))
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))

@@ -263,7 +263,7 @@ HELP_PAGES = [
         "📦 <b>קבצי ZIP</b> — גיבויים/ארכיונים\n\n"
         "<b>לכל קובץ יש תפריט עם:</b>\n"
         "👁️ הצג | ✏️ ערוך | 📝 שנה שם\n"
-        "📚 היסטוריה | 📥 הורד | 🗑️ מחק\n\n"
+        "📚 היסטוריה | 📥 הורד | 🗑️ העבר לסל\n\n"
         "<b>טיפ:</b> יש עימוד (10 לעמוד) וגם 'הצג עוד/פחות' בתצוגת קוד"
     ),
     (
@@ -481,6 +481,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -613,8 +614,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             if pagination_row:
                 keyboard.append(pagination_row)
 
-            # כפתור מחיקה מרובה
-            keyboard.append([InlineKeyboardButton("🗑️ מחיקה מרובה", callback_data="rf_multi_start")])
+            # כפתור העברה מרובה לסל
+            keyboard.append([InlineKeyboardButton("🗑️ העברה מרובה לסל", callback_data="rf_multi_start")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -707,13 +708,13 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
 
         if multi_on:
             count_sel = len(selected_ids)
-            # כפתורי מחיקה/ביטול במצב מחיקה מרובה
-            keyboard.append([InlineKeyboardButton(f"🗑️ מחק נבחרים ({count_sel})", callback_data="rf_delete_confirm")])
-            keyboard.append([InlineKeyboardButton("❌ בטל מחיקה מרובה", callback_data="rf_multi_cancel")])
+            # כפתורי העברה/ביטול במצב מחיקה מרובה
+            keyboard.append([InlineKeyboardButton(f"🗑️ העבר נבחרים לסל ({count_sel})", callback_data="rf_delete_confirm")])
+            keyboard.append([InlineKeyboardButton("❌ בטל העברה מרובה", callback_data="rf_multi_cancel")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         else:
-            # כפתור מחיקה מרובה במצב רגיל
-            keyboard.append([InlineKeyboardButton("🗑️ מחיקה מרובה", callback_data="rf_multi_start")])
+            # כפתור העברה מרובה לסל במצב רגיל
+            keyboard.append([InlineKeyboardButton("🗑️ העברה מרובה לסל", callback_data="rf_multi_start")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1564,17 +1565,16 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         
         keyboard = [
             [
-                InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_del_{file_index}"),
+                InlineKeyboardButton("✅ כן, העבר לסל", callback_data=f"confirm_del_{file_index}"),
                 InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            f"⚠️ *אישור מחיקה*\n\n"
+            f"⚠️ *אישור העברה לסל*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
-            f"🗑️ האם אתה בטוח שברצונך למחוק את הקובץ?\n"
-            f"⚠️ **פעולה זו לא ניתנת לביטול!**",
+            f"🗑️ הקובץ יועבר לסל המיחזור. ניתן לשחזר עד {config.RECYCLE_TTL_DAYS} ימים לפני מחיקה אוטומטית.",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -1612,9 +1612,9 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
-                f"✅ *הקובץ נמחק בהצלחה!*\n\n"
-                f"📄 **קובץ שנמחק:** `{file_name}`\n"
-                f"🗑️ **הקובץ הוסר לחלוטין מהמערכת**",
+                f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
+                f"📄 **קובץ:** `{file_name}`\n"
+                f"♻️ ניתן לשחזר מסל המיחזור עד {config.RECYCLE_TTL_DAYS} ימים.",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
@@ -2175,9 +2175,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 return ConversationHandler.END
             last_page = context.user_data.get('files_last_page') or 1
             warn = (
-                f"⚠️ עומד/ת למחוק <b>{count_sel}</b> קבצים שנבחרו.\n"
-                "המחיקה היא מקומית במסד של הבוט בלבד — אין שום פעולה מול GitHub,\n"
-                "ולא נמחקים קבצי ZIP/גדולים.\n\n"
+                f"⚠️ עומד/ת להעביר <b>{count_sel}</b> קבצים לסל המיחזור.\n"
+                f"הקבצים יהיו ניתנים לשחזור עד {config.RECYCLE_TTL_DAYS} ימים, ולאחר מכן יימחקו אוטומטית.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n\n"
                 "אם זה בטעות, חזור/י אחורה."
             )
             kb = [
@@ -2189,13 +2189,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # אישור שני
             last_page = context.user_data.get('files_last_page') or 1
             text2 = (
-                "🧨 אישור סופי למחיקה\n"
-                "הקבצים הנבחרים יימחקו מהמסד של הבוט בלבד.\n"
+                "🧨 אישור סופי להעברה לסל\n"
+                f"הקבצים יועברו לסל המיחזור ויישארו לשחזור עד {config.RECYCLE_TTL_DAYS} ימים.\n"
                 "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
-                "הפעולה בלתי הפיכה."
             )
             kb = [
-                [InlineKeyboardButton("🧨 כן, מחק", callback_data="rf_delete_do")],
+                [InlineKeyboardButton("🧨 כן, העבר לסל", callback_data="rf_delete_do")],
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"files_page_{last_page}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
@@ -2229,8 +2228,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 last_page = total_pages or 1
             context.user_data['files_last_page'] = last_page
             msg = (
-                f"✅ נמחקו {deleted} קבצים מהמסד של הבוט בלבד.\n"
-                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+                f"✅ הועברו לסל {deleted} קבצים.\n"
+                f"♻️ ניתן לשחזר מסל המיחזור עד {config.RECYCLE_TTL_DAYS} ימים."
             )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לשאר הקבצים", callback_data=f"files_page_{last_page}")],
@@ -2504,8 +2503,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             pagination_row = build_pagination_row(1, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
             if pagination_row:
                 keyboard.append(pagination_row)
-            # פעולת מחיקה לריפו הנוכחי
-            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
+            # פעולת העברה לריפו הנוכחי לסל המיחזור
+            keyboard.append([InlineKeyboardButton("🗑️ העבר את כל הריפו לסל", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
@@ -2536,10 +2535,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
             total = len(files)
             warn_text = (
-                f"⚠️ עומד/ת למחוק <b>{total}</b> קבצים תחת התגית <code>{tag}</code>\n"
-                "פעולה זו תסמן את הקבצים כלא־פעילים במסד של הבוט בלבד, \n"
-                "ולא תמחוק דבר ב‑GitHub. \n"
-                "לא תימחק פיזית גם אף קובץ ZIP/גדול.\n\n"
+                f"⚠️ עומד/ת להעביר <b>{total}</b> קבצים של <code>{tag}</code> לסל המיחזור.\n"
+                f"הקבצים יהיו ניתנים לשחזור עד {config.RECYCLE_TTL_DAYS} ימים, ולאחר מכן יימחקו אוטומטית.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n\n"
                 "אם זה בטעות, חזור/י אחורה."
             )
             kb = [
@@ -2551,13 +2549,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # שלב אישור שני
             tag = data.split(":", 1)[1]
             text2 = (
-                "🧨 אישור סופי למחיקה\n"
-                f"כל הקבצים תחת <code>{tag}</code> יוגדרו כלא־פעילים במסד של הבוט בלבד.\n"
+                "🧨 אישור סופי להעברה לסל\n"
+                f"כל הקבצים תחת <code>{tag}</code> יועברו לסל המיחזור ויישארו לשחזור עד {config.RECYCLE_TTL_DAYS} ימים.\n"
                 "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
-                "הפעולה בלתי הפיכה."
             )
             kb = [
-                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"byrepo_delete_do:{tag}")],
+                [InlineKeyboardButton("🧨 כן, העבר לסל", callback_data=f"byrepo_delete_do:{tag}")],
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
@@ -2594,7 +2591,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             pagination_row = build_pagination_row(page, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
             if pagination_row:
                 keyboard.append(pagination_row)
-            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
+            keyboard.append([InlineKeyboardButton("🗑️ העבר את כל הריפו לסל", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             try:
@@ -2719,8 +2716,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     except Exception:
                         pass
             msg = (
-                f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code> מהמסד של הבוט בלבד.\n"
-                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+                f"✅ הועברו לסל {deleted} קבצים תחת <code>{tag}</code>.\n"
+                f"♻️ ניתן לשחזר מסל המיחזור עד {config.RECYCLE_TTL_DAYS} ימים."
             )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לתפריט ריפו", callback_data="by_repo_menu")],
