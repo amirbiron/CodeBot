@@ -28,7 +28,8 @@ async def test_log_user_activity_schedules_and_samples(monkeypatch):
     calls = {"log": 0}
     def _log_user(uid, uname=None):
         calls["log"] += 1
-    monkeypatch.setattr(user_stats_mod, "log_user", _log_user)
+    # patch the instance method on the module-level singleton
+    monkeypatch.setattr(user_stats_mod.user_stats, "log_user", _log_user)
 
     # Force random to return 0.0
     import random as _rnd

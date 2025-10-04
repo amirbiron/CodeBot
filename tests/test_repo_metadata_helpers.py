@@ -63,6 +63,16 @@ class DummyCollection:
                         seen.add(key)
                         new_rows.append(d)
                 rows = new_rows
+            elif "$group" in st and st["$group"].get("_id") == "$file_name":
+                # distinct by file_name and output docs with _id=file_name for subsequent project
+                seen = set()
+                out = []
+                for d in rows:
+                    fn = d.get("file_name")
+                    if fn not in seen:
+                        seen.add(fn)
+                        out.append({"_id": fn, **{k: v for k, v in d.items() if k != "file_name"}})
+                rows = out
             elif "$group" in st and st["$group"].get("_id") == "$_id.tag":
                 counts = {}
                 for d in rows:

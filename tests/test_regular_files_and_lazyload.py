@@ -173,14 +173,27 @@ def test_repository_regular_files_paginated_basic():
 
 
 def test_repository_regular_files_paginated_second_page():
-    repo = _make_repo(_docs_for_user(uid=2, total=13, with_repo_every=100))
+    # all non-repo to reach total=13 and second page of 3
+    repo = _make_repo(_docs_for_user(uid=2, total=13, with_repo_every=1))
     items, total = repo.get_regular_files_paginated(user_id=2, page=2, per_page=10)
     assert total == 13
     assert len(items) == 3
 
 
 def test_repository_files_by_repo_projection_excludes_code():
-    docs = _docs_for_user(uid=3, total=7, with_repo_every=1)
+    # build only repo-tagged docs
+    now = dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc)
+    docs = [{
+        "_id": f"id{i}",
+        "user_id": 3,
+        "file_name": f"r{i}.py",
+        "programming_language": "python",
+        "version": 1,
+        "updated_at": now,
+        "is_active": True,
+        "tags": ["repo:me/app"],
+        "code": "print(1)",
+    } for i in range(7)]
     repo = _make_repo(docs)
     items, total = repo.get_user_files_by_repo(user_id=3, repo_tag="repo:me/app", page=1, per_page=5)
     assert total == 7
