@@ -1107,7 +1107,8 @@ def normalize_code(text: str,
                    replace_nbsp: bool = True,
                    remove_zero_width: bool = True,
                    remove_directional_marks: bool = True,
-                   trim_trailing_whitespace: bool = True) -> str:
+                   trim_trailing_whitespace: bool = True,
+                   remove_other_format_chars: bool = False) -> str:
     """נרמול קוד לפני שמירה.
 
     פעולות עיקריות:
@@ -1172,9 +1173,8 @@ def normalize_code(text: str,
                 cat = unicodedata.category(ch)
                 if cat == 'Cc' and ch not in ("\t", "\n", "\r"):
                     return False
-                # Some format chars (Cf) besides directional and zero-width
-                if cat == 'Cf' and (remove_zero_width or remove_directional_marks):
-                    # If not explicitly kept above, drop
+                # Optionally remove other format chars (Cf) beyond explicit sets
+                if cat == 'Cf' and remove_other_format_chars:
                     return False
                 return True
 
