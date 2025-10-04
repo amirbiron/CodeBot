@@ -190,7 +190,7 @@ MONGODB_URL=mongodb://localhost:27017/code_keeper_bot
 3. קבל API Key
 4. הוסף ל-.env: `PASTEBIN_API_KEY=your_key`
 
-## 🔁 עדכוני תלויות ומיזוג אוטומטי
+### 🔁 עדכוני תלויות ומיזוג אוטומטי
 - Dependabot יוצר PRs לעדכוני pip אחת לשבוע.
 - ה-CI מוסיף בדיקה בשם "✅ Branch Protection Gate" כדי לסמן בכלל ההגנה של `main`.
 - כדי לאפשר Auto‑merge לעדכוני patch: אפשר "Allow auto‑merge" והוסף Secret בשם `DEPENDABOT_AUTOMERGE` עם הערך `true`.
@@ -371,6 +371,7 @@ if __name__ == "__main__":
 /search function        # חיפוש חופשי
 ```
 
+<!-- duplicated block starts here -->
 ## 📖 פקודות זמינות
 
 ### פקודות בסיסיות
@@ -638,54 +639,7 @@ docs/
 
 ראה [docs/README.md](docs/README.md) למידע נוסף.
 
-## 📖 פקודות זמינות
-
-### פקודות בסיסיות
-| פקודה | תיאור | דוגמה |
-|-------|-------|---------|
-| `/start` | התחלת עבודה עם הבוט | `/start` |
-| `/help` | עזרה מפורטת | `/help` |
-| `/save` | שמירת קטע קוד | `/save script.py` |
-| `/list` | רשימת כל הקבצים | `/list` |
-| `/stats` | סטטיסטיקות אישיות | `/stats` |
-
-### פקודות צפייה וניהול
-| פקודה | תיאור | דוגמה |
-|-------|-------|---------|
-| `/show` | הצגת קובץ עם אפשרויות | `/show script.py` |
-| `/edit` | עריכת קובץ קיים | `/edit script.py` |
-| `/delete` | מחיקת קובץ | `/delete script.py` |
-| `/rename` | שינוי שם קובץ | `/rename old.py new.py` |
-| `/copy` | העתקת קובץ | `/copy script.py backup.py` |
-
-### פקודות גרסאות
-| פקודה | תיאור | דוגמה |
-|-------|-------|---------|
-| `/versions` | כל גרסאות הקובץ | `/versions script.py` |
-| `/restore` | שחזור גרסה | `/restore script.py 3` |
-| `/diff` | השוואת גרסאות | `/diff script.py 1 2` |
-
-### פקודות חיפוש
-| פקודה | תיאור | דוגמה |
-|-------|-------|---------|
-| `/search` | חיפוש מתקדם | `/search api` |
-| `/tags` | כל התגיות שלך | `/tags` |
-| `/languages` | שפות שבשימוש | `/languages` |
-| `/recent` | קבצים אחרונים | `/recent 7` |
-
-### פקודות שיתוף וייצוא
-| פקודה | תיאור | דוגמה |
-|-------|-------|---------|
-| `/share` | שיתוף קובץ | `/share script.py` |
-| `/export` | ייצוא קבצים | `/export zip` |
-| `/download` | הורדת קובץ | `/download script.py` |
-
-### פקודות ניתוח
-| פקודה | תיאור | דוגמה |
-|-------|-------|---------|
-| `/analyze` | ניתוח מתקדם | `/analyze script.py` |
-| `/validate` | בדיקת תחביר | `/validate script.py` |
-| `/minify` | דחיסת קוד | `/minify script.js` |
+<!-- duplicated block ends here: removing duplicate below -->
 
 ## 🔍 דוגמאות שימוש
 
