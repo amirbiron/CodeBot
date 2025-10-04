@@ -78,16 +78,6 @@ class DummyCollection:
 
         rows = data
 
-        # detect count pipeline
-        if pipeline and isinstance(pipeline[-1], dict) and pipeline[-1].get("$count") == "count":
-            tmp = rows
-            for st in pipeline:
-                if "$match" in st:
-                    tmp = [d for d in tmp if eval_match(d, st["$match"])]
-                elif "$group" in st and st["$group"].get("_id") == "$file_name":
-                    tmp = distinct_latest(tmp)
-            return [{"count": len(tmp)}]
-
         for st in pipeline:
             if "$match" in st:
                 rows = [d for d in rows if eval_match(d, st["$match"])]
@@ -110,6 +100,17 @@ class DummyCollection:
                     for k, v in proj.items():
                         if v in (1, True):
                             nd[k] = d.get(k)
+                        elif isinstance(v, str) and v.startswith("$"):
+                            # support simple path like $_id or nested like $_id.tag
+                            path = v[1:]
+                            cur = d
+                            for part in path.split('.'):
+                                if isinstance(cur, dict):
+                                    cur = cur.get(part)
+                                else:
+                                    cur = None
+                                    break
+                            nd[k] = cur
                     for k, v in proj.items():
                         if v in (0, False):
                             nd.pop(k, None)
@@ -119,6 +120,8 @@ class DummyCollection:
                 rows = rows[st["$skip"]:]
             elif "$limit" in st:
                 rows = rows[: st["$limit"]]
+            elif "$count" in st:
+                return [{"count": len(rows)}]
         return rows
 
 
