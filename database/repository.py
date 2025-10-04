@@ -211,6 +211,7 @@ class Repository:
             logger.error(f"שגיאה בחיפוש קוד: {e}")
             return []
 
+    @cached(expire_seconds=20, key_prefix="files_by_repo")
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
         """מחזיר קבצים לפי תגית ריפו עם דפדוף, וכן ספירת סה"כ קבצים (distinct לפי file_name)."""
         try:
@@ -224,6 +225,15 @@ class Repository:
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "code": 0,
+                }},
                 {"$skip": skip},
                 {"$limit": per_page},
             ]
@@ -358,6 +368,14 @@ class Repository:
             now = datetime.now(timezone.utc)
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
+            # נאתר user_id לפני העדכון לצורך אינוולידציית cache אמינה
+            user_id_for_invalidation: Optional[int] = None
+            try:
+                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id)}, {"user_id": 1})
+                if isinstance(pre_doc, dict):
+                    user_id_for_invalidation = pre_doc.get("user_id")
+            except Exception:
+                pass
             result = self.manager.collection.update_many(
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
@@ -367,7 +385,13 @@ class Repository:
                     "deleted_expires_at": expires,
                 }}
             )
-            return int(result.modified_count or 0)
+            modified = int(result.modified_count or 0)
+            if modified > 0 and user_id_for_invalidation is not None:
+                try:
+                    cache.invalidate_user_cache(int(user_id_for_invalidation))
+                except Exception:
+                    pass
+            return modified
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ לפי _id: {e}")
             return 0
@@ -495,6 +519,14 @@ class Repository:
             now = datetime.now(timezone.utc)
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
+            # נאתר user_id לפני העדכון לצורך אינוולידציית cache
+            user_id_for_invalidation: Optional[int] = None
+            try:
+                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id)}, {"user_id": 1})
+                if isinstance(pre_doc, dict):
+                    user_id_for_invalidation = pre_doc.get("user_id")
+            except Exception:
+                pass
             result = self.manager.large_files_collection.update_many(
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
@@ -504,7 +536,13 @@ class Repository:
                     "deleted_expires_at": expires,
                 }},
             )
-            return bool(result.modified_count and result.modified_count > 0)
+            ok = bool(result.modified_count and result.modified_count > 0)
+            if ok and user_id_for_invalidation is not None:
+                try:
+                    cache.invalidate_user_cache(int(user_id_for_invalidation))
+                except Exception:
+                    pass
+            return ok
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ גדול לפי ID: {e}")
             return False
@@ -582,7 +620,13 @@ class Repository:
             if deleted == 0:
                 res2 = self.manager.large_files_collection.delete_many({"_id": ObjectId(file_id), "user_id": user_id, "is_active": False})
                 deleted += int(res2.deleted_count or 0)
-            return bool(deleted and deleted > 0)
+            ok = bool(deleted and deleted > 0)
+            if ok:
+                try:
+                    cache.invalidate_user_cache(int(user_id))
+                except Exception:
+                    pass
+            return ok
         except Exception as e:
             logger.error(f"purge_file_by_id failed: {e}")
             return False
