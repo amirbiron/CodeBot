@@ -756,7 +756,10 @@ RECYCLE_PAGE_SIZE = 10
 
 async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
     try:
         user_id = update.effective_user.id
         data = query.data or "recycle_page_1"
@@ -797,19 +800,22 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await query.answer("בקשה לא תקפה", show_alert=True)
+            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().restore_file_by_id(user_id, fid)
         if ok:
-            await query.answer("♻️ שוחזר", show_alert=False)
+            await TelegramUtils.safe_answer(query, "♻️ שוחזר", show_alert=False)
         else:
-            await query.answer("❌ שגיאת שחזור", show_alert=True)
+            await TelegramUtils.safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_restore failed: {e}")
@@ -818,19 +824,22 @@ async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await query.answer()
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await query.answer("בקשה לא תקפה", show_alert=True)
+            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().purge_file_by_id(user_id, fid)
         if ok:
-            await query.answer("🧨 נמחק לצמיתות", show_alert=False)
+            await TelegramUtils.safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
         else:
-            await query.answer("❌ שגיאת מחיקה סופית", show_alert=True)
+            await TelegramUtils.safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_purge failed: {e}")

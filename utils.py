@@ -403,6 +403,24 @@ class TelegramUtils:
             chat_id=update.effective_chat.id,
             action=ChatAction.UPLOAD_DOCUMENT
         )
+
+    @staticmethod
+    async def safe_answer(query, text: Optional[str] = None, show_alert: bool = False, cache_time: Optional[int] = None) -> None:
+        """מענה בטוח ל-CallbackQuery: מתעלם משגיאות 'Query is too old'/'query_id_invalid'."""
+        try:
+            kwargs = {}
+            if text is not None:
+                kwargs["text"] = text
+            if show_alert:
+                kwargs["show_alert"] = True
+            if cache_time is not None:
+                kwargs["cache_time"] = int(cache_time)
+            await query.answer(**kwargs)
+        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            if "query is too old" in msg or "query_id_invalid" in msg or "message to edit not found" in msg:
+                return
+            raise
     
     @staticmethod
     def get_user_mention(user: User) -> str:
