@@ -374,6 +374,143 @@ if __name__ == "__main__":
 /search function        # חיפוש חופשי
 ```
 
+## 📖 פקודות זמינות
+
+### פקודות בסיסיות
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/start` | התחלת עבודה עם הבוט | `/start` |
+| `/help` | עזרה מפורטת | `/help` |
+| `/save` | שמירת קטע קוד | `/save script.py` |
+| `/list` | רשימת כל הקבצים | `/list` |
+| `/stats` | סטטיסטיקות אישיות | `/stats` |
+
+### פקודות צפייה וניהול
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/show` | הצגת קובץ עם אפשרויות | `/show script.py` |
+| `/edit` | עריכת קובץ קיים | `/edit script.py` |
+| `/delete` | מחיקת קובץ | `/delete script.py` |
+| `/rename` | שינוי שם קובץ | `/rename old.py new.py` |
+| `/copy` | העתקת קובץ | `/copy script.py backup.py` |
+
+### פקודות גרסאות
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/versions` | כל גרסאות הקובץ | `/versions script.py` |
+| `/restore` | שחזור גרסה | `/restore script.py 3` |
+| `/diff` | השוואת גרסאות | `/diff script.py 1 2` |
+
+### פקודות חיפוש
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/search` | חיפוש מתקדם | `/search api` |
+| `/tags` | כל התגיות שלך | `/tags` |
+| `/languages` | שפות שבשימוש | `/languages` |
+| `/recent` | קבצים אחרונים | `/recent 7` |
+
+### פקודות שיתוף וייצוא
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/share` | שיתוף קובץ | `/share script.py` |
+| `/export` | ייצוא קבצים | `/export zip` |
+| `/download` | הורדת קובץ | `/download script.py` |
+
+### פקודות ניתוח
+| פקודה | תיאור | דוגמה |
+|-------|-------|---------|
+| `/analyze` | ניתוח מתקדם | `/analyze script.py` |
+| `/validate` | בדיקת תחביר | `/validate script.py` |
+| `/minify` | דחיסת קוד | `/minify script.js` |
+
+## 🔍 דוגמאות שימוש
+
+### שמירת קוד Python עם תגיות
+```
+👤 /save web_scraper.py #python #scraping #requests
+
+🤖 מוכן לשמור את web_scraper.py
+   🏷️ תגיות: python, scraping, requests
+   אנא שלח את קטע הקוד:
+
+👤 import requests
+from bs4 import BeautifulSoup
+
+def scrape_website(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    return soup.get_text()
+
+🤖 ✅ נשמר בהצלחה!
+   📁 web_scraper.py
+   🔤 שפה: python
+   🏷️ תגיות: python, scraping, requests
+   📊 גודל: 156 תווים
+```
+
+### חיפוש והצגה
+```
+👤 /search scraping
+
+🤖 🔍 תוצאות חיפוש עבור: scraping
+
+   1. web_scraper.py
+   🔤 python | 📅 05/08
+   📝 Web scraping utility
+
+👤 /show web_scraper.py
+
+🤖 📄 web_scraper.py
+   
+   [כפתורים אינטראקטיביים:]
+   🎨 הדגשה צבעונית | 📊 ניתוח
+   ✏️ עריכה | 🌐 שיתוף
+   📋 העתקה | 📥 הורדה
+```
+
+### ניתוח קוד
+```
+👤 /analyze web_scraper.py
+
+🤖 📊 ניתוח קוד עבור: web_scraper.py
+
+   📏 מדדי גודל:
+   • סה"כ שורות: 8
+   • שורות קוד: 6
+   • שורות הערות: 0
+   • שורות ריקות: 2
+
+   🔧 מבנה קוד:
+   • פונקציות: 1
+   • מחלקות: 0
+   • ניקוד מורכבות: 2
+
+   🔧 פונקציות שנמצאו:
+   • scrape_website() (שורה 4)
+
+   💡 הצעות לשיפור:
+   • הוסף יותר הערות לקוד
+```
+
+### שיתוף ב-GitHub Gist
+```
+👤 /share web_scraper.py
+
+🤖 🌐 שיתוף קובץ: web_scraper.py
+   🔤 שפה: python
+   📏 גודל: 156 תווים
+   
+   בחר אופן שיתוף:
+   [🐙 GitHub Gist] [📋 Pastebin]
+   [📱 קישור פנימי] [❌ ביטול]
+
+👤 [לוחץ על GitHub Gist]
+
+🤖 🐙 שותף ב-GitHub Gist!
+   📄 קובץ: web_scraper.py
+   🔗 קישור: https://gist.github.com/user/abc123
+```
+
 ## 🏷️ נקודת שמירה בגיט (Git Checkpoint)
 - **מה זה עושה?** לחיצה על הכפתור "נקודת שמירה בגיט" יוצרת תגית (tag) קלת-משקל על ה-HEAD של ברירת המחדל בריפו הנבחר, בשם בפורמט `checkpoint-YYYYMMDD-HHMMSS`.
 - אם יצירת תגית נחסמת (למשל עקב הגנות), המערכת תיצור אוטומטית ענף (branch) בשם דומה כגיבוי.
