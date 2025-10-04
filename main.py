@@ -300,14 +300,14 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(chat_id=user_id, text=messages.get(milestone, ""))
                 except Exception:
                     pass
-                try:
-                    # התראה לאדמין ממילון milestones משמעותיים (כעת 500+)
-                    if milestone >= 500:
-                        uname = (username or f"User_{user_id}")
-                        display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
-                        await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
-                except Exception:
-                    pass
+            # התראה לאדמין למילסטונים משמעותיים (500+) — גם אם כבר סומן, לא מסוכן לשלוח פעם נוספת
+            try:
+                if milestone >= 500:
+                    uname = (username or f"User_{user_id}")
+                    display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                    await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
+            except Exception:
+                pass
         except Exception:
             pass
 
