@@ -124,7 +124,11 @@ class CodeProcessor:
             # סניטציה ראשונית (דלג עבור Markdown), ואז נרמול להסרת תווים נסתרים
             cleaned_code = code if is_markdown else self.sanitize_code_blocks(code)
             try:
-                cleaned_code = normalize_code(cleaned_code)
+                # בקבצי Markdown נשמר רווחי סוף שורה (Hard line breaks)
+                cleaned_code = normalize_code(
+                    cleaned_code,
+                    trim_trailing_whitespace=not is_markdown
+                )
             except Exception:
                 # במקרה של כשל בנרמול, נמשיך עם הטקסט לאחר הסניטציה הבסיסית
                 pass
