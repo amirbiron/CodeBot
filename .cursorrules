@@ -32,7 +32,7 @@
 - אל תמחקו נתיבים מסוכנים: '/', '.', ספריית הפרויקט
 
 ## דוגמת Python למחיקה בטוחה
-
+```python
 from pathlib import Path
 import shutil
 
@@ -42,6 +42,7 @@ def safe_rmtree(path: Path, allow_under: Path) -> None:
     if not str(p).startswith(str(base)) or p in (Path('/'), base.parent, Path.cwd()):
         raise RuntimeError(f"Refusing to delete unsafe path: {p}")
     shutil.rmtree(p)
+```
 ## 5. הימנעו משינוי cwd
 
 - אם חייבים, שמרו/שחזרו cwd, והשתמשו בנתיבים מוחלטים למחיקה
@@ -63,7 +64,9 @@ def safe_rmtree(path: Path, allow_under: Path) -> None:
 
 ## בדיקת קוד לאיתור מחיקות לא בטוחות
 
+```bash
 rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
+```
 ## שחזור לאחר מחיקה בטעות
 
 - אל תבצעו merge/PR כדי לא לדרוס היסטוריה
@@ -97,15 +100,21 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - Conventional Commits (feat/fix/chore/docs/refactor/test/build).
 - תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
 - יש למלא PR לפי התבנית שב-`.github/pull_request_template.md` (כולל Docs Preview, בדיקות, צ'קליסט ו-Rollback).
-- בתיאור ה‑PR יש לציין מפורשות האם עיינתם באתר התיעוד: https://amirbiron.github.io/CodeBot/index.html
+- בתיאור ה‑PR יש לציין מפורשות האם עיינתם ב־[CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/).
 - לפני merge: תיאור ברור, תוכנית בדיקות, סיכוני Rollback, עדכון docs.
 - UI: צרפו צילום/וידאו תוצאות אם רלוונטי.
 
-# CI Gates
+# CI / Required Checks
 
 - חובת מעבר: ./gradlew test detekt ktlintCheck ירוק.
 - אין להריץ git clean/reset על ה-workspace; עבודה רק על תיקיות זמניות.
 - טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט.
+- ה‑PR חייב להציג בדיוק את הסטטוסים הבאים:
+  - "🔍 Code Quality & Security"
+  - "🧪 Unit Tests (3.11)"
+  - "🧪 Unit Tests (3.12)"
+- אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
+- לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
 
 # סודות ולוגים
 
@@ -136,42 +145,34 @@ safe_rmrf() {
 - להגדיר autodoc_mock_imports: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations.
 - docs/examples.rst מוחרג עד שהעמוד יתווסף ל-toctree (ואז להסיר מה-exclude).
 
-# CI / Required Checks
-- ה־PR חייב להציג בדיוק את הסטטוסים הבאים:
-  - "🔍 Code Quality & Security"
-  - "🧪 Unit Tests (3.11)"
-  - "🧪 Unit Tests (3.12)"
-- אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
-- לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
+ 
 
 # Telegram Bot – מניעת "Message is not modified"
 - כשנערכת רק המקלדת: להשתמש ב-safe_edit_message_reply_markup (אותו טיפול חריגים).
 - תמיד לקרוא query.answer() לפני עריכה.
 - לעטוף edit_message_text / edit_message_reply_markup ב-wrapper שמתעלם מהשגיאה הזו בלבד:
 - לא משתיקים BadRequest אחרים; רק המקרה "message is not modified" נבלם.
+```python
+import telegram.error
 
-    ```python
-    import telegram.error
-
-    async def safe_edit(query, text, reply_markup=None, parse_mode=None):
-        try:
-            await query.edit_message_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-        except telegram.error.BadRequest as e:
-            if "message is not modified" in str(e).lower():
-                return
-            raise
-    ```
+async def safe_edit(query, text, reply_markup=None, parse_mode=None):
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except telegram.error.BadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return
+        raise
+```
 
 # GitHub – "📥 הורד קובץ מריפו"
 - בכניסה לפלואו: browse_action=download, לאפס multi_mode/safe_delete.
 - במצב הורדה לא מציגים כפתורי מחיקה או מצב מחיקה.
 - חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש).
 
- 
 # Gists/קישורים חיצוניים בהנחיות משתמש
 - בכל פעם שהמשתמש מצרף Gist/קישור קוד: לעיין בתוכן לפני מימוש.
 - יש ליישם בהתאם לרוח ההצעה; מותר לסטות בפרטים אם יש שיקולי אבטחה/פשטות, אבל לציין זאת.
