@@ -134,6 +134,22 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
+
+        # טעינת קוד עצלה: אם ברשימות שמרנו רק מטא־דאטה ללא code, שלוף גרסה אחרונה מה-DB
+        if not code:
+            try:
+                from database import db
+                user_id = update.effective_user.id
+                latest_doc = db.get_latest_version(user_id, file_name)
+                if latest_doc:
+                    code = latest_doc.get('code', '') or ''
+                    language = latest_doc.get('programming_language', language) or language
+                    version = latest_doc.get('version', version) or version
+                    # עדכן cache לזיהוי חזרה/המשך "הצג עוד"
+                    files_cache[str(file_index)] = dict(file_data, code=code, programming_language=language, version=version)
+                    context.user_data['files_cache'] = files_cache
+            except Exception:
+                pass
         max_length = 3500
         code_preview = code[:max_length]
         last_page = context.user_data.get('files_last_page')

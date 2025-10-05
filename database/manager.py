@@ -356,13 +356,17 @@ class DatabaseManager:
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
         return self._get_repo().get_user_files_by_repo(user_id, repo_tag, page, per_page)
 
+    # רשימת "שאר הקבצים" בעימוד אמיתי מה-DB (ללא repo:*)
+    def get_regular_files_paginated(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
+        return self._get_repo().get_regular_files_paginated(user_id, page, per_page)
+
     def delete_file(self, user_id: int, file_name: str) -> bool:
         return self._get_repo().delete_file(user_id, file_name)
 
     def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
         return self._get_repo().soft_delete_files_by_names(user_id, file_names)
 
-    def delete_file_by_id(self, file_id: str) -> int:
+    def delete_file_by_id(self, file_id: str) -> bool:
         return self._get_repo().delete_file_by_id(file_id)
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
