@@ -3,7 +3,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-aSYNC def test_log_user_activity_weight_typeerror_fallback(monkeypatch):
+async def test_log_user_activity_weight_typeerror_fallback(monkeypatch):
     # Stub database module for import side-effects
     db_mod = types.ModuleType("database")
     class _CodeSnippet: pass
