@@ -250,7 +250,9 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # milestones — להרצה אסינכרונית כך שלא תחסום את ההודעה למשתמש
     async def _milestones_job(user_id: int, username: str | None):
         try:
-            users_collection = db.db.users if getattr(db, 'db', None) else None
+            # טעינה דינמית של מודול ה-DB כדי לעבוד היטב עם monkeypatch בטסטים
+            from database import db as _db
+            users_collection = _db.db.users if getattr(_db, 'db', None) else None
             if users_collection is None:
                 return
             doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
