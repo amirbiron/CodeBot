@@ -211,6 +211,7 @@ class Repository:
             logger.error(f"שגיאה בחיפוש קוד: {e}")
             return []
 
+    @cached(expire_seconds=20, key_prefix="files_by_repo")
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
         """מחזיר קבצים לפי תגית ריפו עם דפדוף, וכן ספירת סה"כ קבצים (distinct לפי file_name)."""
         try:
@@ -224,6 +225,15 @@ class Repository:
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "code": 0,
+                }},
                 {"$skip": skip},
                 {"$limit": per_page},
             ]
@@ -240,6 +250,73 @@ class Repository:
             return items, total
         except Exception as e:
             logger.error(f"שגיאה בקבלת קבצי ריפו: {e}")
+            return [], 0
+
+    @cached(expire_seconds=20, key_prefix="regular_files")
+    def get_regular_files_paginated(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
+        """רשימת "שאר הקבצים" (ללא תגיות שמתחילות ב-"repo:") עם עימוד אמיתי וספירה.
+
+        מחזיר מסמכים מגרסה אחרונה לכל `file_name`, עם שדות מטא־דאטה בלבד לתפריטים:
+        _id, file_name, programming_language, updated_at, description, tags.
+        """
+        try:
+            req_page = max(1, int(page or 1))
+            per_page = max(1, int(per_page or 10))
+
+            # ספירה (distinct לפי file_name לאחר סינון) — תחילה, כדי לאפשר עימוד מהודק ללא רה-פצ' של הקורא
+            count_pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$match": {
+                    "$or": [
+                        {"tags": {"$exists": False}},
+                        {"tags": {"$eq": []}},
+                        {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
+                    ]
+                }},
+                {"$group": {"_id": "$file_name"}},
+                {"$count": "count"},
+            ]
+            cnt = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
+            total = int((cnt[0].get("count") if cnt else 0) or 0)
+
+            # הידוק עמוד חוקי בהתאם לספירה
+            total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+            page_used = min(max(1, req_page), total_pages)
+            skip = (page_used - 1) * per_page
+
+            # שליפת פריטים לעמוד החוקי (לאחר הידוק), חד-פעמי
+            items_pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$match": {
+                    "$or": [
+                        {"tags": {"$exists": False}},
+                        {"tags": {"$eq": []}},
+                        {"tags": {"$not": {"$elemMatch": {"$regex": "^repo:"}}}},
+                    ]
+                }},
+                {"$sort": {"updated_at": -1}},
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "code": 0,
+                }},
+                {"$skip": skip},
+                {"$limit": per_page},
+            ]
+            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
+            return items, total
+        except Exception as e:
+            logger.error(f"get_regular_files_paginated failed: {e}")
             return [], 0
 
     def delete_file(self, user_id: int, file_name: str) -> bool:
@@ -287,11 +364,19 @@ class Repository:
             logger.error(f"שגיאה במחיקה רכה מרובה: {e}")
             return 0
 
-    def delete_file_by_id(self, file_id: str) -> int:
+    def delete_file_by_id(self, file_id: str) -> bool:
         try:
             now = datetime.now(timezone.utc)
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
+            # נאתר user_id לפני העדכון לצורך אינוולידציית cache אמינה
+            user_id_for_invalidation: Optional[int] = None
+            try:
+                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
+                if isinstance(pre_doc, dict):
+                    user_id_for_invalidation = pre_doc.get("user_id")
+            except Exception:
+                pass
             result = self.manager.collection.update_many(
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
@@ -301,10 +386,16 @@ class Repository:
                     "deleted_expires_at": expires,
                 }}
             )
-            return int(result.modified_count or 0)
+            modified = int(getattr(result, 'modified_count', 0) or 0)
+            if modified > 0 and user_id_for_invalidation is not None:
+                try:
+                    cache.invalidate_user_cache(int(user_id_for_invalidation))
+                except Exception:
+                    pass
+            return bool(modified and modified > 0)
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ לפי _id: {e}")
-            return 0
+            return False
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
         try:
@@ -394,12 +485,15 @@ class Repository:
         try:
             skip = (page - 1) * per_page
             total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "is_active": True})
-            files = list(
-                self.manager.large_files_collection.find(
-                    {"user_id": user_id, "is_active": True},
-                    sort=[("created_at", -1)],
-                ).skip(skip).limit(per_page)
+            cursor = self.manager.large_files_collection.find(
+                {"user_id": user_id, "is_active": True},
+                sort=[("created_at", -1)],
             )
+            # תמיכה ב-mocks שמחזירים list במקום Cursor
+            if isinstance(cursor, list):
+                files = cursor[skip: skip + per_page]
+            else:
+                files = list(cursor.skip(skip).limit(per_page))
             return files, int(total_count)
         except Exception as e:
             logger.error(f"שגיאה בקבלת קבצים גדולים: {e}")
@@ -429,6 +523,14 @@ class Repository:
             now = datetime.now(timezone.utc)
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
+            # נאתר user_id לפני העדכון לצורך אינוולידציית cache
+            user_id_for_invalidation: Optional[int] = None
+            try:
+                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
+                if isinstance(pre_doc, dict):
+                    user_id_for_invalidation = pre_doc.get("user_id")
+            except Exception:
+                pass
             result = self.manager.large_files_collection.update_many(
                 {"_id": ObjectId(file_id), "is_active": True},
                 {"$set": {
@@ -438,7 +540,13 @@ class Repository:
                     "deleted_expires_at": expires,
                 }},
             )
-            return bool(result.modified_count and result.modified_count > 0)
+            ok = bool(result.modified_count and result.modified_count > 0)
+            if ok and user_id_for_invalidation is not None:
+                try:
+                    cache.invalidate_user_cache(int(user_id_for_invalidation))
+                except Exception:
+                    pass
+            return ok
         except Exception as e:
             logger.error(f"שגיאה במחיקת קובץ גדול לפי ID: {e}")
             return False
@@ -516,7 +624,13 @@ class Repository:
             if deleted == 0:
                 res2 = self.manager.large_files_collection.delete_many({"_id": ObjectId(file_id), "user_id": user_id, "is_active": False})
                 deleted += int(res2.deleted_count or 0)
-            return bool(deleted and deleted > 0)
+            ok = bool(deleted and deleted > 0)
+            if ok:
+                try:
+                    cache.invalidate_user_cache(int(user_id))
+                except Exception:
+                    pass
+            return ok
         except Exception as e:
             logger.error(f"purge_file_by_id failed: {e}")
             return False
@@ -529,6 +643,101 @@ class Repository:
         except Exception as e:
             logger.error(f"שגיאה בקבלת כל הקבצים: {e}")
             return {"regular_files": [], "large_files": []}
+
+    # --- Repo tags and names helpers (מטא־דאטה בלבד) ---
+    @cached(expire_seconds=30, key_prefix="repo_tags_counts")
+    def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
+        """מחזיר רשימת תגיות repo: עם ספירת קבצים ייחודיים לכל תגית (distinct file_name)."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
+                {"$match": {"tags": {"$regex": "^repo:"}}},
+                {"$group": {"_id": {"tag": "$tags", "file_name": "$file_name"}}},
+                {"$group": {"_id": "$_id.tag", "count": {"$sum": 1}}},
+                {"$project": {"_id": 0, "tag": "$_id", "count": 1}},
+                {"$sort": {"tag": 1}},
+                {"$limit": max(1, int(max_tags or 100))},
+            ]
+            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            # נרמל לפורמט מובטח: [{"tag": str, "count": int}]
+            out: List[Dict] = []
+            for it in raw:
+                if isinstance(it, dict):
+                    tag_val = None
+                    if "tag" in it and isinstance(it.get("tag"), str):
+                        tag_val = it.get("tag")
+                    elif "_id" in it:
+                        _idv = it.get("_id")
+                        if isinstance(_idv, str):
+                            tag_val = _idv
+                        elif isinstance(_idv, dict):
+                            tag_val = _idv.get("tag") or str(_idv)
+                    if tag_val is None:
+                        continue
+                    try:
+                        cnt_val = int(it.get("count") or 0)
+                    except Exception:
+                        cnt_val = 0
+                    out.append({"tag": tag_val, "count": cnt_val})
+                elif isinstance(it, str):
+                    out.append({"tag": it, "count": 1})
+            return out
+        except Exception as e:
+            logger.error(f"get_repo_tags_with_counts failed: {e}")
+            return []
+
+    @cached(expire_seconds=20, key_prefix="repo_file_names")
+    def get_user_file_names_by_repo(self, user_id: int, repo_tag: str) -> List[str]:
+        """מחזיר רשימת שמות קבצים ייחודיים תחת תגית ריפו (ללא תוכן)."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True, "tags": repo_tag}},
+                {"$group": {"_id": "$file_name"}},
+                {"$project": {"_id": 0, "file_name": "$_id"}},
+                {"$sort": {"file_name": 1}},
+            ]
+            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
+        except Exception as e:
+            logger.error(f"get_user_file_names_by_repo failed: {e}")
+            return []
+
+    @cached(expire_seconds=120, key_prefix="user_file_names")
+    def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
+        """שמות קבצים אחרונים (distinct לפי file_name), ממוינים לפי updated_at של הגרסה האחרונה."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$sort": {"updated_at": -1}},
+                {"$project": {"_id": 0, "file_name": 1}},
+                {"$limit": max(1, int(limit or 1000))},
+            ]
+            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
+        except Exception as e:
+            logger.error(f"get_user_file_names failed: {e}")
+            return []
+
+    @cached(expire_seconds=120, key_prefix="user_tags_flat")
+    def get_user_tags_flat(self, user_id: int) -> List[str]:
+        """כל התגיות הייחודיות למשתמש (כולל repo:), ללא תוכן וללא כפילויות."""
+        try:
+            pipeline = [
+                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
+                {"$group": {"_id": "$tags"}},
+                {"$project": {"_id": 0, "tag": "$_id"}},
+                {"$sort": {"tag": 1}},
+            ]
+            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return [d.get("tag") for d in docs if isinstance(d, dict) and d.get("tag")]
+        except Exception as e:
+            logger.error(f"get_user_tags_flat failed: {e}")
+            return []
 
     # Users auxiliary data
     def save_github_token(self, user_id: int, token: str) -> bool:
