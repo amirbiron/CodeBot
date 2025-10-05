@@ -4,6 +4,8 @@
 נקודת הכניסה הראשית לבוט
 """
 
+from __future__ import annotations
+
 # הגדרות מתקדמות
 import os
 import logging
