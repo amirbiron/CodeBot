@@ -241,6 +241,34 @@ async def test_regular_files_flow_uses_db_pagination(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_handle_view_file_long_code_truncation(monkeypatch):
+    # Ensure long code gets truncated safely into HTML preview without errors
+    from handlers.file_view import handle_view_file
+
+    class Q:
+        def __init__(self):
+            self.data = 'view_0'
+        async def answer(self):
+            return None
+        async def edit_message_text(self, *_a, **_kw):
+            return None
+    class U:
+        def __init__(self):
+            self.callback_query = Q()
+        @property
+        def effective_user(self):
+            return types.SimpleNamespace(id=1)
+
+    long_code = "\n".join(["print('x')"] * 10000)
+    ctx = types.SimpleNamespace(user_data={
+        'files_cache': {'0': {'file_name': 'big.py', 'programming_language': 'python', 'version': 1, 'code': long_code}},
+        'files_last_page': 1,
+        'files_origin': {'type': 'regular'},
+    })
+    await handle_view_file(U(), ctx)
+
+
+@pytest.mark.asyncio
 async def test_regular_files_page_second(monkeypatch):
     mod = types.ModuleType("database")
     class _CodeSnippet: pass

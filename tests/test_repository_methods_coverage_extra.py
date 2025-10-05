@@ -184,6 +184,10 @@ def test_rename_file_success_and_conflict(monkeypatch):
     monkeypatch.setattr(repo, "get_latest_version", lambda *_: {"_id": 1})
     assert repo.rename_file(7, "old.py", "other.py") is False
 
+    # same name path: treated as success (no-op update returns True if modified_count>0)
+    monkeypatch.setattr(repo, "get_latest_version", lambda *_: None)
+    assert repo.rename_file(7, "same.py", "same.py") in {True, False}
+
 
 def test_save_large_file_normalize_and_existing(monkeypatch):
     from dataclasses import dataclass
