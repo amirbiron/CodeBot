@@ -63,7 +63,7 @@ async def test_show_regular_files_message_not_modified(monkeypatch):
     mod.db = types.SimpleNamespace(get_regular_files_paginated=_get)
     monkeypatch.setitem(__import__('sys').modules, "database", mod)
 
-    from conversation_handlers import show_regular_files_page_callback
+    import conversation_handlers as ch
 
     class Q:
         def __init__(self, data):
@@ -84,4 +84,6 @@ async def test_show_regular_files_message_not_modified(monkeypatch):
 
     ctx = types.SimpleNamespace(user_data={})
     # Should swallow the BadRequest and not raise
-    await show_regular_files_page_callback(U("files_page_1"), ctx)
+    # Also cover the handle_callback_query path dispatching
+    await ch.show_regular_files_page_callback(U("files_page_1"), ctx)
+    await ch.handle_callback_query(types.SimpleNamespace(callback_query=Q("files_page_1"), effective_user=types.SimpleNamespace(id=1)), ctx)
