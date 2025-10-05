@@ -485,12 +485,15 @@ class Repository:
         try:
             skip = (page - 1) * per_page
             total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "is_active": True})
-            files = list(
-                self.manager.large_files_collection.find(
-                    {"user_id": user_id, "is_active": True},
-                    sort=[("created_at", -1)],
-                ).skip(skip).limit(per_page)
+            cursor = self.manager.large_files_collection.find(
+                {"user_id": user_id, "is_active": True},
+                sort=[("created_at", -1)],
             )
+            # תמיכה ב-mocks שמחזירים list במקום Cursor
+            if isinstance(cursor, list):
+                files = cursor[skip: skip + per_page]
+            else:
+                files = list(cursor.skip(skip).limit(per_page))
             return files, int(total_count)
         except Exception as e:
             logger.error(f"שגיאה בקבלת קבצים גדולים: {e}")

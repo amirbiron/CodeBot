@@ -56,10 +56,23 @@ def test_get_user_large_files_paging_and_errors(monkeypatch):
         def count_documents(self, *_a, **_k):
             return self._total
         def find(self, *_a, **_k):
-            return [
+            # Mimic a PyMongo cursor with skip/limit chaining
+            class Cur:
+                def __init__(self, items):
+                    self._items = list(items)
+                def skip(self, n):
+                    self._items = self._items[n:]
+                    return self
+                def limit(self, m):
+                    self._items = self._items[:m]
+                    return self
+                def __iter__(self):
+                    return iter(self._items)
+            items = [
                 {"_id": f"id{n}", "user_id": 1, "file_name": f"b{n}.bin", "is_active": True}
                 for n in range(10)
             ]
+            return Cur(items)
     class Mgr:
         def __init__(self, coll):
             self.collection = types.SimpleNamespace()
