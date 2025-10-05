@@ -28,8 +28,8 @@ def test_repository_id_operations_invalid_objectid(monkeypatch):
 
     repo = Repository(DummyManager())
 
-    # invalid ids should safely return 0/False paths via exception handler
-    assert repo.delete_file_by_id("not_an_object_id") == 0
+    # invalid ids should safely return False paths via exception handler
+    assert repo.delete_file_by_id("not_an_object_id") is False
     assert repo.restore_file_by_id(user_id=1, file_id="bad") is False
     assert repo.purge_file_by_id(user_id=1, file_id="bad") is False
 

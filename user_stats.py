@@ -12,8 +12,8 @@ class UserStats:
         # כבר לא צריך קובץ זמני - נשתמש ב-MongoDB
         pass
     
-    def log_user(self, user_id, username=None):
-        """רישום משתמש ב-MongoDB"""
+    def log_user(self, user_id, username=None, weight: int = 1):
+        """רישום משתמש ב-MongoDB עם משקל לדגימה (weight)."""
         try:
             # שמור או עדכן משתמש ב-MongoDB
             mongodb.save_user(user_id, username)
@@ -32,7 +32,7 @@ class UserStats:
                         "updated_at": datetime.now(timezone.utc)
                     },
                     "$inc": {
-                        "total_actions": 1
+                        "total_actions": max(1, int(weight or 1))
                     },
                     "$addToSet": {
                         "usage_days": today
