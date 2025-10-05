@@ -106,7 +106,8 @@ def test_repository_delete_by_id_and_large_files(monkeypatch):
     # delete_file_by_id with a valid ObjectId
     valid_id = str(ObjectId())
     rc = repo.delete_file_by_id(valid_id)
-    assert rc == 1
+    # repository now returns bool for delete_file_by_id
+    assert rc is True
     _flt, _upd = repo.manager.collection.updated
     assert _flt["_id"] is not None
     assert _upd["$set"]["is_active"] is False
