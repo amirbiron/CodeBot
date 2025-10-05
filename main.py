@@ -262,13 +262,11 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             milestone = max(pending)
             # התראת אדמין מוקדמת (לצורך ניטור), בנוסף להתראה אחרי עדכון DB
-            try:
-                if milestone >= 500:
-                    uname = (username or f"User_{user_id}")
-                    display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
-                    await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
-            except Exception:
-                pass
+            if milestone >= 500:
+                uname = (username or f"User_{user_id}")
+                display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                # קריאה ישירה ללא עטיפת try כדי שלא נבלע בשוגג; ה-wrapper החיצוני יתפוס חריגות
+                await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
             res = users_collection.update_one(
                 {"user_id": user_id, "milestones_sent": {"$ne": milestone}},
                 {"$addToSet": {"milestones_sent": milestone}, "$set": {"updated_at": datetime.now(timezone.utc)}}
@@ -309,13 +307,10 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
             # התראה לאדמין למילסטונים משמעותיים (500+) — גם אם כבר סומן, לא מסוכן לשלוח פעם נוספת
-            try:
-                if milestone >= 500:
-                    uname = (username or f"User_{user_id}")
-                    display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
-                    await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
-            except Exception:
-                pass
+            if milestone >= 500:
+                uname = (username or f"User_{user_id}")
+                display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
         except Exception:
             pass
 
