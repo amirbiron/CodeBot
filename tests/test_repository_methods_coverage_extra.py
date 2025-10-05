@@ -120,6 +120,16 @@ def test_user_file_names_and_tags_helpers_and_github_token():
     assert repo.delete_github_token(5) is True
 
 
+def test_github_token_encrypt_decrypt_paths(monkeypatch):
+    # ensure secret_manager paths exercised
+    import os
+    import secret_manager as sm
+    # No key -> encrypt returns None, decrypt passthrough
+    monkeypatch.delenv("TOKEN_ENC_KEY", raising=False)
+    assert sm.encrypt_secret("abc") is None
+    assert sm.decrypt_secret("raw") == "raw"
+
+
 def test_delete_file_by_id_noop_and_no_cache(monkeypatch):
     from database.repository import Repository
 
