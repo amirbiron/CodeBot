@@ -464,8 +464,8 @@ class TelegramUtils:
                 await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
         except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
             msg = str(e).lower()
-            # בטקסט נדרשת התאמה מדויקת לפי הטסטים
-            if msg == "message is not modified":
+            # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
+            if "not modified" in msg:
                 return
             raise
 
@@ -476,7 +476,7 @@ class TelegramUtils:
             await query.edit_message_reply_markup(reply_markup=reply_markup)
         except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
             msg = str(e).lower()
-            if "message is not modified" in msg:
+            if "not modified" in msg:
                 return
             raise
 
