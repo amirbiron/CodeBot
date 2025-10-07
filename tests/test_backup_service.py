@@ -27,7 +27,10 @@ def test_backup_service_delegations(monkeypatch):
     fm.backup_manager = fake
     monkeypatch.setitem(__import__('sys').modules, 'file_manager', fm)
 
-    import services.backup_service as svc
+    # ודא ייבוא מחדש של השירות אחרי ההזרקה, כדי שלא נשתמש בעותק קיים בזכרון
+    import importlib, sys
+    sys.modules.pop('services.backup_service', None)
+    svc = importlib.import_module('services.backup_service')
 
     assert svc.save_backup_bytes(b"zip", {"backup_id": "x"}) is True
     assert svc.list_backups(7) == ["b1", "b2"]
