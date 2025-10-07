@@ -4,7 +4,8 @@ from file_manager import backup_manager
 
 
 def save_backup_bytes(data: bytes, metadata: Dict[str, Any]) -> bool:
-    return cast(bool, backup_manager.save_backup_bytes(data, metadata))
+    # ודא שתמיד מוחזר bool גם אם ה-implementation מחזיר backup_id/str/None
+    return bool(backup_manager.save_backup_bytes(data, metadata))
 
 
 def list_backups(user_id: int):
