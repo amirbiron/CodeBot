@@ -77,3 +77,34 @@ def test_get_user_file_names_by_repo_filters_inactive_and_distinct():
     repo = Repository(DummyManager())
     names = repo.get_user_file_names_by_repo(user_id=7, repo_tag="repo:me/x")
     assert set(names) == {"a.py", "b.py", "d.py"}
+
+
+def test_repo_tags_counts_empty_returns_empty():
+    repo = _make_repo_with_aggregate_rows([])
+    out = repo.get_repo_tags_with_counts(user_id=1, max_tags=5)
+    assert out == []
+
+
+def test_repo_tags_counts_raw_id_str_and_limit_slice():
+    # Pre-aggregated rows where _id is a string and limit cuts the list
+    rows = [
+        {"_id": "repo:me/a", "count": 2},
+        {"_id": "repo:me/c", "count": 1},
+        {"tag": "repo:me/b", "count": 7},
+    ]
+    repo = _make_repo_with_aggregate_rows(rows)
+    out = repo.get_repo_tags_with_counts(user_id=9, max_tags=2)
+    tags = [d.get("tag") for d in out]
+    # Sorted lexicographically then sliced to first 2
+    assert tags == ["repo:me/a", "repo:me/b"]
+
+
+def test_repo_tags_counts_doc_shape_skips_missing_fields():
+    rows = [
+        {"tag": "repo:me/a", "file_name": None},  # missing file_name -> skip
+        {"file_name": "x.py", "is_active": True},  # missing tag -> skip
+        {"tag": "repo:me/b", "file_name": "y.py", "is_active": True},  # valid
+    ]
+    repo = _make_repo_with_aggregate_rows(rows)
+    out = repo.get_repo_tags_with_counts(user_id=2, max_tags=10)
+    assert out == [{"tag": "repo:me/b", "count": 1}]
