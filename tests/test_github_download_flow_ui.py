@@ -309,3 +309,208 @@ async def test_stays_in_download_mode_after_file_download(monkeypatch):
     assert not any("מצב מחיקה" in t for t in all_texts)
     assert any("הורד תיקייה" in t for t in all_texts)
 
+
+@pytest.mark.asyncio
+async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class Btn:
+        def __init__(self, text, callback_data=None):
+            self.text = text
+            self.callback_data = callback_data
+
+    def Markup(rows):
+        return rows
+
+    class Msg:
+        def __init__(self):
+            self.docs = []
+            self.texts = []
+
+        async def reply_document(self, document=None, filename=None, caption=None):
+            self.docs.append({"filename": filename, "caption": caption})
+            return None
+
+        async def reply_text(self, text, **kwargs):
+            self.texts.append(text)
+            return None
+
+        async def edit_text(self, text, **kwargs):
+            return self
+
+    class Query:
+        def __init__(self):
+            self.data = "download_file_menu"
+            self.from_user = types.SimpleNamespace(id=51)
+            self.message = Msg()
+            self.answered = []
+
+        async def edit_message_text(self, text=None, reply_markup=None, **kwargs):
+            return self.message
+
+        async def answer(self, *args, **kwargs):
+            self.answered.append({"args": args, "kwargs": kwargs})
+            return None
+
+    class Update:
+        def __init__(self):
+            self.callback_query = Query()
+            self.effective_user = types.SimpleNamespace(id=51)
+
+    class Context:
+        def __init__(self):
+            self.user_data = {}
+            self.bot_data = {}
+
+    # Stub requests.get to return a tiny valid zip bytes
+    import io, zipfile
+
+    class _Resp:
+        def __init__(self, content):
+            self.content = content
+        def raise_for_status(self):
+            return None
+
+    def _req_get(_url, timeout=60):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr('repo/file1.txt', b'hello')
+            z.writestr('repo/file2.txt', b'world')
+        return _Resp(buf.getvalue())
+
+    class _Repo:
+        full_name = "o/r"
+        name = "r"
+        default_branch = "main"
+        def get_archive_link(self, _):
+            return "https://example.com/archive.zip"
+
+    class _Gh:
+        def __init__(self, *a, **k):
+            pass
+        def get_repo(self, _):
+            return _Repo()
+
+    # Monkeypatches
+    monkeypatch.setattr(gh, "Github", _Gh)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", Btn)
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", Markup)
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "t")
+    monkeypatch.setattr(gh.requests, "get", _req_get)
+
+    # Backup manager stubs
+    class _BM:
+        def __init__(self):
+            self.saved = []
+            self.listed = []
+        def save_backup_bytes(self, data, metadata):
+            self.saved.append((data, metadata))
+        def list_backups(self, user_id):
+            self.listed.append(user_id)
+            return []
+
+    monkeypatch.setattr(gh, "backup_manager", _BM())
+
+    upd, ctx = Update(), Context()
+    session = handler.get_user_session(51)
+    session["selected_repo"] = "o/r"
+
+    # Enter menu then click download zip of root
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+    upd.callback_query.data = "download_zip:"
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+
+    # Assert doc sent and summary text appended
+    assert upd.callback_query.message.docs, "ZIP not sent"
+    assert any("BKP zip" in (d.get("filename") or "") for d in upd.callback_query.message.docs)
+    assert upd.callback_query.message.texts, "Summary line not sent"
+
+
+@pytest.mark.asyncio
+async def test_share_folder_link_sends_link_and_stays(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class Btn:
+        def __init__(self, text, callback_data=None):
+            self.text = text
+            self.callback_data = callback_data
+
+    def Markup(rows):
+        return rows
+
+    class Msg:
+        def __init__(self):
+            self.sent_links = []
+        async def reply_text(self, text, **kwargs):
+            self.sent_links.append(text)
+            return None
+        async def edit_text(self, text, **kwargs):
+            return self
+
+    class Query:
+        def __init__(self):
+            self.data = "download_file_menu"
+            self.from_user = types.SimpleNamespace(id=88)
+            self.message = Msg()
+            self.captured_rm = None
+        async def edit_message_text(self, text=None, reply_markup=None, **kwargs):
+            self.captured_rm = reply_markup
+            return self.message
+        async def answer(self, *args, **kwargs):
+            return None
+
+    class Update:
+        def __init__(self):
+            self.callback_query = Query()
+            self.effective_user = types.SimpleNamespace(id=88)
+
+    class Context:
+        def __init__(self):
+            self.user_data = {}
+            self.bot_data = {}
+
+    class _Repo:
+        full_name = "o/r"
+        default_branch = "main"
+        def get_contents(self, path="", ref=None):
+            return []
+
+    class _Gh:
+        def __init__(self, *a, **k):
+            pass
+        def get_repo(self, _):
+            return _Repo()
+
+    monkeypatch.setattr(gh, "Github", _Gh)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", Btn)
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", Markup)
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "t")
+
+    upd, ctx = Update(), Context()
+    session = handler.get_user_session(88)
+    session["selected_repo"] = "o/r"
+
+    # Enter browser and press share_folder_link on root
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+    upd.callback_query.data = "share_folder_link:"
+
+    captured = {}
+    async def _safe_edit_rm(q, reply_markup=None):
+        captured["rm"] = reply_markup
+
+    monkeypatch.setattr(gh.TelegramUtils, "safe_edit_message_reply_markup", _safe_edit_rm)
+
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+
+    # Link sent and still in browser with download UI
+    assert upd.callback_query.message.sent_links
+    rm = captured.get("rm")
+    assert rm is not None
+    texts = [getattr(b, "text", "") for row in rm for b in row]
+    assert any("הורד תיקייה" in t for t in texts)
+
+
