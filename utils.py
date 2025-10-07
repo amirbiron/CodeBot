@@ -462,10 +462,9 @@ class TelegramUtils:
                 await query.edit_message_text(text=text, reply_markup=reply_markup)
             else:
                 await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        except Exception as e:
-            # להיות סלחניים לסוג החריגה ולזהות לפי הטקסט כדי לכסות וריאציות ספרייה
-            msg = str(e)
-            if msg and "message is not modified" in msg.lower():
+        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            if "message is not modified" in msg:
                 return
             raise
 
@@ -474,9 +473,9 @@ class TelegramUtils:
         """עריכת מקלדת הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
         try:
             await query.edit_message_reply_markup(reply_markup=reply_markup)
-        except Exception as e:
-            msg = str(e)
-            if msg and "message is not modified" in msg.lower():
+        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            if "message is not modified" in msg:
                 return
             raise
 
