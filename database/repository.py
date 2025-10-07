@@ -136,7 +136,9 @@ class Repository:
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             return self.manager.collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"user_id": user_id, "file_name": file_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 sort=[("version", -1)],
             )
         except Exception as e:
@@ -146,7 +148,9 @@ class Repository:
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             return self.manager.collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"user_id": user_id, "file_name": file_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 sort=[("version", -1)],
             )
         except Exception as e:
@@ -156,7 +160,9 @@ class Repository:
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict]:
         try:
             return list(self.manager.collection.find(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"user_id": user_id, "file_name": file_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 sort=[("version", -1)],
             ))
         except Exception as e:
@@ -166,7 +172,9 @@ class Repository:
     def get_version(self, user_id: int, file_name: str, version: int) -> Optional[Dict]:
         try:
             return self.manager.collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "version": version, "is_active": True}
+                {"user_id": user_id, "file_name": file_name, "version": version, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}
             )
         except Exception as e:
             logger.error(f"שגיאה בקבלת גרסה {version} עבור {file_name}: {e}")
@@ -176,7 +184,9 @@ class Repository:
     def get_user_files(self, user_id: int, limit: int = 50) -> List[Dict]:
         try:
             pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$match": {"user_id": user_id, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
@@ -191,7 +201,9 @@ class Repository:
     @cached(expire_seconds=300, key_prefix="search_code")
     def search_code(self, user_id: int, query: str, programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
         try:
-            search_filter: Dict[str, Any] = {"user_id": user_id, "is_active": True}
+            search_filter: Dict[str, Any] = {"user_id": user_id, "$or": [
+                {"is_active": True}, {"is_active": {"$exists": False}}
+            ]}
             if query:
                 search_filter["$text"] = {"$search": query}
             if programming_language:
@@ -216,7 +228,9 @@ class Repository:
         """מחזיר קבצים לפי תגית ריפו עם דפדוף, וכן ספירת סה"כ קבצים (distinct לפי file_name)."""
         try:
             skip = max(0, (page - 1) * per_page)
-            match_stage = {"user_id": user_id, "is_active": True, "tags": repo_tag}
+            match_stage = {"user_id": user_id, "tags": repo_tag, "$or": [
+                {"is_active": True}, {"is_active": {"$exists": False}}
+            ]}
 
             # שלוף פריטים בעמוד
             items_pipeline = [
@@ -265,7 +279,9 @@ class Repository:
 
             # ספירה (distinct לפי file_name לאחר סינון) — תחילה, כדי לאפשר עימוד מהודק ללא רה-פצ' של הקורא
             count_pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$match": {"user_id": user_id, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
@@ -289,7 +305,9 @@ class Repository:
 
             # שליפת פריטים לעמוד החוקי (לאחר הידוק), חד-פעמי
             items_pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$match": {"user_id": user_id, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
@@ -325,7 +343,9 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"user_id": user_id, "file_name": file_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -372,13 +392,17 @@ class Repository:
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache אמינה
             user_id_for_invalidation: Optional[int] = None
             try:
-                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
+                pre_doc = self.manager.collection.find_one({"_id": ObjectId(file_id), "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}, {"user_id": 1})
                 if isinstance(pre_doc, dict):
                     user_id_for_invalidation = pre_doc.get("user_id")
             except Exception:
                 pass
             result = self.manager.collection.update_many(
-                {"_id": ObjectId(file_id), "is_active": True},
+                {"_id": ObjectId(file_id), "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -407,7 +431,9 @@ class Repository:
     def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         try:
             pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$match": {"user_id": user_id, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}},
                 {"$group": {
                     "_id": "$file_name",
                     "versions": {"$sum": 1},
@@ -439,7 +465,9 @@ class Repository:
                 logger.warning(f"File {new_name} already exists for user {user_id}")
                 return False
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": old_name, "is_active": True},
+                {"user_id": user_id, "file_name": old_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 {"$set": {"file_name": new_name, "updated_at": datetime.now(timezone.utc)}},
             )
             return bool(result.modified_count and result.modified_count > 0)
@@ -468,7 +496,9 @@ class Repository:
     def get_large_file(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             return self.manager.large_files_collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "is_active": True}
+                {"user_id": user_id, "file_name": file_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}
             )
         except Exception as e:
             logger.error(f"שגיאה בקבלת קובץ גדול: {e}")
@@ -484,9 +514,13 @@ class Repository:
     def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict], int]:
         try:
             skip = (page - 1) * per_page
-            total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "is_active": True})
+            total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "$or": [
+                {"is_active": True}, {"is_active": {"$exists": False}}
+            ]})
             cursor = self.manager.large_files_collection.find(
-                {"user_id": user_id, "is_active": True},
+                {"user_id": user_id, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 sort=[("created_at", -1)],
             )
             # תמיכה ב-mocks שמחזירים list במקום Cursor
@@ -505,7 +539,9 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.large_files_collection.update_many(
-                {"user_id": user_id, "file_name": file_name, "is_active": True},
+                {"user_id": user_id, "file_name": file_name, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -526,13 +562,17 @@ class Repository:
             # נאתר user_id לפני העדכון לצורך אינוולידציית cache
             user_id_for_invalidation: Optional[int] = None
             try:
-                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id), "is_active": True}, {"user_id": 1})
+                pre_doc = self.manager.large_files_collection.find_one({"_id": ObjectId(file_id), "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}, {"user_id": 1})
                 if isinstance(pre_doc, dict):
                     user_id_for_invalidation = pre_doc.get("user_id")
             except Exception:
                 pass
             result = self.manager.large_files_collection.update_many(
-                {"_id": ObjectId(file_id), "is_active": True},
+                {"_id": ObjectId(file_id), "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -649,20 +689,43 @@ class Repository:
     def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
         """מחזיר רשימת תגיות repo: עם ספירת קבצים ייחודיים לכל תגית (distinct file_name)."""
         try:
+            # שלבים גנריים; נמנע משימוש ב-$or ב-$match לטובת תאימות בסטאבים: נסנן is_active בפייתון
             pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$match": {"user_id": user_id}},
+                {"$project": {"tags": 1, "file_name": 1, "is_active": 1}},
                 {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
                 {"$match": {"tags": {"$regex": "^repo:"}}},
-                {"$group": {"_id": {"tag": "$tags", "file_name": "$file_name"}}},
-                {"$group": {"_id": "$_id.tag", "count": {"$sum": 1}}},
-                {"$project": {"_id": 0, "tag": "$_id", "count": 1}},
-                {"$sort": {"tag": 1}},
-                {"$limit": max(1, int(max_tags or 100))},
+                {"$project": {"tag": "$tags", "file_name": 1, "is_active": 1}},
             ]
-            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            # נרמל לפורמט מובטח: [{"tag": str, "count": int}]
-            out: List[Dict] = []
-            for it in raw:
+            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+
+            if not rows:
+                return []
+
+            # מצב 1: השורות מכילות file_name → סופרים distinct לפי (tag,file_name) ומסננים is_active=False בלבד
+            if any(isinstance(r, dict) and ("file_name" in r) for r in rows):
+                seen_pairs = set()
+                counts: Dict[str, int] = {}
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    if r.get("is_active", True) is False:
+                        continue
+                    tag = r.get("tag")
+                    fname = r.get("file_name")
+                    if not tag or not fname:
+                        continue
+                    key = (str(tag), str(fname))
+                    if key in seen_pairs:
+                        continue
+                    seen_pairs.add(key)
+                    counts[str(tag)] = counts.get(str(tag), 0) + 1
+                out = [{"tag": t, "count": c} for t, c in sorted(counts.items(), key=lambda x: x[0])]
+                return out[:max(1, int(max_tags or 100))]
+
+            # מצב 2: ה־aggregate מוחזר כבר כספירה/תגיות (צורות שונות) – נרמול לצורה אחידה
+            normalized: List[Dict] = []
+            for it in rows:
                 if isinstance(it, dict):
                     tag_val = None
                     if "tag" in it and isinstance(it.get("tag"), str):
@@ -679,10 +742,12 @@ class Repository:
                         cnt_val = int(it.get("count") or 0)
                     except Exception:
                         cnt_val = 0
-                    out.append({"tag": tag_val, "count": cnt_val})
+                    normalized.append({"tag": tag_val, "count": cnt_val})
                 elif isinstance(it, str):
-                    out.append({"tag": it, "count": 1})
-            return out
+                    normalized.append({"tag": it, "count": 1})
+            # מיון ותיחום
+            normalized.sort(key=lambda d: d.get("tag", ""))
+            return normalized[:max(1, int(max_tags or 100))]
         except Exception as e:
             logger.error(f"get_repo_tags_with_counts failed: {e}")
             return []
@@ -691,14 +756,26 @@ class Repository:
     def get_user_file_names_by_repo(self, user_id: int, repo_tag: str) -> List[str]:
         """מחזיר רשימת שמות קבצים ייחודיים תחת תגית ריפו (ללא תוכן)."""
         try:
+            # הימנעות מ-$or; נסנן is_active בפייתון ונחזיר distinct ממוין
             pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True, "tags": repo_tag}},
-                {"$group": {"_id": "$file_name"}},
-                {"$project": {"_id": 0, "file_name": "$_id"}},
+                {"$match": {"user_id": user_id, "tags": repo_tag}},
+                {"$project": {"file_name": 1, "is_active": 1}},
                 {"$sort": {"file_name": 1}},
             ]
-            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
+            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            names: List[str] = []
+            seen = set()
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                if r.get("is_active", True) is False:
+                    continue
+                fn = r.get("file_name")
+                if not fn or fn in seen:
+                    continue
+                seen.add(fn)
+                names.append(fn)
+            return names
         except Exception as e:
             logger.error(f"get_user_file_names_by_repo failed: {e}")
             return []
@@ -708,7 +785,9 @@ class Repository:
         """שמות קבצים אחרונים (distinct לפי file_name), ממוינים לפי updated_at של הגרסה האחרונה."""
         try:
             pipeline = [
-                {"$match": {"user_id": user_id, "is_active": True}},
+                {"$match": {"user_id": user_id, "$or": [
+                    {"is_active": True}, {"is_active": {"$exists": False}}
+                ]}},
                 {"$sort": {"file_name": 1, "version": -1}},
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
