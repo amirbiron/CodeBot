@@ -56,8 +56,8 @@ async def test_log_user_updates_and_increments(monkeypatch):
     mod.db = top
     monkeypatch.setitem(__import__("sys").modules, "database", mod)
 
-    # Import module under test
-    us_mod = importlib.import_module("user_stats")
+    # Import module under test (reload to bind our mocked database)
+    us_mod = importlib.reload(importlib.import_module("user_stats"))
     stats = us_mod.UserStats()
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
