@@ -386,6 +386,9 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
         default_branch = "main"
         def get_archive_link(self, _):
             return "https://example.com/archive.zip"
+        def get_contents(self, path="", ref=None):
+            # דפדפן דורש מתוד זה; נחזיר רשימה ריקה לצורך הטסט
+            return []
 
     class _Gh:
         def __init__(self, *a, **k):
@@ -498,17 +501,11 @@ async def test_share_folder_link_sends_link_and_stays(monkeypatch):
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
     upd.callback_query.data = "share_folder_link:"
 
-    captured = {}
-    async def _safe_edit_rm(q, reply_markup=None):
-        captured["rm"] = reply_markup
-
-    monkeypatch.setattr(gh.TelegramUtils, "safe_edit_message_reply_markup", _safe_edit_rm)
-
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
 
     # Link sent and still in browser with download UI
     assert upd.callback_query.message.sent_links
-    rm = captured.get("rm")
+    rm = upd.callback_query.captured_rm
     assert rm is not None
     texts = [getattr(b, "text", "") for row in rm for b in row]
     assert any("הורד תיקייה" in t for t in texts)
