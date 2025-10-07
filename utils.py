@@ -468,6 +468,12 @@ class TelegramUtils:
             if "not modified" in msg:
                 return
             raise
+        except Exception as e:
+            # רשת/ספריות שונות עלולות להשליך מחלקה אחרת אך עם אותו מסר
+            msg = str(e).lower()
+            if "not modified" in msg:
+                return
+            raise
 
     @staticmethod
     async def safe_edit_message_reply_markup(query, reply_markup=None) -> None:
@@ -475,6 +481,11 @@ class TelegramUtils:
         try:
             await query.edit_message_reply_markup(reply_markup=reply_markup)
         except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            if "not modified" in msg:
+                return
+            raise
+        except Exception as e:
             msg = str(e).lower()
             if "not modified" in msg:
                 return
