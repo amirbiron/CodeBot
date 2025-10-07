@@ -15,6 +15,7 @@ import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
+import requests
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
@@ -2012,7 +2013,6 @@ class GitHubMenuHandler:
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
                     try:
-                        import requests
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
