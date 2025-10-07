@@ -689,7 +689,7 @@ class Repository:
     def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
         """מחזיר רשימת תגיות repo: עם ספירת קבצים ייחודיים לכל תגית (distinct file_name)."""
         try:
-            # הימנעות מ-$or ב-$match לטובת תאימות בסטאבים: נסנן is_active בפייתון
+            # שלבים גנריים; נמנע משימוש ב-$or ב-$match לטובת תאימות בסטאבים: נסנן is_active בפייתון
             pipeline = [
                 {"$match": {"user_id": user_id}},
                 {"$project": {"tags": 1, "file_name": 1, "is_active": 1}},
@@ -698,25 +698,56 @@ class Repository:
                 {"$project": {"tag": "$tags", "file_name": 1, "is_active": 1}},
             ]
             rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            seen_pairs = set()
-            counts: Dict[str, int] = {}
-            for r in rows:
-                if not isinstance(r, dict):
-                    continue
-                # כלול חסרי is_active; דלג רק על is_active=False
-                if r.get("is_active", True) is False:
-                    continue
-                tag = r.get("tag")
-                fname = r.get("file_name")
-                if not tag or not fname:
-                    continue
-                key = (str(tag), str(fname))
-                if key in seen_pairs:
-                    continue
-                seen_pairs.add(key)
-                counts[str(tag)] = counts.get(str(tag), 0) + 1
-            out = [{"tag": t, "count": c} for t, c in sorted(counts.items(), key=lambda x: x[0])]
-            return out[:max(1, int(max_tags or 100))]
+
+            if not rows:
+                return []
+
+            # מצב 1: השורות מכילות file_name → סופרים distinct לפי (tag,file_name) ומסננים is_active=False בלבד
+            if any(isinstance(r, dict) and ("file_name" in r) for r in rows):
+                seen_pairs = set()
+                counts: Dict[str, int] = {}
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    if r.get("is_active", True) is False:
+                        continue
+                    tag = r.get("tag")
+                    fname = r.get("file_name")
+                    if not tag or not fname:
+                        continue
+                    key = (str(tag), str(fname))
+                    if key in seen_pairs:
+                        continue
+                    seen_pairs.add(key)
+                    counts[str(tag)] = counts.get(str(tag), 0) + 1
+                out = [{"tag": t, "count": c} for t, c in sorted(counts.items(), key=lambda x: x[0])]
+                return out[:max(1, int(max_tags or 100))]
+
+            # מצב 2: ה־aggregate מוחזר כבר כספירה/תגיות (צורות שונות) – נרמול לצורה אחידה
+            normalized: List[Dict] = []
+            for it in rows:
+                if isinstance(it, dict):
+                    tag_val = None
+                    if "tag" in it and isinstance(it.get("tag"), str):
+                        tag_val = it.get("tag")
+                    elif "_id" in it:
+                        _idv = it.get("_id")
+                        if isinstance(_idv, str):
+                            tag_val = _idv
+                        elif isinstance(_idv, dict):
+                            tag_val = _idv.get("tag") or str(_idv)
+                    if tag_val is None:
+                        continue
+                    try:
+                        cnt_val = int(it.get("count") or 0)
+                    except Exception:
+                        cnt_val = 0
+                    normalized.append({"tag": tag_val, "count": cnt_val})
+                elif isinstance(it, str):
+                    normalized.append({"tag": it, "count": 1})
+            # מיון ותיחום
+            normalized.sort(key=lambda d: d.get("tag", ""))
+            return normalized[:max(1, int(max_tags or 100))]
         except Exception as e:
             logger.error(f"get_repo_tags_with_counts failed: {e}")
             return []
