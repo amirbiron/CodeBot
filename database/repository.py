@@ -370,9 +370,7 @@ class Repository:
             ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
             expires = now + timedelta(days=max(1, ttl_days))
             result = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
+                {"user_id": user_id, "file_name": {"$in": list(set(file_names))}, "is_active": True},
                 {"$set": {
                     "is_active": False,
                     "updated_at": now,
@@ -691,42 +689,34 @@ class Repository:
     def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
         """מחזיר רשימת תגיות repo: עם ספירת קבצים ייחודיים לכל תגית (distinct file_name)."""
         try:
+            # הימנעות מ-$or ב-$match לטובת תאימות בסטאבים: נסנן is_active בפייתון
             pipeline = [
-                {"$match": {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
+                {"$match": {"user_id": user_id}},
+                {"$project": {"tags": 1, "file_name": 1, "is_active": 1}},
                 {"$unwind": {"path": "$tags", "preserveNullAndEmptyArrays": False}},
                 {"$match": {"tags": {"$regex": "^repo:"}}},
-                {"$group": {"_id": {"tag": "$tags", "file_name": "$file_name"}}},
-                {"$group": {"_id": "$_id.tag", "count": {"$sum": 1}}},
-                {"$project": {"_id": 0, "tag": "$_id", "count": 1}},
-                {"$sort": {"tag": 1}},
-                {"$limit": max(1, int(max_tags or 100))},
+                {"$project": {"tag": "$tags", "file_name": 1, "is_active": 1}},
             ]
-            raw = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            # נרמל לפורמט מובטח: [{"tag": str, "count": int}]
-            out: List[Dict] = []
-            for it in raw:
-                if isinstance(it, dict):
-                    tag_val = None
-                    if "tag" in it and isinstance(it.get("tag"), str):
-                        tag_val = it.get("tag")
-                    elif "_id" in it:
-                        _idv = it.get("_id")
-                        if isinstance(_idv, str):
-                            tag_val = _idv
-                        elif isinstance(_idv, dict):
-                            tag_val = _idv.get("tag") or str(_idv)
-                    if tag_val is None:
-                        continue
-                    try:
-                        cnt_val = int(it.get("count") or 0)
-                    except Exception:
-                        cnt_val = 0
-                    out.append({"tag": tag_val, "count": cnt_val})
-                elif isinstance(it, str):
-                    out.append({"tag": it, "count": 1})
-            return out
+            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            seen_pairs = set()
+            counts: Dict[str, int] = {}
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                # כלול חסרי is_active; דלג רק על is_active=False
+                if r.get("is_active", True) is False:
+                    continue
+                tag = r.get("tag")
+                fname = r.get("file_name")
+                if not tag or not fname:
+                    continue
+                key = (str(tag), str(fname))
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                counts[str(tag)] = counts.get(str(tag), 0) + 1
+            out = [{"tag": t, "count": c} for t, c in sorted(counts.items(), key=lambda x: x[0])]
+            return out[:max(1, int(max_tags or 100))]
         except Exception as e:
             logger.error(f"get_repo_tags_with_counts failed: {e}")
             return []
@@ -735,16 +725,26 @@ class Repository:
     def get_user_file_names_by_repo(self, user_id: int, repo_tag: str) -> List[str]:
         """מחזיר רשימת שמות קבצים ייחודיים תחת תגית ריפו (ללא תוכן)."""
         try:
+            # הימנעות מ-$or; נסנן is_active בפייתון ונחזיר distinct ממוין
             pipeline = [
-                {"$match": {"user_id": user_id, "tags": repo_tag, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]}},
-                {"$group": {"_id": "$file_name"}},
-                {"$project": {"_id": 0, "file_name": "$_id"}},
+                {"$match": {"user_id": user_id, "tags": repo_tag}},
+                {"$project": {"file_name": 1, "is_active": 1}},
                 {"$sort": {"file_name": 1}},
             ]
-            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
+            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            names: List[str] = []
+            seen = set()
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                if r.get("is_active", True) is False:
+                    continue
+                fn = r.get("file_name")
+                if not fn or fn in seen:
+                    continue
+                seen.add(fn)
+                names.append(fn)
+            return names
         except Exception as e:
             logger.error(f"get_user_file_names_by_repo failed: {e}")
             return []
