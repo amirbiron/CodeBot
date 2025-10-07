@@ -46,3 +46,21 @@ def test_save_backup_file_from_existing_zip(tmp_path, monkeypatch):
     saved = Path(mgr.backup_dir) / "from_file.zip"
     assert saved.exists()
 
+
+def test_list_backups_skips_zip_without_owner(tmp_path, monkeypatch):
+    from file_manager import BackupManager
+
+    monkeypatch.setenv("BACKUPS_STORAGE", "fs")
+    monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
+
+    mgr = BackupManager()
+    # write zip without metadata.json and name without userId pattern
+    path = Path(mgr.backup_dir) / "no_owner.zip"
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('a.txt', 'A')
+    path.write_bytes(mem.getvalue())
+
+    lst = mgr.list_backups(123)
+    assert all(b.backup_id != 'no_owner' for b in lst)
+
