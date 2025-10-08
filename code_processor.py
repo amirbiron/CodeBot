@@ -543,10 +543,10 @@ class CodeProcessor:
             try:
                 if programming_language and programming_language != 'text':
                     lexer = get_lexer_by_name(programming_language)
-            except ClassNotFound:
+            except Exception:
                 try:
                     lexer = guess_lexer(code) if guess_lexer else None
-                except ClassNotFound:
+                except Exception:
                     lexer = None
             if not lexer:
                 try:
@@ -580,6 +580,7 @@ class CodeProcessor:
             return highlighted
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
+            # במסלול שגיאה כללי שמור על עקביות HTML: עטיפה ב-<code>...</code>
             return f"<code>{code}</code>" if output_format == 'html' else code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
