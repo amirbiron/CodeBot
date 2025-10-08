@@ -407,19 +407,21 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """מציג תפריט קבוצות לפי תגיות ריפו ומאפשר בחירה."""
     from database import db
     user_id = update.effective_user.id
-    files = db.get_user_files(user_id, limit=500)
-    # ריכוז תגיות ריפו
-    repo_to_count = {}
-    for f in files:
-        for t in f.get('tags', []) or []:
-            if t.startswith('repo:'):
-                repo_to_count[t] = repo_to_count.get(t, 0) + 1
-    if not repo_to_count:
+    # שימוש באגרגציה מהירה ב-DB כדי לקבל תגיות ריפו עם ספירה
+    tags_with_counts = db.get_repo_tags_with_counts(user_id, max_tags=20)
+    if not tags_with_counts:
         await update.message.reply_text("ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
     # בניית מקלדת
     keyboard = []
-    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+    for row in tags_with_counts:
+        try:
+            tag = row.get("tag") if isinstance(row, dict) else None
+            cnt = int(row.get("count") or 0) if isinstance(row, dict) else 0
+        except Exception:
+            tag, cnt = None, 0
+        if not tag:
+            continue
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await update.message.reply_text(
@@ -434,17 +436,20 @@ async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    files = db.get_user_files(user_id, limit=500)
-    repo_to_count = {}
-    for f in files:
-        for t in f.get('tags', []) or []:
-            if t.startswith('repo:'):
-                repo_to_count[t] = repo_to_count.get(t, 0) + 1
-    if not repo_to_count:
+    # שימוש באגרגציה מהירה ב-DB כדי לקבל תגיות ריפו עם ספירה
+    tags_with_counts = db.get_repo_tags_with_counts(user_id, max_tags=20)
+    if not tags_with_counts:
         await TelegramUtils.safe_edit_message_text(query, "ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
     keyboard = []
-    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+    for row in tags_with_counts:
+        try:
+            tag = row.get("tag") if isinstance(row, dict) else None
+            cnt = int(row.get("count") or 0) if isinstance(row, dict) else 0
+        except Exception:
+            tag, cnt = None, 0
+        if not tag:
+            continue
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await TelegramUtils.safe_edit_message_text(
@@ -467,13 +472,6 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         pass
     
     try:
-        # סנן קבצים השייכים לקטגוריות אחרות:
-        # - קבצים גדולים אינם מוחזרים כאן ממילא
-        # - קבצי ZIP אינם חלק ממסד הקבצים
-        # - קבצים עם תגית repo: יוצגו תחת "לפי ריפו" ולכן יוחרגו כאן
-        all_files = db.get_user_files(user_id, limit=10000)
-        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
-        
         # מסך בחירה: כפתורי ניווט ראשיים
         keyboard = [
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],

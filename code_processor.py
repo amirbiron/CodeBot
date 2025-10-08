@@ -10,26 +10,67 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-import cairosvg
-import textstat
-# Language detection
-from langdetect import DetectorFactory, detect
-# Image processing
-from PIL import Image, ImageDraw, ImageFont
-# Syntax highlighting
-from pygments import highlight
-from pygments.formatters import (HtmlFormatter, ImageFormatter,
-                                 TerminalFormatter)
-from pygments.lexers import (get_lexer_by_name, get_lexer_for_filename,
-                             guess_lexer)
-from pygments.styles import get_style_by_name
-from pygments.util import ClassNotFound
+# Optional dependencies — מוגנים לשימוש בסביבת בדיקות/Docs
+try:
+    import cairosvg  # type: ignore
+except Exception:  # noqa: BLE001
+    cairosvg = None  # type: ignore[assignment]
+
+try:
+    import textstat  # type: ignore
+except Exception:  # noqa: BLE001
+    textstat = None  # type: ignore[assignment]
+
+# Language detection (optional)
+try:
+    from langdetect import DetectorFactory, detect  # type: ignore
+except Exception:  # noqa: BLE001
+    class DetectorFactory:  # type: ignore[no-redef]
+        seed = 0
+
+    def detect(_text: str) -> str:  # type: ignore[no-redef]
+        return 'text'
+
+# Image processing (optional)
+try:
+    from PIL import Image, ImageDraw, ImageFont  # type: ignore
+except Exception:  # noqa: BLE001
+    Image = None  # type: ignore[assignment]
+    ImageDraw = None  # type: ignore[assignment]
+    ImageFont = None  # type: ignore[assignment]
+
+# Syntax highlighting (optional)
+try:
+    from pygments import highlight  # type: ignore
+    from pygments.formatters import (HtmlFormatter, ImageFormatter, TerminalFormatter)  # type: ignore
+    from pygments.lexers import (get_lexer_by_name, get_lexer_for_filename, guess_lexer)  # type: ignore
+    from pygments.styles import get_style_by_name  # type: ignore
+    from pygments.util import ClassNotFound  # type: ignore
+except Exception:  # noqa: BLE001
+    highlight = None  # type: ignore[assignment]
+    HtmlFormatter = None  # type: ignore[assignment]
+    ImageFormatter = None  # type: ignore[assignment]
+    TerminalFormatter = None  # type: ignore[assignment]
+    def get_lexer_by_name(_name: str):  # type: ignore[no-redef]
+        raise ClassNotFound('pygments not available')
+    def get_lexer_for_filename(_fn: str):  # type: ignore[no-redef]
+        raise ClassNotFound('pygments not available')
+    def guess_lexer(_code: str):  # type: ignore[no-redef]
+        raise ClassNotFound('pygments not available')
+    def get_style_by_name(_style: str):  # type: ignore[no-redef]
+        return 'default'
+    class ClassNotFound(Exception):  # type: ignore[no-redef]
+        pass
 
 from config import config
 from cache_manager import cache, cached
 from utils import normalize_code
 
 logger = logging.getLogger(__name__)
+
+class HtmlHighlightingError:
+    def __init__(self, code: str):
+        self.code = code
 
 # קביעת זרע לשחזור תוצאות זיהוי שפה
 DetectorFactory.seed = 0
@@ -40,7 +81,10 @@ class CodeProcessor:
     def __init__(self):
         self.language_patterns = self._init_language_patterns()
         self.common_extensions = self._init_extensions()
-        self.style = get_style_by_name(config.HIGHLIGHT_THEME)
+        try:
+            self.style = get_style_by_name(config.HIGHLIGHT_THEME) if get_style_by_name else 'default'
+        except Exception:
+            self.style = 'default'
         
         # הגדרת לוגר ייעודי לטיפול בשגיאות קוד
         self.code_logger = logging.getLogger('code_handler')
@@ -408,8 +452,12 @@ class CodeProcessor:
         
         # בדיקה שלישית - באמצעות Pygments
         try:
+            if not guess_lexer:
+                raise ClassNotFound('pygments guess_lexer unavailable')
             lexer = guess_lexer(sanitized_code)
-            detected = lexer.name.lower()
+            if not lexer:
+                raise ClassNotFound('no lexer returned')
+            detected = getattr(lexer, 'name', 'text').lower()
             
             # נרמול שמות שפות
             if 'python' in detected:
@@ -474,58 +522,65 @@ class CodeProcessor:
         
         return 'text'
     
-    @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
     def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
-        """הדגשת תחביר מתקדמת עם caching"""
+        """עטיפת הדגשת תחביר עם ניהול cache רגיש לסביבת runtime."""
+        # תנאים מוקדמים מהירים שאינם צריכים cache
+        if not code or len(code.strip()) < 10:
+            if output_format == 'html':
+                return f"<code>{code}</code>"
+            return code
+        if output_format == 'terminal' and (TerminalFormatter is None or highlight is None):
+            return code
+        # לכלול את זמינות הפורמטור במפתח ה-cache כדי למנוע התנגשויות בין ריצות שונות
+        runtime_key = f"term_avail={bool(TerminalFormatter and highlight)}" if output_format == 'terminal' else f"html_style={self.style}"
+        return self._highlight_code_cached(code, programming_language, output_format, runtime_key)
+
+    @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
+    def _highlight_code_cached(self, code: str, programming_language: str, output_format: str, runtime_key: str) -> str:
         try:
-            # אם הקוד ריק או קצר מדי, אל תבצע highlighting
-            if not code or len(code.strip()) < 10:
-                return code
-            
             # בחירת lexer מתאים
             lexer = None
             try:
-                # נסה לפי שפה
                 if programming_language and programming_language != 'text':
                     lexer = get_lexer_by_name(programming_language)
             except ClassNotFound:
                 try:
-                    # נסה לפי תוכן
-                    lexer = guess_lexer(code)
+                    lexer = guess_lexer(code) if guess_lexer else None
                 except ClassNotFound:
-                    # ברירת מחדל
-                    lexer = get_lexer_by_name('text')
-            
+                    lexer = None
             if not lexer:
-                return code
-            
+                try:
+                    lexer = get_lexer_by_name('text')
+                except Exception:
+                    return code
+
             # בחירת formatter
-            if output_format == 'html':
+            if output_format == 'html' and HtmlFormatter is not None:
                 formatter = HtmlFormatter(
                     style=self.style,
                     noclasses=True,
                     nowrap=True,
                     linenos=False
                 )
-            elif output_format == 'terminal':
+            elif output_format == 'terminal' and TerminalFormatter is not None:
                 formatter = TerminalFormatter()
             else:
-                return code  # פורמט לא נתמך
-            
+                return f"<code>{code}</code>" if output_format == 'html' else code
+
             # ביצוע highlighting
+            if highlight is None:
+                return f"<code>{code}</code>" if output_format == 'html' else code
             highlighted = highlight(code, lexer, formatter)
-            
+
             # ניקוי HTML אם נדרש
             if output_format == 'html':
-                # הסרת tags מיותרים שעלולים לגרום לבעיות בטלגרם
+                if not isinstance(highlighted, str):
+                    return f"<code>{code}</code>"
                 highlighted = self._clean_html_for_telegram(highlighted)
-            
             return highlighted
-            
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
-            # במקרה של שגיאה, החזר את הקוד המקורי
-            return code
+            return f"<code>{code}</code>" if output_format == 'html' else code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
         """ניקוי HTML לתאימות עם Telegram"""
@@ -545,6 +600,9 @@ class CodeProcessor:
             # החלפת span tags ב-code tags
             html_code = re.sub(r'<span[^>]*>', '<code>', html_code)
             html_code = re.sub(r'</span>', '</code>', html_code)
+            # ודא שעטפנו ב-<code> גם אם לא היו span
+            if '<code>' not in html_code:
+                html_code = f"<code>{html_code}</code>"
             
             return html_code
             
@@ -595,13 +653,18 @@ class CodeProcessor:
             # כרגע נחזיר placeholder
             
             # יצירת תמונה פשוטה עם הקוד
+            if Image is None or ImageDraw is None:
+                return None
             img = Image.new('RGB', (width, max(400, len(code.split('\n')) * 20)), 'white')
             draw = ImageDraw.Draw(img)
             
             try:
-                font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
-            except:
-                font = ImageFont.load_default()
+                if ImageFont is not None:
+                    font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
+                else:
+                    font = None
+            except Exception:
+                font = ImageFont.load_default() if ImageFont is not None else None
             
             # כתיבת הקוד
             y_position = 10
@@ -665,8 +728,11 @@ class CodeProcessor:
         
         # ניקוד קריאות (באמצעות textstat)
         try:
-            stats['readability_score'] = textstat.flesch_reading_ease(code)
-        except:
+            if textstat is not None:
+                stats['readability_score'] = textstat.flesch_reading_ease(code)
+            else:
+                stats['readability_score'] = 0
+        except Exception:
             stats['readability_score'] = 0
         
         logger.info(f"חושבו סטטיסטיקות לקוד: {stats['total_lines']} שורות, {stats['characters']} תווים")
