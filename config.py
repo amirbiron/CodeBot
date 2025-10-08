@@ -40,7 +40,7 @@ class BotConfig:
     # מצב תחזוקה/דיפלוי
     MAINTENANCE_MODE: bool = False
     MAINTENANCE_MESSAGE: str = "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"
-    MAINTENANCE_AUTO_WARMUP_SECS: int = 180
+    MAINTENANCE_AUTO_WARMUP_SECS: int = 30
 
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 30
@@ -109,7 +109,7 @@ def load_config() -> BotConfig:
         NORMALIZE_CODE_ON_SAVE=os.getenv('NORMALIZE_CODE_ON_SAVE', 'true').lower() == 'true',
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
-        MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
+        MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '30')),
         RATE_LIMIT_PER_MINUTE=int(os.getenv('RATE_LIMIT_PER_MINUTE', '30') or '30'),
         PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
         WEBAPP_URL=os.getenv('WEBAPP_URL'),

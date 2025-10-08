@@ -571,9 +571,9 @@ class CodeKeeperBot:
             # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
             # ההודעה תיכבה אוטומטית לאחר ה-warmup.
             try:
-                self._maintenance_active_until_ts = time.time() + max(1, int(getattr(config, 'MAINTENANCE_AUTO_WARMUP_SECS', 180)))
+                self._maintenance_active_until_ts = time.time() + max(1, int(getattr(config, 'MAINTENANCE_AUTO_WARMUP_SECS', 30)))
             except Exception:
-                self._maintenance_active_until_ts = time.time() + 180
+                self._maintenance_active_until_ts = time.time() + 30
 
             async def maintenance_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # אם חלון ה-warmup הסתיים, אל תשלח הודעת תחזוקה
