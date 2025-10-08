@@ -1,3 +1,4 @@
+import sys
 import types
 import pytest
 
@@ -22,6 +23,7 @@ def stub_db(monkeypatch):
 @pytest.mark.asyncio
 async def test_refactor_command_menu(monkeypatch):
     # Lazy import to avoid telegram deps
+    sys.modules.pop('refactor_handlers', None)
     mod = __import__('refactor_handlers')
     RH = getattr(mod, 'RefactorHandlers')
 
@@ -49,6 +51,7 @@ async def test_refactor_command_menu(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refactor_split_and_approve_flow(monkeypatch):
+    sys.modules.pop('refactor_handlers', None)
     mod = __import__('refactor_handlers')
     RH = getattr(mod, 'RefactorHandlers')
 

@@ -1,8 +1,10 @@
+import sys
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_refactor_action_edit_alert(monkeypatch):
+    sys.modules.pop('refactor_handlers', None)
     mod = __import__('refactor_handlers')
     RH = getattr(mod, 'RefactorHandlers')
 

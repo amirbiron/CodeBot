@@ -1,8 +1,10 @@
+import sys
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_refactor_callback_missing_file(monkeypatch):
+    sys.modules.pop('refactor_handlers', None)
     mod = __import__('refactor_handlers')
     RH = getattr(mod, 'RefactorHandlers')
 
@@ -40,6 +42,7 @@ async def test_refactor_callback_missing_file(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refactor_callback_invalid_type(monkeypatch):
+    sys.modules.pop('refactor_handlers', None)
     mod = __import__('refactor_handlers')
     RH = getattr(mod, 'RefactorHandlers')
 
@@ -77,6 +80,7 @@ async def test_refactor_callback_invalid_type(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refactor_command_no_args(monkeypatch):
+    sys.modules.pop('refactor_handlers', None)
     mod = __import__('refactor_handlers')
     RH = getattr(mod, 'RefactorHandlers')
 
