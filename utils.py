@@ -503,7 +503,8 @@ class TelegramUtils:
 
         - במידה ו-``reconstruct_from_entities=True`` ויש ישויות עיצוב (``bold``/``italic``), ננסה לשחזר
           תווי Markdown שהיוו כנראה את מקור העיצוב ע"י הוספת תחיליות/סיומות סביב הטקסט שסומן.
-          מיפוי פשוט: ``bold`` → ``"__"``, ``italic`` → ``"_"``. שאר ישויות נשמרות כפי שהן.
+          מיפוי פשוט: ``bold`` → ``"__"``, ``italic`` → ``"__"`` (עדיפות לשימור <i>dunder</i> כמו ``__main__``).
+          שאר ישויות נשמרות כפי שהן.
 
         - אם יש כיתוב (caption), נשתמש במקבילות ``caption_entities``.
         """
@@ -558,8 +559,9 @@ class TelegramUtils:
                     opens[start].append("__")
                     closes[end].insert(0, "__")  # סגירה לפני פתיחות חדשות באותו אינדקס
                 elif etype == "italic":
-                    opens[start].append("_")
-                    closes[end].insert(0, "_")
+                    # העדפה ל-"__" כדי לשחזר דפוסים נפוצים כמו __name__ שנבלעים ע"י הלקוח
+                    opens[start].append("__")
+                    closes[end].insert(0, "__")
                 else:
                     # עבור ישויות אחרות לא נוסיף תווים (inline code/links לא משוחזרים כסימנים)
                     continue
