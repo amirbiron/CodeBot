@@ -646,7 +646,7 @@ class RefactoringEngine:
         """
         cleaned: Dict[str, str] = {}
         for filename, content in files.items():
-            if not filename.endswith('.py') or filename == '__init__.py':
+            if not filename.endswith('.py') or filename == '__init__.py' or filename.endswith('_shared.py'):
                 cleaned[filename] = content
                 continue
             try:
