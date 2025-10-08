@@ -23,6 +23,7 @@ from refactoring_engine import (
 )
 from activity_reporter import create_reporter
 from config import config
+from utils import TelegramUtils
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ class RefactorHandlers:
             return
         action = parts[1]
         if action == "cancel":
-            await query.edit_message_text("❌ בוטל")
+            await TelegramUtils.safe_edit_message_text(query, "❌ בוטל")
             return
         refactor_type_str = action
         filename = ':'.join(parts[2:])
@@ -166,22 +167,23 @@ class RefactorHandlers:
         except Exception:
             snippet = None
         if not snippet:
-            await query.edit_message_text("❌ הקובץ לא נמצא")
+            await TelegramUtils.safe_edit_message_text(query, "❌ הקובץ לא נמצא")
             return
         code = snippet.get('code') or ''
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
+            query,
             "🏗️ מנתח קוד ומכין הצעת רפקטורינג...\n"
             "⏳ זה יכול לקחת כמה שניות"
         )
         try:
             refactor_type = RefactorType(refactor_type_str)
         except ValueError:
-            await query.edit_message_text(f"❌ סוג רפקטורינג לא חוקי: {refactor_type_str}")
+            await TelegramUtils.safe_edit_message_text(query, f"❌ סוג רפקטורינג לא חוקי: {refactor_type_str}")
             return
         result = refactoring_engine.propose_refactoring(code=code, filename=filename, refactor_type=refactor_type)
         if not result.success or not result.proposal:
             error_msg = result.error or "שגיאה לא ידועה"
-            await query.edit_message_text(f"❌ {error_msg}")
+            await TelegramUtils.safe_edit_message_text(query, f"❌ {error_msg}")
             return
         self.pending_proposals[user_id] = result.proposal
         # לוג פעילות משתמש (מקטין רעש סטטיסטיקות קיימות)
@@ -219,20 +221,20 @@ class RefactorHandlers:
             [InlineKeyboardButton("❌ בטל", callback_data="refactor_action:cancel")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(msg, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        await TelegramUtils.safe_edit_message_text(query, msg, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
 
     async def handle_proposal_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
         user_id = update.effective_user.id if update and update.effective_user else 0
         if user_id not in self.pending_proposals:
-            await query.edit_message_text("❌ לא נמצאה הצעה ממתינה")
+            await TelegramUtils.safe_edit_message_text(query, "❌ לא נמצאה הצעה ממתינה")
             return
         proposal = self.pending_proposals[user_id]
         action = (query.data or '').split(':')[1]
         if action == "cancel":
             del self.pending_proposals[user_id]
-            await query.edit_message_text("❌ הרפקטורינג בוטל")
+            await TelegramUtils.safe_edit_message_text(query, "❌ הרפקטורינג בוטל")
             return
         if action == "preview":
             await self._send_preview(query, proposal)
@@ -264,7 +266,7 @@ class RefactorHandlers:
                 await query.message.reply_text(f"📄 {filename}\n\n{preview_content}")
 
     async def _approve_and_save(self, query, user_id: int, proposal: RefactorProposal):
-        await query.edit_message_text("💾 שומר קבצים חדשים...")
+        await TelegramUtils.safe_edit_message_text(query, "💾 שומר קבצים חדשים...")
         saved_count = 0
         errors = []
         try:
@@ -302,7 +304,7 @@ class RefactorHandlers:
             for error in errors:
                 msg += f"{error}\n"
         msg += f"\n_השתמש ב-`/list` לראות את הקבצים החדשים_"
-        await query.edit_message_text(msg, parse_mode=ParseMode.MARKDOWN)
+        await TelegramUtils.safe_edit_message_text(query, msg, parse_mode=ParseMode.MARKDOWN)
 
     def _save_refactor_metadata(self, user_id: int, proposal: RefactorProposal) -> None:
         try:
