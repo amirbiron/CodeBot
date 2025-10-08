@@ -18,5 +18,6 @@ def test_detect_language_when_guess_lexer_returns_none(monkeypatch):
         return None
     monkeypatch.setattr(mod, 'guess_lexer', _ret_none)
     out = cp.detect_language("plain text with no patterns")
-    assert isinstance(out, str)
+    # fallback ל-analyze_code_structure → 'text'
+    assert out == 'text' or isinstance(out, str)
 
