@@ -22,6 +22,8 @@ def test_codekeeperbot_setup_handlers_import_fail(monkeypatch):
                     self.handlers = []
                 def add_handler(self, *a, **k):
                     self.handlers.append((a, k))
+                def add_error_handler(self, *a, **k):
+                    return None
                 async def initialize(self): pass
                 async def start(self): pass
                 class _Updater:
