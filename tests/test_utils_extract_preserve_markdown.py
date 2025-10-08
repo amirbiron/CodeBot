@@ -1,7 +1,7 @@
 import types
 
 
-def test_extract_message_text_prefers_markdown_v2():
+def test_extract_message_text_prefers_raw_over_markdown():
     from utils import TelegramUtils
 
     class Msg:
@@ -13,7 +13,7 @@ def test_extract_message_text_prefers_markdown_v2():
 
     m = Msg()
     out = TelegramUtils.extract_message_text_preserve_markdown(m)
-    assert out == "__main__"
+    assert out == "main"
 
 
 def test_extract_message_text_falls_back_to_text():
@@ -52,4 +52,52 @@ def test_extract_message_text_uses_caption_markdown_when_available():
     m = Msg()
     out = TelegramUtils.extract_message_text_preserve_markdown(m)
     assert out == "__caption__"
+
+
+def test_extract_message_text_entities_bold_italic_ordering():
+    from utils import TelegramUtils
+
+    class _Ent:
+        def __init__(self, type, offset, length):
+            self.type = type
+            self.offset = offset
+            self.length = length
+
+    class Msg:
+        def __init__(self):
+            self.text = "ab"
+            # italic על 'a' (0..1), bold על 'b' (1..2)
+            self.entities = [
+                _Ent("italic", 0, 1),
+                _Ent("bold", 1, 1),
+            ]
+
+    m = Msg()
+    out = TelegramUtils.extract_message_text_preserve_markdown(m)
+    # ציפייה: נסגור italic לפני שנפתח bold באותו אינדקס
+    assert out == "_a___b__"
+
+
+def test_extract_message_text_entities_clamped_offsets():
+    from utils import TelegramUtils
+
+    class _Ent:
+        def __init__(self, type, offset, length):
+            self.type = type
+            self.offset = offset
+            self.length = length
+
+    class Msg:
+        def __init__(self):
+            self.text = "abc"
+            # italic עם offset שלילי -> ייקלם ל-0
+            # ו-entity נוסף מחוץ לאורך -> יתבטל ללא השפעה
+            self.entities = [
+                _Ent("italic", -5, 1),
+                _Ent("bold", 5, 2),
+            ]
+
+    m = Msg()
+    out = TelegramUtils.extract_message_text_preserve_markdown(m)
+    assert out == "_a_bc"
 
