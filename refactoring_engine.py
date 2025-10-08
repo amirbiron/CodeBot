@@ -310,7 +310,8 @@ class RefactoringEngine:
             if parts:
                 prefix = parts[0].lower()
                 prefix_groups.setdefault(prefix, []).append(func)
-        if len(prefix_groups) >= 2 and all(len(g) >= 2 for g in prefix_groups.values()):
+        # אם יש לפחות שתי קבוצות שונות לפי prefix — נרצה לפצל גם אם חלקן בודדות
+        if len(prefix_groups) >= 2:
             return prefix_groups
         dependency_groups = self._group_by_dependencies()
         if len(dependency_groups) >= 2:
