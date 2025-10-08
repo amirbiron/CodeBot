@@ -103,7 +103,14 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n" if note else "\n📝 הערה: —\n\n"
+        if note:
+            try:
+                safe_note_md = TextUtils.escape_markdown(note, version=1)
+            except Exception:
+                safe_note_md = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
+            note_line = f"\n📝 הערה: {safe_note_md}\n\n"
+        else:
+            note_line = "\n📝 הערה: —\n\n"
         await TelegramUtils.safe_edit_message_text(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -827,7 +834,14 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         note_line_html = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         large_note_html = "\n<i>זה קובץ גדול</i>\n\n" if is_large_file else ""
-        note_line_md = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n" if note else "\n📝 הערה: —\n\n"
+        if note:
+            try:
+                note_line_md = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n"
+            except Exception:
+                fallback = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
+                note_line_md = f"\n📝 הערה: {fallback}\n\n"
+        else:
+            note_line_md = "\n📝 הערה: —\n\n"
         # Markdown מוצג ב-HTML רק עבור קבצי Markdown; לשאר נשתמש ב-Markdown עם בלוק קוד
         if (language or '').lower() == 'markdown':
             safe_code = html_escape(code_preview)

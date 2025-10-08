@@ -969,7 +969,14 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n" if note else "\n📝 הערה: —\n\n"
+        if note:
+            try:
+                safe_note_md = TextUtils.escape_markdown(note, version=1)
+            except Exception:
+                safe_note_md = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
+            note_line = f"\n📝 הערה: {safe_note_md}\n\n"
+        else:
+            note_line = "\n📝 הערה: —\n\n"
         await TelegramUtils.safe_edit_message_text(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -1300,10 +1307,14 @@ async def handle_edit_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         current_note = file_data.get('description', '') or '—'
         # הגדר דגל כדי ש-receive_new_code יעדכן הערה
         context.user_data['editing_note_file'] = file_name
+        try:
+            safe_current_note = TextUtils.escape_markdown(current_note, version=1)
+        except Exception:
+            safe_current_note = str(current_note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
         await query.edit_message_text(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
-            f"🔎 **הערה נוכחית:** {TextUtils.escape_markdown(current_note, version=1)}\n\n"
+            f"🔎 **הערה נוכחית:** {safe_current_note}\n\n"
             f"✏️ שלח/י הערה חדשה (או 'מחק' כדי להסיר)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
