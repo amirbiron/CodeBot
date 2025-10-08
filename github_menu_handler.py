@@ -433,7 +433,7 @@ class GitHubMenuHandler:
                 # אם YAML – נסה צביעה ישירה, אחרת כללי
                 if lower_path.endswith('.yml') or lower_path.endswith('.yaml'):
                     try:
-                        highlighted_html = code_processor.highlight_code(chunk, 'yaml', 'html')
+                        highlighted_html = code_processor.highlight_code(chunk, 'yaml')
                         body = highlighted_html or f"<pre>{safe_html_escape(chunk)}</pre>"
                     except Exception:
                         body = f"<pre>{safe_html_escape(chunk)}</pre>"
@@ -445,7 +445,7 @@ class GitHubMenuHandler:
                     else:
                         # נסה היילייט; אם יוצרת בלגן, fallback ל-pre
                         try:
-                            highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                            highlighted_html = code_processor.highlight_code(chunk, lang)
                             if not highlighted_html or '\n' not in chunk:
                                 body = f"<pre>{safe_html_escape(chunk)}</pre>"
                             else:
@@ -2072,7 +2072,7 @@ class GitHubMenuHandler:
                                 summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                                 try:
                                     from database import db as _db
-                                    existing_note = _db.get_backup_note(user_id, backup_id) or ""
+                                    existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
                                 except Exception:
                                     existing_note = ""
                                 note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -2211,7 +2211,7 @@ class GitHubMenuHandler:
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     try:
                         from database import db as _db
-                        existing_note = _db.get_backup_note(user_id, backup_id) or ""
+                        existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
                     except Exception:
                         existing_note = ""
                     note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -3080,7 +3080,7 @@ class GitHubMenuHandler:
         query = update.callback_query
         try:
             files = db.get_user_files(user_id, limit=1000)
-            repo_to_count = {}
+            repo_to_count: dict[str, int] = {}
             for f in files:
                 for t in f.get('tags', []) or []:
                     if isinstance(t, str) and t.startswith('repo:'):

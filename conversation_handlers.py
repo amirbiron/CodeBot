@@ -20,7 +20,7 @@ from file_manager import backup_manager
 from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
-from typing import List, Optional
+from typing import List, Optional, Dict, cast
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 from services import code_service
@@ -2180,8 +2180,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "rf_delete_confirm":
             # הודעת אימות ראשונה למחיקה מרובה
             user_id = update.effective_user.id
-            selected = list(context.user_data.get('rf_selected_ids') or [])
-            count_sel = len(selected)
+            selected_ids: List[str] = list(context.user_data.get('rf_selected_ids') or [])
+            count_sel = len(selected_ids)
             if count_sel == 0:
                 await query.answer("לא נבחרו קבצים", show_alert=True)
                 return ConversationHandler.END
@@ -2224,9 +2224,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # מחיקה בפועל לפי מזהי קבצים
             from database import db
             user_id = update.effective_user.id
-            selected = list(context.user_data.get('rf_selected_ids') or [])
+            selected_ids: List[str] = list(context.user_data.get('rf_selected_ids') or [])
             deleted = 0
-            for fid in selected:
+            for fid in selected_ids:
                 try:
                     res = db.delete_file_by_id(fid)
                     if res:
@@ -2557,7 +2557,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             tag = data.split(":", 1)[1]
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            files = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
             try:
                 _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
@@ -2652,8 +2652,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             results = db.search_code(
                 update.effective_user.id,
                 query=name_filter,
-                programming_language=lang,
-                tags=[tag] if tag else None,
+                programming_language=(lang or ""),
+                tags=([tag] if tag else []),
                 limit=10000,
             ) or []
             # סינון נוסף לפי שם אם צריך
@@ -2698,7 +2698,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             tag = data.split(":", 1)[1]
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            files = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
             deleted = 0
             # הודעת התקדמות ראשונית + אימוג׳י קבוע
@@ -3093,7 +3093,7 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     user_id = update.effective_user.id
     files = db.get_user_files(user_id, limit=1000)
-    repo_to_count = {}
+    repo_to_count: Dict[str, int] = {}
     for f in files:
         for t in f.get('tags', []) or []:
             if t.startswith('repo:'):
@@ -3130,22 +3130,22 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         if t == 'repo':
             tag = target.get('tag')
-            files_docs = db.search_code(user_id, query="", tags=[tag], limit=2000)
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            files_docs = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'zips':
             # הצג את כל הקבצים הרגילים
             files_docs = db.get_user_files(user_id, limit=1000)
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'large':
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
-            items = [f.get('file_name') for f in large_files if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in large_files if f.get('file_name')]
         elif t == 'other':
             files_docs = db.get_user_files(user_id, limit=1000)
             files_docs = [f for f in files_docs if not any((tg or '').startswith('repo:') for tg in (f.get('tags') or []))]
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         else:
             files_docs = db.get_user_files(user_id, limit=1000)
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
 
         if not items:
             await query.edit_message_text("❌ לא נמצאו קבצים לקטגוריה שנבחרה")
@@ -3220,7 +3220,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
         keyboard = []
         # חישוב גרסאות vN לפי ריפו
-        repo_to_sorted = {}
+        repo_to_sorted: Dict[str, list] = {}
         id_to_version = {}
         try:
             from datetime import datetime as _dt
@@ -3324,7 +3324,7 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
             t = target.get('type')
             if t == 'repo':
                 tag = target.get('tag')
-                items = db.search_code(user_id, query="", tags=[tag], limit=2000)
+                items = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
                 files = [f.get('file_name') for f in items if f.get('file_name')]
             elif t == 'zips':
                 # ZIPs אינם קבצי קוד; כבר בשלב הבחירה הוצגו הקבצים הרגילים

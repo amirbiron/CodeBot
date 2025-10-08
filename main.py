@@ -17,24 +17,24 @@ import signal
 import sys
 import time
 try:
-    import pymongo  # type: ignore
+    import pymongo
     _HAS_PYMONGO = True
 except Exception:
-    pymongo = None  # type: ignore
+    pymongo = None  # fallback ללא type: ignore
     _HAS_PYMONGO = False
 from datetime import datetime, timezone, timedelta
 import atexit
 try:
-    import pymongo.errors  # type: ignore
-    from pymongo.errors import DuplicateKeyError  # type: ignore
+    import pymongo.errors
+    from pymongo.errors import DuplicateKeyError
 except Exception:
     class _DummyErr(Exception):
         pass
     class _DummyErrors:
         InvalidOperation = _DummyErr
         OperationFailure = _DummyErr
-    DuplicateKeyError = _DummyErr  # type: ignore
-    pymongo = type("_PM", (), {"errors": _DummyErrors})()  # type: ignore
+    DuplicateKeyError = _DummyErr
+    pymongo = type("_PM", (), {"errors": _DummyErrors})()
 import os
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeChat
@@ -194,7 +194,7 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
             except Exception:
                 pass
 
-            results.append((friendly, modified_deleted_at, modified_deleted_exp, None))
+            results.append((friendly, modified_deleted_at, modified_deleted_exp, ""))
 
         # דו"ח
         lines = [
@@ -882,6 +882,15 @@ class CodeKeeperBot:
 
         # הוספת פקודות batch (עיבוד מרובה קבצים) לאחר ה-guard כך שלא יעקוף אותו
         setup_batch_handlers(self.application)
+
+        # הוספת Refactoring handlers (אם זמינים)
+        try:
+            from refactor_handlers import setup_refactor_handlers as _setup_rf
+            if callable(_setup_rf):
+                _setup_rf(self.application)
+                logger.info("✅ RefactorHandlers הוגדרו (פקודת /refactor זמינה)")
+        except Exception as e:
+            logger.warning(f"⚠️ דילוג על RefactorHandlers: {e}")
 
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
         from conversation_handlers import handle_callback_query
@@ -2017,8 +2026,8 @@ class CodeKeeperBot:
             results = db.search_code(
                 user_id,
                 query=name_filter if name_filter else "",
-                programming_language=lang_filter,
-                tags=[tag_filter] if tag_filter else None,
+                programming_language=(lang_filter or ""),
+                tags=([tag_filter] if tag_filter else []),
                 limit=10000,
             ) or []
             # סינון לפי שם קובץ אם יש name_filter
@@ -2497,7 +2506,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         key = prefs.get("schedule")
                         if key in sched_keys:
                             # Ensure a repeating job exists and is aligned to the next planned time
-                            await drive_handler._ensure_schedule_job(context, uid, key)  # type: ignore[attr-defined]
+                            # _ensure_schedule_job מיועד ב-drive_handler; אם לא קיים, נתעלם בשקט
+                            try:
+                                await drive_handler._ensure_schedule_job(context, uid, key)
+                            except AttributeError:
+                                pass
                     except Exception:
                         continue
             except Exception:
