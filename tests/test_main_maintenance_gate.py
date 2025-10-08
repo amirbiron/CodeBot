@@ -23,6 +23,7 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
     # ENV הכרחיים
     monkeypatch.setenv('BOT_TOKEN', 'x')
     monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
@@ -112,6 +113,7 @@ async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatc
     base_time = 1_000.0
     monkeypatch.setenv('BOT_TOKEN', 'x')
     monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
@@ -175,6 +177,7 @@ async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatc
 async def test_maintenance_clear_job_disables_message_immediately(monkeypatch):
     monkeypatch.setenv('BOT_TOKEN', 'x')
     monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
