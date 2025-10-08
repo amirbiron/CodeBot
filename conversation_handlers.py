@@ -3128,24 +3128,24 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
     t = target.get('type')
     items: List[str] = []
     try:
-            if t == 'repo':
+        if t == 'repo':
             tag = target.get('tag')
             files_docs = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
-                items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'zips':
             # הצג את כל הקבצים הרגילים
             files_docs = db.get_user_files(user_id, limit=1000)
-                items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'large':
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
-                items = [cast(str, f['file_name']) for f in large_files if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in large_files if f.get('file_name')]
         elif t == 'other':
             files_docs = db.get_user_files(user_id, limit=1000)
             files_docs = [f for f in files_docs if not any((tg or '').startswith('repo:') for tg in (f.get('tags') or []))]
-                items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         else:
             files_docs = db.get_user_files(user_id, limit=1000)
-                items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
 
         if not items:
             await query.edit_message_text("❌ לא נמצאו קבצים לקטגוריה שנבחרה")
