@@ -34,6 +34,7 @@ async def test_rate_limit_gate_blocks_message_flow(monkeypatch):
     class _MiniApp:
         def __init__(self):
             self.handlers = []
+            self.bot_data = {}
         def add_handler(self, handler, group=None):
             # נשמור tuple לדיבוג
             self.handlers.append((handler, group))
@@ -92,6 +93,7 @@ async def test_rate_limit_gate_blocks_callback_query(monkeypatch):
     class _MiniApp:
         def __init__(self):
             self.handlers = []
+            self.bot_data = {}
         def add_handler(self, handler, group=None):
             self.handlers.append((handler, group))
 
@@ -110,12 +112,9 @@ async def test_rate_limit_gate_blocks_callback_query(monkeypatch):
 
     bot = mod.CodeKeeperBot()
 
-    gate = None
-    for h, g in bot.application.handlers:
-        if g == -90:
-            gate = h
-            break
-    assert gate is not None
+    gates = [h for h, g in bot.application.handlers if g == -90]
+    assert len(gates) >= 2, 'expected both message and callback gates registered'
+    gate = gates[1]
 
     bot._rate_limiter.max_per_minute = 1
 
@@ -126,3 +125,41 @@ async def test_rate_limit_gate_blocks_callback_query(monkeypatch):
     await gate.callback(update, context)  # second -> should block
 
     assert update.callback_query.answered, 'expected an answer() on throttling'
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_gate_with_no_effective_user(monkeypatch):
+    monkeypatch.setenv('BOT_TOKEN', 'x')
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+
+    import main as mod
+
+    class _MiniApp:
+        def __init__(self):
+            self.handlers = []
+            self.bot_data = {}
+        def add_handler(self, handler, group=None):
+            self.handlers.append((handler, group))
+
+    class _Builder:
+        def token(self, *a, **k): return self
+        def defaults(self, *a, **k): return self
+        def persistence(self, *a, **k): return self
+        def post_init(self, *a, **k): return self
+        def build(self): return _MiniApp()
+
+    class _AppNS:
+        def builder(self):
+            return _Builder()
+
+    monkeypatch.setattr(mod, 'Application', _AppNS())
+
+    bot = mod.CodeKeeperBot()
+    gate = [h for h, g in bot.application.handlers if g == -90][0]
+
+    # אין effective_user ואין callback_query
+    update = types.SimpleNamespace(effective_user=None, message=_FakeMessage(), callback_query=None)
+    context = types.SimpleNamespace()
+    # אסור לקרוס/לשלוח תשובה
+    await gate.callback(update, context)
+    assert update.message.replies == []
