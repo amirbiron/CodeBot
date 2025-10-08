@@ -15,6 +15,7 @@ import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
+import requests
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
@@ -572,7 +573,6 @@ class GitHubMenuHandler:
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
         await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת עד דקה.")
-        import requests
         import zipfile as _zip
         tmp_dir = None
         zip_path = None
@@ -2012,7 +2012,6 @@ class GitHubMenuHandler:
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
                     try:
-                        import requests
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
@@ -2654,7 +2653,7 @@ class GitHubMenuHandler:
                         pass
 
                 progress_task = asyncio.create_task(_progress_updater())
-                import tempfile, requests, zipfile
+                import tempfile, zipfile
                 token_opt = self.get_user_token(user_id)
                 g = Github(login_or_token=(token_opt or ""))
                 repo_full = session.get("selected_repo")
