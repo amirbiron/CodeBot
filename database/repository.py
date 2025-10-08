@@ -426,6 +426,7 @@ class Repository:
             logger.error(f"שגיאה בקבלת קובץ לפי _id: {e}")
             return None
 
+    @cached(expire_seconds=600, key_prefix="user_stats")
     def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         try:
             pipeline = [
