@@ -18,6 +18,7 @@ def test_codekeeperbot_setup_handlers_import_fail(monkeypatch):
         def build(self):
             class _App:
                 def __init__(self):
+                    self.bot_data = {}
                     self.handlers = []
                 def add_handler(self, *a, **k):
                     self.handlers.append((a, k))
