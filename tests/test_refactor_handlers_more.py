@@ -41,7 +41,7 @@ async def test_refactor_preview_and_cancel(monkeypatch):
     class _Ctx: pass
 
     rh = RH(_App())
-    # Build a proposal
+    # Build a proposal (אם אין מספיק לפעמים יחזור success=False — זה תקין לטסט זרימה)
     _Upd.callback_query.data = 'refactor_type:convert_to_classes:file.py'
     await rh.handle_refactor_type_callback(_Upd, _Ctx())
     # Preview
