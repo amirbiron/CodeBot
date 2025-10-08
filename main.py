@@ -568,7 +568,31 @@ class CodeKeeperBot:
 
         # Maintenance gate: if enabled, short-circuit most interactions
         if config.MAINTENANCE_MODE:
+            # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
+            # ההודעה תיכבה אוטומטית לאחר ה-warmup.
+            try:
+                self._maintenance_active_until_ts = time.time() + max(1, int(getattr(config, 'MAINTENANCE_AUTO_WARMUP_SECS', 30)))
+            except Exception:
+                self._maintenance_active_until_ts = time.time() + 30
+
             async def maintenance_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                # אם חלון ה-warmup הסתיים, אל תשלח הודעת תחזוקה
+                try:
+                    raw_active_until = getattr(self, "_maintenance_active_until_ts", None)
+                except Exception:
+                    raw_active_until = None
+                # פרשנות:
+                # None => תחזוקה פעילה (אין TTL)
+                # 0 או ערך שלילי => תחזוקה מנוטרלת
+                # > 0 => תחזוקה פעילה עד timestamp זה
+                try:
+                    active_until = float(raw_active_until) if raw_active_until is not None else None
+                except Exception:
+                    active_until = None
+                now = time.time()
+                is_active = True if active_until is None else (active_until > 0 and now < active_until)
+                if not is_active:
+                    return ConversationHandler.END
                 try:
                     await (update.callback_query.edit_message_text if getattr(update, 'callback_query', None) else update.message.reply_text)(
                         config.MAINTENANCE_MESSAGE
@@ -593,6 +617,11 @@ class CodeKeeperBot:
                             app.remove_handler(self._maintenance_message_handler, group=-100)
                         if getattr(self, "_maintenance_callback_handler", None) is not None:
                             app.remove_handler(self._maintenance_callback_handler, group=-100)
+                        # נטרל מיידית את החלון הפעיל כדי למנוע שליחת הודעות תחזוקה מיותרות
+                        try:
+                            self._maintenance_active_until_ts = 0
+                        except Exception:
+                            pass
                         logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
                     except Exception:
                         pass
