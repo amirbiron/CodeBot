@@ -30,5 +30,5 @@ async def test_view_back_to_search(monkeypatch):
         return None
     monkeypatch.setattr(h, 'show_browse_search_results', _show_search, raising=True)
 
-    await h._render_file_view(_Upd, _Ctx())
+    await h._render_file_view(_Upd(), _Ctx())
 
