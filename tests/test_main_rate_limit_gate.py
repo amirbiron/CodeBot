@@ -1,6 +1,7 @@
 import types
 import asyncio
 import pytest
+from telegram.ext._application import ApplicationHandlerStop
 
 
 class _FakeUser:
@@ -79,8 +80,9 @@ async def test_rate_limit_gate_blocks_message_flow(monkeypatch):
 
     # קריאה ראשונה צריכה לעבור בשקט (אין חריגה)
     await gate_handler.callback(update, context)
-    # קריאה שנייה — צריכה לחסום ולשלוח הודעה קצרה
-    await gate_handler.callback(update, context)
+    # קריאה שנייה — צריכה לחסום ולשלוח הודעה קצרה ולזרוק ApplicationHandlerStop
+    with pytest.raises(ApplicationHandlerStop):
+        await gate_handler.callback(update, context)
 
     # ודא שנשלחה הודעת חסימה
     assert update.message.replies, 'expected a throttling reply on second call'
@@ -128,7 +130,8 @@ async def test_rate_limit_gate_blocks_callback_query(monkeypatch):
     context = types.SimpleNamespace()
 
     await gate.callback(update, context)  # first
-    await gate.callback(update, context)  # second -> should block
+    with pytest.raises(ApplicationHandlerStop):
+        await gate.callback(update, context)  # second -> should block
 
     assert update.callback_query.answered, 'expected an answer() on throttling'
     assert update.callback_query.answered[-1] == ("יותר מדי בקשות, נסה שוב עוד רגע", False, 1)
@@ -147,6 +150,8 @@ async def test_rate_limit_gate_with_no_effective_user(monkeypatch):
             self.bot_data = {}
         def add_handler(self, handler, group=None):
             self.handlers.append((handler, group))
+        def add_error_handler(self, handler, group=None):
+            pass
 
     class _Builder:
         def token(self, *a, **k): return self
