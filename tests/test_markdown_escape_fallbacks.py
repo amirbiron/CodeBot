@@ -195,7 +195,7 @@ async def test_file_view_direct_markdown_note_fallback(monkeypatch):
     # Inject stub database module so internal `from database import db` resolves
     db_mod = types.ModuleType('database')
     db_mod.db = _DB()
-    sys.modules['database'] = db_mod
+    monkeypatch.setitem(sys.modules, 'database', db_mod)
 
     # User/context
     ctx = types.SimpleNamespace(user_data={})
