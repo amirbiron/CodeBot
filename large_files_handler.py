@@ -16,7 +16,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from database import LargeFile, db
-from utils import detect_language_from_filename, get_language_emoji
+from utils import detect_language_from_filename, get_language_emoji, TextUtils
 
 logger = logging.getLogger(__name__)
 
@@ -213,11 +213,23 @@ class LargeFilesHandler:
             formatted_content = f"```{language}\n{safe_content}\n```"
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                f"📄 **{file_name}**\n\n{formatted_content}",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+            # בריחת שם הקובץ ל-Markdown כדי למנוע BadRequest על _ [] וכד'.
+            try:
+                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
+            except Exception:
+                safe_file_name = str(file_name).replace('`', '\\`')
+            # נסה Markdown; אם נכשל, שלח ללא parse_mode
+            try:
+                await query.edit_message_text(
+                    f"📄 **{safe_file_name}**\n\n{formatted_content}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            except Exception:
+                await query.edit_message_text(
+                    f"📄 {file_name}\n\n{content}",
+                    reply_markup=reply_markup
+                )
         else:
             # הקובץ גדול מדי - נציג תצוגה מקדימה ונשלח כקובץ
             preview = content[:self.preview_max_chars] + "\n\n... [המשך הקובץ נשלח כקובץ מצורף]"
@@ -226,11 +238,21 @@ class LargeFilesHandler:
             # שליחת תצוגה מקדימה עם Markdown ובלוק קוד; נבריח backticks
             safe_preview = str(preview).replace('```', '\\`\\`\\`')
             formatted_preview = f"```{language}\n{safe_preview}\n```"
-            await query.edit_message_text(
-                f"📄 **{file_name}** (תצוגה מקדימה)\n\n{formatted_preview}",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+            try:
+                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
+            except Exception:
+                safe_file_name = str(file_name).replace('`', '\\`')
+            try:
+                await query.edit_message_text(
+                    f"📄 **{safe_file_name}** (תצוגה מקדימה)\n\n{formatted_preview}",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            except Exception:
+                await query.edit_message_text(
+                    f"📄 {file_name} (תצוגה מקדימה)\n\n{preview}",
+                    reply_markup=reply_markup
+                )
             
             # שליחת הקובץ המלא
             file_bytes = BytesIO(content.encode('utf-8'))
