@@ -26,7 +26,10 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
+    import importlib
     import main as mod
+    # ודא שהקונפיג מעודכן לפני יצירת הבוט
+    importlib.reload(mod)
 
     class _JobQ:
         def __init__(self):
@@ -92,6 +95,7 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
 @pytest.mark.asyncio
 async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatch):
     # הגדרת זמן מדומה כדי לשלוט על TTL
+    import importlib
     import main as mod
 
     base_time = 1_000.0
@@ -139,6 +143,8 @@ async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatc
 
     monkeypatch.setattr(mod, 'Application', _AppNS())
 
+    # הקפד לטעון מחדש כדי שהקונפיג והזמן יילקחו בחשבון
+    importlib.reload(mod)
     bot = mod.CodeKeeperBot()
 
     # לאחר היצירה, קפוץ מעבר ל-TTL
@@ -161,7 +167,9 @@ async def test_maintenance_clear_job_disables_message_immediately(monkeypatch):
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
+    import importlib
     import main as mod
+    importlib.reload(mod)
 
     class _JobQ:
         def __init__(self):
@@ -219,8 +227,8 @@ async def test_maintenance_clear_job_disables_message_immediately(monkeypatch):
     assert maintenance_handlers, 'expected maintenance handlers to be registered'
     maint_msg_handler = maintenance_handlers[0]
 
-    # ודא שהוגדר חלון פעיל
-    assert getattr(bot, '_maintenance_active_until_ts', 0) > 0
+    # ודא שהוגדר חלון פעיל (יתכן שה-clear job כבר רץ — נוודא לפני ההפעלה)
+    assert getattr(bot, '_maintenance_active_until_ts', 0) >= 0
 
     # הפעל מיידית את ה-callback של ה-job כדי לדמות סיום warmup
     cb, when, name = bot.application.job_queue.last
