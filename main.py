@@ -885,8 +885,9 @@ class CodeKeeperBot:
 
         # הוספת Refactoring handlers (אם זמינים)
         try:
-            if callable(setup_refactor_handlers):
-                setup_refactor_handlers(self.application)
+            from refactor_handlers import setup_refactor_handlers as _setup_rf
+            if callable(_setup_rf):
+                _setup_rf(self.application)
                 logger.info("✅ RefactorHandlers הוגדרו (פקודת /refactor זמינה)")
         except Exception as e:
             logger.warning(f"⚠️ דילוג על RefactorHandlers: {e}")
