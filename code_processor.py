@@ -10,20 +10,57 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-import cairosvg
-import textstat
-# Language detection
-from langdetect import DetectorFactory, detect
-# Image processing
-from PIL import Image, ImageDraw, ImageFont
-# Syntax highlighting
-from pygments import highlight
-from pygments.formatters import (HtmlFormatter, ImageFormatter,
-                                 TerminalFormatter)
-from pygments.lexers import (get_lexer_by_name, get_lexer_for_filename,
-                             guess_lexer)
-from pygments.styles import get_style_by_name
-from pygments.util import ClassNotFound
+# Optional dependencies — מוגנים לשימוש בסביבת בדיקות/Docs
+try:
+    import cairosvg  # type: ignore
+except Exception:  # noqa: BLE001
+    cairosvg = None  # type: ignore[assignment]
+
+try:
+    import textstat  # type: ignore
+except Exception:  # noqa: BLE001
+    textstat = None  # type: ignore[assignment]
+
+# Language detection (optional)
+try:
+    from langdetect import DetectorFactory, detect  # type: ignore
+except Exception:  # noqa: BLE001
+    class DetectorFactory:  # type: ignore[no-redef]
+        seed = 0
+
+    def detect(_text: str) -> str:  # type: ignore[no-redef]
+        return 'text'
+
+# Image processing (optional)
+try:
+    from PIL import Image, ImageDraw, ImageFont  # type: ignore
+except Exception:  # noqa: BLE001
+    Image = None  # type: ignore[assignment]
+    ImageDraw = None  # type: ignore[assignment]
+    ImageFont = None  # type: ignore[assignment]
+
+# Syntax highlighting (optional)
+try:
+    from pygments import highlight  # type: ignore
+    from pygments.formatters import (HtmlFormatter, ImageFormatter, TerminalFormatter)  # type: ignore
+    from pygments.lexers import (get_lexer_by_name, get_lexer_for_filename, guess_lexer)  # type: ignore
+    from pygments.styles import get_style_by_name  # type: ignore
+    from pygments.util import ClassNotFound  # type: ignore
+except Exception:  # noqa: BLE001
+    highlight = None  # type: ignore[assignment]
+    HtmlFormatter = None  # type: ignore[assignment]
+    ImageFormatter = None  # type: ignore[assignment]
+    TerminalFormatter = None  # type: ignore[assignment]
+    def get_lexer_by_name(_name: str):  # type: ignore[no-redef]
+        raise Exception('pygments not available')
+    def get_lexer_for_filename(_fn: str):  # type: ignore[no-redef]
+        raise Exception('pygments not available')
+    def guess_lexer(_code: str):  # type: ignore[no-redef]
+        raise Exception('pygments not available')
+    def get_style_by_name(_style: str):  # type: ignore[no-redef]
+        return 'default'
+    class ClassNotFound(Exception):  # type: ignore[no-redef]
+        pass
 
 from config import config
 from cache_manager import cache, cached
@@ -40,7 +77,10 @@ class CodeProcessor:
     def __init__(self):
         self.language_patterns = self._init_language_patterns()
         self.common_extensions = self._init_extensions()
-        self.style = get_style_by_name(config.HIGHLIGHT_THEME)
+        try:
+            self.style = get_style_by_name(config.HIGHLIGHT_THEME) if get_style_by_name else 'default'
+        except Exception:
+            self.style = 'default'
         
         # הגדרת לוגר ייעודי לטיפול בשגיאות קוד
         self.code_logger = logging.getLogger('code_handler')
@@ -408,7 +448,7 @@ class CodeProcessor:
         
         # בדיקה שלישית - באמצעות Pygments
         try:
-            lexer = guess_lexer(sanitized_code)
+            lexer = guess_lexer(sanitized_code) if guess_lexer else None
             detected = lexer.name.lower()
             
             # נרמול שמות שפות
@@ -500,19 +540,21 @@ class CodeProcessor:
                 return code
             
             # בחירת formatter
-            if output_format == 'html':
+            if output_format == 'html' and HtmlFormatter is not None:
                 formatter = HtmlFormatter(
                     style=self.style,
                     noclasses=True,
                     nowrap=True,
                     linenos=False
                 )
-            elif output_format == 'terminal':
+            elif output_format == 'terminal' and TerminalFormatter is not None:
                 formatter = TerminalFormatter()
             else:
                 return code  # פורמט לא נתמך
             
             # ביצוע highlighting
+            if highlight is None:
+                return code
             highlighted = highlight(code, lexer, formatter)
             
             # ניקוי HTML אם נדרש
@@ -595,13 +637,18 @@ class CodeProcessor:
             # כרגע נחזיר placeholder
             
             # יצירת תמונה פשוטה עם הקוד
+            if Image is None or ImageDraw is None:
+                return None
             img = Image.new('RGB', (width, max(400, len(code.split('\n')) * 20)), 'white')
             draw = ImageDraw.Draw(img)
             
             try:
-                font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
-            except:
-                font = ImageFont.load_default()
+                if ImageFont is not None:
+                    font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
+                else:
+                    font = None
+            except Exception:
+                font = ImageFont.load_default() if ImageFont is not None else None
             
             # כתיבת הקוד
             y_position = 10
@@ -665,8 +712,11 @@ class CodeProcessor:
         
         # ניקוד קריאות (באמצעות textstat)
         try:
-            stats['readability_score'] = textstat.flesch_reading_ease(code)
-        except:
+            if textstat is not None:
+                stats['readability_score'] = textstat.flesch_reading_ease(code)
+            else:
+                stats['readability_score'] = 0
+        except Exception:
             stats['readability_score'] = 0
         
         logger.info(f"חושבו סטטיסטיקות לקוד: {stats['total_lines']} שורות, {stats['characters']} תווים")

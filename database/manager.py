@@ -360,6 +360,10 @@ class DatabaseManager:
     def get_regular_files_paginated(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
         return self._get_repo().get_regular_files_paginated(user_id, page, per_page)
 
+    # Repo tags helpers
+    def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
+        return self._get_repo().get_repo_tags_with_counts(user_id, max_tags)
+
     def delete_file(self, user_id: int, file_name: str) -> bool:
         return self._get_repo().delete_file(user_id, file_name)
 
