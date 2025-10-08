@@ -101,3 +101,56 @@ def test_extract_message_text_entities_clamped_offsets():
     out = TelegramUtils.extract_message_text_preserve_markdown(m)
     assert out == "_a_bc"
 
+
+def test_extract_message_text_ignores_unknown_entity_type():
+    from utils import TelegramUtils
+
+    class _Ent:
+        def __init__(self, type, offset, length):
+            self.type = type
+            self.offset = offset
+            self.length = length
+
+    class Msg:
+        def __init__(self):
+            self.text = "abc"
+            # underline אינו נתמך – אמור להתעלם
+            self.entities = [_Ent("underline", 0, 3)]
+
+    m = Msg()
+    out = TelegramUtils.extract_message_text_preserve_markdown(m)
+    assert out == "abc"
+
+
+def test_extract_message_text_full_range_bold_closes_at_end():
+    from utils import TelegramUtils
+
+    class _Ent:
+        def __init__(self, type, offset, length):
+            self.type = type
+            self.offset = offset
+            self.length = length
+
+    class Msg:
+        def __init__(self):
+            self.text = "abc"
+            self.entities = [_Ent("bold", 0, 3)]
+
+    m = Msg()
+    out = TelegramUtils.extract_message_text_preserve_markdown(m)
+    assert out == "__abc__"
+
+
+def test_extract_message_text_empty_base_returns_empty():
+    from utils import TelegramUtils
+
+    class Msg:
+        def __init__(self):
+            self.text = ""
+            self.caption = None
+            self.entities = []
+
+    m = Msg()
+    out = TelegramUtils.extract_message_text_preserve_markdown(m)
+    assert out == ""
+
