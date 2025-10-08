@@ -1721,6 +1721,14 @@ class GitHubMenuHandler:
                 context.user_data.pop("github_backup_context_repo", None)
             except Exception:
                 pass
+            # בהתאם ל-.cursorrules: חזרה לתפריט מחזירה למצב תצוגה/עריכה ומנטרלת מצבי מחיקה/מרובה
+            try:
+                context.user_data["browse_action"] = "view"
+                context.user_data["multi_mode"] = False
+                context.user_data["multi_selection"] = []
+                context.user_data["safe_delete"] = True
+            except Exception:
+                pass
             await self.github_menu_command(update, context)
             return ConversationHandler.END
         
