@@ -522,7 +522,7 @@ class CodeProcessor:
         
         return 'text'
     
-    def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> Any:
+    def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
         """עטיפת הדגשת תחביר עם ניהול cache רגיש לסביבת runtime."""
         # תנאים מוקדמים מהירים שאינם צריכים cache
         if not code or len(code.strip()) < 10:
@@ -536,7 +536,7 @@ class CodeProcessor:
         return self._highlight_code_cached(code, programming_language, output_format, runtime_key)
 
     @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
-    def _highlight_code_cached(self, code: str, programming_language: str, output_format: str, runtime_key: str) -> Any:
+    def _highlight_code_cached(self, code: str, programming_language: str, output_format: str, runtime_key: str) -> str:
         try:
             # בחירת lexer מתאים
             lexer = None
@@ -565,11 +565,11 @@ class CodeProcessor:
             elif output_format == 'terminal' and TerminalFormatter is not None:
                 formatter = TerminalFormatter()
             else:
-                return HtmlHighlightingError(code) if output_format == 'html' else code
+                return f"<code>{code}</code>" if output_format == 'html' else code
 
             # ביצוע highlighting
             if highlight is None:
-                return HtmlHighlightingError(code) if output_format == 'html' else code
+                return f"<code>{code}</code>" if output_format == 'html' else code
             highlighted = highlight(code, lexer, formatter)
 
             # ניקוי HTML אם נדרש
@@ -578,7 +578,7 @@ class CodeProcessor:
             return highlighted
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
-            return HtmlHighlightingError(code) if output_format == 'html' else code
+            return f"<code>{code}</code>" if output_format == 'html' else code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
         """ניקוי HTML לתאימות עם Telegram"""
