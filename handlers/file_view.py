@@ -827,17 +827,26 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         large_note_html = "\n<i>זה קובץ גדול</i>\n\n" if is_large_file else ""
-        # הצגה עקבית ב-HTML עם escape כדי למנוע בליעת תווים כמו __main__
-        safe_code = html_escape(code_preview)
-        header_html = (
-            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}"
-        )
-        await TelegramUtils.safe_edit_message_text(
-            query,
-            f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
-            reply_markup=reply_markup,
-            parse_mode='HTML',
-        )
+        # Markdown מוצג ב-HTML רק עבור קבצי Markdown; לשאר נשתמש ב-Markdown עם בלוק קוד
+        if (language or '').lower() == 'markdown':
+            safe_code = html_escape(code_preview)
+            header_html = (
+                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}"
+            )
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
+                reply_markup=reply_markup,
+                parse_mode='HTML',
+            )
+        else:
+            await TelegramUtils.safe_edit_message_text(
+                query,
+                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
+                f"```{language}\n{code_preview}\n```",
+                reply_markup=reply_markup,
+                parse_mode='Markdown',
+            )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
         await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")

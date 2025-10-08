@@ -208,28 +208,28 @@ class LargeFilesHandler:
         
         # בדיקה אם הקובץ קטן מספיק להצגה בצ'אט
         if len(content) <= self.preview_max_chars:
-            # הצגה ישירה ב-HTML עם escape כדי למנוע בליעת תווים (כמו __main__)
-            from html import escape as _escape
-            safe_content_html = _escape(str(content))
+            # הצגה ישירה עם Markdown ובלוק קוד; נבריח backticks כדי למנוע שבירה
+            safe_content = str(content).replace('```', '\\`\\`\\`')
+            formatted_content = f"```{language}\n{safe_content}\n```"
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
-                f"📄 <b>{_escape(file_name)}</b>\n\n<pre><code>{safe_content_html}</code></pre>",
+                f"📄 **{file_name}**\n\n{formatted_content}",
                 reply_markup=reply_markup,
-                parse_mode='HTML'
+                parse_mode='Markdown'
             )
         else:
             # הקובץ גדול מדי - נציג תצוגה מקדימה ונשלח כקובץ
             preview = content[:self.preview_max_chars] + "\n\n... [המשך הקובץ נשלח כקובץ מצורף]"
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            # שליחת תצוגה מקדימה ב-HTML עם escape
-            from html import escape as _escape
-            safe_preview_html = _escape(str(preview))
+            # שליחת תצוגה מקדימה עם Markdown ובלוק קוד; נבריח backticks
+            safe_preview = str(preview).replace('```', '\\`\\`\\`')
+            formatted_preview = f"```{language}\n{safe_preview}\n```"
             await query.edit_message_text(
-                f"📄 <b>{_escape(file_name)}</b> (תצוגה מקדימה)\n\n<pre><code>{safe_preview_html}</code></pre>",
+                f"📄 **{file_name}** (תצוגה מקדימה)\n\n{formatted_preview}",
                 reply_markup=reply_markup,
-                parse_mode='HTML'
+                parse_mode='Markdown'
             )
             
             # שליחת הקובץ המלא
