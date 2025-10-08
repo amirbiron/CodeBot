@@ -13,7 +13,7 @@ def test_detect_language_with_pygments_variants(monkeypatch):
     monkeypatch.setattr(mod, 'guess_lexer', lambda code: StubLexer('Python 3'))
     assert cp.detect_language("no patterns here") == 'python'
 
-    # JavaScript variant
+    # JavaScript variant (use neutral text to avoid pattern detector)
     monkeypatch.setattr(mod, 'guess_lexer', lambda code: StubLexer('JavaScript'))
     assert cp.detect_language("no patterns here") == 'javascript'
 
