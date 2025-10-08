@@ -139,18 +139,10 @@ class CodeFormatter(ABC):
     
     def count_changes(self, original: str, formatted: str) -> int:
         """סופר מספר שורות ששונו"""
-        original_lines = original.splitlines()
-        formatted_lines = formatted.splitlines()
+        import difflib
         
-        changes = 0
-        for orig, fmt in zip(original_lines, formatted_lines):
-            if orig != fmt:
-                changes += 1
-        
-        # הוספה/מחיקה של שורות
-        changes += abs(len(original_lines) - len(formatted_lines))
-        
-        return changes
+        diff = difflib.ndiff(original.splitlines(), formatted.splitlines())
+        return sum(1 for line in diff if line.startswith(('+ ', '- ')))
 ```
 
 ### 1.1.4 מימוש - Python Formatter
