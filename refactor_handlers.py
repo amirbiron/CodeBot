@@ -170,11 +170,7 @@ class RefactorHandlers:
             await TelegramUtils.safe_edit_message_text(query, "❌ הקובץ לא נמצא")
             return
         code = snippet.get('code') or ''
-        await TelegramUtils.safe_edit_message_text(
-            query,
-            "🏗️ מנתח קוד ומכין הצעת רפקטורינג...\n"
-            "⏳ זה יכול לקחת כמה שניות"
-        )
+        await TelegramUtils.safe_edit_message_text(query, "🏗️ מנתח קוד ומכין הצעת רפקטורינג...\n⏳ זה יכול לקחת כמה שניות")
         try:
             refactor_type = RefactorType(refactor_type_str)
         except ValueError:
