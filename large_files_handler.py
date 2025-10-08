@@ -208,47 +208,29 @@ class LargeFilesHandler:
         
         # בדיקה אם הקובץ קטן מספיק להצגה בצ'אט
         if len(content) <= self.preview_max_chars:
-            # הצגה ישירה בצ'אט
-            # עטיפת תוכן בבלוק קוד; נבריח backticks בתוך התוכן כדי לא לשבור Markdown
-            safe_content = str(content).replace('```', '\\`\\`\\`')
-            formatted_content = f"```{language}\n{safe_content}\n```"
-            
+            # הצגה ישירה ב-HTML עם escape כדי למנוע בליעת תווים (כמו __main__)
+            from html import escape as _escape
+            safe_content_html = _escape(str(content))
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            try:
-                await query.edit_message_text(
-                    f"📄 **{file_name}**\n\n{formatted_content}",
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-            except Exception as e:
-                # אם יש בעיה עם Markdown, ננסה בלי
-                await query.edit_message_text(
-                    f"📄 {file_name}\n\n{content}",
-                    reply_markup=reply_markup
-                )
+            await query.edit_message_text(
+                f"📄 <b>{_escape(file_name)}</b>\n\n<pre><code>{safe_content_html}</code></pre>",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
         else:
             # הקובץ גדול מדי - נציג תצוגה מקדימה ונשלח כקובץ
             preview = content[:self.preview_max_chars] + "\n\n... [המשך הקובץ נשלח כקובץ מצורף]"
-            safe_preview = str(preview).replace('```', '\\`\\`\\`')
-            formatted_preview = f"```{language}\n{safe_preview}\n```"
-            
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # שליחת תצוגה מקדימה
-            try:
-                await query.edit_message_text(
-                    f"📄 **{file_name}** (תצוגה מקדימה)\n\n{formatted_preview}",
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-            except:
-                await query.edit_message_text(
-                    f"📄 {file_name} (תצוגה מקדימה)\n\n{preview}",
-                    reply_markup=reply_markup
-                )
+            # שליחת תצוגה מקדימה ב-HTML עם escape
+            from html import escape as _escape
+            safe_preview_html = _escape(str(preview))
+            await query.edit_message_text(
+                f"📄 <b>{_escape(file_name)}</b> (תצוגה מקדימה)\n\n<pre><code>{safe_preview_html}</code></pre>",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
             
             # שליחת הקובץ המלא
             file_bytes = BytesIO(content.encode('utf-8'))
