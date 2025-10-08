@@ -491,6 +491,33 @@ class TelegramUtils:
                 return
             raise
 
+    @staticmethod
+    def extract_message_text_preserve_markdown(message: "Message") -> str:
+        """שחזור טקסט ההודעה תוך שימור סימוני Markdown שנבלעו ע"י טלגרם.
+
+        מנסה להעדיף `text_markdown_v2`/`text_markdown` (או `caption_*`) אם קיימים באובייקט
+        ההודעה, כיוון שהם נבנים על סמך ה-entities ומייצגים נאמנה תווים כמו `__`, `_`, `*` וכו'.
+        נופל חכם ל-`text`/`caption` אם המאפיינים אינם זמינים (למשל בסביבת בדיקות/סטאבים).
+        """
+        try:
+            candidates = [
+                getattr(message, "text_markdown_v2", None),
+                getattr(message, "text_markdown", None),
+                getattr(message, "caption_markdown_v2", None),
+                getattr(message, "caption_markdown", None),
+                getattr(message, "text", None),
+                getattr(message, "caption", None),
+            ]
+            for val in candidates:
+                if isinstance(val, str) and val:
+                    return val
+        except Exception:
+            pass
+        try:
+            return str(getattr(message, "text", "") or getattr(message, "caption", "") or "")
+        except Exception:
+            return ""
+
 class CallbackQueryGuard:
     """Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
 

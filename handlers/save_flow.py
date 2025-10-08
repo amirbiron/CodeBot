@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, WAIT_ADD_CODE_MODE, LONG_COLLECT
 from services import code_service
 from utils import TextUtils
+from utils import TelegramUtils
 from utils import normalize_code  # נרמול קלט כדי להסיר תווים נסתרים מוקדם
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,11 @@ async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> in
             await update.message.reply_text("📎 קיבלתי קובץ שאינו טקסט. שלח/י מסמך טקסט או הדבק/י את הקוד כהודעת טקסט.")
             return LONG_COLLECT
     elif update.message.text:
-        text = update.message.text or ''
+        # שחזור טקסט עם סימוני Markdown שנבלעו (למשל __main__)
+        try:
+            text = TelegramUtils.extract_message_text_preserve_markdown(update.message) or ''
+        except Exception:
+            text = update.message.text or ''
     else:
         await update.message.reply_text("🖼️ התקבלה הודעה שאינה טקסט. שלח/י קוד כהודעת טקסט או קובץ טקסט.")
         return LONG_COLLECT
@@ -272,7 +277,11 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def get_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    code = update.message.text
+    # שחזור טקסט עם סימוני Markdown שנבלעו
+    try:
+        code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
+    except Exception:
+        code = update.message.text
     # נרמול מוקדם כדי למנוע תווים נסתרים כבר בשלב האיסוף
     try:
         code = normalize_code(code)
