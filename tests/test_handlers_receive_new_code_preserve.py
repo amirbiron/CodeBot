@@ -10,7 +10,7 @@ async def test_receive_new_code_uses_preserve(monkeypatch):
 
     captured = {}
 
-    def fake_extract(msg):
+    def fake_extract(msg, reconstruct_from_entities=True):
         captured['called'] = True
         # חיקוי הודעת משתמש עם __main__
         return "print('__main__')\n"

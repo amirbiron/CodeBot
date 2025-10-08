@@ -492,31 +492,80 @@ class TelegramUtils:
             raise
 
     @staticmethod
-    def extract_message_text_preserve_markdown(message: "Message") -> str:
-        """שחזור טקסט ההודעה תוך שימור סימוני Markdown שנבלעו ע"י טלגרם.
+    def extract_message_text_preserve_markdown(message: "Message", *, reconstruct_from_entities: bool = True) -> str:
+        """שחזור טקסט ההודעה תוך ניסיון להחזיר את מה שהמשתמש התכוון מבחינת תווי Markdown.
 
-        מנסה להעדיף `text_markdown_v2`/`text_markdown` (או `caption_*`) אם קיימים באובייקט
-        ההודעה, כיוון שהם נבנים על סמך ה-entities ומייצגים נאמנה תווים כמו `__`, `_`, `*` וכו'.
-        נופל חכם ל-`text`/`caption` אם המאפיינים אינם זמינים (למשל בסביבת בדיקות/סטאבים).
+        עקרונות:
+        - ברירת מחדל: נשתמש ב-`text`/`caption` (התוכן הגולמי כפי שנשלח לשרת לאחר עיבוד Markdown).
+          זאת כדי לא לשמור מחרוזת "מרונדרת" (כמו \*_name_*), שלא משקפת קלט משתמש.
+        - במידה ו-`reconstruct_from_entities=True` ויש ישויות עיצוב (bold/italic), ננסה לשחזר
+          תווי Markdown שהיוו כנראה את מקור העיצוב ע"י הוספת תחיליות/סיומות סביב הטקסט שסומן.
+          מיפוי פשוט: bold → "__", italic → "_". שאר ישויות נשמרות כפי שהן.
+        - אם יש כיתוב (caption), נשתמש במקבילות `caption_entities`.
         """
+        # 1) תוכן בסיסי
         try:
-            candidates = [
-                getattr(message, "text_markdown_v2", None),
-                getattr(message, "text_markdown", None),
-                getattr(message, "caption_markdown_v2", None),
-                getattr(message, "caption_markdown", None),
-                getattr(message, "text", None),
-                getattr(message, "caption", None),
-            ]
-            for val in candidates:
-                if isinstance(val, str) and val:
-                    return val
+            base = str(getattr(message, "text", "") or getattr(message, "caption", "") or "")
         except Exception:
-            pass
+            base = ""
+
+        if not reconstruct_from_entities or not base:
+            return base
+
+        # 2) שחזור סימונים על בסיס entities (אם קיימים)
         try:
-            return str(getattr(message, "text", "") or getattr(message, "caption", "") or "")
+            entities = getattr(message, "entities", None)
+            if base and not entities:
+                entities = getattr(message, "caption_entities", None)
         except Exception:
-            return ""
+            entities = None
+
+        try:
+            if not entities:
+                return base
+
+            length = len(base)
+            opens = {i: [] for i in range(length + 1)}
+            closes = {i: [] for i in range(length + 1)}
+
+            for ent in entities or []:
+                try:
+                    etype = getattr(ent, "type", "") or ""
+                    offset = int(getattr(ent, "offset", 0) or 0)
+                    ent_len = int(getattr(ent, "length", 0) or 0)
+                    start = max(0, min(length, offset))
+                    end = max(0, min(length, offset + ent_len))
+                except Exception:
+                    continue
+
+                # מיפוי לסימני Markdown מועדפים
+                if etype == "bold":
+                    opens[start].append("__")
+                    closes[end].insert(0, "__")  # סגירה לפני פתיחות חדשות באותו אינדקס
+                elif etype == "italic":
+                    opens[start].append("_")
+                    closes[end].insert(0, "_")
+                else:
+                    # עבור ישויות אחרות לא נוסיף תווים (inline code/links לא משוחזרים כסימנים)
+                    continue
+
+            out_parts = []
+            for i, ch in enumerate(base):
+                # הוסף סגירות שמסתיימות לפני התו
+                if closes.get(i):
+                    out_parts.extend(closes[i])
+                # הוסף פתיחות שמתחילות לפני התו
+                if opens.get(i):
+                    out_parts.extend(opens[i])
+                out_parts.append(ch)
+
+            # סגירות בסוף הטקסט
+            if closes.get(length):
+                out_parts.extend(closes[length])
+
+            return "".join(out_parts)
+        except Exception:
+            return base
 
 class CallbackQueryGuard:
     """Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
