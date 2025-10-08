@@ -3080,7 +3080,7 @@ class GitHubMenuHandler:
         query = update.callback_query
         try:
             files = db.get_user_files(user_id, limit=1000)
-            repo_to_count = {}
+            repo_to_count: dict[str, int] = {}
             for f in files:
                 for t in f.get('tags', []) or []:
                     if isinstance(t, str) and t.startswith('repo:'):

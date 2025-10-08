@@ -2026,8 +2026,8 @@ class CodeKeeperBot:
             results = db.search_code(
                 user_id,
                 query=name_filter if name_filter else "",
-                programming_language=lang_filter,
-                tags=[tag_filter] if tag_filter else None,
+                programming_language=(lang_filter or ""),
+                tags=([tag_filter] if tag_filter else []),
                 limit=10000,
             ) or []
             # סינון לפי שם קובץ אם יש name_filter
@@ -2506,7 +2506,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         key = prefs.get("schedule")
                         if key in sched_keys:
                             # Ensure a repeating job exists and is aligned to the next planned time
-                            await drive_handler._ensure_schedule_job(context, uid, key)  # type: ignore[attr-defined]
+                            # _ensure_schedule_job מיועד ב-drive_handler; אם לא קיים, נתעלם בשקט
+                            try:
+                                await drive_handler._ensure_schedule_job(context, uid, key)
+                            except AttributeError:
+                                pass
                     except Exception:
                         continue
             except Exception:
