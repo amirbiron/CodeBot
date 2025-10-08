@@ -52,11 +52,11 @@ except Exception:  # noqa: BLE001
     ImageFormatter = None  # type: ignore[assignment]
     TerminalFormatter = None  # type: ignore[assignment]
     def get_lexer_by_name(_name: str):  # type: ignore[no-redef]
-        raise Exception('pygments not available')
+        raise ClassNotFound('pygments not available')
     def get_lexer_for_filename(_fn: str):  # type: ignore[no-redef]
-        raise Exception('pygments not available')
+        raise ClassNotFound('pygments not available')
     def guess_lexer(_code: str):  # type: ignore[no-redef]
-        raise Exception('pygments not available')
+        raise ClassNotFound('pygments not available')
     def get_style_by_name(_style: str):  # type: ignore[no-redef]
         return 'default'
     class ClassNotFound(Exception):  # type: ignore[no-redef]
@@ -448,8 +448,12 @@ class CodeProcessor:
         
         # בדיקה שלישית - באמצעות Pygments
         try:
-            lexer = guess_lexer(sanitized_code) if guess_lexer else None
-            detected = lexer.name.lower()
+            if not guess_lexer:
+                raise ClassNotFound('pygments guess_lexer unavailable')
+            lexer = guess_lexer(sanitized_code)
+            if not lexer:
+                raise ClassNotFound('no lexer returned')
+            detected = getattr(lexer, 'name', 'text').lower()
             
             # נרמול שמות שפות
             if 'python' in detected:
