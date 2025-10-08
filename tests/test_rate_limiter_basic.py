@@ -33,3 +33,18 @@ async def test_rate_limiter_window_cleanup_allows_after_old_entries_removed():
 
     # עכשיו צריך לאפשר מחדש
     assert await limiter.check_rate_limit(user_id) is True
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_cleanup_all_expired_limit_1():
+    limiter = RateLimiter(max_per_minute=1)
+    user_id = 88
+    # מלא
+    assert await limiter.check_rate_limit(user_id) is True
+    assert await limiter.check_rate_limit(user_id) is False
+    # הפוך את הרשומה היחידה לישנה
+    from datetime import datetime, timedelta
+    too_old = datetime.utcnow() - timedelta(seconds=120)
+    limiter._requests[user_id] = [too_old]
+    # צריך להתנקה לחלוטין ולאפשר
+    assert await limiter.check_rate_limit(user_id) is True

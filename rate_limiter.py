@@ -22,13 +22,14 @@ class RateLimiter:
         one_min_ago = now - timedelta(seconds=60)
         async with self._lock:
             entries = self._requests[user_id]
-            # נקה בקשות ישנות מהחלון
-            i = 0
-            for i in range(len(entries)):
-                if entries[i] > one_min_ago:
+            # נקה בקשות ישנות מהחלון (תיקון off-by-one כאשר כל הערכים פגי-תוקף)
+            delete_upto = len(entries)
+            for idx, ts in enumerate(entries):
+                if ts > one_min_ago:
+                    delete_upto = idx
                     break
-            if i > 0:
-                del entries[:i]
+            if delete_upto > 0:
+                del entries[:delete_upto]
 
             if len(entries) >= self.max_per_minute:
                 return False
