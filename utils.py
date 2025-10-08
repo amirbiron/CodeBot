@@ -537,8 +537,15 @@ class TelegramUtils:
                     etype = getattr(ent, "type", "") or ""
                     offset = int(getattr(ent, "offset", 0) or 0)
                     ent_len = int(getattr(ent, "length", 0) or 0)
-                    start = max(0, min(length, offset))
-                    end = max(0, min(length, offset + ent_len))
+                    # חשב טווח מקורי
+                    start_raw = offset
+                    end_raw = offset + ent_len
+                    # קלמפינג ראשוני
+                    start = max(0, min(length, start_raw))
+                    end = max(0, min(length, end_raw))
+                    # אם offset שלילי גרם לכך ש-end==start, הרחב לפי האורך המבוקש
+                    if start_raw < 0 and ent_len > 0 and end <= start:
+                        end = min(length, start + ent_len)
                 except Exception:
                     continue
 
