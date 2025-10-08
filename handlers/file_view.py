@@ -17,7 +17,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional
 from html import escape as html_escape
-from utils import TelegramUtils
+from utils import TelegramUtils, TextUtils
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -840,10 +840,16 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 parse_mode='HTML',
             )
         else:
+            # בריחת שם קובץ ל-Markdown ומניעת שבירת בלוק קוד ע"י backticks
+            try:
+                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
+            except Exception:
+                safe_file_name = str(file_name).replace('`', '\\`')
+            safe_code_md = str(code_preview).replace('```', '\\`\\`\\`')
             await TelegramUtils.safe_edit_message_text(
                 query,
-                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
-                f"```{language}\n{code_preview}\n```",
+                f"📄 *{safe_file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
+                f"```{language}\n{safe_code_md}\n```",
                 reply_markup=reply_markup,
                 parse_mode='Markdown',
             )
