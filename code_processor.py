@@ -522,6 +522,8 @@ class CodeProcessor:
         """עטיפת הדגשת תחביר עם ניהול cache רגיש לסביבת runtime."""
         # תנאים מוקדמים מהירים שאינם צריכים cache
         if not code or len(code.strip()) < 10:
+            if output_format == 'html':
+                return f"<code>{code}</code>"
             return code
         if output_format == 'terminal' and (TerminalFormatter is None or highlight is None):
             return code
@@ -559,11 +561,11 @@ class CodeProcessor:
             elif output_format == 'terminal' and TerminalFormatter is not None:
                 formatter = TerminalFormatter()
             else:
-                return code
+                return f"<code>{code}</code>" if output_format == 'html' else code
 
             # ביצוע highlighting
             if highlight is None:
-                return code
+                return f"<code>{code}</code>" if output_format == 'html' else code
             highlighted = highlight(code, lexer, formatter)
 
             # ניקוי HTML אם נדרש
@@ -572,7 +574,7 @@ class CodeProcessor:
             return highlighted
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
-            return code
+            return f"<code>{code}</code>" if output_format == 'html' else code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
         """ניקוי HTML לתאימות עם Telegram"""
@@ -592,6 +594,9 @@ class CodeProcessor:
             # החלפת span tags ב-code tags
             html_code = re.sub(r'<span[^>]*>', '<code>', html_code)
             html_code = re.sub(r'</span>', '</code>', html_code)
+            # ודא שעטפנו ב-<code> גם אם לא היו span
+            if '<code>' not in html_code:
+                html_code = f"<code>{html_code}</code>"
             
             return html_code
             
