@@ -542,6 +542,10 @@ class TelegramUtils:
                 except Exception:
                     continue
 
+                # התעלם מ-entities ריקים/מחוץ לתחום לאחר קלמפינג
+                if end <= start:
+                    continue
+
                 # מיפוי לסימני Markdown מועדפים
                 if etype == "bold":
                     opens[start].append("__")
