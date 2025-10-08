@@ -126,7 +126,8 @@ def test_highlight_code_cached_total_lexer_failure(monkeypatch):
 
     code = "some code that will fall back"
     out = cp.highlight_code(code, 'unknownlang', 'html')
-    assert out == code  # לא עטוף כי החזרה מוקדמת מתוך _highlight_code_cached
+    # עקביות: במצבי כשל מוחזר HTML עטוף ב-<code>...</code>
+    assert out == f"<code>{code}</code>"
 
 
 def test_create_code_image_with_stubbed_pil(monkeypatch):
