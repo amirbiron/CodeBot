@@ -43,13 +43,13 @@ async def test_show_by_repo_menu_and_multi_delete_flow(monkeypatch):
     # show_by_repo_menu
     await ch.show_by_repo_menu(_Upd(), _Ctx())
 
-    # files_menu: הצגת קבצים לפי תגית (by_repo_menu -> בחירה -> files_menu callback)
+    # הצגת תפריט לפי ריפו (callback by_repo_menu)
     _Upd.callback_query.data = 'by_repo_menu'
-    await ch.files_menu_callback(_Upd(), _Ctx())
+    await ch.show_by_repo_menu_callback(_Upd(), _Ctx())
 
     # הפעלה מצב מחיקה מרובה ואז אישור העברה לסל
     _Ctx.user_data['rf_multi_delete'] = True
     _Ctx.user_data['rf_selected_ids'] = ['1']
     _Upd.callback_query.data = 'rf_delete_confirm'
-    await ch.files_menu_callback(_Upd(), _Ctx())
+    await ch.handle_callback_query(_Upd(), _Ctx())
 
