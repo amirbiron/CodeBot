@@ -130,6 +130,45 @@ def test_highlight_code_cached_total_lexer_failure(monkeypatch):
     assert out == f"<code>{code}</code>"
 
 
+def test_highlight_code_classnotfound_and_guess_exception(monkeypatch):
+    mod = _reload_module()
+    cp = mod.code_processor
+
+    class _Lx:
+        pass
+
+    # get_lexer_by_name לשפה המבוקשת יזרוק ClassNotFound → נכנס למסלול except ClassNotFound
+    def _get_lexer_by_name(name):
+        if name == 'python':
+            raise mod.ClassNotFound('no python lexer')
+        if name == 'text':
+            return _Lx()
+        return _Lx()
+
+    # guess_lexer יזרוק חריגה כללית → נכנס למסלול logger.warning("guess_lexer error")
+    def _guess_lexer(_code):
+        raise RuntimeError('guess boom')
+
+    # נוודא שיש HtmlFormatter ו-highlight תקינים
+    class _Fmt:
+        def __init__(self, *a, **k):
+            pass
+
+    def _highlight(code, lexer, formatter):
+        return "<span class=\"x\" style=\"y\">ok</span>"
+
+    monkeypatch.setattr(mod, 'get_lexer_by_name', _get_lexer_by_name, raising=True)
+    monkeypatch.setattr(mod, 'guess_lexer', _guess_lexer, raising=True)
+    monkeypatch.setattr(mod, 'HtmlFormatter', _Fmt, raising=True)
+    monkeypatch.setattr(mod, 'highlight', _highlight, raising=True)
+
+    code = "def f():\n    return 12345"  # > 10 תווים כדי לא ליפול ל-early return
+    out = cp.highlight_code(code, 'python', 'html')
+    # אחרי ניקוי, ה-span מוחלף ומובטח שתהיה עטיפת <code>
+    assert isinstance(out, str)
+    assert '<code>' in out and '</code>' in out
+
+
 def test_create_code_image_with_stubbed_pil(monkeypatch):
     mod = _reload_module()
     cp = mod.code_processor
