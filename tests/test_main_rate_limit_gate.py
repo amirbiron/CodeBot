@@ -84,6 +84,7 @@ async def test_rate_limit_gate_blocks_message_flow(monkeypatch):
 
     # ודא שנשלחה הודעת חסימה
     assert update.message.replies, 'expected a throttling reply on second call'
+    assert update.message.replies[-1] == "⚠️ יותר מדי בקשות, נסה שוב בעוד מספר שניות"
 
 
 @pytest.mark.asyncio
@@ -130,6 +131,7 @@ async def test_rate_limit_gate_blocks_callback_query(monkeypatch):
     await gate.callback(update, context)  # second -> should block
 
     assert update.callback_query.answered, 'expected an answer() on throttling'
+    assert update.callback_query.answered[-1] == ("יותר מדי בקשות, נסה שוב עוד רגע", False, 1)
 
 
 @pytest.mark.asyncio
