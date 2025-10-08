@@ -87,6 +87,8 @@ async def test_receive_new_code_fallback_on_extract_failure(monkeypatch):
     class Msg:
         def __init__(self):
             self.text = 'raw'
+        async def reply_text(self, *a, **k):
+            return None
     class Q:
         def __init__(self):
             self.captured = None
