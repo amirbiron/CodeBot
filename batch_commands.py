@@ -554,6 +554,17 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 chunk_index = int(parts[2])
                 
                 await lazy_loader.show_large_file_lazy(query, user_id, file_name, chunk_index)
+        elif data.startswith("job_cancel:"):
+            # ביטול עבודה
+            job_id = data[11:]
+            try:
+                ok = batch_processor.cancel_job(job_id)
+            except Exception:
+                ok = False
+            if ok:
+                await query.edit_message_text("✅ העבודה בוטלה בהצלחה")
+            else:
+                await query.edit_message_text("❌ לא ניתן לבטל את העבודה")
                 
     except Exception as e:
         logger.error(f"שגיאה בטיפול ב-batch callback: {e}")
