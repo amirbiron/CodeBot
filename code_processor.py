@@ -522,7 +522,7 @@ class CodeProcessor:
         
         return 'text'
     
-    def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
+    def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> Any:
         """עטיפת הדגשת תחביר עם ניהול cache רגיש לסביבת runtime."""
         # תנאים מוקדמים מהירים שאינם צריכים cache
         if not code or len(code.strip()) < 10:
@@ -536,7 +536,7 @@ class CodeProcessor:
         return self._highlight_code_cached(code, programming_language, output_format, runtime_key)
 
     @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
-    def _highlight_code_cached(self, code: str, programming_language: str, output_format: str, runtime_key: str) -> str:
+    def _highlight_code_cached(self, code: str, programming_language: str, output_format: str, runtime_key: str) -> Any:
         try:
             # בחירת lexer מתאים
             lexer = None
