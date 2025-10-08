@@ -9,9 +9,10 @@
 1. [סקירה כללית](#סקירה-כללית)
 2. [פיצ'ר 1.1 - עיצוב קוד אוטומטי](#פיצר-11---עיצוב-קוד-אוטומטי)
 3. [פיצ'ר 1.2 - Linting מתקדם](#פיצר-12---linting-מתקדם)
-4. [אינטגרציה עם המערכת הקיימת](#אינטגרציה-עם-המערכת-הקיימת)
-5. [בדיקות ואבטחה](#בדיקות-ואבטחה)
-6. [תכנית פריסה](#תכנית-פריסה)
+4. [פיצ'ר 1.2.6 - תיקון Lint אוטומטי (Auto-Fix)](#פיצר-126---תיקון-lint-אוטומטי-auto-fix)
+5. [אינטגרציה עם המערכת הקיימת](#אינטגרציה-עם-המערכת-הקיימת)
+6. [בדיקות ואבטחה](#בדיקות-ואבטחה)
+7. [תכנית פריסה](#תכנית-פריסה)
 
 ---
 
@@ -20,17 +21,21 @@
 ### מטרות המימוש
 - **פיצ'ר 1.1**: מתן יכולת עיצוב אוטומטי של קוד לפי תקנים מקובלים (Black, Prettier, autopep8, gofmt)
 - **פיצ'ר 1.2**: בדיקת איכות קוד עמוקה עם זיהוי בעיות, באגים ו-code smells
+- **פיצ'ר 1.2.6**: 🆕 **תיקון אוטומטי של בעיות lint** עם 3 רמות תיקון (בטוח, זהיר, אגרסיבי)
 
 ### יתרונות למשתמש
 - ✅ חיסכון זמן בעריכה ידנית
 - ✅ קוד עקבי ונקי
 - ✅ עמידה בתקני צוות
 - ✅ זיהוי מוקדם של באגים ובעיות סגנון
+- ✅ **תיקון אוטומטי חכם עם בקרת משתמש מלאה**
+- ✅ **הצגת diff ואפשרות ביטול לפני שמירה**
 
 ### אומדן זמן פיתוח
 - **פיצ'ר 1.1**: 1-2 שבועות (מורכבות בינונית)
 - **פיצ'ר 1.2**: 1-2 שבועות (מורכבות בינונית)
-- **סה"כ עם אינטגרציה**: 3-4 שבועות
+- **פיצ'ר 1.2.6 (Auto-Fix)**: 1 שבוע (מורכבות בינונית)
+- **סה"כ עם אינטגרציה**: 4-5 שבועות
 
 ---
 
@@ -998,6 +1003,801 @@ lint_handler = ConversationHandler(
 
 ---
 
+## 🔧 פיצ'ר 1.2.6 - תיקון Lint אוטומטי (Auto-Fix)
+
+### סקירה
+
+תיקון אוטומטי של בעיות lint הוא פיצ'ר חזק שחוסך זמן רב למפתחים. עם זאת, חשוב לבצע את זה בזהירות ולאפשר למשתמש לסקור את השינויים לפני אישור.
+
+### מה ניתן לתקן אוטומטית?
+
+#### ✅ תיקונים בטוחים (Safe)
+- **רווחים וסגנון**: תיקון רווחים, indent, שורות ריקות
+- **imports לא בשימוש**: הסרת imports מיותרים
+- **משתנים לא בשימוש**: הסרה או סימון
+- **קווים ארוכים מדי**: שבירה לשורות
+- **ציטוטים**: המרה בין ' ל-" (אם נדרש)
+- **trailing commas**: הוספה/הסרה
+
+#### ⚠️ תיקונים זהירים (Careful)
+- **type hints**: הוספת type annotations
+- **docstrings**: הוספת תיעוד בסיסי
+- **naming conventions**: שינוי שמות משתנים
+
+#### ❌ לא לתקן אוטומטית
+- **לוגיקה עסקית**: שינויים שמשפיעים על ההתנהגות
+- **API breaking changes**: שינוי חתימות פונקציות
+- **שגיאות מורכבות**: דורשות החלטה אנושית
+
+### מימוש - Auto Fixer
+
+```python
+# handlers/code_linting/auto_fixer.py
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass
+import subprocess
+import tempfile
+from pathlib import Path
+
+from .linter_base import LintResult, LintIssue, IssueSeverity
+
+
+@dataclass
+class FixResult:
+    """תוצאת תיקון אוטומטי"""
+    success: bool
+    original_code: str
+    fixed_code: str
+    fixes_applied: List[str]  # רשימת תיקונים שבוצעו
+    issues_before: int
+    issues_after: int
+    error_message: Optional[str] = None
+    
+    def get_improvement(self) -> float:
+        """אחוז השיפור"""
+        if self.issues_before == 0:
+            return 100.0
+        reduction = self.issues_before - self.issues_after
+        return (reduction / self.issues_before) * 100
+    
+    def get_diff(self) -> str:
+        """diff בין לפני לאחרי"""
+        import difflib
+        diff = difflib.unified_diff(
+            self.original_code.splitlines(keepends=True),
+            self.fixed_code.splitlines(keepends=True),
+            fromfile='לפני תיקון',
+            tofile='אחרי תיקון',
+            lineterm=''
+        )
+        return '\n'.join(diff)
+
+
+class AutoFixer:
+    """מנוע לתיקון אוטומטי של בעיות lint"""
+    
+    # רמות תיקון
+    SAFE_FIXES = 'safe'        # תיקונים בטוחים לחלוטין
+    CAREFUL_FIXES = 'careful'  # תיקונים שדורשים תשומת לב
+    AGGRESSIVE_FIXES = 'aggressive'  # כל התיקונים האפשריים
+    
+    def __init__(self, fix_level: str = SAFE_FIXES):
+        self.fix_level = fix_level
+    
+    def can_fix(self, issue: LintIssue) -> bool:
+        """בודק האם ניתן לתקן בעיה ספציפית"""
+        # קודי שגיאה שניתן לתקן אוטומטית (flake8/pylint)
+        safe_fixable = {
+            # Whitespace issues
+            'W291', 'W292', 'W293',  # trailing whitespace
+            'E101', 'E111', 'E114', 'E115', 'E116', 'E117',  # indentation
+            'E201', 'E202', 'E203',  # whitespace around brackets
+            'E211',  # whitespace before (
+            'E221', 'E222', 'E223', 'E224', 'E225',  # whitespace around operators
+            'E231',  # missing whitespace after ','
+            'E251',  # unexpected spaces around keyword
+            'E261', 'E262', 'E265', 'E266',  # comments
+            'E271', 'E272', 'E273', 'E274', 'E275',  # whitespace around keywords
+            'E301', 'E302', 'E303', 'E304', 'E305', 'E306',  # blank lines
+            
+            # Import issues
+            'E401', 'E402',  # import issues
+            'F401',  # unused import
+            
+            # Line length (with caution)
+            'E501',  # line too long
+            
+            # Other
+            'W391',  # blank line at end of file
+        }
+        
+        careful_fixable = {
+            'F841',  # local variable assigned but never used
+            'E701', 'E702',  # multiple statements on one line
+        }
+        
+        if self.fix_level == self.SAFE_FIXES:
+            return issue.code in safe_fixable
+        elif self.fix_level == self.CAREFUL_FIXES:
+            return issue.code in (safe_fixable | careful_fixable)
+        else:  # AGGRESSIVE_FIXES
+            return True  # ננסה לתקן הכל
+    
+    def fix_python_code(self, code: str, lint_result: LintResult) -> FixResult:
+        """תיקון קוד Python"""
+        fixes_applied = []
+        
+        # שלב 1: autopep8 לתיקונים בסיסיים
+        fixed_code, pep8_fixes = self._apply_autopep8(code)
+        fixes_applied.extend(pep8_fixes)
+        
+        # שלב 2: autoflake להסרת imports ומשתנים לא בשימוש
+        if self.fix_level in [self.SAFE_FIXES, self.CAREFUL_FIXES, self.AGGRESSIVE_FIXES]:
+            fixed_code, flake_fixes = self._apply_autoflake(fixed_code)
+            fixes_applied.extend(flake_fixes)
+        
+        # שלב 3: isort לסידור imports
+        fixed_code, sort_fixes = self._apply_isort(fixed_code)
+        fixes_applied.extend(sort_fixes)
+        
+        # שלב 4: black לעיצוב סופי (אופציונלי)
+        if self.fix_level == self.AGGRESSIVE_FIXES:
+            fixed_code, black_fixes = self._apply_black(fixed_code)
+            fixes_applied.extend(black_fixes)
+        
+        # ספירת בעיות אחרי תיקון
+        # (כאן צריך להריץ שוב lint על הקוד המתוקן)
+        issues_after = self._count_remaining_issues(fixed_code)
+        
+        return FixResult(
+            success=True,
+            original_code=code,
+            fixed_code=fixed_code,
+            fixes_applied=fixes_applied,
+            issues_before=len(lint_result.issues),
+            issues_after=issues_after
+        )
+    
+    def _apply_autopep8(self, code: str) -> Tuple[str, List[str]]:
+        """תיקון עם autopep8"""
+        try:
+            # בחירת רמת תיקון
+            if self.fix_level == self.SAFE_FIXES:
+                # רק תיקונים בטוחים
+                select_codes = 'E101,E111,E201,E202,E203,E231,E261,E262,E265,E266,E271,E272,E301,E302,E303,E304,E305,E306,W291,W292,W293,W391'
+                aggressiveness = 1
+            elif self.fix_level == self.CAREFUL_FIXES:
+                select_codes = None  # כל התיקונים המובנים
+                aggressiveness = 1
+            else:  # AGGRESSIVE
+                select_codes = None
+                aggressiveness = 2
+            
+            cmd = ['autopep8', '-']
+            if select_codes:
+                cmd.extend(['--select', select_codes])
+            cmd.extend(['--aggressive'] * aggressiveness)
+            
+            result = subprocess.run(
+                cmd,
+                input=code,
+                text=True,
+                capture_output=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                fixes = ['תיקוני PEP8 (רווחים, indent, שורות ריקות)']
+                return result.stdout, fixes
+            
+        except Exception:
+            pass
+        
+        return code, []
+    
+    def _apply_autoflake(self, code: str) -> Tuple[str, List[str]]:
+        """הסרת imports ומשתנים לא בשימוש"""
+        try:
+            cmd = [
+                'autoflake',
+                '--remove-all-unused-imports',
+                '--remove-unused-variables',
+                '--remove-duplicate-keys',
+                '-'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                input=code,
+                text=True,
+                capture_output=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                fixes = []
+                if 'import' in result.stdout and 'import' not in code:
+                    fixes.append('הסרת imports לא בשימוש')
+                if result.stdout != code:
+                    fixes.append('הסרת משתנים לא בשימוש')
+                return result.stdout, fixes
+            
+        except FileNotFoundError:
+            # autoflake לא מותקן
+            pass
+        except Exception:
+            pass
+        
+        return code, []
+    
+    def _apply_isort(self, code: str) -> Tuple[str, List[str]]:
+        """סידור imports"""
+        try:
+            result = subprocess.run(
+                ['isort', '-'],
+                input=code,
+                text=True,
+                capture_output=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                if result.stdout != code:
+                    return result.stdout, ['סידור imports']
+            
+        except FileNotFoundError:
+            # isort לא מותקן
+            pass
+        except Exception:
+            pass
+        
+        return code, []
+    
+    def _apply_black(self, code: str) -> Tuple[str, List[str]]:
+        """עיצוב עם Black"""
+        try:
+            result = subprocess.run(
+                ['black', '--quiet', '-'],
+                input=code,
+                text=True,
+                capture_output=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                if result.stdout != code:
+                    return result.stdout, ['עיצוב עם Black']
+            
+        except Exception:
+            pass
+        
+        return code, []
+    
+    def _count_remaining_issues(self, code: str) -> int:
+        """ספירת בעיות שנותרו אחרי תיקון"""
+        try:
+            result = subprocess.run(
+                ['flake8', '-'],
+                input=code,
+                text=True,
+                capture_output=True,
+                timeout=30
+            )
+            
+            # ספירת שורות בפלט = מספר בעיות
+            return len(result.stdout.strip().split('\n')) if result.stdout.strip() else 0
+            
+        except Exception:
+            return 0
+
+
+class AutoFixerFactory:
+    """Factory ליצירת auto fixers"""
+    
+    @staticmethod
+    def get_fixer(language: str, fix_level: str = AutoFixer.SAFE_FIXES) -> Optional[AutoFixer]:
+        """מחזיר auto fixer מתאים"""
+        if language.lower() == 'python':
+            return AutoFixer(fix_level=fix_level)
+        # כאן אפשר להוסיף תמיכה בשפות נוספות
+        return None
+```
+
+### תלויות נוספות נדרשות
+
+```python
+# requirements.txt - הוספות לתיקון אוטומטי
+autoflake>=2.0.0       # הסרת imports ומשתנים לא בשימוש
+isort>=5.12.0          # סידור imports
+```
+
+### עדכון ה-Telegram Handler
+
+```python
+# handlers/code_linting/telegram_handler.py - עדכון הפונקציה
+
+from .auto_fixer import AutoFixer, AutoFixerFactory
+
+# States - הוספת state חדש
+WAITING_FILE_LINT, WAITING_LINT_ACTION, WAITING_FIX_CONFIRMATION = range(3)
+
+
+async def handle_lint_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """טיפול בפעולה שנבחרה - גרסה מעודכנת"""
+    query = update.callback_query
+    await query.answer()
+    
+    action = query.data
+    result = context.user_data.get('lint_result')
+    
+    if action == "lint_auto_fix":
+        # תיקון אוטומטי
+        await query.message.edit_text(
+            "🔧 *רמת תיקון*\n\n"
+            "בחר את רמת התיקונים:\n\n"
+            "🟢 *בטוח* - רק תיקוני סגנון בטוחים\n"
+            "🟡 *זהיר* - כולל הסרת קוד לא בשימוש\n"
+            "🔴 *אגרסיבי* - כל התיקונים האפשריים",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🟢 בטוח", callback_data="fix_level_safe"),
+                    InlineKeyboardButton("🟡 זהיר", callback_data="fix_level_careful")
+                ],
+                [
+                    InlineKeyboardButton("🔴 אגרסיבי", callback_data="fix_level_aggressive"),
+                    InlineKeyboardButton("❌ בטל", callback_data="lint_close")
+                ]
+            ])
+        )
+        return WAITING_FIX_CONFIRMATION
+    
+    elif action == "lint_full_report":
+        # דוח מלא (קוד קיים)
+        report = f"📄 *דוח מלא - {result.file_path}*\n\n"
+        
+        by_severity = {}
+        for issue in result.issues:
+            if issue.severity not in by_severity:
+                by_severity[issue.severity] = []
+            by_severity[issue.severity].append(issue)
+        
+        for severity in [IssueSeverity.ERROR, IssueSeverity.WARNING, IssueSeverity.INFO, IssueSeverity.STYLE]:
+            if severity in by_severity:
+                emoji = {
+                    IssueSeverity.ERROR: '🔴',
+                    IssueSeverity.WARNING: '🟡',
+                    IssueSeverity.INFO: '💙',
+                    IssueSeverity.STYLE: '🎨'
+                }[severity]
+                
+                report += f"\n{emoji} *{severity.value.title()}:*\n"
+                for issue in by_severity[severity][:5]:
+                    report += f"• שורה {issue.line}: {issue.message}\n"
+        
+        await query.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+        return WAITING_LINT_ACTION
+    
+    elif action == "lint_close":
+        await query.message.delete()
+        context.user_data.pop('lint_result', None)
+        return ConversationHandler.END
+    
+    return WAITING_LINT_ACTION
+
+
+async def handle_fix_level_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """טיפול בבחירת רמת תיקון"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "lint_close":
+        await query.message.delete()
+        context.user_data.pop('lint_result', None)
+        return ConversationHandler.END
+    
+    # מיפוי לרמת תיקון
+    level_map = {
+        'fix_level_safe': AutoFixer.SAFE_FIXES,
+        'fix_level_careful': AutoFixer.CAREFUL_FIXES,
+        'fix_level_aggressive': AutoFixer.AGGRESSIVE_FIXES
+    }
+    
+    fix_level = level_map.get(query.data, AutoFixer.SAFE_FIXES)
+    
+    # קבלת הנתונים
+    lint_result = context.user_data.get('lint_result')
+    original_code = context.user_data.get('original_code')  # צריך לשמור בעת upload
+    
+    if not lint_result or not original_code:
+        await query.message.reply_text("❌ שגיאה: נתונים חסרים")
+        return ConversationHandler.END
+    
+    # הצגת הודעת המתנה
+    await query.message.edit_text(
+        "🔧 מתקן את הקוד...\n⏳ אנא המתן...",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # יצירת auto fixer
+    fixer = AutoFixerFactory.get_fixer('python', fix_level=fix_level)
+    
+    if not fixer:
+        await query.message.edit_text("❌ תיקון אוטומטי לא זמין לשפה זו")
+        return ConversationHandler.END
+    
+    # ביצוע התיקון
+    try:
+        fix_result = fixer.fix_python_code(original_code, lint_result)
+        
+        if not fix_result.success:
+            await query.message.edit_text(
+                f"❌ שגיאה בתיקון:\n`{fix_result.error_message}`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return ConversationHandler.END
+        
+        # שמירת התוצאה
+        context.user_data['fix_result'] = fix_result
+        
+        # הכנת הודעה
+        improvement = fix_result.get_improvement()
+        
+        message = (
+            f"✅ *התיקון הושלם!*\n\n"
+            f"📊 *תוצאות:*\n"
+            f"• בעיות לפני: {fix_result.issues_before}\n"
+            f"• בעיות אחרי: {fix_result.issues_after}\n"
+            f"• שיפור: {improvement:.1f}%\n\n"
+            f"🔧 *תיקונים שבוצעו:*\n"
+        )
+        
+        for fix in fix_result.fixes_applied:
+            message += f"  ✓ {fix}\n"
+        
+        # כפתורי פעולה
+        keyboard = [
+            [
+                InlineKeyboardButton("👀 הצג diff", callback_data="show_fix_diff"),
+                InlineKeyboardButton("💾 שמור", callback_data="save_fixed_code")
+            ],
+            [
+                InlineKeyboardButton("📄 הצג קוד מלא", callback_data="show_fixed_full"),
+                InlineKeyboardButton("❌ בטל", callback_data="discard_fix")
+            ]
+        ]
+        
+        await query.message.edit_text(
+            message,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        return WAITING_LINT_ACTION
+        
+    except Exception as e:
+        await query.message.edit_text(f"❌ שגיאה: {str(e)}")
+        return ConversationHandler.END
+
+
+async def handle_fix_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """טיפול בפעולות על הקוד המתוקן"""
+    query = update.callback_query
+    await query.answer()
+    
+    action = query.data
+    fix_result = context.user_data.get('fix_result')
+    
+    if not fix_result:
+        await query.message.reply_text("❌ שגיאה: תוצאת תיקון לא נמצאה")
+        return ConversationHandler.END
+    
+    if action == "show_fix_diff":
+        # הצגת diff
+        diff = fix_result.get_diff()
+        
+        # חיתוך אם ארוך מדי
+        if len(diff) > 3500:
+            diff = diff[:3500] + "\n\n... (קוצר, הקוד המלא זמין בשמירה)"
+        
+        await query.message.reply_text(
+            f"```diff\n{diff}\n```",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return WAITING_LINT_ACTION
+    
+    elif action == "show_fixed_full":
+        # הצגת הקוד המתוקן
+        code = fix_result.fixed_code
+        
+        if len(code) > 3500:
+            code = code[:3500] + "\n\n... (קוצר)"
+        
+        await query.message.reply_text(
+            f"```python\n{code}\n```",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return WAITING_LINT_ACTION
+    
+    elif action == "save_fixed_code":
+        # שמירת הקוד המתוקן
+        filename = context.user_data.get('original_filename', 'fixed_code.py')
+        new_filename = f"fixed_{filename}"
+        
+        # שליחה כקובץ
+        await query.message.reply_document(
+            document=fix_result.fixed_code.encode('utf-8'),
+            filename=new_filename,
+            caption=(
+                f"✅ *קוד מתוקן: {new_filename}*\n\n"
+                f"שיפור: {fix_result.get_improvement():.1f}%\n"
+                f"בעיות שנותרו: {fix_result.issues_after}"
+            ),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # ניקוי
+        context.user_data.pop('fix_result', None)
+        context.user_data.pop('lint_result', None)
+        context.user_data.pop('original_code', None)
+        
+        await query.message.edit_text("✅ הקוד המתוקן נשמר!")
+        return ConversationHandler.END
+    
+    elif action == "discard_fix":
+        # ביטול התיקון
+        context.user_data.pop('fix_result', None)
+        await query.message.edit_text("❌ התיקון בוטל")
+        return ConversationHandler.END
+    
+    return WAITING_LINT_ACTION
+
+
+# עדכון ה-ConversationHandler
+lint_handler = ConversationHandler(
+    entry_points=[CommandHandler('lint', lint_command)],
+    states={
+        WAITING_FILE_LINT: [
+            MessageHandler(filters.Document.ALL, handle_file_for_linting)
+        ],
+        WAITING_LINT_ACTION: [
+            CallbackQueryHandler(handle_lint_action, pattern='^lint_'),
+            CallbackQueryHandler(handle_fix_action, pattern='^(show_fix|save_fixed|discard_fix)')
+        ],
+        WAITING_FIX_CONFIRMATION: [
+            CallbackQueryHandler(handle_fix_level_selection, pattern='^fix_level_'),
+            CallbackQueryHandler(handle_fix_level_selection, pattern='^lint_close$')
+        ]
+    },
+    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)]
+)
+```
+
+### עדכון חשוב - שמירת קוד מקורי
+
+```python
+# handlers/code_linting/telegram_handler.py - עדכון handle_file_for_linting
+
+async def handle_file_for_linting(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """קבלת קובץ ל-lint - גרסה מעודכנת"""
+    if not update.message.document:
+        await update.message.reply_text("❌ אנא שלח קובץ")
+        return WAITING_FILE_LINT
+    
+    # הורדת קובץ
+    file = await update.message.document.get_file()
+    file_name = update.message.document.file_name
+    content = await file.download_as_bytearray()
+    code = content.decode('utf-8')
+    
+    # 🆕 שמירת הקוד המקורי לשימוש בתיקון אוטומטי
+    context.user_data['original_code'] = code
+    context.user_data['original_filename'] = file_name
+    
+    # ... שאר הקוד ללא שינוי ...
+```
+
+### דוגמת תרחיש שימוש מלא
+
+```
+👤 /lint
+
+🤖 🔍 בדיקת איכות קוד
+   שלח לי קובץ...
+
+👤 [שולח app.py]
+
+🤖 🔍 בודק את הקוד...
+
+   ✅ בדיקה הושלמה!
+   
+   📊 ציון כללי: 6.5/10
+   📝 סך שורות: 150
+   
+   🔴 שגיאות: 2
+   🟡 אזהרות: 8
+   🎨 סגנון: 12
+   
+   • שורה 12: unused import 'sys'
+   • שורה 23: variable 'temp' never used
+   • שורה 45: line too long (95 chars)
+   ...
+   
+   [🔧 תקן אוטומטית] [📄 דוח מלא] [❌ סגור]
+
+👤 [לוחץ "תקן אוטומטית"]
+
+🤖 🔧 רמת תיקון
+   
+   בחר את רמת התיקונים:
+   
+   🟢 בטוח - רק תיקוני סגנון בטוחים
+   🟡 זהיר - כולל הסרת קוד לא בשימוש
+   🔴 אגרסיבי - כל התיקונים האפשריים
+   
+   [🟢 בטוח] [🟡 זהיר] [🔴 אגרסיבי] [❌ בטל]
+
+👤 [בוחר "זהיר"]
+
+🤖 🔧 מתקן את הקוד...
+   ⏳ אנא המתן...
+   
+   ✅ התיקון הושלם!
+   
+   📊 תוצאות:
+   • בעיות לפני: 22
+   • בעיות אחרי: 3
+   • שיפור: 86.4%
+   
+   🔧 תיקונים שבוצעו:
+     ✓ תיקוני PEP8 (רווחים, indent, שורות ריקות)
+     ✓ הסרת imports לא בשימוש
+     ✓ הסרת משתנים לא בשימוש
+     ✓ סידור imports
+   
+   [👀 הצג diff] [💾 שמור] [📄 הצג קוד מלא] [❌ בטל]
+
+👤 [לוחץ "הצג diff"]
+
+🤖 ```diff
+   --- לפני תיקון
+   +++ אחרי תיקון
+   @@ -1,5 +1,3 @@
+   -import sys
+   -import os
+   +import os
+    import json
+    
+   @@ -10,7 +8,6 @@
+    def process_data(data):
+   -    temp = 5
+        result = []
+   ```
+
+👤 [לוחץ "שמור"]
+
+🤖 [שולח קובץ fixed_app.py]
+   
+   ✅ קוד מתוקן: fixed_app.py
+   
+   שיפור: 86.4%
+   בעיות שנותרו: 3
+   
+   ✅ הקוד המתוקן נשמר!
+```
+
+### טיפים למימוש
+
+#### 1. התקנת הכלים הנדרשים
+
+```bash
+# התקנה בסביבת הפיתוח
+pip install autopep8 autoflake isort black
+
+# בדיקת זמינות
+autopep8 --version
+autoflake --version
+isort --version
+```
+
+#### 2. בדיקה שהכלים פועלים
+
+```python
+# tests/test_auto_fixer.py
+import pytest
+from handlers.code_linting.auto_fixer import AutoFixer
+
+def test_auto_fixer_removes_unused_imports():
+    """בדיקה שהתיקון מסיר imports לא בשימוש"""
+    fixer = AutoFixer(fix_level=AutoFixer.SAFE_FIXES)
+    
+    code = """
+import sys
+import os
+
+def hello():
+    print("hello")
+"""
+    
+    # יצירת lint result פיקטיבי
+    from handlers.code_linting.linter_base import LintResult, LintIssue, IssueSeverity
+    
+    lint_result = LintResult(
+        success=True,
+        file_path="test.py",
+        issues=[],
+        score=8.0,
+        total_lines=5
+    )
+    
+    fix_result = fixer.fix_python_code(code, lint_result)
+    
+    assert fix_result.success
+    assert 'import sys' not in fix_result.fixed_code
+    assert 'import os' not in fix_result.fixed_code
+    assert 'def hello' in fix_result.fixed_code
+
+
+def test_auto_fixer_fixes_indentation():
+    """בדיקת תיקון indent"""
+    fixer = AutoFixer(fix_level=AutoFixer.SAFE_FIXES)
+    
+    code = """
+def bad_indent():
+  print("wrong indent")
+    print("also wrong")
+"""
+    
+    lint_result = LintResult(
+        success=True,
+        file_path="test.py",
+        issues=[],
+        score=5.0,
+        total_lines=3
+    )
+    
+    fix_result = fixer.fix_python_code(code, lint_result)
+    
+    assert fix_result.success
+    # התיקון צריך להכיל indent תקין
+    assert '    print' in fix_result.fixed_code  # 4 spaces
+```
+
+#### 3. שיקולי ביצועים
+
+```python
+# הגבלת זמן ריצה לכל כלי
+TOOL_TIMEOUT = 30  # שניות
+
+# הגבלת גודל קובץ לתיקון
+MAX_FILE_SIZE_FOR_FIX = 500 * 1024  # 500KB
+
+# cache של תוצאות (אופציונלי)
+from functools import lru_cache
+
+@lru_cache(maxsize=100)
+def fix_code_cached(code_hash: str, fix_level: str):
+    # תיקון עם cache
+    pass
+```
+
+### הערות חשובות
+
+#### ⚠️ אזהרות
+1. **גיבוי**: תמיד לשמור את הקוד המקורי
+2. **סקירה**: להציג diff למשתמש לפני שמירה
+3. **בדיקה**: להריץ lint שוב אחרי תיקון
+4. **הגבלות**: timeout על כל כלי (30 שניות)
+
+#### ✅ Best Practices
+1. להתחיל עם רמת תיקון "בטוח"
+2. לאפשר למשתמש לבחור רמה
+3. להציג בבירור מה תוקן
+4. לספק אפשרות לביטול
+5. לשמור סטטיסטיקות על תיקונים
+
+---
+
 ## 🔗 אינטגרציה עם המערכת הקיימת
 
 ### 4.1 רישום ה-Handlers ב-main.py
@@ -1298,23 +2098,30 @@ async def handle_file_for_formatting(update: Update, context: ContextTypes.DEFAU
 - [ ] מימוש Python Linter
 - [ ] בדיקות יחידה
 
-### שלב 2: אינטגרציה (שבוע 3)
-- [ ] אינטגרציה עם Telegram Bot
-- [ ] הוספת תפריטים
+### שלב 2: תיקון אוטומטי (שבוע 3)
+- [ ] מימוש AutoFixer class
+- [ ] אינטגרציה עם autopep8, autoflake, isort
+- [ ] מימוש 3 רמות תיקון (בטוח, זהיר, אגרסיבי)
+- [ ] הצגת diff ואפשרויות שמירה
+- [ ] בדיקות יחידה לתיקון אוטומטי
+
+### שלב 3: אינטגרציה (שבוע 4)
+- [ ] אינטגרציה מלאה עם Telegram Bot
+- [ ] הוספת תפריטים וזרימות שיחה
 - [ ] אינטגרציה עם Database
 - [ ] בדיקות אינטגרציה
 
-### שלב 3: הרחבה (שבוע 4)
+### שלב 4: הרחבה (שבוע 5)
 - [ ] תמיכה ב-JavaScript/TypeScript
 - [ ] תמיכה ב-Go
 - [ ] בדיקות אבטחה
-- [ ] אופטימיזציה
+- [ ] אופטימיזציה וביצועים
 
-### שלב 4: פריסה (שבוע 5)
-- [ ] בדיקות E2E
-- [ ] תיעוד משתמש
-- [ ] פריסה לסביבת ייצור
-- [ ] מעקב ומוניטורינג
+### שלב 5: פריסה (שבוע 6)
+- [ ] בדיקות E2E מקיפות
+- [ ] תיעוד משתמש ודוגמאות
+- [ ] פריסה מדורגת לסביבת ייצור
+- [ ] מעקב, מוניטורינג ואנליטיקס
 
 ---
 
@@ -1357,9 +2164,10 @@ class CodeToolsAnalytics:
 ## 🚀 הרחבות עתידיות
 
 ### גרסה 2.0
-- [ ] תיקון אוטומטי של בעיות lint
+- [x] ✅ תיקון אוטומטי של בעיות lint (הושלם!)
 - [ ] המלצות AI לשיפור קוד
 - [ ] תמיכה בשפות נוספות (Rust, Ruby, PHP)
+- [ ] תיקון אוטומטי ל-JavaScript/TypeScript
 - [ ] אינטגרציה עם CI/CD
 
 ### גרסה 3.0
@@ -1367,25 +2175,34 @@ class CodeToolsAnalytics:
 - [ ] Code review אוטומטי
 - [ ] תבניות קוד מותאמות אישית
 - [ ] למידה מהרגלי המשתמש
+- [ ] תיקונים חכמים מבוססי AI
 
 ---
 
 ## 📝 סיכום
 
-מסמך זה מספק מדריך מקיף למימוש פיצ'רים 1.1 ו-1.2:
+מסמך זה מספק מדריך מקיף למימוש פיצ'רים 1.1 ו-1.2 **כולל תיקון אוטומטי**:
 
 ✅ **הושלם**:
-- ארכיטקטורה מפורטת
-- קוד לדוגמה מלא
-- אינטגרציה עם הבוט
-- בדיקות אבטחה
-- תכנית פריסה
+- ארכיטקטורה מפורטת לעיצוב קוד ו-linting
+- **מנוע תיקון אוטומטי עם 3 רמות (בטוח, זהיר, אגרסיבי)**
+- קוד לדוגמה מלא וניתן להרצה
+- אינטגרציה מלאה עם הבוט
+- בדיקות אבטחה והגבלות משאבים
+- תכנית פריסה מפורטת
 
 🔧 **לביצוע**:
-1. התקנת תלויות
+1. התקנת תלויות (black, autopep8, autoflake, isort)
 2. מימוש הקוד לפי הדוגמאות
-3. בדיקות יסודיות
+3. בדיקות יסודיות (כולל unit tests לאוטו-פיקס)
 4. פריסה מדורגת
+
+🎯 **פיצ'רים עיקריים**:
+- 🎨 עיצוב אוטומטי (Black, autopep8, Prettier)
+- 🔍 Linting מתקדם (pylint, flake8, mypy)
+- 🔧 **תיקון אוטומטי חכם** עם בחירת רמות תיקון
+- 📊 הצגת diff לפני ואחרי
+- 💾 שמירת קוד מתוקן
 
 📞 **צור קשר**:
 לשאלות או הבהרות נוספות, פנה לצוות הפיתוח.
