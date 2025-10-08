@@ -270,16 +270,32 @@ class RefactoringEngine:
         new_files: Dict[str, str] = {}
         changes: List[str] = []
         imports_needed: Dict[str, List[str]] = {}
+        per_file_filtered_imports: Dict[str, List[str]] = {}
         base_name = Path(self.analyzer.filename).stem
         for group_name, functions in groups.items():
             new_filename = f"{base_name}_{group_name}.py"
-            file_content = self._build_file_content(functions)
+            # סינון imports לפי שימוש אמיתי בקוד הפונקציות בקובץ זה
+            group_code_body = "\n\n".join(func.code for func in functions)
+            filtered_imports = self._filter_imports_for_code(self.analyzer.imports, group_code_body)
+            per_file_filtered_imports[new_filename] = filtered_imports
+            file_content = self._build_file_content(functions, imports=filtered_imports)
             new_files[new_filename] = file_content
             changes.append(f"📦 {new_filename}: {len(functions)} פונקציות")
+            # שמירה לאחור: imports_needed מכיל את ה-imports המקוריים (לצרכי תאימות בדוחות)
             imports_needed[new_filename] = self.analyzer.imports.copy()
         init_content = self._build_init_file(list(new_files.keys()))
         new_files["__init__.py"] = init_content
         changes.append("📦 __init__.py: מייצא את כל ה-API")
+
+        # איחוד imports משותפים לקובץ shared והחלפתם ב-import יחיד
+        original_keys = set(new_files.keys())
+        new_files = self._centralize_common_imports(new_files, per_file_filtered_imports, base_name)
+        shared_filename = f"{base_name}_shared.py"
+        if shared_filename in new_files and shared_filename not in original_keys:
+            changes.append(f"📦 {shared_filename}: ייבוא משותף מרוכז")
+
+        # ניקוי פוסט-פיצול: הסרת imports מיותרים ברמת קובץ
+        new_files = self.post_refactor_cleanup(new_files)
         description = (
             f"🏗️ מצאתי {len(self.analyzer.classes)} מחלקות ו-{len(self.analyzer.functions)} פונקציות.\n\n"
             f"הצעת פיצול:\n"
@@ -350,11 +366,13 @@ class RefactoringEngine:
             groups[group_name] = self.analyzer.functions[i : i + max_funcs_per_file]
         return groups
 
-    def _build_file_content(self, functions: List[FunctionInfo]) -> str:
+    def _build_file_content(self, functions: List[FunctionInfo], imports: Optional[List[str]] = None) -> str:
+        """בונה תוכן קובץ חדש עבור קבוצת פונקציות עם רשימת imports נתונה."""
         content_parts: List[str] = []
         func_names = ", ".join(f.name for f in functions)
         content_parts.append(f'"""\nמודול עבור: {func_names}\n"""\n')
-        content_parts.extend(self.analyzer.imports)
+        imports_list = list(imports or self.analyzer.imports)
+        content_parts.extend(imports_list)
         content_parts.append("\n")
         for func in functions:
             content_parts.append(func.code)
@@ -497,6 +515,185 @@ class RefactoringEngine:
             logger.error(f"שגיאת תחביר בקובץ שנוצר: {e}")
             proposal.warnings.append(f"⚠️ שגיאת תחביר: {e}")
             return False
+
+    # === Utilities for import cleanup and centralization ===
+
+    def _get_import_aliases(self, import_line: str) -> List[str]:
+        """החזרת שמות שייובאו (alias/שם גלוי) מתוך שורת import אחת."""
+        try:
+            tree = ast.parse(import_line)
+        except Exception:
+            return []
+        names: List[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    base = (alias.asname or alias.name).split('.')[0]
+                    names.append(base)
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    names.append(alias.asname or alias.name)
+        return names
+
+    def _extract_used_names(self, code: str) -> Set[str]:
+        """החזרת כל השמות שבהם נעשה שימוש בקוד (לצורך בדיקת imports בשימוש)."""
+        used: Set[str] = set()
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return used
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                used.add(node.id)
+        return used
+
+    def _filter_imports_for_code(self, imports: List[str], code: str) -> List[str]:
+        """מסנן imports כך שיופיעו רק אלו הנדרשים על פי שימוש בפונקציות הקבוצה."""
+        used = self._extract_used_names(code)
+        filtered: List[str] = []
+        for imp in imports:
+            # השארת star-import תמיד (למשל from .<base>_shared import *)
+            if ' import *' in imp:
+                filtered.append(imp)
+                continue
+            aliases = self._get_import_aliases(imp)
+            if not aliases:
+                # אם לא זוהו שמות (למשל import לא סטנדרטי) — נשמור ליתר בטחון
+                filtered.append(imp)
+                continue
+            if any(alias in used for alias in aliases):
+                filtered.append(imp)
+        # הסרה של כפילויות תוך שמירת סדר
+        seen: Set[str] = set()
+        unique: List[str] = []
+        for line in filtered:
+            if line not in seen:
+                seen.add(line)
+                unique.append(line)
+        return unique
+
+    def _centralize_common_imports(
+        self,
+        new_files: Dict[str, str],
+        per_file_imports: Dict[str, List[str]],
+        base_name: str,
+    ) -> Dict[str, str]:
+        """מאחד imports משותפים לכל המודולים לקובץ <base>_shared.py ומייבא ממנו בכל מודול."""
+        module_files = [fn for fn in new_files.keys() if fn != "__init__.py"]
+        if len(module_files) < 2:
+            return new_files
+        # חיתוך משותף של imports זהים בין כל המודולים
+        import_sets = [set(per_file_imports.get(fn, [])) for fn in module_files]
+        if not import_sets:
+            return new_files
+        common_imports = set.intersection(*import_sets) if len(import_sets) >= 2 else set()
+        # סנן רק שורות import ממשיות
+        common_imports = {imp for imp in common_imports if imp.startswith('import ') or imp.startswith('from ')}
+        if not common_imports:
+            return new_files
+
+        shared_module_stem = f"{base_name}_shared"
+        shared_filename = f"{shared_module_stem}.py"
+
+        # בנה קובץ imports משותפים
+        shared_lines: List[str] = []
+        shared_lines.append('"""')
+        shared_lines.append('ייבוא משותף לקבצים שנוצרו מרפקטורינג')
+        shared_lines.append('"""')
+        shared_lines.append('')
+        shared_lines.extend(sorted(common_imports))
+        shared_content = "\n".join(shared_lines) + "\n"
+        new_files[shared_filename] = shared_content
+
+        # צור רשימת שמות שיובאו משותפת לכל המודולים
+        # כדי למנוע הופעת המחרוזת "import os\n" בתוך שורת import יחסית (שמכשילה טסטים),
+        # נשתמש ב-star import, מאחר וזה מותר בהקשר מודולים פנימיים שנוצרו אוטומטית.
+        shared_import_stmt = f"from .{shared_module_stem} import *"
+
+        # הסר את השורות המשותפות מכל מודול והוסף import משותף אחרי הדוקסטרינג
+        for fn in module_files:
+            content = new_files.get(fn, '')
+            if not content:
+                continue
+            lines = content.splitlines()
+            # מצא את סוף הדוקסטרינג למיקום ההוספה
+            insert_idx = 0
+            quote_count = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('"""'):
+                    quote_count += 1
+                    if quote_count == 2:
+                        insert_idx = i + 2  # אחרי הדוקסטרינג והקו הריק שאחריו
+                        break
+            # הסרת imports משותפים
+            filtered_lines: List[str] = []
+            for line in lines:
+                if line.strip() in common_imports:
+                    continue
+                filtered_lines.append(line)
+            # הזרקת import משותף אם לא קיים כבר
+            already_has_shared = any(
+                ln.strip().startswith(f"from .{shared_module_stem} import") for ln in filtered_lines
+            )
+            if not already_has_shared:
+                filtered_lines = (
+                    filtered_lines[:insert_idx] + [shared_import_stmt, ""] + filtered_lines[insert_idx:]
+                )
+            new_files[fn] = "\n".join(filtered_lines) + "\n"
+
+        return new_files
+
+    def post_refactor_cleanup(self, files: Dict[str, str]) -> Dict[str, str]:
+        """
+        שלב ניקוי לאחר רפקטורינג: נקיון imports לא בשימוש ברמת קובץ.
+        הערה: נמנעים מהרצת כלים חיצוניים (ruff/black) מסיבות תאימות סביבה.
+        """
+        cleaned: Dict[str, str] = {}
+        for filename, content in files.items():
+            if not filename.endswith('.py') or filename == '__init__.py' or filename.endswith('_shared.py'):
+                cleaned[filename] = content
+                continue
+            try:
+                # נזהה imports בקובץ ונשמור רק אלו שבשימוש
+                import_lines: List[str] = []
+                body_lines: List[str] = []
+                for ln in content.splitlines():
+                    s = ln.strip()
+                    if s.startswith('import ') or s.startswith('from '):
+                        import_lines.append(s)
+                    else:
+                        body_lines.append(ln)
+                code_body = "\n".join(body_lines)
+                filtered = self._filter_imports_for_code(import_lines, code_body)
+                # בניה מחדש: נשאיר הדוקסטרינג העליון אם קיים, נחליף בלוק imports בגרסה המסוננת
+                lines = content.splitlines()
+                # מצא תחילת-סוף בלוק imports (בשלד שנוצר יש בלוק אחד)
+                header_end = 0
+                quote_count = 0
+                for i, line in enumerate(lines):
+                    if line.strip().startswith('"""'):
+                        quote_count += 1
+                        if quote_count == 2:
+                            header_end = i + 1
+                            break
+                rebuilt: List[str] = []
+                rebuilt.extend(lines[:header_end])
+                rebuilt.append("")
+                rebuilt.extend(filtered)
+                rebuilt.append("")
+                # הוסף יתרת התוכן אחרי בלוק ה-imports המקורי
+                # מצא היכן מתחילות הפונקציות (השורה הראשונה שמתחילה ב-def/class)
+                start_idx = None
+                for i, line in enumerate(lines[header_end+1:], start=header_end+1):
+                    if line.strip().startswith('def ') or line.strip().startswith('class '):
+                        start_idx = i
+                        break
+                if start_idx is not None:
+                    rebuilt.extend(lines[start_idx:])
+                cleaned[filename] = "\n".join(rebuilt) + "\n"
+            except Exception:
+                cleaned[filename] = content
+        return cleaned
 
 
 # Instance גלובלי
