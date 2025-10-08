@@ -24,5 +24,7 @@ def test_html_cleaning_exception_path(monkeypatch):
     # highlight יחזיר אובייקט לא-מחרוזת → re.sub יזרוק, נתפוס ונחזיר את ה"HTML" כמות שהוא
     monkeypatch.setattr(mod, 'highlight', lambda code, lexer, fmt: Weird())
     res = cp.highlight_code("print('x')", programming_language='python', output_format='html')
-    assert not isinstance(res, str)
+    # במסלול שגיאה ב-HTML — מצפים לעטיפה ב-<code>...</code>
+    assert isinstance(res, str)
+    assert res == "<code>print('x')</code>"
 

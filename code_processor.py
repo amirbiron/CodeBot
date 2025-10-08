@@ -574,6 +574,8 @@ class CodeProcessor:
 
             # ניקוי HTML אם נדרש
             if output_format == 'html':
+                if not isinstance(highlighted, str):
+                    return f"<code>{code}</code>"
                 highlighted = self._clean_html_for_telegram(highlighted)
             return highlighted
         except Exception as e:
