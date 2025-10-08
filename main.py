@@ -50,6 +50,10 @@ from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
+try:
+    from refactor_handlers import setup_refactor_handlers
+except Exception:
+    setup_refactor_handlers = None  # type: ignore[assignment]
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
@@ -882,6 +886,14 @@ class CodeKeeperBot:
 
         # הוספת פקודות batch (עיבוד מרובה קבצים) לאחר ה-guard כך שלא יעקוף אותו
         setup_batch_handlers(self.application)
+
+        # הוספת Refactoring handlers (אם זמינים)
+        try:
+            if callable(setup_refactor_handlers):
+                setup_refactor_handlers(self.application)
+                logger.info("✅ RefactorHandlers הוגדרו (פקודת /refactor זמינה)")
+        except Exception as e:
+            logger.warning(f"⚠️ דילוג על RefactorHandlers: {e}")
 
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
         from conversation_handlers import handle_callback_query
