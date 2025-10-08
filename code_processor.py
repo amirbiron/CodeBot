@@ -525,6 +525,10 @@ class CodeProcessor:
             # אם הקוד ריק או קצר מדי, אל תבצע highlighting
             if not code or len(code.strip()) < 10:
                 return code
+
+            # מסלול terminal ללא Formatter זמין — החזר קוד גולמי
+            if output_format == 'terminal' and (TerminalFormatter is None or highlight is None):
+                return code
             
             # בחירת lexer מתאים
             lexer = None
