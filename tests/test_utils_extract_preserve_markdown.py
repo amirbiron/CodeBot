@@ -74,9 +74,8 @@ def test_extract_message_text_entities_bold_italic_ordering():
 
     m = Msg()
     out = TelegramUtils.extract_message_text_preserve_markdown(m)
-    # ציפייה: נסגור italic לפני שנפתח bold באותו אינדקס; italic ממופה ל"__"
-    # הפלט בפועל מתחשב בסדר פתיחות/סגירות שנבנות; נאמת דפוס כללי במקום ספציפי מדי
-    assert out.startswith("__a") and out.endswith("b__") and "___" in out
+    # ציפייה: italic על 'a' יופיע כ-"_", ו-bold על 'b' כ-"__"; יש חפיפה בסמנים סביב 'b'
+    assert out == "_a___b__"
 
 
 def test_extract_message_text_entities_clamped_offsets():
@@ -100,8 +99,8 @@ def test_extract_message_text_entities_clamped_offsets():
 
     m = Msg()
     out = TelegramUtils.extract_message_text_preserve_markdown(m)
-    # italic ממופה ל"__"; ה-bold מחוץ לטווח ולכן מתעלמים ממנו
-    assert out == "__a__bc"
+    # italic על 'a' בלבד (offset שלילי מקלמפון ל-0); ה-bold מחוץ לטווח ולכן מתעלמים ממנו
+    assert out == "_a_bc"
 
 
 def test_extract_message_text_ignores_unknown_entity_type():
