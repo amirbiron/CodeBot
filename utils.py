@@ -493,15 +493,19 @@ class TelegramUtils:
 
     @staticmethod
     def extract_message_text_preserve_markdown(message: "Message", *, reconstruct_from_entities: bool = True) -> str:
-        """שחזור טקסט ההודעה תוך ניסיון להחזיר את מה שהמשתמש התכוון מבחינת תווי Markdown.
+        """
+        שחזור טקסט ההודעה תוך ניסיון להחזיר את מה שהמשתמש התכוון מבחינת תווי Markdown.
 
         עקרונות:
-        - ברירת מחדל: נשתמש ב-`text`/`caption` (התוכן הגולמי כפי שנשלח לשרת לאחר עיבוד Markdown).
-          זאת כדי לא לשמור מחרוזת "מרונדרת" (כמו \*_name_*), שלא משקפת קלט משתמש.
-        - במידה ו-`reconstruct_from_entities=True` ויש ישויות עיצוב (bold/italic), ננסה לשחזר
+
+        - ברירת מחדל: נשתמש ב-``text``/``caption`` (התוכן הגולמי כפי שנשלח לשרת לאחר עיבוד Markdown).
+          זאת כדי לא לשמור מחרוזת "מרונדרת" (למשל ``*_name_*``), שאינה משקפת קלט משתמש.
+
+        - במידה ו-``reconstruct_from_entities=True`` ויש ישויות עיצוב (``bold``/``italic``), ננסה לשחזר
           תווי Markdown שהיוו כנראה את מקור העיצוב ע"י הוספת תחיליות/סיומות סביב הטקסט שסומן.
-          מיפוי פשוט: bold → "__", italic → "_". שאר ישויות נשמרות כפי שהן.
-        - אם יש כיתוב (caption), נשתמש במקבילות `caption_entities`.
+          מיפוי פשוט: ``bold`` → ``"__"``, ``italic`` → ``"_"``. שאר ישויות נשמרות כפי שהן.
+
+        - אם יש כיתוב (caption), נשתמש במקבילות ``caption_entities``.
         """
         # 1) תוכן בסיסי
         try:
