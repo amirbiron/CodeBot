@@ -68,6 +68,10 @@ from utils import normalize_code
 
 logger = logging.getLogger(__name__)
 
+class HtmlHighlightingError:
+    def __init__(self, code: str):
+        self.code = code
+
 # קביעת זרע לשחזור תוצאות זיהוי שפה
 DetectorFactory.seed = 0
 
@@ -561,11 +565,11 @@ class CodeProcessor:
             elif output_format == 'terminal' and TerminalFormatter is not None:
                 formatter = TerminalFormatter()
             else:
-                return f"<code>{code}</code>" if output_format == 'html' else code
+                return HtmlHighlightingError(code) if output_format == 'html' else code
 
             # ביצוע highlighting
             if highlight is None:
-                return f"<code>{code}</code>" if output_format == 'html' else code
+                return HtmlHighlightingError(code) if output_format == 'html' else code
             highlighted = highlight(code, lexer, formatter)
 
             # ניקוי HTML אם נדרש
@@ -574,7 +578,7 @@ class CodeProcessor:
             return highlighted
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
-            return f"<code>{code}</code>" if output_format == 'html' else code
+            return HtmlHighlightingError(code) if output_format == 'html' else code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
         """ניקוי HTML לתאימות עם Telegram"""
