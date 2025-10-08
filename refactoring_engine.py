@@ -683,12 +683,12 @@ class RefactoringEngine:
                 rebuilt.append("")
                 # הוסף יתרת התוכן אחרי בלוק ה-imports המקורי
                 # מצא היכן מתחילות הפונקציות (השורה הראשונה שמתחילה ב-def/class)
-                start_idx = 0
+                start_idx = None
                 for i, line in enumerate(lines[header_end+1:], start=header_end+1):
                     if line.strip().startswith('def ') or line.strip().startswith('class '):
                         start_idx = i
                         break
-                if start_idx:
+                if start_idx is not None:
                     rebuilt.extend(lines[start_idx:])
                 cleaned[filename] = "\n".join(rebuilt) + "\n"
             except Exception:
