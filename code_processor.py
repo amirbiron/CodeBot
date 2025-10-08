@@ -518,35 +518,36 @@ class CodeProcessor:
         
         return 'text'
     
-    @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
     def highlight_code(self, code: str, programming_language: str, output_format: str = 'html') -> str:
-        """הדגשת תחביר מתקדמת עם caching"""
-        try:
-            # אם הקוד ריק או קצר מדי, אל תבצע highlighting
-            if not code or len(code.strip()) < 10:
-                return code
+        """עטיפת הדגשת תחביר עם ניהול cache רגיש לסביבת runtime."""
+        # תנאים מוקדמים מהירים שאינם צריכים cache
+        if not code or len(code.strip()) < 10:
+            return code
+        if output_format == 'terminal' and (TerminalFormatter is None or highlight is None):
+            return code
+        # לכלול את זמינות הפורמטור במפתח ה-cache כדי למנוע התנגשויות בין ריצות שונות
+        runtime_key = f"term_avail={bool(TerminalFormatter and highlight)}" if output_format == 'terminal' else f"html_style={self.style}"
+        return self._highlight_code_cached(code, programming_language, output_format, runtime_key)
 
-            # מסלול terminal ללא Formatter זמין — החזר קוד גולמי
-            if output_format == 'terminal' and (TerminalFormatter is None or highlight is None):
-                return code
-            
+    @cached(expire_seconds=1800, key_prefix="syntax_highlight")  # cache ל-30 דקות
+    def _highlight_code_cached(self, code: str, programming_language: str, output_format: str, runtime_key: str) -> str:
+        try:
             # בחירת lexer מתאים
             lexer = None
             try:
-                # נסה לפי שפה
                 if programming_language and programming_language != 'text':
                     lexer = get_lexer_by_name(programming_language)
             except ClassNotFound:
                 try:
-                    # נסה לפי תוכן
-                    lexer = guess_lexer(code)
+                    lexer = guess_lexer(code) if guess_lexer else None
                 except ClassNotFound:
-                    # ברירת מחדל
-                    lexer = get_lexer_by_name('text')
-            
+                    lexer = None
             if not lexer:
-                return code
-            
+                try:
+                    lexer = get_lexer_by_name('text')
+                except Exception:
+                    return code
+
             # בחירת formatter
             if output_format == 'html' and HtmlFormatter is not None:
                 formatter = HtmlFormatter(
@@ -558,23 +559,19 @@ class CodeProcessor:
             elif output_format == 'terminal' and TerminalFormatter is not None:
                 formatter = TerminalFormatter()
             else:
-                return code  # פורמט לא נתמך
-            
+                return code
+
             # ביצוע highlighting
             if highlight is None:
                 return code
             highlighted = highlight(code, lexer, formatter)
-            
+
             # ניקוי HTML אם נדרש
             if output_format == 'html':
-                # הסרת tags מיותרים שעלולים לגרום לבעיות בטלגרם
                 highlighted = self._clean_html_for_telegram(highlighted)
-            
             return highlighted
-            
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
-            # במקרה של שגיאה, החזר את הקוד המקורי
             return code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
