@@ -544,15 +544,25 @@ class CodeProcessor:
                 if programming_language and programming_language != 'text':
                     lexer = get_lexer_by_name(programming_language)
             except ClassNotFound:
+                # lexer לשפה המבוקשת לא נמצא — ננסה לנחש
+                lexer = None
+            except Exception as e:
+                logger.warning(f"lexer lookup error for '{programming_language}': {e}")
+                lexer = None
+            if not lexer:
                 try:
                     lexer = guess_lexer(code) if guess_lexer else None
                 except ClassNotFound:
+                    lexer = None
+                except Exception as e:
+                    logger.warning(f"guess_lexer error: {e}")
                     lexer = None
             if not lexer:
                 try:
                     lexer = get_lexer_by_name('text')
                 except Exception:
-                    return code
+                    # עקביות: ב-HTML מחזירים עטיפה, ב-terminal טקסט גולמי
+                    return f"<code>{code}</code>" if output_format == 'html' else code
 
             # בחירת formatter
             if output_format == 'html' and HtmlFormatter is not None:
@@ -580,6 +590,7 @@ class CodeProcessor:
             return highlighted
         except Exception as e:
             logger.error(f"שגיאה בהדגשת תחביר: {e}")
+            # במסלול שגיאה כללי שמור על עקביות HTML: עטיפה ב-<code>...</code>
             return f"<code>{code}</code>" if output_format == 'html' else code
     
     def _clean_html_for_telegram(self, html_code: str) -> str:
