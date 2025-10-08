@@ -44,6 +44,7 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           PicklePersistence, InlineQueryHandler, ApplicationHandlerStop)
 
 from config import config
+from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
@@ -556,6 +557,11 @@ class CodeKeeperBot:
                 self.application = _MiniApp()
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
+        # Rate limiter instance (לאחר בניית האפליקציה)
+        try:
+            self._rate_limiter = RateLimiter(max_per_minute=int(getattr(config, 'RATE_LIMIT_PER_MINUTE', 30) or 30))
+        except Exception:
+            self._rate_limiter = RateLimiter(max_per_minute=30)
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
@@ -598,6 +604,39 @@ class CodeKeeperBot:
         # ספור את ה-handlers
         handler_count = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers לפני: {handler_count}")
+
+        # --- Rate limiting gate (גבוה עדיפות, לפני שאר ה-handlers) ---
+        async def _rate_limit_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                user = (getattr(update, 'effective_user', None) or getattr(getattr(update, 'callback_query', None), 'from_user', None))
+                user_id = int(getattr(user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if user_id:
+                try:
+                    allowed = await self._rate_limiter.check_rate_limit(user_id)
+                except Exception:
+                    allowed = True
+                if not allowed:
+                    # חסימה שקטה+הודעה קצרה
+                    try:
+                        cq = getattr(update, 'callback_query', None)
+                        if cq is not None:
+                            await cq.answer("יותר מדי בקשות, נסה שוב עוד רגע", show_alert=False, cache_time=1)
+                        else:
+                            msg = getattr(update, 'message', None)
+                            if msg is not None:
+                                await msg.reply_text("⚠️ יותר מדי בקשות, נסה שוב בעוד מספר שניות")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+        # הוסף כשכבת סינון מוקדמת עבור הודעות ולחיצות
+        try:
+            self.application.add_handler(MessageHandler(filters.ALL, _rate_limit_gate), group=-90)
+            self.application.add_handler(CallbackQueryHandler(_rate_limit_gate), group=-90)
+        except Exception:
+            pass
 
         # Add conversation handler
         conversation_handler = get_save_conversation_handler(db)

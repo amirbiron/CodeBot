@@ -131,7 +131,10 @@ class CacheManager:
                 f"user_files:*:{user_id}:*",           # רשימת קבצי משתמש
                 f"latest_version:*:{user_id}:*",       # גרסה אחרונה לקובץ
                 f"search_code:*:{user_id}:*",          # תוצאות חיפוש למשתמש
+                f"user_stats:*:{user_id}",             # סטטיסטיקות משתמש — מסתיים ב-:<user_id>
+                f"user_stats:*:{user_id}:*",           # גיבוי: אם יתווספו פרמטרים/סופיות בעתיד
                 f"*:{user_id}:*",                      # נפילה לאחור: כל מפתח שמכיל את המזהה
+                f"*:{user_id}",                        # נפילה לאחור: מפתחות שמסתיימים במזהה
             ]
             for p in patterns:
                 total_deleted += int(self.delete_pattern(p) or 0)
