@@ -8,7 +8,7 @@ def test_highlight_without_pygments_returns_code(monkeypatch):
     monkeypatch.setattr(mod, 'highlight', None)
     monkeypatch.setattr(mod, 'HtmlFormatter', None)
     out = cp.highlight_code("print('x')", programming_language='python', output_format='html')
-    assert out == "print('x')"
+    assert out == "<code>print('x')</code>"
 
 
 def test_create_code_image_without_pil_returns_none(monkeypatch):
