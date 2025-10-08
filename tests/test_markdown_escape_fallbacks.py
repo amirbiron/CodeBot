@@ -309,3 +309,95 @@ async def test_conversation_edit_note_current_note_normal_escape(monkeypatch):
     assert upd.callback_query.captured is not None
     assert 'ESC_OK' in upd.callback_query.captured
 
+
+@pytest.mark.asyncio
+async def test_conversation_file_menu_no_note(monkeypatch):
+    import conversation_handlers as ch
+
+    class Q:
+        data = 'file_1'
+        async def answer(self):
+            return None
+
+    captured = {}
+    async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
+        captured['text'] = text
+        captured['parse_mode'] = parse_mode
+
+    monkeypatch.setattr(ch.TelegramUtils, 'safe_edit_message_text', fake_safe_edit_message_text)
+    # No note
+    ctx = types.SimpleNamespace(user_data={'files_cache': {'1': {
+        'file_name': 'main.py',
+        'programming_language': 'python',
+        'description': '',
+    }}})
+    upd = types.SimpleNamespace(callback_query=Q())
+    await ch.handle_file_menu(upd, ctx)
+    assert captured.get('parse_mode') in ('Markdown', ch.ParseMode.MARKDOWN)
+    assert '📝 הערה: —' in captured.get('text', '')
+
+
+@pytest.mark.asyncio
+async def test_file_view_menu_no_note(monkeypatch):
+    import handlers.file_view as fv
+
+    class Q:
+        data = 'file_1'
+        async def answer(self):
+            return None
+
+    captured = {}
+    async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
+        captured['text'] = text
+        captured['parse_mode'] = parse_mode
+
+    monkeypatch.setattr(fv.TelegramUtils, 'safe_edit_message_text', fake_safe_edit_message_text)
+    ctx = types.SimpleNamespace(user_data={'files_cache': {'1': {
+        'file_name': 'main.py',
+        'programming_language': 'python',
+        'description': '',
+    }}})
+    upd = types.SimpleNamespace(callback_query=Q())
+    await fv.handle_file_menu(upd, ctx)
+    assert captured.get('parse_mode') == 'Markdown'
+    assert '📝 הערה: —' in captured.get('text', '')
+
+
+@pytest.mark.asyncio
+async def test_file_view_direct_no_note_markdown_block(monkeypatch):
+    import handlers.file_view as fv
+
+    class Q:
+        data = 'view_direct_main.py'
+        async def answer(self):
+            return None
+
+    captured = {}
+    async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
+        captured['text'] = text
+        captured['parse_mode'] = parse_mode
+
+    monkeypatch.setattr(fv.TelegramUtils, 'safe_edit_message_text', fake_safe_edit_message_text)
+
+    class _DB:
+        @staticmethod
+        def get_latest_version(user_id, file_name):
+            return {
+                'file_name': file_name,
+                'code': 'print(1)\n',
+                'programming_language': 'python',
+                'version': 1,
+                'description': '',
+                '_id': 'abc123',
+            }
+
+    db_mod = types.ModuleType('database')
+    db_mod.db = _DB()
+    monkeypatch.setitem(sys.modules, 'database', db_mod)
+
+    ctx = types.SimpleNamespace(user_data={})
+    upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=123))
+    await fv.handle_view_direct_file(upd, ctx)
+    assert captured.get('parse_mode') == 'Markdown'
+    assert '📝 הערה: —' in captured.get('text', '')
+
