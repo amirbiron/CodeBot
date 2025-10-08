@@ -22,7 +22,7 @@ from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional
 from html import escape as html_escape
-from utils import TelegramUtils
+from utils import TelegramUtils, TextUtils
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
@@ -969,7 +969,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
+        note_line = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n" if note else "\n📝 הערה: —\n\n"
         await TelegramUtils.safe_edit_message_text(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -1303,7 +1303,7 @@ async def handle_edit_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
-            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
+            f"🔎 **הערה נוכחית:** {TextUtils.escape_markdown(current_note, version=1)}\n\n"
             f"✏️ שלח/י הערה חדשה (או 'מחק' כדי להסיר)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
