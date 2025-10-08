@@ -41,6 +41,9 @@ class BotConfig:
     MAINTENANCE_MODE: bool = False
     MAINTENANCE_MESSAGE: str = "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"
     MAINTENANCE_AUTO_WARMUP_SECS: int = 180
+
+    # Rate limiting
+    RATE_LIMIT_PER_MINUTE: int = 30
     
     # הגדרות syntax highlighting
     HIGHLIGHT_THEME: str = "github-dark"
@@ -107,6 +110,7 @@ def load_config() -> BotConfig:
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
+        RATE_LIMIT_PER_MINUTE=int(os.getenv('RATE_LIMIT_PER_MINUTE', '30') or '30'),
         PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
         WEBAPP_URL=os.getenv('WEBAPP_URL'),
         RECYCLE_TTL_DAYS=int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'),
