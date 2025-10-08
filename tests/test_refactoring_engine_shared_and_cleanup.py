@@ -68,8 +68,6 @@ def test_centralize_common_imports_creates_shared_and_injects_imports():
     )
     eng = RefactoringEngine()
     res = eng.propose_refactoring(code=code, filename="svc.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
-    # דרך עוקפת כדי לגשת ל-Enum שהוגדר במודול (מניעת import כפול בטסט זה)
-    # בפועל קיים ב-import העליון של טסטים אחרים
     # אימות תוצאה
     assert res is not None and res.success and res.proposal
     files = res.proposal.new_files
@@ -77,12 +75,14 @@ def test_centralize_common_imports_creates_shared_and_injects_imports():
     assert 'svc_shared.py' in files
     shared = files['svc_shared.py']
     assert 'import os' in shared  # ייבוא משותף
-    # בכל מודול נוסף מוזרק from .svc_shared import os והכפילויות הוסרו
+    # בכל מודול נוסף מוזרק import משותף והכפילויות הוסרו
     for fn, content in files.items():
         if fn in ("__init__.py", "svc_shared.py"):
             continue
-        assert "from .svc_shared import os" in content or "from .svc_shared import *" in content
-        assert "import os\n" not in content  # הוסר מהמודול לטובת shared
+        # יתקבל גם star-import
+        assert ("from .svc_shared import os" in content) or ("from .svc_shared import *" in content)
+        # אין import os ישיר במודול
+        assert "\nimport os\n" not in content and not content.strip().startswith("import os\n")
         # import json לא בשימוש — אמור להיעלם
         assert "import json\n" not in content
 
