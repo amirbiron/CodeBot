@@ -52,6 +52,23 @@ def test_convert_to_classes(sample_code):
     assert any('class ' in content for content in result.proposal.new_files.values())
 
 
+def test_split_functions_groups_by_prefix(sample_code):
+    # מוסיף פונקציות עם prefix כדי לכסות נתיב קיבוץ לפי prefix
+    code = sample_code + "\n\n" + """
+def user_profile():
+    return True
+
+def data_load():
+    return []
+"""
+    engine = RefactoringEngine()
+    res = engine.propose_refactoring(code=code, filename="file.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
+    assert res.success is True
+    assert res.proposal is not None
+    # יווצרו לפחות 2 קבצים חדשים + __init__.py
+    assert len(res.proposal.new_files) >= 2
+
+
 def test_invalid_syntax_returns_error():
     invalid_code = "def broken( syntax error"
     engine = RefactoringEngine()
