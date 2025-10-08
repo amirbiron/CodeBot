@@ -11,8 +11,12 @@ async def test_batch_callbacks_job_cancel(monkeypatch):
             return None
         async def edit_message_text(self, *a, **k):
             return None
+    class _User:
+        id = 1
     class _Upd:
-        callback_query = _Q()
+        def __init__(self):
+            self.callback_query = _Q()
+            self.effective_user = _User()
     class _Ctx:
         user_data = {}
 

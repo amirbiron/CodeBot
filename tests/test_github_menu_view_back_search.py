@@ -7,12 +7,19 @@ async def test_view_back_to_search(monkeypatch):
 
     class _Q:
         data = 'view_back'
+        class _User:
+            id = 1
+        from_user = _User()
         async def answer(self, *a, **k):
             return None
         async def edit_message_text(self, *a, **k):
             return None
+    class _User:
+        id = 1
     class _Upd:
-        callback_query = _Q()
+        def __init__(self):
+            self.callback_query = _Q()
+            self.effective_user = _User()
     class _Ctx:
         user_data = {'last_results_were_search': True}
 
