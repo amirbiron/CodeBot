@@ -1,8 +1,12 @@
 def test_view_more_and_back_paths(monkeypatch):
     gh = __import__('github_menu_handler')
 
+    class _U:
+        id = 0
     class _Q:
-        data = 'view_more'
+        def __init__(self):
+            self.data = 'view_more'
+            self.from_user = _U()
         async def answer(self, *a, **k):
             return None
         async def edit_message_text(self, *a, **k):
