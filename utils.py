@@ -491,6 +491,97 @@ class TelegramUtils:
                 return
             raise
 
+    @staticmethod
+    def extract_message_text_preserve_markdown(message: "Message", *, reconstruct_from_entities: bool = True) -> str:
+        """
+        שחזור טקסט ההודעה תוך ניסיון להחזיר את מה שהמשתמש התכוון מבחינת תווי Markdown.
+
+        עקרונות:
+
+        - ברירת מחדל: נשתמש ב-``text``/``caption`` (התוכן הגולמי כפי שנשלח לשרת לאחר עיבוד Markdown).
+          זאת כדי לא לשמור מחרוזת "מרונדרת" (למשל ``*_name_*``), שאינה משקפת קלט משתמש.
+
+        - במידה ו-``reconstruct_from_entities=True`` ויש ישויות עיצוב (``bold``/``italic``), ננסה לשחזר
+          תווי Markdown שהיוו כנראה את מקור העיצוב ע"י הוספת תחיליות/סיומות סביב הטקסט שסומן.
+          מיפוי פשוט: ``bold`` → ``"__"``, ``italic`` → ``"_"``. שאר ישויות נשמרות כפי שהן.
+
+        - אם יש כיתוב (caption), נשתמש במקבילות ``caption_entities``.
+        """
+        # 1) תוכן בסיסי
+        try:
+            base = str(getattr(message, "text", "") or getattr(message, "caption", "") or "")
+        except Exception:
+            base = ""
+
+        if not reconstruct_from_entities or not base:
+            return base
+
+        # 2) שחזור סימונים על בסיס entities (אם קיימים)
+        try:
+            entities = getattr(message, "entities", None)
+            if base and not entities:
+                entities = getattr(message, "caption_entities", None)
+        except Exception:
+            entities = None
+
+        try:
+            if not entities:
+                return base
+
+            length = len(base)
+            opens = {i: [] for i in range(length + 1)}
+            closes = {i: [] for i in range(length + 1)}
+
+            for ent in entities or []:
+                try:
+                    etype = getattr(ent, "type", "") or ""
+                    offset = int(getattr(ent, "offset", 0) or 0)
+                    ent_len = int(getattr(ent, "length", 0) or 0)
+                    # חשב טווח מקורי
+                    start_raw = offset
+                    end_raw = offset + ent_len
+                    # קלמפינג ראשוני
+                    start = max(0, min(length, start_raw))
+                    end = max(0, min(length, end_raw))
+                    # אם offset שלילי גרם לכך ש-end==start, הרחב לפי האורך המבוקש
+                    if start_raw < 0 and ent_len > 0 and end <= start:
+                        end = min(length, start + ent_len)
+                except Exception:
+                    continue
+
+                # התעלם מ-entities ריקים/מחוץ לתחום לאחר קלמפינג
+                if end <= start:
+                    continue
+
+                # מיפוי לסימני Markdown מועדפים
+                if etype == "bold":
+                    opens[start].append("__")
+                    closes[end].insert(0, "__")  # סגירה לפני פתיחות חדשות באותו אינדקס
+                elif etype == "italic":
+                    opens[start].append("_")
+                    closes[end].insert(0, "_")
+                else:
+                    # עבור ישויות אחרות לא נוסיף תווים (inline code/links לא משוחזרים כסימנים)
+                    continue
+
+            out_parts = []
+            for i, ch in enumerate(base):
+                # הוסף סגירות שמסתיימות לפני התו
+                if closes.get(i):
+                    out_parts.extend(closes[i])
+                # הוסף פתיחות שמתחילות לפני התו
+                if opens.get(i):
+                    out_parts.extend(opens[i])
+                out_parts.append(ch)
+
+            # סגירות בסוף הטקסט
+            if closes.get(length):
+                out_parts.extend(closes[length])
+
+            return "".join(out_parts)
+        except Exception:
+            return base
+
 class CallbackQueryGuard:
     """Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
 

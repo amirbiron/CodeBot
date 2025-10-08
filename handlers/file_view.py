@@ -285,7 +285,11 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text("❌ שגיאה בעדכון ההערה")
         return ConversationHandler.END
 
-    new_code = update.message.text
+    # שחזור טקסט עם סימוני Markdown שנבלעו ע"י לקוח טלגרם
+    try:
+        new_code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
+    except Exception:
+        new_code = update.message.text
     editing_large_file = context.user_data.get('editing_large_file')
     if editing_large_file:
         try:
