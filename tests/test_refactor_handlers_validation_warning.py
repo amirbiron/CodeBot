@@ -31,7 +31,7 @@ async def test_display_proposal_with_validation_warning(monkeypatch):
             self.message = _Msg()
     class _Ctx: pass
 
-    # Stub DB and build a proposal עם ולידציה שקרית
+    # Stub DB and build a proposal; נכריח ולידציה להחשב False באמצעות monkeypatch
     class _DB:
         def __init__(self):
             class _C:
@@ -39,24 +39,22 @@ async def test_display_proposal_with_validation_warning(monkeypatch):
                     return types.SimpleNamespace(inserted_id="1")
             self._c = _C()
         def get_file(self, user_id, filename):
-            return {"code": "def a():\n    return 1\n\n", "file_name": filename}
+            code = (
+                "def user_a():\n    return 1\n\n"
+                "def data_b():\n    return 2\n"
+            )
+            return {"code": code, "file_name": filename, "programming_language": "python"}
         def collection(self, name):
             return self._c
     db_mod = __import__('database', fromlist=['db'])
     monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
 
+    # כפה ולידציה False בזמן יצירת ההצעה
+    rh_engine = getattr(mod, 'refactoring_engine')
+    monkeypatch.setattr(rh_engine, '_validate_proposal', lambda p: False, raising=True)
+
     rh = RH(_App())
     upd = _Upd()
     upd.callback_query.data = 'refactor_type:split_functions:file.py'
     await rh.handle_refactor_type_callback(upd, _Ctx())
-    # נכריח ולידציה להחשב כ-false ע"י הכנסת קובץ לא חוקי
-    prop = rh.pending_proposals[upd.effective_user.id]
-    # הפיכת אחד הקבצים ללא תקין
-    for k in list(prop.new_files.keys()):
-        if k.endswith('.py'):
-            prop.new_files[k] = 'def broken('
-            break
-    # הצגה – כדי להגיע לענף האזהרה, נקרא לפונקציה הפרטית דרך המסלול הציבורי preview
-    upd.callback_query.data = 'refactor_action:preview'
-    await rh.handle_proposal_callback(upd, _Ctx())
 
