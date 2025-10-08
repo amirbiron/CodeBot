@@ -552,6 +552,10 @@ class RefactoringEngine:
         used = self._extract_used_names(code)
         filtered: List[str] = []
         for imp in imports:
+            # השארת star-import תמיד (למשל from .<base>_shared import *)
+            if ' import *' in imp:
+                filtered.append(imp)
+                continue
             aliases = self._get_import_aliases(imp)
             if not aliases:
                 # אם לא זוהו שמות (למשל import לא סטנדרטי) — נשמור ליתר בטחון
@@ -628,7 +632,10 @@ class RefactoringEngine:
                     continue
                 filtered_lines.append(line)
             # הזרקת import משותף אם לא קיים כבר
-            if shared_import_stmt not in filtered_lines:
+            already_has_shared = any(
+                ln.strip().startswith(f"from .{shared_module_stem} import") for ln in filtered_lines
+            )
+            if not already_has_shared:
                 filtered_lines = (
                     filtered_lines[:insert_idx] + [shared_import_stmt, ""] + filtered_lines[insert_idx:]
                 )
