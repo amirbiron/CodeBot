@@ -532,6 +532,8 @@ class TelegramUtils:
             opens = {i: [] for i in range(length + 1)}
             closes = {i: [] for i in range(length + 1)}
 
+            # רישום ישויות בסיסי
+            ent_ranges: List[Tuple[str, int, int]] = []
             for ent in entities or []:
                 try:
                     etype = getattr(ent, "type", "") or ""
@@ -553,16 +555,30 @@ class TelegramUtils:
                 if end <= start:
                     continue
 
-                # מיפוי לסימני Markdown מועדפים
+                ent_ranges.append((etype, start, end))
+
+            # זיהוי חפיפה מלאה בין bold ו-italic על אותו טווח
+            bold_set = {(s, e) for t, s, e in ent_ranges if t == "bold"}
+            italic_set = {(s, e) for t, s, e in ent_ranges if t == "italic"}
+            both_set = bold_set.intersection(italic_set)
+
+            for etype, start, end in ent_ranges:
+                if (start, end) in both_set:
+                    # פתיחה/סגירה משולשת פעם אחת בלבד
+                    if opens[start][-1:] != ["___"]:
+                        opens[start].append("___")
+                    if closes[end][:1] != ["___"]:
+                        closes[end].insert(0, "___")
+                    continue
+
                 if etype == "bold":
                     opens[start].append("__")
-                    closes[end].insert(0, "__")  # סגירה לפני פתיחות חדשות באותו אינדקס
+                    closes[end].insert(0, "__")
                 elif etype == "italic":
-                    # שחזור הטיה כ-"_" (לא מאחד ל-bold) כדי לשמר נאמנות לקלט
                     opens[start].append("_")
                     closes[end].insert(0, "_")
                 else:
-                    # עבור ישויות אחרות לא נוסיף תווים (inline code/links לא משוחזרים כסימנים)
+                    # ישויות אחרות אינן משוחזרות כסימני Markdown
                     continue
 
             out_parts = []

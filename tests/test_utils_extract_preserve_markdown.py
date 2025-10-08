@@ -142,6 +142,28 @@ def test_extract_message_text_full_range_bold_closes_at_end():
     assert out == "__abc__"
 
 
+def test_extract_message_text_bold_and_italic_full_overlap():
+    from utils import TelegramUtils
+
+    class _Ent:
+        def __init__(self, type, offset, length):
+            self.type = type
+            self.offset = offset
+            self.length = length
+
+    class Msg:
+        def __init__(self):
+            self.text = "xyz"
+            self.entities = [
+                _Ent("italic", 0, 3),
+                _Ent("bold", 0, 3),
+            ]
+
+    m = Msg()
+    out = TelegramUtils.extract_message_text_preserve_markdown(m)
+    assert out == "___xyz___"
+
+
 def test_extract_message_text_empty_base_returns_empty():
     from utils import TelegramUtils
 
