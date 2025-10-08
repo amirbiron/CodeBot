@@ -73,6 +73,8 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         self.application.add_handler(CommandHandler("info", self.info_command))
         self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        # חיפוש
+        self.application.add_handler(CommandHandler("search", self.search_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -757,6 +759,45 @@ class AdvancedBotHandlers:
             f"🏷️ <b>תגיות:</b> {tags_str}"
         )
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+
+    async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """חיפוש קטעי קוד לפי טקסט/שפה/תגיות — מימוש מינימלי ובטוח לסוגים"""
+        reporter.report_activity(update.effective_user.id)
+        # קלט בטוח — לא מניחים כלום על context.args
+        args = list(context.args or [])
+        if not args:
+            await update.message.reply_text(
+                "🔍 שימוש: /search <query>\n\n"
+                "דוגמאות:\n"
+                "• /search python — סינון לפי שפה\n"
+                "• /search #utils — לפי תגית\n"
+                "• /search api — חיפוש חופשי בשם/בתוכן",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+        # פענוח מינימלי של פרמטרים ללא תלות במסד/שירותים
+        query_tokens = []
+        tags = []
+        languages = []
+        for token in args:
+            t = str(token or "").strip()
+            if not t:
+                continue
+            if t.startswith('#') and len(t) > 1:
+                tags.append(t[1:])
+            elif t.lower() in {"python","javascript","typescript","java","html","css","json","yaml","markdown","bash","text"}:
+                languages.append(t.lower())
+            else:
+                query_tokens.append(t)
+        # תשובה מינימלית; ההיגיון המלא של חיפוש נמצא ב-main/handlers אחרים
+        msg = ["🔍 חיפוש התחלתי (תצוגת הדגמה):\n"]
+        if languages:
+            msg.append(f"• שפות: {', '.join(languages)}")
+        if tags:
+            msg.append(f"• תגיות: {', '.join('#'+x for x in tags)}")
+        if query_tokens:
+            msg.append(f"• טקסט: {' '.join(query_tokens)}")
+        await update.message.reply_text("\n".join(msg) or "🔍 חיפוש", parse_mode=ParseMode.MARKDOWN)
 
     def _is_admin(self, user_id: int) -> bool:
         """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS"""
