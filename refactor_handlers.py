@@ -184,9 +184,10 @@ class RefactorHandlers:
             await query.edit_message_text(f"❌ {error_msg}")
             return
         self.pending_proposals[user_id] = result.proposal
+        # לוג פעילות משתמש (מקטין רעש סטטיסטיקות קיימות)
         try:
             from user_stats import user_stats
-            user_stats.increment_stat(user_id, 'refactor_proposals')
+            user_stats.log_user(user_id)
         except Exception:
             pass
         await self._display_proposal(query, result.proposal, result.validation_passed)
@@ -242,6 +243,12 @@ class RefactorHandlers:
         if action == "approve":
             await self._approve_and_save(query, user_id, proposal)
             del self.pending_proposals[user_id]
+            # לוג פעילות משתמש
+            try:
+                from user_stats import user_stats
+                user_stats.log_user(user_id)
+            except Exception:
+                pass
             return
 
     async def _send_preview(self, query, proposal: RefactorProposal):
@@ -288,11 +295,6 @@ class RefactorHandlers:
                 logger.error(f"שגיאה בשמירת {filename}: {e}")
                 errors.append(f"❌ {filename}: {str(e)}")
         self._save_refactor_metadata(user_id, proposal)
-        try:
-            from user_stats import user_stats
-            user_stats.increment_stat(user_id, 'refactorings_completed')
-        except Exception:
-            pass
         msg = f"✅ *רפקטורינג הושלם!*\n\n"
         msg += f"📦 נשמרו {saved_count} קבצים חדשים\n"
         if errors:

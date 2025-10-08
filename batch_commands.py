@@ -5,7 +5,7 @@ Batch Commands for Multiple File Processing
 
 import logging
 import asyncio
-from typing import Dict
+from typing import Dict, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -14,6 +14,7 @@ from batch_processor import batch_processor
 from lazy_loader import lazy_loader
 from autocomplete_manager import autocomplete
 from html import escape as html_escape
+from batch_processor import BatchJob
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ async def job_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     job_id = " ".join(context.args)
-    job = batch_processor.get_job_status(job_id)
+    job: Optional[BatchJob] = batch_processor.get_job_status(job_id)
     
     if not job:
         await update.message.reply_text(
@@ -302,7 +303,8 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     try:
         if data.startswith("job_status:"):
             job_id = data[11:]  # הסרת "job_status:"
-            job = batch_processor.get_job_status(job_id)
+            from typing import Optional
+            job: Optional[BatchJob] = batch_processor.get_job_status(job_id)
             
             if not job or job.user_id != user_id:
                 await query.edit_message_text("❌ עבודה לא נמצאה")
@@ -333,7 +335,8 @@ async def handle_batch_callbacks(update: Update, context: ContextTypes.DEFAULT_T
             
         elif data.startswith("job_results:"):
             job_id = data[12:]  # הסרת "job_results:"
-            job = batch_processor.get_job_status(job_id)
+            from typing import Optional
+            job: Optional[BatchJob] = batch_processor.get_job_status(job_id)
             
             if not job or job.user_id != user_id:
                 await query.edit_message_text("❌ עבודה לא נמצאה")

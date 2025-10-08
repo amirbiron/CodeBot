@@ -17,24 +17,24 @@ import signal
 import sys
 import time
 try:
-    import pymongo  # type: ignore
+    import pymongo
     _HAS_PYMONGO = True
 except Exception:
-    pymongo = None  # type: ignore
+    pymongo = None  # fallback ללא type: ignore
     _HAS_PYMONGO = False
 from datetime import datetime, timezone, timedelta
 import atexit
 try:
-    import pymongo.errors  # type: ignore
-    from pymongo.errors import DuplicateKeyError  # type: ignore
+    import pymongo.errors
+    from pymongo.errors import DuplicateKeyError
 except Exception:
     class _DummyErr(Exception):
         pass
     class _DummyErrors:
         InvalidOperation = _DummyErr
         OperationFailure = _DummyErr
-    DuplicateKeyError = _DummyErr  # type: ignore
-    pymongo = type("_PM", (), {"errors": _DummyErrors})()  # type: ignore
+    DuplicateKeyError = _DummyErr
+    pymongo = type("_PM", (), {"errors": _DummyErrors})()
 import os
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeChat
@@ -50,10 +50,6 @@ from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from activity_reporter import create_reporter
-try:
-    from refactor_handlers import setup_refactor_handlers
-except Exception:
-    setup_refactor_handlers = None  # type: ignore[assignment]
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
@@ -198,7 +194,7 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
             except Exception:
                 pass
 
-            results.append((friendly, modified_deleted_at, modified_deleted_exp, None))
+            results.append((friendly, modified_deleted_at, modified_deleted_exp, ""))
 
         # דו"ח
         lines = [
