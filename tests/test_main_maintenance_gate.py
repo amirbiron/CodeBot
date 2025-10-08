@@ -27,8 +27,10 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
     import importlib
+    import config as cfg
+    importlib.reload(cfg)
     import main as mod
-    # ודא שהקונפיג מעודכן לפני יצירת הבוט
+    # ודא שהמודול נטען אחרי ריענון הקונפיג
     importlib.reload(mod)
 
     class _JobQ:
@@ -81,7 +83,14 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
     # מצא את maintenance handlers (group -100)
     maintenance_handlers = [h for h, g in bot.application.handlers if g == -100]
     assert maintenance_handlers, 'expected maintenance handlers to be registered'
-    maint_msg_handler = maintenance_handlers[0]
+    # בחר ספציפית את ה-MessageHandler של תחזוקה לפי שם הפונקציה
+    maint_msg_handler = None
+    for h in maintenance_handlers:
+        cb = getattr(h, 'callback', None)
+        if getattr(cb, '__name__', '') == 'maintenance_reply':
+            maint_msg_handler = h
+            break
+    assert maint_msg_handler is not None, 'maintenance handler not found'
 
     update = types.SimpleNamespace(callback_query=None, message=_FakeMessage(), effective_user=types.SimpleNamespace(id=1))
     context = types.SimpleNamespace()
@@ -96,6 +105,8 @@ async def test_maintenance_message_sent_during_warmup_for_message(monkeypatch):
 async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatch):
     # הגדרת זמן מדומה כדי לשלוט על TTL
     import importlib
+    import config as cfg
+    importlib.reload(cfg)
     import main as mod
 
     base_time = 1_000.0
@@ -104,7 +115,8 @@ async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatc
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
-    # זמן בסיס בעת יצירה
+    # טען מחדש מודול ולאחר מכן תקבע זמן בסיס
+    importlib.reload(mod)
     monkeypatch.setattr(mod.time, 'time', lambda: base_time)
 
     class _MiniApp:
@@ -143,8 +155,7 @@ async def test_maintenance_message_not_sent_after_ttl_elapsed_by_time(monkeypatc
 
     monkeypatch.setattr(mod, 'Application', _AppNS())
 
-    # הקפד לטעון מחדש כדי שהקונפיג והזמן יילקחו בחשבון
-    importlib.reload(mod)
+    # בנה את הבוט עם הזמן הבסיסי
     bot = mod.CodeKeeperBot()
 
     # לאחר היצירה, קפוץ מעבר ל-TTL
@@ -168,6 +179,8 @@ async def test_maintenance_clear_job_disables_message_immediately(monkeypatch):
     monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
 
     import importlib
+    import config as cfg
+    importlib.reload(cfg)
     import main as mod
     importlib.reload(mod)
 
@@ -225,7 +238,13 @@ async def test_maintenance_clear_job_disables_message_immediately(monkeypatch):
     # קבל את ה-handler ואת ה-job שתוזמן
     maintenance_handlers = [h for h, g in bot.application.handlers if g == -100]
     assert maintenance_handlers, 'expected maintenance handlers to be registered'
-    maint_msg_handler = maintenance_handlers[0]
+    # בחר handler של תחזוקה לפי שם הפונקציה
+    maint_msg_handler = None
+    for h in maintenance_handlers:
+        if getattr(getattr(h, 'callback', None), '__name__', '') == 'maintenance_reply':
+            maint_msg_handler = h
+            break
+    assert maint_msg_handler is not None, 'maintenance handler not found'
 
     # ודא שהוגדר חלון פעיל (יתכן שה-clear job כבר רץ — נוודא לפני ההפעלה)
     assert getattr(bot, '_maintenance_active_until_ts', 0) >= 0
@@ -251,7 +270,11 @@ async def test_maintenance_message_sent_during_warmup_for_callback_query(monkeyp
     monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
     monkeypatch.setenv('MAINTENANCE_MODE', 'true')
 
+    import importlib
+    import config as cfg
+    importlib.reload(cfg)
     import main as mod
+    importlib.reload(mod)
 
     class _MiniApp:
         def __init__(self):
@@ -292,8 +315,13 @@ async def test_maintenance_message_sent_during_warmup_for_callback_query(monkeyp
     bot = mod.CodeKeeperBot()
 
     maintenance_handlers = [h for h, g in bot.application.handlers if g == -100]
-    assert len(maintenance_handlers) >= 2, 'expected both maintenance handlers'
-    maint_cbq_handler = maintenance_handlers[1]
+    # מצא את ה-CallbackQueryHandler של תחזוקה
+    maint_cbq_handler = None
+    for h in maintenance_handlers:
+        if h.__class__.__name__ == 'CallbackQueryHandler' and getattr(getattr(h, 'callback', None), '__name__', '') == 'maintenance_reply':
+            maint_cbq_handler = h
+            break
+    assert maint_cbq_handler is not None, 'expected maintenance CallbackQueryHandler'
 
     update = types.SimpleNamespace(callback_query=_FakeCallbackQuery(), message=None, effective_user=types.SimpleNamespace(id=4))
     context = types.SimpleNamespace()
