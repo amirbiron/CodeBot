@@ -578,10 +578,20 @@ class CodeKeeperBot:
             async def maintenance_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # אם חלון ה-warmup הסתיים, אל תשלח הודעת תחזוקה
                 try:
-                    active_until = float(getattr(self, "_maintenance_active_until_ts", 0) or 0)
+                    raw_active_until = getattr(self, "_maintenance_active_until_ts", None)
                 except Exception:
-                    active_until = 0.0
-                if not active_until or time.time() >= active_until:
+                    raw_active_until = None
+                # פרשנות:
+                # None => תחזוקה פעילה (אין TTL)
+                # 0 או ערך שלילי => תחזוקה מנוטרלת
+                # > 0 => תחזוקה פעילה עד timestamp זה
+                try:
+                    active_until = float(raw_active_until) if raw_active_until is not None else None
+                except Exception:
+                    active_until = None
+                now = time.time()
+                is_active = True if active_until is None else (active_until > 0 and now < active_until)
+                if not is_active:
                     return ConversationHandler.END
                 try:
                     await (update.callback_query.edit_message_text if getattr(update, 'callback_query', None) else update.message.reply_text)(
