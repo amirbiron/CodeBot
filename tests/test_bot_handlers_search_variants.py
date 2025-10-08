@@ -1,5 +1,6 @@
 import sys
 import pytest
+import types
 
 
 @pytest.mark.asyncio
