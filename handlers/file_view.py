@@ -84,7 +84,8 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             back_cb = f"back_after_view:{file_name}"
 
-        # קבע חזרה בהתאם למקור (מועדפים/רגיל/ריפו/ברירת מחדל)
+        # קבע חזרה בהתאם למקור (מועדפים/רגיל/ריפו/ברירת מחדל) — הגדר ברירת מחדל קודם
+        back_cb = f"back_after_view:{file_name}"
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
         if origin.get('type') == 'by_repo' and origin.get('tag'):
@@ -93,8 +94,6 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
-        else:
-            back_cb = f"back_after_view:{file_name}"
 
         keyboard = [
             [
