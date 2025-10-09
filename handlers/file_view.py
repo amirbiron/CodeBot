@@ -20,6 +20,24 @@ import secrets
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 
+
+async def _edit_message_text_unified(query, text: str, *, reply_markup=None, parse_mode=None):
+    """Edit message text using query.edit_message_text when available, otherwise fallback to TelegramUtils.safe_edit_message_text.
+
+    This keeps tests that stub only one path working and unifies behavior.
+    """
+    try:
+        if hasattr(query, 'edit_message_text') and callable(getattr(query, 'edit_message_text')):
+            return await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            return await TelegramUtils.safe_edit_message_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        # last resort — try the other path once
+        try:
+            return await TelegramUtils.safe_edit_message_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            return await query.edit_message_text(text)
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, ConversationHandler
@@ -72,6 +90,29 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
+        # קבע כפתור חזרה בהתאם למקור (מועדפים/רגיל/אחר)
+        last_page = context.user_data.get('files_last_page')
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        else:
+            back_cb = f"back_after_view:{file_name}"
+
+        # קבע חזרה בהתאם למקור (מועדפים/רגיל/ריפו/ברירת מחדל) — הגדר ברירת מחדל קודם
+        back_cb = f"back_after_view:{file_name}"
+        last_page = context.user_data.get('files_last_page')
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+
         keyboard = [
             [
                 InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
@@ -95,12 +136,15 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ]
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
+        # קביעה אחידה של יעד כפתור "חזרה" לפי מקור הרשימה
         if origin.get('type') == 'by_repo' and origin.get('tag'):
             back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
-            back_cb = f"files_page_{last_page}" if last_page else "files"
+            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
@@ -191,8 +235,11 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         code_preview = code[:max_length]
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
+        # קביעה אחידה של יעד כפתור "חזרה" לפי מקור הרשימה
         if origin.get('type') == 'by_repo' and origin.get('tag'):
             back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
@@ -830,7 +877,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                         '_id': lf.get('_id')
                     }
                 else:
-                    await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                    await _edit_message_text_unified(query, "⚠️ הקובץ לא נמצא")
                     return ConversationHandler.END
             else:
                 file_name = doc.get('file_name') or 'file'
@@ -855,7 +902,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                     '_id': lf.get('_id')
                 }
             else:
-                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+                await _edit_message_text_unified(query, "⚠️ הקובץ נעלם מהמערכת החכמה")
                 return ConversationHandler.END
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
@@ -867,6 +914,21 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             fid = str(file_data.get('_id') or '')
         except Exception:
             fid = ''
+
+        # יעד כפתור "חזרה" לפי מקור הרשימה אם קיים; אחרת חזרה אחרי תצוגה ישירה
+        try:
+            last_page = context.user_data.get('files_last_page')
+            origin = context.user_data.get('files_origin') or {}
+            if origin.get('type') == 'by_repo' and origin.get('tag'):
+                back_cb = f"by_repo:{origin.get('tag')}"
+            elif origin.get('type') == 'favorites':
+                back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+            elif origin.get('type') == 'regular':
+                back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+            else:
+                back_cb = f"back_after_view:{file_name}"
+        except Exception:
+            back_cb = f"back_after_view:{file_name}"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
@@ -883,7 +945,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             [
                 InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
             ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
+            [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
@@ -936,7 +998,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             header_html = (
                 f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line_html}"
             )
-            await TelegramUtils.safe_edit_message_text(
+            await _edit_message_text_unified(
                 query,
                 f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
                 reply_markup=reply_markup,
@@ -949,7 +1011,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             except Exception:
                 safe_file_name = str(file_name).replace('`', '\\`')
             safe_code_md = str(code_preview).replace('```', '\\`\\`\\`')
-            await TelegramUtils.safe_edit_message_text(
+            await _edit_message_text_unified(
                 query,
                 f"📄 *{safe_file_name}* ({language}) - גרסה {version}{note_line_md}{large_note_md}"
                 f"```{language}\n{safe_code_md}\n```",
@@ -958,7 +1020,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
+        await _edit_message_text_unified(query, "❌ שגיאה בהצגת הקוד המתקדם")
     return ConversationHandler.END
 
 
