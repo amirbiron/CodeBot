@@ -659,7 +659,10 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
     משתמש ב-db.get_favorites ומחלק לעמודים בגודל FILES_PAGE_SIZE.
     """
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer("טוען מועדפים…", show_alert=False)
+    except Exception:
+        pass
     user_id = update.effective_user.id
     from database import db
     try:
@@ -698,7 +701,17 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
             f"📄 עמוד {page} מתוך {total_pages}\n\n"
             "✨ לחץ על קובץ להצגה מלאה:"
         )
-        await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        try:
+            await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        except telegram.error.BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    pass
+            else:
+                raise
     except Exception as e:
         logger.error(f"Error in show_favorites_callback: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת מועדפים")

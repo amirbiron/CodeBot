@@ -1,6 +1,6 @@
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 
@@ -18,7 +18,7 @@ class RateLimiter:
 
     async def check_rate_limit(self, user_id: int) -> bool:
         """מחזיר True אם מותר להמשיך, אחרת False."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         one_min_ago = now - timedelta(seconds=60)
         async with self._lock:
             entries = self._requests[user_id]
