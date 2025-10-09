@@ -1267,9 +1267,17 @@ class AdvancedBotHandlers:
                         f"📝 הערה: {_e(str(note))}\n\n"
                         f"🎮 בחר פעולה מתקדמת:"
                     )
-                    # עדכן טקסט בלבד; שמור reply_markup קיים אם זמין
-                    kb = getattr(query.message, 'reply_markup', None)
-                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                    # בנה מקלדת מעודכנת עם תווית כפתור מועדפים הנכונה
+                    try:
+                        is_fav_now = bool(db.is_favorite(user_id, fname))
+                    except Exception:
+                        is_fav_now = state
+                    fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+                    # נעדיף שימוש ב-id אם זמין
+                    fav_cb = f"fav_toggle_id:{fid}" if fid else f"fav_toggle_tok:{fname}"
+                    from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+                    updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
+                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
                 except Exception:
                     pass
 
@@ -1297,8 +1305,15 @@ class AdvancedBotHandlers:
                         f"📝 הערה: {_e(str(note))}\n\n"
                         f"🎮 בחר פעולה מתקדמת:"
                     )
-                    kb = getattr(query.message, 'reply_markup', None)
-                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                    try:
+                        is_fav_now = bool(db.is_favorite(user_id, fname))
+                    except Exception:
+                        is_fav_now = state
+                    fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+                    fav_cb = f"fav_toggle_tok:{token}"
+                    from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+                    updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
+                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
                 except Exception:
                     pass
             
