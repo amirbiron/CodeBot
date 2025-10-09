@@ -83,7 +83,12 @@ class Repository:
                 cache.invalidate_user_cache(user_id)
             except Exception:
                 pass
-            return new_state if getattr(res, 'modified_count', 0) >= 0 else None
+            matched = int(getattr(res, 'matched_count', 0) or 0)
+            modified = int(getattr(res, 'modified_count', 0) or 0)
+            # הצלחה רק אם לפחות מסמך אחד עודכן בפועל; אחרת החזר None כדי לאותת על כשל/ללא שינוי
+            if matched <= 0 or modified <= 0:
+                return None
+            return new_state
         except Exception as e:
             logger.error(f"שגיאה ב-toggle_favorite: {e}")
             return None
