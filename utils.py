@@ -22,7 +22,19 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-import telegram.error
+
+# Optional telegram import with safe fallback for web-only environments
+try:
+    import telegram  # type: ignore
+except Exception:  # pragma: no cover - executed only when telegram is missing
+    import types as _types
+
+    class _BadRequest(Exception):
+        pass
+
+    telegram = _types.SimpleNamespace(  # type: ignore[assignment]
+        error=_types.SimpleNamespace(BadRequest=_BadRequest)
+    )
 
 try:
     import aiofiles  # type: ignore
