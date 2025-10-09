@@ -15,6 +15,27 @@ logger = logging.getLogger(__name__)
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
 
+# ==================== Internal helpers (placed before routes) ====================
+
+def _get_file_info(file_id: str) -> dict | None:
+    """שליפת פרטי קובץ לפי מזהה לשימוש ה-API.
+    מקור האמת הוא אוסף code_snippets, בהתאם לקוד האפליקציה.
+    """
+    try:
+        db = get_db()
+        from bson import ObjectId as _ObjectId
+        doc = db.code_snippets.find_one({'_id': _ObjectId(file_id)})
+        if not doc:
+            return None
+        return {
+            'file_name': doc.get('file_name', ''),
+            # אין "path" אמיתי – נשמור file_name כדי לא לשבור ממשק
+            'file_path': doc.get('file_name', ''),
+        }
+    except Exception:
+        return None
+
+
 def get_db():
     """Get database instance - implement based on your setup"""
     from webapp.app import get_db as _get_db
