@@ -52,7 +52,12 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
 IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
 IMPORT_MAX_FILES = 2000  # הגבלה סבירה למספר קבצים
-IMPORT_SKIP_DIRS = {".git", ".github", "__pycache__", "node_modules", "dist", "build"}
+# הרחבת רשימת תיקיות כבדות לדילוג בכל עומק עץ – משפר סריקה/קריאה לאחר חליצה
+IMPORT_SKIP_DIRS = {
+    ".git", ".github", "__pycache__", "node_modules", "dist", "build",
+    "_build", "_static", "_images",  # תבניות שנפוצות תחת docs/
+    ".venv", "venv", ".tox"
+}
 
 # מגבלות עזר לשליפת תאריכי ענפים למיון
 MAX_BRANCH_DATE_FETCH = 120  # אם יש יותר מזה — נוותר על מיון לפי תאריך (למעט ברירת המחדל)
@@ -572,7 +577,7 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
-        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת עד דקה.")
+        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת 1–8 דקות")
         import zipfile as _zip
         tmp_dir = None
         zip_path = None
