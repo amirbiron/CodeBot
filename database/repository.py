@@ -124,8 +124,40 @@ class Repository:
             return []
 
     def get_favorites_count(self, user_id: int) -> int:
+        """ספירת מספר שמות הקבצים הייחודיים המסומנים כמועדפים, פעילים בלבד.
+
+        נספר distinct לפי file_name אחרי סינון ל-user_id, is_favorite=True, ומניעת is_active=False.
+        """
         try:
-            return int(self.manager.collection.count_documents({"user_id": user_id, "is_favorite": True}))
+            match = {
+                "user_id": user_id,
+                "is_favorite": True,
+                "$or": [
+                    {"is_active": True},
+                    {"is_active": {"$exists": False}},
+                ],
+            }
+            pipeline = [
+                {"$match": match},
+                {"$group": {"_id": "$file_name"}},
+                {"$count": "count"},
+            ]
+            res = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            if res and isinstance(res[0], dict):
+                try:
+                    return int(res[0].get("count", 0) or 0)
+                except Exception:
+                    pass
+            # Fallback: אם $count לא נתמך/נכשל — ספר ידנית את כמות הפריטים הייחודיים
+            try:
+                pipeline2 = [
+                    {"$match": match},
+                    {"$group": {"_id": "$file_name"}},
+                ]
+                rows = list(self.manager.collection.aggregate(pipeline2, allowDiskUse=True))
+                return len(rows or [])
+            except Exception:
+                return 0
         except Exception:
             return 0
 
