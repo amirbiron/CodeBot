@@ -138,7 +138,34 @@ class AdvancedBotHandlers:
         except Exception:
             is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
-        fav_cb = f"fav_toggle_id:{file_id}" if file_id and len(str(file_id)) < 50 else f"fav_toggle:{file_name}"
+        # הקפדה על מגבלת 64 בתים ב-callback_data + הימנעות מתווים בעייתיים
+        # העדפה ל-ID אם קיים; אחרת טוקן קצר עם מיפוי ב-user_data
+        has_id = True
+        try:
+            _raw_id = file_data.get('_id')
+            if _raw_id is None:
+                has_id = False
+            else:
+                file_id_str = str(_raw_id)
+        except Exception:
+            has_id = False
+            file_id_str = ""
+        if has_id and (len("fav_toggle_id:") + len(file_id_str)) <= 60:
+            fav_cb = f"fav_toggle_id:{file_id_str}"
+        else:
+            try:
+                token = secrets.token_urlsafe(6)
+            except Exception:
+                token = "t"  # fallback קצר
+            # אחסן מיפוי בטוח ב-user_data (פר-משתמש)
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[token] = file_name
+                # שמירה מחדש (במידה וסוג האחסון דורש)
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{token[:24]}"
 
         buttons = [
             [
@@ -1171,8 +1198,15 @@ class AdvancedBotHandlers:
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
 
-            elif data.startswith("fav_toggle:"):
-                fname = data.split(":", 1)[1]
+            elif data.startswith("fav_toggle_tok:"):
+                token = data.split(":", 1)[1]
+                try:
+                    fname = (context.user_data.get('fav_tokens') or {}).get(token)
+                except Exception:
+                    fname = None
+                if not fname:
+                    await query.answer("⚠️ לא נמצא קובץ לפעולה", show_alert=True)
+                    return
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
             
