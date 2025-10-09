@@ -4,9 +4,34 @@ import asyncio
 import os
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
-import telegram.error
+try:
+    from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup  # type: ignore
+    from telegram.constants import ParseMode  # type: ignore
+    import telegram.error  # type: ignore
+except Exception:
+    # סטאבים מינימליים לסביבת טסטים ללא telegram
+    import types as _types
+    class Update:  # type: ignore
+        pass
+    class ReplyKeyboardMarkup:  # type: ignore
+        def __init__(self, *a, **k):
+            pass
+    class ReplyKeyboardRemove:  # type: ignore
+        def __init__(self, *a, **k):
+            pass
+    class InlineKeyboardButton:  # type: ignore
+        def __init__(self, text=None, callback_data=None, **kwargs):
+            self.text = text
+            self.callback_data = callback_data
+    class InlineKeyboardMarkup:  # type: ignore
+        def __init__(self, keyboard=None):
+            # שמירה גם בשם inline_keyboard כדי להתאים לטסטים
+            self.inline_keyboard = keyboard or []
+            self.keyboard = self.inline_keyboard
+    ParseMode = _types.SimpleNamespace(HTML='HTML', MARKDOWN='Markdown')  # type: ignore
+    class _BadRequest(Exception):
+        pass
+    telegram = _types.SimpleNamespace(error=_types.SimpleNamespace(BadRequest=_BadRequest))  # type: ignore
 try:
     from telegram.ext import (
         ContextTypes,
