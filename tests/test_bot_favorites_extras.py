@@ -58,7 +58,7 @@ def bot(monkeypatch):
     return bh.AdvancedBotHandlers(_App())
 
 @pytest.mark.asyncio
-aSync def test_export_and_stats(bot):
+async def test_export_and_stats(bot):
     # build a favorites list message and then trigger the actions
     upd = _Upd()
     ctx = _Ctx()
