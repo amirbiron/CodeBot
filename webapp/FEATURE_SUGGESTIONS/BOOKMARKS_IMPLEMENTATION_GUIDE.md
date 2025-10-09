@@ -857,7 +857,13 @@ def toggle_bookmark(file_id):
     try:
         user_id = session['user_id']
         data = request.get_json()
-        line_number = int(data.get('line_number', 0))
+        
+        # המרה בטוחה למספר שלם
+        try:
+            line_number = int(data.get('line_number', 0))
+        except (ValueError, TypeError):
+            return jsonify({'ok': False, 'error': 'Invalid line number format'}), 400
+        
         note = data.get('note', '')
         
         if line_number <= 0:
