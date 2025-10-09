@@ -1292,6 +1292,11 @@ class GitHubMenuHandler:
             context.user_data["pending_saved_file_id"] = file_id
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_branch":
+            # מענה מיידי כדי לשחרר את ה-UI לפני טעינת רשימת ענפים
+            try:
+                await query.answer("טוען ענפים…", show_alert=False)
+            except Exception:
+                pass
             await self.show_upload_branch_menu(update, context)
         elif query.data.startswith("upload_branches_page_"):
             try:
@@ -1305,6 +1310,10 @@ class GitHubMenuHandler:
             context.user_data["upload_target_branch"] = br
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_folder":
+            try:
+                await query.answer("טוען תיקיות…", show_alert=False)
+            except Exception:
+                pass
             await self.show_upload_folder_menu(update, context)
         elif query.data.startswith("upload_select_folder:"):
             # בחירת תיקייה מתוך דפדפן הריפו
@@ -1322,10 +1331,46 @@ class GitHubMenuHandler:
         elif query.data == "upload_folder_custom":
             await self.ask_upload_folder(update, context)
         elif query.data == "upload_folder_create":
-            if hasattr(self, "create_upload_folder"):
-                await self.create_upload_folder(update, context)
-            else:
-                await query.answer("אין פעולה זמינה ליצירת תיקייה", show_alert=True)
+            # פתח זרימת יצירת תיקייה (תואם למסלול בהמשך עבור create_folder)
+            context.user_data["waiting_for_new_folder_path"] = True
+            # חזרה למסך הבדיקות לאחר היצירה
+            context.user_data["return_to_pre_upload"] = True
+            keyboard = [[
+                InlineKeyboardButton("🔙 חזור", callback_data="create_folder_back"),
+                InlineKeyboardButton("❌ ביטול", callback_data="create_folder_cancel")
+            ]]
+            # שחרר את ה‑UI מיד כדי למנוע תחושת תקיעה
+            try:
+                await query.answer("הקלד/י נתיב תיקייה…", show_alert=False)
+            except Exception:
+                pass
+            # נסה לערוך את ההודעה, ובמקרה של "message is not modified" עדכן רק את המקלדת, או שלח הודעה חדשה
+            try:
+                await query.edit_message_text(
+                    "➕ יצירת תיקייה חדשה\n\n"
+                    "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                    "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as br:
+                if "message is not modified" in str(br).lower():
+                    try:
+                        from utils import TelegramUtils as _TU
+                        await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                    except Exception:
+                        # כגיבוי, שלח הודעה חדשה
+                        try:
+                            await query.message.reply_text(
+                                "➕ יצירת תיקייה חדשה\n\n"
+                                "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception:
+                            pass
+                else:
+                    raise
+            return REPO_SELECT
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:
@@ -1659,6 +1704,11 @@ class GitHubMenuHandler:
             context.user_data["browse_page"] = 0
             context.user_data["multi_mode"] = False
             context.user_data["multi_selection"] = []
+            # מענה מיידי כדי למנוע תחושת תקיעה
+            try:
+                await query.answer("טוען דפדפן תיקיות…", show_alert=False)
+            except Exception:
+                pass
             await self.show_repo_browser(update, context)
 
         elif query.data.startswith("folder_"):
@@ -5475,7 +5525,12 @@ class GitHubMenuHandler:
         end = start + page_size
         keyboard = []
         for br in branches[start:end]:
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"upload_select_branch:{br.name}")])
+            # הקפד על מגבלת 64 בתים ב-callback_data (בטוח מול PTB/Telegram)
+            br_name = str(getattr(br, "name", "") or "")
+            # אם השם ארוך מדי, חתוך
+            max_len = 40  # "upload_select_branch:" ~23 בתים + שם
+            safe_name = br_name[:max_len]
+            keyboard.append([InlineKeyboardButton(f"🌿 {br_name}", callback_data=f"upload_select_branch:{safe_name}")])
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"upload_branches_page_{page-1}"))
@@ -5485,7 +5540,18 @@ class GitHubMenuHandler:
         if nav:
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")])
-        await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        # עריכת ההודעה עם טיפול ב"message is not modified" – במקרה כזה ננסה לעדכן רק את המקלדת
+        try:
+            await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    pass
+            else:
+                raise
 
     async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -5500,7 +5566,17 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")],
             [InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")],
         ]
-        await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        try:
+            await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        except BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
+                except Exception:
+                    pass
+            else:
+                raise
 
     async def ask_upload_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query

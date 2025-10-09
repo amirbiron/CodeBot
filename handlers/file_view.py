@@ -16,6 +16,7 @@ import re
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional
+import secrets
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 
@@ -111,6 +112,35 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             note_line = f"\n📝 הערה: {safe_note_md}\n\n"
         else:
             note_line = "\n📝 הערה: —\n\n"
+        # הוסף כפתור מועדפים גם במסך "מרכז בקרה מתקדם"
+        try:
+            from database import db as _db
+            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        try:
+            raw_id = str(file_data.get('_id') or '')
+        except Exception:
+            raw_id = ''
+        if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
+            fav_cb = f"fav_toggle_id:{raw_id}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        # הוסף שורת מועדפים לפני כפתור החזרה
+        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
+
         await TelegramUtils.safe_edit_message_text(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -182,6 +212,35 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
+        try:
+            from database import db as _db
+            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
+        try:
+            raw_id = str(file_data.get('_id') or '')
+        except Exception:
+            raw_id = ''
+        if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
+            fav_cb = f"fav_toggle_id:{raw_id}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        # הוסף את כפתור המועדפים לפני כפתור החזרה
+        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
         # הוספת כפתור "הצג עוד" אם יש עוד תוכן
         if len(code) > max_length:
             next_chunk = code[max_length:max_length + max_length]
@@ -826,6 +885,31 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
         ]
+        # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
+        try:
+            from database import db as _db
+            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
+        if fid and (len("fav_toggle_id:") + len(fid)) <= 60:
+            fav_cb = f"fav_toggle_id:{fid}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        # הוסף את כפתור המועדפים לפני כפתור החזרה
+        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
         # הוספת כפתור "הצג עוד" אם יש עוד תוכן (פעם אחת בלבד)
         if len(code) > max_length:
             next_chunk = code[max_length:max_length + max_length]
