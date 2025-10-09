@@ -624,17 +624,38 @@ class BookmarksManager:
     
     // קבלת טקסט השורה
     function getLineText(lineNumber) {
-        const codeLines = document.querySelectorAll('.highlighttable td.code pre > span, .source pre > span');
-        if (codeLines[lineNumber - 1]) {
-            return codeLines[lineNumber - 1].textContent.trim().substring(0, 60);
+        // בדיקת תקינות lineNumber
+        if (!lineNumber || lineNumber < 1) {
+            return 'קוד...';
         }
+        
+        const codeLines = document.querySelectorAll('.highlighttable td.code pre > span, .source pre > span');
+        const index = lineNumber - 1;
+        
+        // בדיקת גבולות מערך
+        if (index >= 0 && index < codeLines.length && codeLines[index]) {
+            return codeLines[index].textContent.trim().substring(0, 60);
+        }
+        
         return 'קוד...';
     }
     
     // קבלת אלמנט השורה
     function getLineElement(lineNumber) {
+        // בדיקת תקינות lineNumber
+        if (!lineNumber || lineNumber < 1) {
+            return null;
+        }
+        
         const lineElements = document.querySelectorAll('.highlighttable .linenos pre > span, .linenodiv pre > span');
-        return lineElements[lineNumber - 1] || null;
+        const index = lineNumber - 1;
+        
+        // בדיקת גבולות מערך
+        if (index >= 0 && index < lineElements.length) {
+            return lineElements[index] || null;
+        }
+        
+        return null;
     }
     
     // גלילה לשורה
