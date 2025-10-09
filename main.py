@@ -94,6 +94,20 @@ except Exception:
     pass
 
 logger = logging.getLogger(__name__)
+def _register_catch_all_callback(application, callback_fn) -> None:
+    """רישום CallbackQueryHandler כללי בקבוצה מאוחרת, עם fallback כשה-API לא תומך ב-group.
+
+    נועד להימנע מכשלי טסטים/סטאבים (TypeError על group), ובו בזמן לשמר קדימויות בפרודקשן.
+    """
+    handler = CallbackQueryHandler(callback_fn)
+    try:
+        application.add_handler(handler, group=5)
+    except TypeError:
+        # סביבת טסט/סטאב ללא תמיכה בפרמטר group
+        application.add_handler(handler)
+    except Exception as e:
+        # דווח חריגה כדי שלא נבלע שגיאות רישום שקטות
+        logger.error(f"Failed to register catch-all CallbackQueryHandler: {e}")
 
 # הודעת התחלה מרשימה
 logger.info("🚀 מפעיל בוט קוד מתקדם - גרסה פרו!")
@@ -906,13 +920,7 @@ class CodeKeeperBot:
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
         # חשוב: הוספה בקבוצה מאוחרת כדי שלא תתפוס לפני handlers ייעודיים (למשל מועדפים)
         from conversation_handlers import handle_callback_query
-        try:
-            self.application.add_handler(CallbackQueryHandler(handle_callback_query), group=5)
-            logger.info("CallbackQueryHandler גלובלי נוסף (group=5)")
-        except TypeError:
-            # סביבת בדיקות עם add_handler ללא פרמטר group
-            self.application.add_handler(CallbackQueryHandler(handle_callback_query))
-            logger.info("CallbackQueryHandler גלובלי נוסף (ללא group)")
+        _register_catch_all_callback(self.application, handle_callback_query)
 
         # ספור סופי
         final_handler_count = len(self.application.handlers)
