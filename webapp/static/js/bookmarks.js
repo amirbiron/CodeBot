@@ -347,9 +347,10 @@ class BookmarkManager {
         // נסה לקבל מ-href (לפורמט #L123)
         const href = element.getAttribute('href');
         if (href) {
-            // תומך גם בפורמט #L123 וגם #line-123
-            const match = href.match(/#(?:L|line-?)(\d+)/i);
-            if (match) return parseInt(match[1]);
+            // תמיכה לאחור: #123 וגם #L123/#line-123/#line123
+            let m = href.match(/#(\d+)/);
+            if (!m) m = href.match(/#(?:L|line-?)(\d+)/i);
+            if (m) return parseInt(m[1]);
         }
         
         // נסה לקבל מ-index
