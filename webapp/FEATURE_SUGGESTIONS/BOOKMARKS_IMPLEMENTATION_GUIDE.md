@@ -852,10 +852,19 @@ def toggle_bookmark(file_id):
             note=note
         )
         
+        # המרה בטוחה ל-JSON (ללא ObjectId)
+        bookmark_data = None
+        if result['bookmark']:
+            bookmark_data = {
+                'line_number': result['bookmark'].get('line_number'),
+                'note': result['bookmark'].get('note', ''),
+                'created_at': result['bookmark'].get('created_at').isoformat() if result['bookmark'].get('created_at') else None
+            }
+        
         return jsonify({
             'ok': True,
             'added': result['added'],
-            'bookmark': result['bookmark']
+            'bookmark': bookmark_data
         })
     
     except Exception as e:
