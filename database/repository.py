@@ -370,7 +370,7 @@ class Repository:
                     pass
             # Fallback: אם $count לא נתמך/נכשל — ספר ידנית את כמות הפריטים הייחודיים
             try:
-                docs_list = getattr(self.manager.collection, 'docs')
+                docs_list = getattr(self.manager.collection, 'docs', None)
                 if isinstance(docs_list, list):
                     names = set()
                     for d in docs_list:
