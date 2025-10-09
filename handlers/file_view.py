@@ -871,7 +871,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                         '_id': lf.get('_id')
                     }
                 else:
-                    await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                    await _edit_message_text_unified(query, "⚠️ הקובץ לא נמצא")
                     return ConversationHandler.END
             else:
                 file_name = doc.get('file_name') or 'file'
@@ -896,7 +896,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                     '_id': lf.get('_id')
                 }
             else:
-                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+                await _edit_message_text_unified(query, "⚠️ הקובץ נעלם מהמערכת החכמה")
                 return ConversationHandler.END
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
@@ -977,7 +977,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             header_html = (
                 f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line_html}"
             )
-            await TelegramUtils.safe_edit_message_text(
+            await _edit_message_text_unified(
                 query,
                 f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
                 reply_markup=reply_markup,
@@ -990,7 +990,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             except Exception:
                 safe_file_name = str(file_name).replace('`', '\\`')
             safe_code_md = str(code_preview).replace('```', '\\`\\`\\`')
-            await TelegramUtils.safe_edit_message_text(
+            await _edit_message_text_unified(
                 query,
                 f"📄 *{safe_file_name}* ({language}) - גרסה {version}{note_line_md}{large_note_md}"
                 f"```{language}\n{safe_code_md}\n```",
@@ -999,7 +999,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
+        await _edit_message_text_unified(query, "❌ שגיאה בהצגת הקוד המתקדם")
     return ConversationHandler.END
 
 
