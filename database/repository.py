@@ -47,6 +47,90 @@ class Repository:
             logger.error(f"שגיאה בשמירת קטע קוד: {e}")
             return False
 
+    # --- Favorites API ---
+    def _validate_file_name(self, file_name: str) -> bool:
+        try:
+            if not file_name or len(file_name) > 255:
+                return False
+            if any(ch in file_name for ch in ['/', '\\', '<', '>', ':', '"', '|', '?', '*']):
+                return False
+            return True
+        except Exception:
+            return False
+
+    def toggle_favorite(self, user_id: int, file_name: str) -> Optional[bool]:
+        """הוספה/הסרה של קובץ מהמועדפים. מחזיר המצב החדש או None בשגיאה."""
+        try:
+            if not isinstance(user_id, int) or user_id <= 0 or not self._validate_file_name(file_name):
+                return None
+            snippet = self.get_latest_version(user_id, file_name)
+            if not snippet or int(snippet.get("user_id", 0) or 0) != int(user_id):
+                return None
+            new_state = not bool(snippet.get("is_favorite", False))
+            now = datetime.now(timezone.utc)
+            update = {
+                "$set": {
+                    "is_favorite": new_state,
+                    "updated_at": now,
+                    "favorited_at": (now if new_state else None),
+                }
+            }
+            res = self.manager.collection.update_many(
+                {"user_id": user_id, "file_name": file_name, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                update,
+            )
+            try:
+                cache.invalidate_user_cache(user_id)
+            except Exception:
+                pass
+            return new_state if getattr(res, 'modified_count', 0) >= 0 else None
+        except Exception as e:
+            logger.error(f"שגיאה ב-toggle_favorite: {e}")
+            return None
+
+    def get_favorites(self, user_id: int, *, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
+        """החזרת רשימת מועדפים אחרונים בגרסה האחרונה לכל קובץ."""
+        try:
+            sort_by = (sort_by or "date").lower()
+            sort_options = {
+                "date": ("favorited_at", -1),
+                "name": ("file_name", 1),
+                "language": ("programming_language", 1),
+            }
+            sort_key, sort_dir = sort_options.get(sort_by, ("favorited_at", -1))
+            match: Dict[str, Any] = {"user_id": user_id, "is_favorite": True, "$or": [
+                {"is_active": True}, {"is_active": {"$exists": False}}
+            ]}
+            if language:
+                match["programming_language"] = language
+            pipeline = [
+                {"$match": match},
+                {"$sort": {"file_name": 1, "version": -1}},
+                {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
+                {"$replaceRoot": {"newRoot": "$latest"}},
+                {"$sort": {sort_key: sort_dir}},
+                {"$limit": max(1, int(limit or 50))},
+                {"$project": {"_id": 0, "file_name": 1, "programming_language": 1, "tags": 1, "description": 1, "favorited_at": 1, "updated_at": 1, "code": 1}},
+            ]
+            rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return rows
+        except Exception as e:
+            logger.error(f"שגיאה ב-get_favorites: {e}")
+            return []
+
+    def get_favorites_count(self, user_id: int) -> int:
+        try:
+            return int(self.manager.collection.count_documents({"user_id": user_id, "is_favorite": True}))
+        except Exception:
+            return 0
+
+    def is_favorite(self, user_id: int, file_name: str) -> bool:
+        try:
+            doc = self.get_latest_version(user_id, file_name)
+            return bool(doc.get("is_favorite", False)) if doc else False
+        except Exception:
+            return False
+
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
         # Preserve existing description and tags when creating a new version during edits
         try:

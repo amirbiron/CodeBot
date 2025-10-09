@@ -13,6 +13,9 @@ class CodeSnippet:
     file_name: str
     code: str
     programming_language: str
+    # שדות מועדפים
+    is_favorite: bool = False
+    favorited_at: datetime = None
     description: str = ""
     tags: List[str] = None
     version: int = 1
