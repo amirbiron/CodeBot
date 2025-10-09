@@ -1,0 +1,88 @@
+{
+  "url": "https://api.github.com/gists/0be6e70964c1174aef00abeb89e8a427",
+  "forks_url": "https://api.github.com/gists/0be6e70964c1174aef00abeb89e8a427/forks",
+  "commits_url": "https://api.github.com/gists/0be6e70964c1174aef00abeb89e8a427/commits",
+  "id": "0be6e70964c1174aef00abeb89e8a427",
+  "node_id": "G_kwDODNevjNoAIDBiZTZlNzA5NjRjMTE3NGFlZjAwYWJlYjg5ZThhNDI3",
+  "git_pull_url": "https://gist.github.com/0be6e70964c1174aef00abeb89e8a427.git",
+  "git_push_url": "https://gist.github.com/0be6e70964c1174aef00abeb89e8a427.git",
+  "html_url": "https://gist.github.com/amirbiron/0be6e70964c1174aef00abeb89e8a427",
+  "files": {
+    "One.py": {
+      "filename": "One.py",
+      "type": "application/x-python",
+      "language": "Python",
+      "raw_url": "https://gist.githubusercontent.com/amirbiron/0be6e70964c1174aef00abeb89e8a427/raw/2c6c55465ff2a9f770c49ab9dc853ffc79d66062/One.py",
+      "size": 4362,
+      "truncated": false,
+      "content": "\"\"\"\nBookmark Model for file line bookmarks\n\"\"\"\nfrom dataclasses import dataclass, field\nfrom datetime import datetime, timezone\nfrom typing import Optional, Dict, Any\nfrom bson import ObjectId\n\n\n@dataclass\nclass FileBookmark:\n    \"\"\"מודל סימנייה לשורה בקובץ קוד\"\"\"\n    \n    # Required fields\n    user_id: int                    # Telegram user ID\n    file_id: str                     # MongoDB ObjectId של הקובץ\n    file_name: str                   # שם הקובץ לחיפוש מהיר\n    file_path: str                   # נתיב הקובץ המלא\n    line_number: int                 # מספר השורה (1-based)\n    \n    # Content preview\n    line_text_preview: str = \"\"     # 100 התווים הראשונים של השורה\n    code_context: str = \"\"           # 3 שורות לפני ואחרי (אופציונלי)\n    \n    # User content\n    note: str = \"\"                   # הערת המשתמש (עד 500 תווים)\n    color: str = \"yellow\"            # צבע הסימנייה (yellow/red/green/blue)\n    \n    # Sync metadata\n    file_hash: str = \"\"              # SHA256 של הקובץ בזמן היצירה\n    valid: bool = True               # האם הסימנייה עדיין תקפה\n    sync_status: str = \"synced\"      # synced/moved/modified/deleted\n    sync_confidence: float = 1.0     # רמת הביטחון בסנכרון (0-1)\n    \n    # Timestamps\n    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))\n    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))\n    last_accessed: Optional[datetime] = None\n    \n    # MongoDB ID\n    _id: Optional[ObjectId] = None\n    \n    def to_dict(self) -> Dict[str, Any]:\n        \"\"\"המרה ל-dictionary לשמירה ב-MongoDB\"\"\"\n        data = {\n            \"user_id\": self.user_id,\n            \"file_id\": self.file_id,\n            \"file_name\": self.file_name,\n            \"file_path\": self.file_path,\n            \"line_number\": self.line_number,\n            \"line_text_preview\": self.line_text_preview[:100],  # הגבלה ל-100 תווים\n            \"code_context\": self.code_context[:500],            # הגבלה ל-500 תווים\n            \"note\": self.note[:500],                            # הגבלה ל-500 תווים\n            \"color\": self.color,\n            \"file_hash\": self.file_hash,\n            \"valid\": self.valid,\n            \"sync_status\": self.sync_status,\n            \"sync_confidence\": self.sync_confidence,\n            \"created_at\": self.created_at,\n            \"updated_at\": self.updated_at,\n            \"last_accessed\": self.last_accessed\n        }\n        \n        if self._id:\n            data[\"_id\"] = self._id\n            \n        return data\n    \n    @classmethod\n    def from_dict(cls, data: Dict[str, Any]) -> \"FileBookmark\":\n        \"\"\"יצירה מ-dictionary שהגיע מ-MongoDB\"\"\"\n        bookmark = cls(\n            user_id=data[\"user_id\"],\n            file_id=data[\"file_id\"],\n            file_name=data[\"file_name\"],\n            file_path=data.get(\"file_path\", \"\"),\n            line_number=data[\"line_number\"],\n            line_text_preview=data.get(\"line_text_preview\", \"\"),\n            code_context=data.get(\"code_context\", \"\"),\n            note=data.get(\"note\", \"\"),\n            color=data.get(\"color\", \"yellow\"),\n            file_hash=data.get(\"file_hash\", \"\"),\n            valid=data.get(\"valid\", True),\n            sync_status=data.get(\"sync_status\", \"synced\"),\n            sync_confidence=data.get(\"sync_confidence\", 1.0),\n            created_at=data.get(\"created_at\", datetime.now(timezone.utc)),\n            updated_at=data.get(\"updated_at\", datetime.now(timezone.utc)),\n            last_accessed=data.get(\"last_accessed\")\n        )\n        \n        if \"_id\" in data:\n            bookmark._id = data[\"_id\"]\n            \n        return bookmark\n    \n    def __str__(self) -> str:\n        return f\"Bookmark({self.file_name}:{self.line_number})\"\n    \n    def __repr__(self) -> str:\n        return (f\"FileBookmark(user={self.user_id}, file={self.file_name}, \"\n                f\"line={self.line_number}, note='{self.note[:20]}...')\")\n\n\n# Constants for validation\nMAX_BOOKMARKS_PER_FILE = 50\nMAX_BOOKMARKS_PER_USER = 500\nMAX_NOTE_LENGTH = 500\nMAX_CONTEXT_LENGTH = 500\nVALID_COLORS = [\"yellow\", \"red\", \"green\", \"blue\", \"purple\", \"orange\"]",
+      "encoding": "utf-8"
+    }
+  },
+  "public": true,
+  "created_at": "2025-10-09T13:34:12Z",
+  "updated_at": "2025-10-09T13:34:13Z",
+  "description": "database/models/bookmark.py",
+  "comments": 0,
+  "user": null,
+  "comments_enabled": true,
+  "comments_url": "https://api.github.com/gists/0be6e70964c1174aef00abeb89e8a427/comments",
+  "owner": {
+    "login": "amirbiron",
+    "id": 215461772,
+    "node_id": "U_kgDODNevjA",
+    "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/amirbiron",
+    "html_url": "https://github.com/amirbiron",
+    "followers_url": "https://api.github.com/users/amirbiron/followers",
+    "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+    "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+    "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+    "repos_url": "https://api.github.com/users/amirbiron/repos",
+    "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "forks": [
+
+  ],
+  "history": [
+    {
+      "user": {
+        "login": "amirbiron",
+        "id": 215461772,
+        "node_id": "U_kgDODNevjA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/amirbiron",
+        "html_url": "https://github.com/amirbiron",
+        "followers_url": "https://api.github.com/users/amirbiron/followers",
+        "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+        "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+        "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+        "repos_url": "https://api.github.com/users/amirbiron/repos",
+        "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "version": "fc678bfe709be34ca3124690692e2f9cc113538b",
+      "committed_at": "2025-10-09T13:34:12Z",
+      "change_status": {
+        "total": 109,
+        "additions": 109,
+        "deletions": 0
+      },
+      "url": "https://api.github.com/gists/0be6e70964c1174aef00abeb89e8a427/fc678bfe709be34ca3124690692e2f9cc113538b"
+    }
+  ],
+  "truncated": false
+}
