@@ -317,7 +317,7 @@ class BookmarkManager {
     
     scrollToLine(lineNumber) {
         const lineElement = document.querySelector(
-            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .highlighttable .linenos pre > a:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenodiv pre > a:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber}), .linenos a:nth-child(${lineNumber})`
         );
         
         if (lineElement) {
@@ -347,9 +347,11 @@ class BookmarkManager {
         // נסה לקבל מ-href (לפורמט #L123)
         const href = element.getAttribute('href');
         if (href) {
-            // תמיכה לאחור: #123 וגם #L123/#line-123/#line123
-            let m = href.match(/#(\d+)/);
-            if (!m) m = href.match(/#(?:L|line-?)(\d+)/i);
+            // נזהר מהתאמות-יתר: נוודא שהמספר מופיע בסוף העוגן או אחרי קידומת ידועה
+            // תחילה: #L123 או #line-123/#line123
+            let m = href.match(/#(?:L|line-?)(\d+)$/i);
+            // תאימות לאחור: #123 כשהוא בסוף (ולא #version2 וכד')
+            if (!m) m = href.match(/#(\d+)$/);
             if (m) return parseInt(m[1]);
         }
         
@@ -552,7 +554,7 @@ class BookmarkUI {
     
     addBookmarkIndicator(lineNumber) {
         const lineElement = document.querySelector(
-            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .highlighttable .linenos pre > a:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenodiv pre > a:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber}), .linenos a:nth-child(${lineNumber})`
         );
         
         if (lineElement && !lineElement.classList.contains('bookmarked')) {
@@ -570,7 +572,7 @@ class BookmarkUI {
     
     removeBookmarkIndicator(lineNumber) {
         const lineElement = document.querySelector(
-            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .highlighttable .linenos pre > a:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenodiv pre > a:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber}), .linenos a:nth-child(${lineNumber})`
         );
         
         if (lineElement) {
@@ -654,7 +656,7 @@ class BookmarkUI {
     
     showLineLoading(lineNumber, show) {
         const lineElement = document.querySelector(
-            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .highlighttable .linenos pre > a:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenodiv pre > a:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber}), .linenos a:nth-child(${lineNumber})`
         );
         
         if (lineElement) {
