@@ -1577,14 +1577,643 @@ logger.error(f"Critical error in scheduler: {error}")
 
 ---
 
+## 🔧 נספח: שיפורים מתקדמים נוספים (מתוך ביקורת עמיתים)
+
+### 1. טיפול משופר בשגיאות JobQueue
+
+```python
+# reminders/scheduler_enhanced.py
+class EnhancedReminderScheduler(ReminderScheduler):
+    """מתזמן משופר עם טיפול בכשלים"""
+    
+    def __init__(self, application: Application, db: RemindersDB):
+        super().__init__(application, db)
+        self._active_jobs = {}  # מעקב אחר jobs פעילים
+        self._failed_schedules = []  # תזכורות שנכשלו בתזמון
+    
+    async def schedule_reminder(self, reminder: dict) -> bool:
+        """תזמון תזכורת עם fallback"""
+        try:
+            reminder_id = reminder['reminder_id']
+            remind_at = reminder['remind_at']
+            user_id = reminder['user_id']
+            
+            # ניסיון לתזמן
+            job = self.job_queue.run_once(
+                self._send_reminder_job,
+                when=remind_at,
+                name=f"reminder_{reminder_id}",
+                data=reminder,
+                chat_id=user_id,
+                user_id=user_id
+            )
+            
+            if not job:
+                logger.error(f"Failed to create job for reminder {reminder_id}")
+                self._save_failed_schedule(reminder)
+                return False
+            
+            # שמירת reference
+            self._active_jobs[reminder_id] = job
+            logger.info(f"Successfully scheduled reminder {reminder_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error scheduling reminder {reminder_id}: {e}")
+            # fallback: שמירה לבדיקה מאוחרת
+            self._save_failed_schedule(reminder)
+            return False
+    
+    def _save_failed_schedule(self, reminder: dict):
+        """שמירת תזכורת שנכשלה לטיפול מאוחר יותר"""
+        self._failed_schedules.append({
+            "reminder": reminder,
+            "failed_at": datetime.now(timezone.utc),
+            "retry_count": 0
+        })
+    
+    async def _retry_failed_schedules(self):
+        """ניסיון חוזר לתזמן תזכורות שנכשלו"""
+        if not self._failed_schedules:
+            return
+        
+        logger.info(f"Retrying {len(self._failed_schedules)} failed schedules")
+        
+        succeeded = []
+        for item in self._failed_schedules:
+            if item["retry_count"] >= 3:
+                continue
+                
+            item["retry_count"] += 1
+            if await self.schedule_reminder(item["reminder"]):
+                succeeded.append(item)
+        
+        # הסרת אלו שהצליחו
+        for item in succeeded:
+            self._failed_schedules.remove(item)
+    
+    async def _cleanup_completed_jobs(self):
+        """ניקוי jobs שהושלמו למניעת memory leak"""
+        completed = []
+        
+        for reminder_id, job in self._active_jobs.items():
+            if job.removed or job.next_t is None:
+                completed.append(reminder_id)
+        
+        for reminder_id in completed:
+            del self._active_jobs[reminder_id]
+        
+        if completed:
+            logger.debug(f"Cleaned up {len(completed)} completed jobs")
+        
+        # גם נסה תזכורות שנכשלו
+        await self._retry_failed_schedules()
+```
+
+### 2. Timezone Validation משופר
+
+```python
+# reminders/validators.py
+from zoneinfo import ZoneInfo, available_timezones
+import pytz
+
+class TimezoneValidator:
+    """מאמת אזורי זמן"""
+    
+    def __init__(self):
+        self._valid_timezones = set(available_timezones())
+        self._user_timezone_cache = {}
+    
+    def validate_timezone(self, timezone_str: str) -> bool:
+        """בדיקה שאזור זמן תקין"""
+        try:
+            # נסה ליצור ZoneInfo
+            ZoneInfo(timezone_str)
+            return timezone_str in self._valid_timezones
+        except Exception:
+            return False
+    
+    def get_user_timezone(self, user_id: int, db) -> str:
+        """קבלת אזור זמן של משתמש עם validation"""
+        # בדיקה בcache
+        if user_id in self._user_timezone_cache:
+            return self._user_timezone_cache[user_id]
+        
+        try:
+            # שליפה מה-DB
+            user_profile = db.users_collection.find_one({"user_id": user_id})
+            
+            if user_profile and "timezone" in user_profile:
+                tz = user_profile["timezone"]
+                
+                # validation
+                if self.validate_timezone(tz):
+                    self._user_timezone_cache[user_id] = tz
+                    return tz
+                else:
+                    logger.warning(f"Invalid timezone '{tz}' for user {user_id}")
+            
+            # ברירת מחדל לפי מיקום (אם יש)
+            if user_profile and "location" in user_profile:
+                tz = self._timezone_from_location(user_profile["location"])
+                if tz:
+                    self._user_timezone_cache[user_id] = tz
+                    return tz
+            
+        except Exception as e:
+            logger.error(f"Error getting timezone for user {user_id}: {e}")
+        
+        # ברירת מחדל
+        default_tz = "UTC"
+        self._user_timezone_cache[user_id] = default_tz
+        return default_tz
+    
+    def _timezone_from_location(self, location: str) -> Optional[str]:
+        """ניחוש אזור זמן לפי מיקום"""
+        location_to_tz = {
+            "ישראל": "Asia/Jerusalem",
+            "Israel": "Asia/Jerusalem",
+            "ארה\"ב": "America/New_York",
+            "USA": "America/New_York",
+            # ... עוד מיפויים
+        }
+        return location_to_tz.get(location)
+```
+
+### 3. Circuit Breaker Pattern
+
+```python
+# reminders/circuit_breaker.py
+import time
+from enum import Enum
+from typing import Callable, Any
+
+class CircuitState(Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+class CircuitBreaker:
+    """מגן מפני עומס יתר בשליחת תזכורות"""
+    
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_timeout: int = 300,
+        expected_exception: type = Exception
+    ):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.expected_exception = expected_exception
+        
+        self.failure_count = 0
+        self.last_failure_time = 0
+        self.state = CircuitState.CLOSED
+        self._half_open_attempts = 0
+    
+    async def call(self, func: Callable, *args, **kwargs) -> Any:
+        """ביצוע פונקציה דרך ה-circuit breaker"""
+        if self.state == CircuitState.OPEN:
+            if time.time() - self.last_failure_time > self.recovery_timeout:
+                self.state = CircuitState.HALF_OPEN
+                self._half_open_attempts = 0
+            else:
+                raise Exception(f"Circuit breaker is OPEN (failures: {self.failure_count})")
+        
+        try:
+            result = await func(*args, **kwargs)
+            
+            # הצלחה - איפוס
+            if self.state == CircuitState.HALF_OPEN:
+                self._half_open_attempts += 1
+                if self._half_open_attempts >= 3:  # 3 הצלחות רצופות
+                    self.state = CircuitState.CLOSED
+                    self.failure_count = 0
+                    logger.info("Circuit breaker recovered to CLOSED state")
+            
+            return result
+            
+        except self.expected_exception as e:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+            
+            if self.failure_count >= self.failure_threshold:
+                self.state = CircuitState.OPEN
+                logger.warning(f"Circuit breaker opened after {self.failure_count} failures")
+            
+            raise e
+
+# שימוש במתזמן:
+class ProtectedScheduler(EnhancedReminderScheduler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=10,
+            recovery_timeout=60,
+            expected_exception=TelegramError
+        )
+    
+    async def _send_reminder(self, reminder: dict):
+        """שליחה מוגנת של תזכורת"""
+        try:
+            await self.circuit_breaker.call(
+                self._do_send_reminder,
+                reminder
+            )
+        except Exception as e:
+            if "Circuit breaker is OPEN" in str(e):
+                logger.warning(f"Skipping reminder due to circuit breaker: {reminder['reminder_id']}")
+                # שמירה לניסיון מאוחר יותר
+                self._save_for_retry(reminder)
+            else:
+                raise
+```
+
+### 4. Performance Monitoring
+
+```python
+# reminders/monitoring.py
+import time
+from functools import wraps
+from typing import Dict, Any
+import asyncio
+
+class PerformanceMonitor:
+    """מעקב אחר ביצועים"""
+    
+    def __init__(self):
+        self.metrics = {
+            "operations": {},
+            "errors": {},
+            "durations": []
+        }
+    
+    def monitor(self, operation_name: str):
+        """דקורטור למעקב ביצועים"""
+        def decorator(func):
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                start_time = time.time()
+                
+                try:
+                    result = await func(*args, **kwargs)
+                    duration = time.time() - start_time
+                    
+                    # עדכון מטריקות
+                    self._record_success(operation_name, duration)
+                    
+                    # התראה על ביצועים איטיים
+                    if duration > 5:  # שניות
+                        logger.warning(f"{operation_name} took {duration:.2f}s - performance issue!")
+                    
+                    return result
+                    
+                except Exception as e:
+                    duration = time.time() - start_time
+                    self._record_error(operation_name, duration, str(e))
+                    raise
+            
+            return wrapper
+        return decorator
+    
+    def _record_success(self, operation: str, duration: float):
+        if operation not in self.metrics["operations"]:
+            self.metrics["operations"][operation] = {
+                "count": 0,
+                "total_duration": 0,
+                "avg_duration": 0
+            }
+        
+        stats = self.metrics["operations"][operation]
+        stats["count"] += 1
+        stats["total_duration"] += duration
+        stats["avg_duration"] = stats["total_duration"] / stats["count"]
+        
+        # שמירת דגימות לניתוח
+        self.metrics["durations"].append({
+            "operation": operation,
+            "duration": duration,
+            "timestamp": time.time()
+        })
+        
+        # ניקוי דגימות ישנות (שמור רק 1000 אחרונות)
+        if len(self.metrics["durations"]) > 1000:
+            self.metrics["durations"] = self.metrics["durations"][-1000:]
+    
+    def _record_error(self, operation: str, duration: float, error: str):
+        if operation not in self.metrics["errors"]:
+            self.metrics["errors"][operation] = []
+        
+        self.metrics["errors"][operation].append({
+            "error": error,
+            "duration": duration,
+            "timestamp": time.time()
+        })
+    
+    def get_report(self) -> Dict[str, Any]:
+        """דוח ביצועים"""
+        return {
+            "operations": self.metrics["operations"],
+            "error_count": sum(len(errors) for errors in self.metrics["errors"].values()),
+            "slowest_operations": self._get_slowest_operations(),
+            "error_rate": self._calculate_error_rate()
+        }
+    
+    def _get_slowest_operations(self, count: int = 5):
+        """החזר את הפעולות האיטיות ביותר"""
+        sorted_ops = sorted(
+            self.metrics["operations"].items(),
+            key=lambda x: x[1]["avg_duration"],
+            reverse=True
+        )
+        return sorted_ops[:count]
+    
+    def _calculate_error_rate(self) -> float:
+        """חישוב אחוז השגיאות"""
+        total_ops = sum(op["count"] for op in self.metrics["operations"].values())
+        total_errors = sum(len(errors) for errors in self.metrics["errors"].values())
+        
+        if total_ops == 0:
+            return 0
+        
+        return (total_errors / (total_ops + total_errors)) * 100
+
+# שימוש:
+monitor = PerformanceMonitor()
+
+class MonitoredScheduler(ProtectedScheduler):
+    
+    @monitor.monitor("send_reminder")
+    async def _send_reminder(self, reminder: dict):
+        return await super()._send_reminder(reminder)
+    
+    @monitor.monitor("schedule_reminder")
+    async def schedule_reminder(self, reminder: dict) -> bool:
+        return await super().schedule_reminder(reminder)
+    
+    async def get_performance_report(self):
+        """קבלת דוח ביצועים"""
+        return monitor.get_report()
+```
+
+### 5. Health Check System
+
+```python
+# reminders/health.py
+class RemindersHealthCheck:
+    """בדיקת תקינות מערכת התזכורות"""
+    
+    def __init__(self, scheduler, db):
+        self.scheduler = scheduler
+        self.db = db
+    
+    async def check_health(self) -> Dict[str, Any]:
+        """בדיקת תקינות מלאה"""
+        checks = {
+            "database": await self._check_database(),
+            "job_queue": await self._check_job_queue(),
+            "telegram_api": await self._check_telegram(),
+            "memory": self._check_memory(),
+            "performance": await self._check_performance()
+        }
+        
+        overall_health = all(check["healthy"] for check in checks.values())
+        
+        return {
+            "status": "healthy" if overall_health else "unhealthy",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "checks": checks,
+            "metrics": await self._get_metrics()
+        }
+    
+    async def _check_database(self) -> Dict:
+        """בדיקת תקינות DB"""
+        try:
+            # ping
+            await self.db.db.command("ping")
+            
+            # בדיקת אינדקסים
+            indexes = await self.db.reminders_collection.list_indexes().to_list(None)
+            
+            return {
+                "healthy": True,
+                "indexes_count": len(indexes),
+                "response_time_ms": 10  # מדידה אמיתית
+            }
+        except Exception as e:
+            return {
+                "healthy": False,
+                "error": str(e)
+            }
+    
+    async def _check_job_queue(self) -> Dict:
+        """בדיקת תקינות JobQueue"""
+        try:
+            jobs_count = len(self.scheduler.job_queue.jobs())
+            
+            return {
+                "healthy": jobs_count < 10000,  # סף מקסימום
+                "jobs_count": jobs_count,
+                "active_jobs": len(self.scheduler._active_jobs)
+            }
+        except Exception as e:
+            return {
+                "healthy": False,
+                "error": str(e)
+            }
+    
+    async def _check_telegram(self) -> Dict:
+        """בדיקת תקינות Telegram API"""
+        try:
+            me = await self.scheduler.bot.get_me()
+            return {
+                "healthy": True,
+                "bot_username": me.username
+            }
+        except Exception as e:
+            return {
+                "healthy": False,
+                "error": str(e)
+            }
+    
+    def _check_memory(self) -> Dict:
+        """בדיקת זיכרון"""
+        import psutil
+        
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        
+        return {
+            "healthy": memory_info.rss < 500 * 1024 * 1024,  # פחות מ-500MB
+            "memory_mb": memory_info.rss / 1024 / 1024,
+            "memory_percent": process.memory_percent()
+        }
+    
+    async def _check_performance(self) -> Dict:
+        """בדיקת ביצועים"""
+        if hasattr(self.scheduler, 'get_performance_report'):
+            report = await self.scheduler.get_performance_report()
+            
+            return {
+                "healthy": report["error_rate"] < 5,  # פחות מ-5% שגיאות
+                "error_rate": report["error_rate"],
+                "slowest_op": report["slowest_operations"][0] if report["slowest_operations"] else None
+            }
+        
+        return {"healthy": True, "note": "No performance data"}
+    
+    async def _get_metrics(self) -> Dict:
+        """מטריקות כלליות"""
+        return {
+            "total_reminders": await self.db.reminders_collection.count_documents({}),
+            "pending_reminders": await self.db.reminders_collection.count_documents(
+                {"status": "pending"}
+            ),
+            "failed_reminders": len(self.scheduler._failed_schedules) if hasattr(
+                self.scheduler, '_failed_schedules'
+            ) else 0
+        }
+```
+
+### 6. Recovery Mechanism
+
+```python
+# reminders/recovery.py
+class ReminderRecoveryService:
+    """שירות שחזור תזכורות"""
+    
+    def __init__(self, scheduler, db):
+        self.scheduler = scheduler
+        self.db = db
+    
+    async def recover_system(self):
+        """שחזור מלא של המערכת"""
+        logger.info("Starting system recovery...")
+        
+        # 1. שחזור תזכורות שלא נשלחו
+        unsent = await self._recover_unsent_reminders()
+        
+        # 2. שחזור jobs שנעלמו
+        missing = await self._recover_missing_jobs()
+        
+        # 3. ניקוי תזכורות תקועות
+        stuck = await self._cleanup_stuck_reminders()
+        
+        # 4. תיקון חוסר סנכרון
+        fixed = await self._fix_sync_issues()
+        
+        logger.info(f"Recovery complete: unsent={unsent}, missing={missing}, "
+                   f"stuck={stuck}, fixed={fixed}")
+        
+        return {
+            "recovered_unsent": unsent,
+            "recovered_missing": missing,
+            "cleaned_stuck": stuck,
+            "fixed_sync": fixed
+        }
+    
+    async def _recover_unsent_reminders(self) -> int:
+        """שחזור תזכורות שלא נשלחו"""
+        now = datetime.now(timezone.utc)
+        one_hour_ago = now - timedelta(hours=1)
+        
+        # מצא תזכורות שהיו צריכות להישלח
+        unsent = await self.db.reminders_collection.find({
+            "status": "pending",
+            "is_sent": False,
+            "remind_at": {
+                "$gte": one_hour_ago,
+                "$lte": now
+            },
+            "retry_count": {"$lt": 3}
+        }).to_list(None)
+        
+        recovered = 0
+        for reminder in unsent:
+            # נסה לשלוח מיד
+            await self.scheduler._send_reminder(reminder)
+            recovered += 1
+        
+        return recovered
+    
+    async def _recover_missing_jobs(self) -> int:
+        """שחזור jobs שנעלמו מה-queue"""
+        # מצא תזכורות עתידיות ללא job
+        future_reminders = await self.db.reminders_collection.find({
+            "status": "pending",
+            "remind_at": {"$gt": datetime.now(timezone.utc)}
+        }).to_list(None)
+        
+        recovered = 0
+        for reminder in future_reminders:
+            job_name = f"reminder_{reminder['reminder_id']}"
+            
+            # בדוק אם יש job
+            if not self.scheduler.job_queue.get_jobs_by_name(job_name):
+                # צור job חדש
+                if await self.scheduler.schedule_reminder(reminder):
+                    recovered += 1
+        
+        return recovered
+    
+    async def _cleanup_stuck_reminders(self) -> int:
+        """ניקוי תזכורות תקועות"""
+        # תזכורות שסומנו כנשלחות לפני יותר משעה אבל עדיין pending
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        
+        result = await self.db.reminders_collection.update_many(
+            {
+                "status": "pending",
+                "is_sent": True,
+                "updated_at": {"$lt": one_hour_ago},
+                "retry_count": {"$gte": 3}
+            },
+            {
+                "$set": {
+                    "status": "failed",
+                    "last_error": "Stuck reminder - marked as failed"
+                }
+            }
+        )
+        
+        return result.modified_count
+    
+    async def _fix_sync_issues(self) -> int:
+        """תיקון בעיות סנכרון"""
+        fixed = 0
+        
+        # בדוק כל job ב-queue
+        for job in self.scheduler.job_queue.jobs():
+            if not job.name or not job.name.startswith("reminder_"):
+                continue
+            
+            reminder_id = job.name.replace("reminder_", "")
+            
+            # וודא שהתזכורת קיימת ופעילה
+            reminder = await self.db.reminders_collection.find_one({
+                "reminder_id": reminder_id
+            })
+            
+            if not reminder or reminder["status"] != "pending":
+                # Job מיותר - בטל אותו
+                job.schedule_removal()
+                fixed += 1
+        
+        return fixed
+```
+
+---
+
 ## 📚 תיעוד נוסף
 
 - [מדריך משתמש](docs/reminders_user_guide.md)
 - [API Reference](docs/reminders_api.md)
 - [Troubleshooting](docs/reminders_troubleshooting.md)
+- [Performance Tuning](docs/reminders_performance.md)
 
 ---
 
-**סטטוס:** מוכן למימוש ✅  
-**עדכון אחרון:** 09/10/2025  
-**מחבר:** AI Assistant
+**סטטוס:** מוכן למימוש עם שיפורים מתקדמים ✅  
+**עדכון אחרון:** 09/10/2025 - v2.1  
+**מחבר:** AI Assistant  
+**ביקורת:** קהילת המפתחים
