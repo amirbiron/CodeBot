@@ -95,9 +95,8 @@ class Repository:
             except Exception:
                 pass
             matched = int(getattr(res, 'matched_count', 0) or 0)
-            modified = int(getattr(res, 'modified_count', 0) or 0)
-            # הצלחה רק אם לפחות מסמך אחד עודכן בפועל; אחרת החזר None כדי לאותת על כשל/ללא שינוי
-            if matched <= 0 or modified <= 0:
+            # די בהצלחה אם יש התאמות; במקרים מסוימים modified עשוי להיות 0 (למשל אותה ערך)
+            if matched <= 0:
                 return None
             return new_state
         except Exception as e:
