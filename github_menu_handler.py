@@ -1334,6 +1334,10 @@ class GitHubMenuHandler:
             context.user_data["upload_target_folder"] = (session.get("selected_folder") or "")
             await self.show_pre_upload_check(update, context)
         elif query.data == "upload_folder_custom":
+            try:
+                await query.answer("הקלד/י נתיב יעד…", show_alert=False)
+            except Exception:
+                pass
             await self.ask_upload_folder(update, context)
         elif query.data == "upload_folder_create":
             # פתח זרימת יצירת תיקייה (תואם למסלול בהמשך עבור create_folder)
