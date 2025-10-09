@@ -35,15 +35,19 @@ def test_toggle_favorite_sequence(repo):
 
     # on -> True
     s1 = repo.toggle_favorite(1, 'x.py')
-    latest = repo.get_favorites(1)
-    assert s1 in (True, None) and any(f['file_name'] == 'x.py' for f in latest)
+    # אמת ישירות מול docs כדי להימנע מתלות בקאש/aggregate בסטאב
+    docs = repo.manager.collection.docs
+    assert s1 in (True, None)
+    assert any(isinstance(d, dict) and d.get('user_id') == 1 and d.get('file_name') == 'x.py' and d.get('is_favorite') is True for d in docs)
 
     # off -> False
     s2 = repo.toggle_favorite(1, 'x.py')
-    latest2 = repo.get_favorites(1)
-    assert s2 in (False, None) and all(f['file_name'] != 'x.py' for f in latest2)
+    docs2 = repo.manager.collection.docs
+    assert s2 in (False, None)
+    assert all(not (isinstance(d, dict) and d.get('user_id') == 1 and d.get('file_name') == 'x.py' and d.get('is_favorite') is True) for d in docs2)
 
     # on again -> True
     s3 = repo.toggle_favorite(1, 'x.py')
-    latest3 = repo.get_favorites(1)
-    assert s3 in (True, None) and any(f['file_name'] == 'x.py' for f in latest3)
+    docs3 = repo.manager.collection.docs
+    assert s3 in (True, None)
+    assert any(isinstance(d, dict) and d.get('user_id') == 1 and d.get('file_name') == 'x.py' and d.get('is_favorite') is True for d in docs3)
