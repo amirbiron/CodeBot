@@ -391,7 +391,8 @@ class Repository:
                     {"$group": {"_id": "$file_name"}},
                 ]
                 rows = list(self.manager.collection.aggregate(pipeline2, allowDiskUse=True))
-                return len(rows or [])
+                # ספירה בטוחה: רק פריטים דיקט עם מפתח _id נחשבים
+                return len([r for r in rows if isinstance(r, dict) and ("_id" in r)])
             except Exception:
                 return 0
         except Exception:
