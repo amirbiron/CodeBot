@@ -1158,7 +1158,8 @@ class AdvancedBotHandlers:
                 raw = json.dumps(export_data, ensure_ascii=False, indent=2)
                 bio = io.BytesIO(raw.encode('utf-8'))
                 bio.name = "favorites.json"
-                await query.message.reply_document(document=InputFile(bio, filename="favorites.json"), caption="📥 ייצוא מועדפים (JSON)")
+                # שליחה עם BytesIO כפרמטר ראשון כדי לאפשר לטסטים לחלץ את התוכן
+                await query.message.reply_document(bio, filename="favorites.json", caption="📥 ייצוא מועדפים (JSON)")
                 await query.edit_message_text("✅ קובץ ייצוא נשלח")
 
             elif data == "favorites_stats":

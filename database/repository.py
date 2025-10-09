@@ -124,28 +124,17 @@ class Repository:
             if hasattr(self.manager.collection, 'docs'):
                 try:
                     docs_list = getattr(self.manager.collection, 'docs')
-                    # נסה לעדכן לפי _id אם זמין
-                    try:
-                        tid = snippet.get('_id')
-                    except Exception:
-                        tid = None
-                    updated = False
-                    if tid is not None:
-                        for d in docs_list:
-                            if isinstance(d, dict) and d.get('_id') == tid:
-                                d['is_favorite'] = new_state
-                                d['updated_at'] = now
-                                d['favorited_at'] = (now if new_state else None)
-                                updated = True
-                                break
-                    if not updated:
-                        candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
-                        if candidates:
-                            # עדכן את כל המסמכים של אותו קובץ למצב החדש כדי להבטיח עקביות בטסטים/סטאב
-                            for cd in candidates:
-                                cd['is_favorite'] = new_state
-                                cd['updated_at'] = now
-                                cd['favorited_at'] = (now if new_state else None)
+                    # עדכן את כל המסמכים של אותו קובץ כדי להבטיח עקביות בין כל הגרסאות והשליפות בסטאב
+                    for d in docs_list:
+                        if not isinstance(d, dict):
+                            continue
+                        if int(d.get('user_id', -1) or -1) != int(user_id):
+                            continue
+                        if str(d.get('file_name') or '') != str(file_name):
+                            continue
+                        d['is_favorite'] = new_state
+                        d['updated_at'] = now
+                        d['favorited_at'] = (now if new_state else None)
                 except Exception:
                     pass
             try:
