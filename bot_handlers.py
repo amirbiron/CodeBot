@@ -157,15 +157,15 @@ class AdvancedBotHandlers:
                 token = secrets.token_urlsafe(6)
             except Exception:
                 token = "t"  # fallback קצר
-            # אחסן מיפוי בטוח ב-user_data (פר-משתמש)
+            # קיצור טוקן לשימוש ב-callback_data ושמירת המיפוי תחת המפתח המקוצר
+            short_tok = (token[:24] if isinstance(token, str) else "t")
             try:
                 tokens_map = context.user_data.get('fav_tokens') or {}
-                tokens_map[token] = file_name
-                # שמירה מחדש (במידה וסוג האחסון דורש)
+                tokens_map[short_tok] = file_name
                 context.user_data['fav_tokens'] = tokens_map
             except Exception:
                 pass
-            fav_cb = f"fav_toggle_tok:{token[:24]}"
+            fav_cb = f"fav_toggle_tok:{short_tok}"
 
         buttons = [
             [
