@@ -52,6 +52,8 @@ def bot(monkeypatch):
             ]
         def get_latest_version(self, uid, name):
             return {'_id': '507f1f77bcf86cd799439011', 'file_name': name, 'code': 'x', 'programming_language': 'python'}
+        def is_favorite(self, uid, name):
+            return True
     db_mod = __import__('database', fromlist=['db'])
     monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
     return bh.AdvancedBotHandlers(_App())
