@@ -351,12 +351,15 @@ async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
 
 # --- רישום handlers לקטגוריית מועדפים ---
 def setup_favorites_category_handlers(application):
+    # הוספה בקבוצת עדיפות גבוהה לפני ה-catch-all הכללי, עם fallback כאשר group לא נתמך
     try:
-        # הוספה בקבוצת עדיפות גבוהה לפני ה-catch-all הכללי
         application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'), group=-5)
+    except TypeError:
+        application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'))
+    try:
         application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'), group=-5)
-    except Exception:
-        pass
+    except TypeError:
+        application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'))
 
 # --- Redirect file view/edit handlers to split module implementations ---
 from handlers.file_view import (
