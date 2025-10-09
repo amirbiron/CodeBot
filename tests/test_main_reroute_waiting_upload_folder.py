@@ -9,10 +9,9 @@ async def test_main_reroutes_waiting_upload_folder_to_text_input(monkeypatch):
     import importlib
     main_mod = importlib.import_module('main')
 
-    # Build a minimal app with github_handler installed
-    bot = main_mod.Bot()
-
-    gh = bot.application.bot_data['github_handler']
+    # Build the main application like production to access github_handler
+    app_wrapper = main_mod.Main()
+    gh = app_wrapper.application.bot_data['github_handler']
     called = {"text_input": False}
     async def _handle_text_input(update, context):
         called["text_input"] = True
@@ -32,7 +31,7 @@ async def test_main_reroutes_waiting_upload_folder_to_text_input(monkeypatch):
     class _Ctx:
         def __init__(self):
             self.user_data = {"waiting_for_upload_folder": True}
-            self.bot_data = bot.application.bot_data
+            self.bot_data = app_wrapper.application.bot_data
 
     # Use the high-priority text router that main installs
     # We need to grab the inner function; replicate its logic here by calling it directly
