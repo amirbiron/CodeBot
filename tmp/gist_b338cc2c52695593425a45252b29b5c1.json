@@ -1,0 +1,88 @@
+{
+  "url": "https://api.github.com/gists/b338cc2c52695593425a45252b29b5c1",
+  "forks_url": "https://api.github.com/gists/b338cc2c52695593425a45252b29b5c1/forks",
+  "commits_url": "https://api.github.com/gists/b338cc2c52695593425a45252b29b5c1/commits",
+  "id": "b338cc2c52695593425a45252b29b5c1",
+  "node_id": "G_kwDODNevjNoAIGIzMzhjYzJjNTI2OTU1OTM0MjVhNDUyNTJiMjliNWMx",
+  "git_pull_url": "https://gist.github.com/b338cc2c52695593425a45252b29b5c1.git",
+  "git_push_url": "https://gist.github.com/b338cc2c52695593425a45252b29b5c1.git",
+  "html_url": "https://gist.github.com/amirbiron/b338cc2c52695593425a45252b29b5c1",
+  "files": {
+    "6.html": {
+      "filename": "6.html",
+      "type": "text/html",
+      "language": "HTML",
+      "raw_url": "https://gist.githubusercontent.com/amirbiron/b338cc2c52695593425a45252b29b5c1/raw/f5c78fa5f977c7a2970cc44b4595fd993e59640e/6.html",
+      "size": 3336,
+      "truncated": false,
+      "content": "<!-- \n    Bookmarks System HTML Snippet\n    להוספה בקובץ view_file.html או בכל עמוד שמציג קוד\n-->\n\n<!-- Hidden file ID for JavaScript -->\n<input type=\"hidden\" id=\"fileId\" value=\"{{ file_id }}\">\n\n<!-- Bookmarks Toggle Button -->\n<button \n    id=\"toggleBookmarksBtn\" \n    class=\"bookmarks-toggle-btn\"\n    aria-label=\"פתח פאנל סימניות\"\n    aria-expanded=\"false\"\n    aria-controls=\"bookmarksPanel\"\n    title=\"סימניות\">\n    <span aria-hidden=\"true\">🔖</span>\n    <span id=\"bookmarkCount\" class=\"bookmark-count\" style=\"display: none;\">0</span>\n</button>\n\n<!-- Bookmarks Panel -->\n<aside \n    id=\"bookmarksPanel\" \n    class=\"bookmarks-panel\"\n    role=\"complementary\"\n    aria-label=\"פאנל סימניות\">\n    \n    <!-- Panel Header -->\n    <div class=\"bookmarks-panel-header\">\n        <h2>\n            <span aria-hidden=\"true\">🔖</span>\n            סימניות בקובץ\n        </h2>\n        <div class=\"bookmarks-panel-actions\">\n            <button \n                id=\"exportBookmarks\"\n                title=\"ייצא סימניות\"\n                aria-label=\"ייצא סימניות לקובץ JSON\">\n                <span aria-hidden=\"true\">💾</span>\n                ייצא\n            </button>\n            <button \n                id=\"clearAllBookmarks\"\n                title=\"מחק הכל\"\n                aria-label=\"מחק את כל הסימניות\">\n                <span aria-hidden=\"true\">🗑️</span>\n                נקה הכל\n            </button>\n            <button \n                id=\"closePanel\"\n                onclick=\"document.getElementById('bookmarksPanel').classList.remove('open')\"\n                title=\"סגור\"\n                aria-label=\"סגור פאנל סימניות\">\n                <span aria-hidden=\"true\">✕</span>\n            </button>\n        </div>\n    </div>\n    \n    <!-- Bookmarks List -->\n    <div class=\"bookmarks-list\" role=\"list\">\n        <!-- Bookmarks will be dynamically inserted here -->\n        <div class=\"empty-state\">\n            <p>אין עדיין סימניות בקובץ זה</p>\n            <p>לחץ על מספר שורה כדי להוסיף סימנייה</p>\n        </div>\n    </div>\n</aside>\n\n<!-- Include Styles -->\n<link rel=\"stylesheet\" href=\"{{ url_for('static', filename='css/bookmarks.css') }}\">\n\n<!-- Include JavaScript -->\n<script src=\"{{ url_for('static', filename='js/bookmarks.js') }}\" defer></script>\n\n<!-- Inline styles for immediate rendering (optional) -->\n<style>\n    /* Critical styles for immediate rendering */\n    .bookmarks-toggle-btn {\n        position: fixed;\n        top: 100px;\n        right: 20px;\n        z-index: 1000;\n        background: white;\n        border: 2px solid #ffd700;\n        border-radius: 50%;\n        width: 50px;\n        height: 50px;\n        display: flex;\n        align-items: center;\n        justify-content: center;\n        cursor: pointer;\n        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);\n    }\n    \n    .bookmarks-panel {\n        position: fixed;\n        top: 0;\n        right: -400px;\n        width: 400px;\n        height: 100vh;\n        background: white;\n        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);\n        transition: right 0.3s ease;\n        z-index: 999;\n    }\n    \n    .bookmarks-panel.open {\n        right: 0;\n    }\n</style>",
+      "encoding": "utf-8"
+    }
+  },
+  "public": true,
+  "created_at": "2025-10-09T14:04:01Z",
+  "updated_at": "2025-10-09T14:04:01Z",
+  "description": "webapp/templates/bookmarks_snippet.html",
+  "comments": 0,
+  "user": null,
+  "comments_enabled": true,
+  "comments_url": "https://api.github.com/gists/b338cc2c52695593425a45252b29b5c1/comments",
+  "owner": {
+    "login": "amirbiron",
+    "id": 215461772,
+    "node_id": "U_kgDODNevjA",
+    "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/amirbiron",
+    "html_url": "https://github.com/amirbiron",
+    "followers_url": "https://api.github.com/users/amirbiron/followers",
+    "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+    "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+    "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+    "repos_url": "https://api.github.com/users/amirbiron/repos",
+    "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "forks": [
+
+  ],
+  "history": [
+    {
+      "user": {
+        "login": "amirbiron",
+        "id": 215461772,
+        "node_id": "U_kgDODNevjA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/amirbiron",
+        "html_url": "https://github.com/amirbiron",
+        "followers_url": "https://api.github.com/users/amirbiron/followers",
+        "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+        "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+        "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+        "repos_url": "https://api.github.com/users/amirbiron/repos",
+        "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "version": "1d4377e6285e479e972befb2312c7663ab9221b5",
+      "committed_at": "2025-10-09T14:04:01Z",
+      "change_status": {
+        "total": 110,
+        "additions": 110,
+        "deletions": 0
+      },
+      "url": "https://api.github.com/gists/b338cc2c52695593425a45252b29b5c1/1d4377e6285e479e972befb2312c7663ab9221b5"
+    }
+  ],
+  "truncated": false
+}

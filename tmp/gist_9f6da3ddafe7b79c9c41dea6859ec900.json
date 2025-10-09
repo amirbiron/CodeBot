@@ -1,0 +1,88 @@
+{
+  "url": "https://api.github.com/gists/9f6da3ddafe7b79c9c41dea6859ec900",
+  "forks_url": "https://api.github.com/gists/9f6da3ddafe7b79c9c41dea6859ec900/forks",
+  "commits_url": "https://api.github.com/gists/9f6da3ddafe7b79c9c41dea6859ec900/commits",
+  "id": "9f6da3ddafe7b79c9c41dea6859ec900",
+  "node_id": "G_kwDODNevjNoAIDlmNmRhM2RkYWZlN2I3OWM5YzQxZGVhNjg1OWVjOTAw",
+  "git_pull_url": "https://gist.github.com/9f6da3ddafe7b79c9c41dea6859ec900.git",
+  "git_push_url": "https://gist.github.com/9f6da3ddafe7b79c9c41dea6859ec900.git",
+  "html_url": "https://gist.github.com/amirbiron/9f6da3ddafe7b79c9c41dea6859ec900",
+  "files": {
+    "3.py": {
+      "filename": "3.py",
+      "type": "application/x-python",
+      "language": "Python",
+      "raw_url": "https://gist.githubusercontent.com/amirbiron/9f6da3ddafe7b79c9c41dea6859ec900/raw/f5acdfff7732dea4d5074990e7ad6294d2be26c9/3.py",
+      "size": 10477,
+      "truncated": false,
+      "content": "\"\"\"\nBookmarks API Endpoints for WebApp\n\"\"\"\nfrom flask import Blueprint, jsonify, request, session\nfrom bson import ObjectId\nfrom functools import wraps\nimport logging\nimport html\n\nfrom database.bookmarks_manager import BookmarksManager\n\nlogger = logging.getLogger(__name__)\n\n# יצירת Blueprint\nbookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')\n\n\ndef get_db():\n    \"\"\"Get database instance - implement based on your setup\"\"\"\n    from webapp.app import get_database_connection\n    return get_database_connection()\n\n\ndef get_bookmarks_manager():\n    \"\"\"Get bookmarks manager instance\"\"\"\n    return BookmarksManager(get_db())\n\n\n# ==================== Decorators ====================\n\ndef require_auth(f):\n    \"\"\"Decorator to check if user is authenticated\"\"\"\n    @wraps(f)\n    def decorated_function(*args, **kwargs):\n        if 'user_id' not in session:\n            return jsonify({'ok': False, 'error': 'Unauthorized'}), 401\n        return f(*args, **kwargs)\n    return decorated_function\n\n\ndef sanitize_input(text: str, max_length: int = 500) -> str:\n    \"\"\"Sanitize user input to prevent XSS\"\"\"\n    if not text:\n        return \"\"\n    \n    # הגבלת אורך\n    text = str(text)[:max_length]\n    \n    # HTML escape\n    text = html.escape(text)\n    \n    return text\n\n\n# ==================== API Endpoints ====================\n\n@bookmarks_bp.route('/<file_id>/toggle', methods=['POST'])\n@require_auth\ndef toggle_bookmark(file_id):\n    \"\"\"\n    Toggle bookmark for a specific line in a file\n    \n    Request body:\n        {\n            \"line_number\": int,\n            \"line_text\": str (optional),\n            \"note\": str (optional),\n            \"color\": str (optional)\n        }\n    \n    Response:\n        {\n            \"ok\": bool,\n            \"action\": \"added\" | \"removed\" | \"error\",\n            \"bookmark\": {...} | null,\n            \"error\": str | null\n        }\n    \"\"\"\n    try:\n        user_id = session['user_id']\n        data = request.get_json()\n        \n        # ולידציה\n        if not data or 'line_number' not in data:\n            return jsonify({'ok': False, 'error': 'Missing line_number'}), 400\n        \n        line_number = data.get('line_number')\n        if not isinstance(line_number, int) or line_number <= 0:\n            return jsonify({'ok': False, 'error': 'Invalid line_number'}), 400\n        \n        # סניטציה של קלט\n        line_text = sanitize_input(data.get('line_text', ''), 100)\n        note = sanitize_input(data.get('note', ''), 500)\n        color = data.get('color', 'yellow')\n        \n        # ולידציה של צבע\n        valid_colors = ['yellow', 'red', 'green', 'blue', 'purple', 'orange']\n        if color not in valid_colors:\n            color = 'yellow'\n        \n        # קבלת פרטי הקובץ\n        from webapp.file_handler import get_file_info\n        file_info = get_file_info(file_id)\n        \n        if not file_info:\n            return jsonify({'ok': False, 'error': 'File not found'}), 404\n        \n        # ביצוע toggle\n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.toggle_bookmark(\n            user_id=user_id,\n            file_id=file_id,\n            file_name=file_info.get('name', ''),\n            file_path=file_info.get('path', ''),\n            line_number=line_number,\n            line_text=line_text,\n            note=note,\n            color=color\n        )\n        \n        return jsonify(result)\n        \n    except Exception as e:\n        logger.error(f\"Error in toggle_bookmark: {e}\", exc_info=True)\n        return jsonify({'ok': False, 'error': 'Internal server error'}), 500\n\n\n@bookmarks_bp.route('/<file_id>', methods=['GET'])\n@require_auth\ndef get_file_bookmarks(file_id):\n    \"\"\"\n    Get all bookmarks for a specific file\n    \n    Query params:\n        include_invalid: bool (default: false) - include invalid bookmarks\n    \n    Response:\n        {\n            \"ok\": bool,\n            \"bookmarks\": [...],\n            \"count\": int\n        }\n    \"\"\"\n    try:\n        user_id = session['user_id']\n        include_invalid = request.args.get('include_invalid', 'false').lower() == 'true'\n        \n        bm_manager = get_bookmarks_manager()\n        bookmarks = bm_manager.get_file_bookmarks(user_id, file_id, include_invalid)\n        \n        return jsonify({\n            'ok': True,\n            'bookmarks': bookmarks,\n            'count': len(bookmarks)\n        })\n        \n    except Exception as e:\n        logger.error(f\"Error getting file bookmarks: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to get bookmarks'}), 500\n\n\n@bookmarks_bp.route('/all', methods=['GET'])\n@require_auth\ndef get_all_bookmarks():\n    \"\"\"\n    Get all bookmarks for current user\n    \n    Query params:\n        limit: int (default: 100)\n        skip: int (default: 0)\n    \n    Response:\n        {\n            \"ok\": bool,\n            \"files\": [...],\n            \"total_bookmarks\": int,\n            \"files_count\": int\n        }\n    \"\"\"\n    try:\n        user_id = session['user_id']\n        limit = min(int(request.args.get('limit', 100)), 500)\n        skip = int(request.args.get('skip', 0))\n        \n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.get_user_bookmarks(user_id, limit, skip)\n        \n        return jsonify(result)\n        \n    except Exception as e:\n        logger.error(f\"Error getting all bookmarks: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to get bookmarks'}), 500\n\n\n@bookmarks_bp.route('/<file_id>/<int:line_number>/note', methods=['PUT'])\n@require_auth\ndef update_bookmark_note(file_id, line_number):\n    \"\"\"\n    Update note for a specific bookmark\n    \n    Request body:\n        {\n            \"note\": str\n        }\n    \"\"\"\n    try:\n        user_id = session['user_id']\n        data = request.get_json()\n        \n        if not data or 'note' not in data:\n            return jsonify({'ok': False, 'error': 'Missing note'}), 400\n        \n        note = sanitize_input(data['note'], 500)\n        \n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.update_bookmark_note(user_id, file_id, line_number, note)\n        \n        return jsonify(result)\n        \n    except Exception as e:\n        logger.error(f\"Error updating bookmark note: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to update note'}), 500\n\n\n@bookmarks_bp.route('/<file_id>/<int:line_number>', methods=['DELETE'])\n@require_auth\ndef delete_bookmark(file_id, line_number):\n    \"\"\"Delete a specific bookmark\"\"\"\n    try:\n        user_id = session['user_id']\n        \n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.delete_bookmark(user_id, file_id, line_number)\n        \n        return jsonify(result)\n        \n    except Exception as e:\n        logger.error(f\"Error deleting bookmark: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to delete bookmark'}), 500\n\n\n@bookmarks_bp.route('/<file_id>/clear', methods=['DELETE'])\n@require_auth\ndef clear_file_bookmarks(file_id):\n    \"\"\"Delete all bookmarks for a specific file\"\"\"\n    try:\n        user_id = session['user_id']\n        \n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.delete_file_bookmarks(user_id, file_id)\n        \n        return jsonify(result)\n        \n    except Exception as e:\n        logger.error(f\"Error clearing file bookmarks: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to clear bookmarks'}), 500\n\n\n@bookmarks_bp.route('/<file_id>/sync', methods=['POST'])\n@require_auth\ndef check_file_sync(file_id):\n    \"\"\"\n    Check if bookmarks need sync due to file changes\n    \n    Request body:\n        {\n            \"content\": str (file content)\n        }\n    \n    Response:\n        {\n            \"changed\": bool,\n            \"affected\": [...] \n        }\n    \"\"\"\n    try:\n        data = request.get_json()\n        \n        if not data or 'content' not in data:\n            return jsonify({'ok': False, 'error': 'Missing file content'}), 400\n        \n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.check_file_sync(file_id, data['content'])\n        \n        return jsonify(result)\n        \n    except Exception as e:\n        logger.error(f\"Error checking file sync: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to check sync'}), 500\n\n\n@bookmarks_bp.route('/stats', methods=['GET'])\n@require_auth\ndef get_bookmark_stats():\n    \"\"\"Get bookmark statistics for current user\"\"\"\n    try:\n        user_id = session['user_id']\n        \n        bm_manager = get_bookmarks_manager()\n        stats = bm_manager.get_user_stats(user_id)\n        \n        return jsonify({\n            'ok': True,\n            'stats': stats\n        })\n        \n    except Exception as e:\n        logger.error(f\"Error getting bookmark stats: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to get stats'}), 500\n\n\n@bookmarks_bp.route('/export', methods=['GET'])\n@require_auth\ndef export_bookmarks():\n    \"\"\"Export all user bookmarks as JSON\"\"\"\n    try:\n        user_id = session['user_id']\n        \n        bm_manager = get_bookmarks_manager()\n        result = bm_manager.get_user_bookmarks(user_id, limit=1000)\n        \n        if not result.get('ok'):\n            return jsonify({'ok': False, 'error': 'Failed to export'}), 500\n        \n        from flask import make_response\n        from datetime import datetime\n        import json\n        \n        export_data = {\n            \"version\": \"1.0\",\n            \"exported_at\": datetime.utcnow().isoformat(),\n            \"user_id\": user_id,\n            \"files\": result['files'],\n            \"total_bookmarks\": result['total_bookmarks']\n        }\n        \n        response = make_response(json.dumps(export_data, indent=2, ensure_ascii=False))\n        response.headers['Content-Type'] = 'application/json'\n        response.headers['Content-Disposition'] = 'attachment; filename=bookmarks_export.json'\n        \n        return response\n        \n    except Exception as e:\n        logger.error(f\"Error exporting bookmarks: {e}\")\n        return jsonify({'ok': False, 'error': 'Failed to export'}), 500\n\n\n# ==================== Error Handlers ====================\n\n@bookmarks_bp.errorhandler(404)\ndef not_found(error):\n    return jsonify({'ok': False, 'error': 'Endpoint not found'}), 404\n\n\n@bookmarks_bp.errorhandler(500)\ndef internal_error(error):\n    logger.error(f\"Internal error: {error}\")\n    return jsonify({'ok': False, 'error': 'Internal server error'}), 500",
+      "encoding": "utf-8"
+    }
+  },
+  "public": true,
+  "created_at": "2025-10-09T13:45:49Z",
+  "updated_at": "2025-10-09T13:45:49Z",
+  "description": "webapp/bookmarks_api.py",
+  "comments": 0,
+  "user": null,
+  "comments_enabled": true,
+  "comments_url": "https://api.github.com/gists/9f6da3ddafe7b79c9c41dea6859ec900/comments",
+  "owner": {
+    "login": "amirbiron",
+    "id": 215461772,
+    "node_id": "U_kgDODNevjA",
+    "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/amirbiron",
+    "html_url": "https://github.com/amirbiron",
+    "followers_url": "https://api.github.com/users/amirbiron/followers",
+    "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+    "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+    "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+    "repos_url": "https://api.github.com/users/amirbiron/repos",
+    "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "forks": [
+
+  ],
+  "history": [
+    {
+      "user": {
+        "login": "amirbiron",
+        "id": 215461772,
+        "node_id": "U_kgDODNevjA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/amirbiron",
+        "html_url": "https://github.com/amirbiron",
+        "followers_url": "https://api.github.com/users/amirbiron/followers",
+        "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+        "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+        "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+        "repos_url": "https://api.github.com/users/amirbiron/repos",
+        "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "version": "2f738ec586f48c709db7f1abd7e5f0f00b240b5e",
+      "committed_at": "2025-10-09T13:45:49Z",
+      "change_status": {
+        "total": 358,
+        "additions": 358,
+        "deletions": 0
+      },
+      "url": "https://api.github.com/gists/9f6da3ddafe7b79c9c41dea6859ec900/2f738ec586f48c709db7f1abd7e5f0f00b240b5e"
+    }
+  ],
+  "truncated": false
+}

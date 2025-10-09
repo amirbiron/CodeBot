@@ -39,6 +39,14 @@ app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.permanent_session_lifetime = timedelta(days=30)  # סשן נשמר ל-30 יום
 
+# --- Bookmarks API blueprint ---
+try:
+    from webapp.bookmarks_api import bookmarks_bp  # noqa: E402
+    app.register_blueprint(bookmarks_bp)
+except Exception:
+    # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
+    pass
+
 # הגדרות
 MONGODB_URL = os.getenv('MONGODB_URL')
 DATABASE_NAME = os.getenv('DATABASE_NAME', 'code_keeper_bot')
