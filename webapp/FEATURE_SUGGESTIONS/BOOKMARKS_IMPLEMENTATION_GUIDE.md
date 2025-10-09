@@ -832,10 +832,19 @@ def get_file_bookmarks(file_id):
         # המרה לפורמט JSON ידידותי
         bookmarks_data = []
         for bm in bookmarks:
+            # המרה בטוחה של created_at
+            created_at_str = None
+            created_at = bm.get('created_at')
+            if created_at:
+                try:
+                    created_at_str = created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at)
+                except Exception:
+                    created_at_str = None
+            
             bookmarks_data.append({
                 'line_number': bm.get('line_number'),
                 'note': bm.get('note', ''),
-                'created_at': bm.get('created_at').isoformat() if bm.get('created_at') else None
+                'created_at': created_at_str
             })
         
         return jsonify({
@@ -890,10 +899,19 @@ def toggle_bookmark(file_id):
         # המרה בטוחה ל-JSON (ללא ObjectId)
         bookmark_data = None
         if result['bookmark']:
+            # המרה בטוחה של created_at
+            created_at_str = None
+            created_at = result['bookmark'].get('created_at')
+            if created_at:
+                try:
+                    created_at_str = created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at)
+                except Exception:
+                    created_at_str = None
+            
             bookmark_data = {
                 'line_number': result['bookmark'].get('line_number'),
                 'note': result['bookmark'].get('note', ''),
-                'created_at': result['bookmark'].get('created_at').isoformat() if result['bookmark'].get('created_at') else None
+                'created_at': created_at_str
             }
         
         return jsonify({
