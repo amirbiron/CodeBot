@@ -56,19 +56,18 @@ class BookmarksManager:
     def _ensure_indexes(self):
         """יצירת אינדקסים למהירות"""
         try:
-            # אינדקס ייחודי למשתמש+קובץ+שורה
+            # אינדקס ייחודי למשתמש+קובץ+שורה (מונע כפילויות)
             self.collection.create_index([
                 ("user_id", 1),
                 ("file_id", 1),
                 ("line_number", 1)
-            ], unique=True)
+            ], unique=True, name="user_file_line_unique")
             
-            # אינדקס לחיפוש מהיר של כל הסימניות בקובץ
+            # אינדקס לחיפוש מהיר לפי קובץ (ללא line_number)
             self.collection.create_index([
                 ("user_id", 1),
-                ("file_id", 1),
-                ("line_number", 1)
-            ])
+                ("file_id", 1)
+            ], name="user_file_idx")
         except Exception as e:
             logger.warning(f"Failed to create bookmarks indexes: {e}")
     
