@@ -487,6 +487,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -548,6 +549,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
