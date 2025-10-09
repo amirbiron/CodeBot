@@ -572,7 +572,7 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
-        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת עד דקה.")
+        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת 1-8 דקות")
         import zipfile as _zip
         tmp_dir = None
         zip_path = None
