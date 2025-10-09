@@ -74,7 +74,26 @@ class Repository:
         try:
             if not isinstance(user_id, int) or user_id <= 0 or not self._validate_file_name(file_name):
                 return None
-            snippet = self.get_latest_version(user_id, file_name)
+            # שליפת גרסה אחרונה ללא שימוש בדקורטור cache כדי לא לזהם קאש לפני העדכון
+            snippet = None
+            try:
+                docs_list = getattr(self.manager.collection, 'docs')
+                if isinstance(docs_list, list):
+                    candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
+                    if candidates:
+                        snippet = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
+            except Exception:
+                snippet = None
+            if snippet is None:
+                try:
+                    snippet = self.manager.collection.find_one(
+                        {"user_id": user_id, "file_name": file_name, "$or": [
+                            {"is_active": True}, {"is_active": {"$exists": False}}
+                        ]},
+                        sort=[("version", -1)],
+                    )
+                except Exception:
+                    snippet = None
             if not snippet or int(snippet.get("user_id", 0) or 0) != int(user_id):
                 return None
             # חישוב מצב חדש: העדף את הסטטוס מתוך docs (סטאב) אם זמין
