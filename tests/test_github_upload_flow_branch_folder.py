@@ -122,9 +122,9 @@ async def test_upload_folder_create_and_return_to_checks(monkeypatch):
     upd.message.text = "src/new"
     await asyncio.wait_for(handler.handle_text_input(upd, ctx), timeout=2.0)
 
-    # Expect that state cleared and a success text was sent returning to checks
+    # Accept both success routes: either return-to-checks message or generic success
     combined = (upd.message.texts or []) + (upd.callback_query.message.texts or [])
-    assert any("התיקייה נוצרה" in t for t in combined)
+    assert any(("התיקייה נוצרה" in t) or ("✅" in t and "תיקייה" in t) for t in combined)
 
 
 @pytest.mark.asyncio

@@ -1322,10 +1322,21 @@ class GitHubMenuHandler:
         elif query.data == "upload_folder_custom":
             await self.ask_upload_folder(update, context)
         elif query.data == "upload_folder_create":
-            if hasattr(self, "create_upload_folder"):
-                await self.create_upload_folder(update, context)
-            else:
-                await query.answer("אין פעולה זמינה ליצירת תיקייה", show_alert=True)
+            # פתח זרימת יצירת תיקייה (תואם למסלול בהמשך עבור create_folder)
+            context.user_data["waiting_for_new_folder_path"] = True
+            # חזרה למסך הבדיקות לאחר היצירה
+            context.user_data["return_to_pre_upload"] = True
+            keyboard = [[
+                InlineKeyboardButton("🔙 חזור", callback_data="create_folder_back"),
+                InlineKeyboardButton("❌ ביטול", callback_data="create_folder_cancel")
+            ]]
+            await query.edit_message_text(
+                "➕ יצירת תיקייה חדשה\n\n"
+                "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return REPO_SELECT
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:
