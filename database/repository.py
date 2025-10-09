@@ -96,6 +96,15 @@ class Repository:
                 "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
             }
             res = self.manager.collection.update_many(query, update)
+            matched = int(getattr(res, 'matched_count', 0) or 0)
+            # אם לא נמצאה התאמה לפי _id (למשל בסטאבים) — נסה לפי user_id+file_name
+            if matched <= 0:
+                fallback_q = {
+                    "user_id": user_id,
+                    "file_name": file_name,
+                    "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
+                }
+                res = self.manager.collection.update_many(fallback_q, update)
             try:
                 cache.invalidate_user_cache(user_id)
             except Exception:
