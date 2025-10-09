@@ -35,6 +35,17 @@ class Repository:
             existing = self.get_latest_version(snippet.user_id, snippet.file_name)
             if existing:
                 snippet.version = existing['version'] + 1
+                # שמור סטטוס מועדפים מהגרסה הקודמת אם לא סופק מפורשות
+                try:
+                    prev_is_fav = bool(existing.get('is_favorite', False))
+                    if prev_is_fav and not bool(getattr(snippet, 'is_favorite', False)):
+                        snippet.is_favorite = True
+                        try:
+                            snippet.favorited_at = existing.get('favorited_at')
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             snippet.updated_at = datetime.now(timezone.utc)
             result = self.manager.collection.insert_one(asdict(snippet))
             if result.inserted_id:
@@ -243,6 +254,16 @@ class Repository:
                 code = normalize_code(code)
         except Exception:
             pass
+        # שמירה על סטטוס מועדפים מהגרסה הקודמת
+        try:
+            prev_is_favorite = bool((existing or {}).get('is_favorite', False)) if isinstance(existing, dict) else False
+        except Exception:
+            prev_is_favorite = False
+        try:
+            prev_favorited_at = (existing or {}).get('favorited_at') if isinstance(existing, dict) else None
+        except Exception:
+            prev_favorited_at = None
+
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=file_name,
@@ -250,6 +271,8 @@ class Repository:
             programming_language=programming_language,
             description=prev_description,
             tags=merged_tags,
+            is_favorite=prev_is_favorite,
+            favorited_at=prev_favorited_at,
         )
         return self.save_code_snippet(snippet)
 
