@@ -308,6 +308,23 @@ class AdvancedBotHandlers:
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons),
         )
+
+        # אם יש יותר מ-10 מועדפים, שלח את השאר כהודעות נוספות — מפוצלות בבטחה
+        if len(favorites) > 10:
+            rest_lines: List[str] = []
+            from utils import get_language_emoji as _gle
+            for idx, fav in enumerate(favorites[10:], 11):
+                fname = fav.get('file_name', '')
+                lang = fav.get('programming_language', '')
+                rest_lines.append(f"{idx}. {_gle(lang)} <code>{html.escape(str(fname))}</code>")
+            rest_text = "\n".join(rest_lines)
+            if rest_text:
+                await self._send_long_message(
+                    update.message,
+                    rest_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None,
+                )
     
     async def edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """עריכת קטע קוד קיים"""
