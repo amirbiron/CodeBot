@@ -77,7 +77,18 @@ class Repository:
             snippet = self.get_latest_version(user_id, file_name)
             if not snippet or int(snippet.get("user_id", 0) or 0) != int(user_id):
                 return None
-            new_state = not bool(snippet.get("is_favorite", False))
+            # חישוב מצב חדש: העדף את הסטטוס מתוך docs (סטאב) אם זמין
+            curr_state = bool(snippet.get("is_favorite", False))
+            try:
+                docs_list = getattr(self.manager.collection, 'docs')
+                if isinstance(docs_list, list):
+                    candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
+                    if candidates:
+                        latest_doc = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
+                        curr_state = bool(latest_doc.get('is_favorite', False))
+            except Exception:
+                pass
+            new_state = not curr_state
             now = datetime.now(timezone.utc)
             update = {
                 "$set": {
