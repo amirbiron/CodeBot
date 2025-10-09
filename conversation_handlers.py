@@ -483,7 +483,6 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # מסך בחירה: כפתורי ניווט ראשיים
         keyboard = [
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
-            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
@@ -545,7 +544,6 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         except Exception:
             pass
         keyboard = [
-            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
