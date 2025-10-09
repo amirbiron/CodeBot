@@ -507,30 +507,63 @@ class BookmarksManager:
             return;
         }
         
-        let html = '';
+        // ניקוי רשימה קיימת
+        listEl.innerHTML = '';
+        
+        // יצירת אלמנטים באופן דינמי (בטוח יותר מ-innerHTML)
         bookmarks.forEach(bookmark => {
             const lineText = getLineText(bookmark.line_number);
-            const noteHtml = bookmark.note ? 
-                `<div class="bookmark-note">📝 ${escapeHtml(bookmark.note)}</div>` : '';
             
-            html += `
-                <div class="bookmark-item" onclick="scrollToLine(${bookmark.line_number})">
-                    <div class="bookmark-line">שורה ${bookmark.line_number}</div>
-                    <div class="bookmark-code-preview">${escapeHtml(lineText)}</div>
-                    ${noteHtml}
-                    <div class="bookmark-actions">
-                        <button onclick="event.stopPropagation(); editBookmarkNote(${bookmark.line_number}, '${escapeHtml(bookmark.note || '')}')">
-                            ✏️ ערוך הערה
-                        </button>
-                        <button onclick="event.stopPropagation(); deleteBookmark(${bookmark.line_number})">
-                            🗑️ מחק
-                        </button>
-                    </div>
-                </div>
-            `;
+            // יצירת מיכל הסימנייה
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'bookmark-item';
+            itemDiv.onclick = () => scrollToLine(bookmark.line_number);
+            
+            // שורה
+            const lineDiv = document.createElement('div');
+            lineDiv.className = 'bookmark-line';
+            lineDiv.textContent = `שורה ${bookmark.line_number}`;
+            itemDiv.appendChild(lineDiv);
+            
+            // תצוגת הקוד
+            const previewDiv = document.createElement('div');
+            previewDiv.className = 'bookmark-code-preview';
+            previewDiv.textContent = lineText;
+            itemDiv.appendChild(previewDiv);
+            
+            // הערה (אם קיימת)
+            if (bookmark.note) {
+                const noteDiv = document.createElement('div');
+                noteDiv.className = 'bookmark-note';
+                noteDiv.textContent = `📝 ${bookmark.note}`;
+                itemDiv.appendChild(noteDiv);
+            }
+            
+            // כפתורי פעולה
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'bookmark-actions';
+            
+            // כפתור עריכה
+            const editBtn = document.createElement('button');
+            editBtn.textContent = '✏️ ערוך הערה';
+            editBtn.onclick = (e) => {
+                e.stopPropagation();
+                editBookmarkNote(bookmark.line_number, bookmark.note || '');
+            };
+            actionsDiv.appendChild(editBtn);
+            
+            // כפתור מחיקה
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = '🗑️ מחק';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteBookmark(bookmark.line_number);
+            };
+            actionsDiv.appendChild(deleteBtn);
+            
+            itemDiv.appendChild(actionsDiv);
+            listEl.appendChild(itemDiv);
         });
-        
-        listEl.innerHTML = html;
     }
     
     // עדכון אינדיקטורים בשורות הקוד
