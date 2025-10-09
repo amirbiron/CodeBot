@@ -557,6 +557,12 @@ class CodeKeeperBot:
                 self.application = _MiniApp()
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
+        # רישום קטגוריית "⭐ מועדפים" לתפריט "📚 הקבצים"
+        try:
+            from conversation_handlers import setup_favorites_category_handlers as _setup_fav
+            _setup_fav(self.application)
+        except Exception:
+            pass
         # Rate limiter instance (לאחר בניית האפליקציה)
         try:
             self._rate_limiter = RateLimiter(max_per_minute=int(getattr(config, 'RATE_LIMIT_PER_MINUTE', 30) or 30))

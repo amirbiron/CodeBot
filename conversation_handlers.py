@@ -349,6 +349,14 @@ async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     return ConversationHandler.END
 
+# --- רישום handlers לקטגוריית מועדפים ---
+def setup_favorites_category_handlers(application):
+    try:
+        application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'))
+        application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'))
+    except Exception:
+        pass
+
 # --- Redirect file view/edit handlers to split module implementations ---
 from handlers.file_view import (
     handle_file_menu as handle_file_menu,
@@ -475,6 +483,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # מסך בחירה: כפתורי ניווט ראשיים
         keyboard = [
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
+            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
@@ -536,6 +545,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         except Exception:
             pass
         keyboard = [
+            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗂 לפי ריפו", callback_data="by_repo_menu")],
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
@@ -635,6 +645,104 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
         logger.error(f"Error in show_regular_files_callback: {e}")
         await query.edit_message_text("❌ שגיאה בטעינת הקבצים")
     
+    return ConversationHandler.END
+
+async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """הצגת מועדפים (רשימת קבצים מסומנים is_favorite=True) עם עימוד קל בצד הבוט.
+    משתמש ב-db.get_favorites ומחלק לעמודים בגודל FILES_PAGE_SIZE.
+    """
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    from database import db
+    try:
+        favs = db.get_favorites(user_id, limit=1000) or []
+        if not favs:
+            await query.edit_message_text(
+                "💭 אין לך מועדפים כרגע.\nהוסף בעזרת /favorite &lt;שם&gt; או דרך כפתור ⭐ במסכי הקובץ",
+                parse_mode=ParseMode.HTML
+            )
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+            await query.message.reply_text("🎮 בחר פעולה:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return ConversationHandler.END
+        # עמוד ראשון
+        page = 1
+        total_files = len(favs)
+        total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE
+        context.user_data['files_last_page'] = page
+        context.user_data['files_origin'] = { 'type': 'favorites' }
+        context.user_data['files_cache'] = {}
+        start = 0
+        end = min(FILES_PAGE_SIZE, total_files)
+        keyboard = []
+        for i, file in enumerate(favs[start:end], start):
+            context.user_data['files_cache'][str(i)] = file
+            name = file.get('file_name', 'file')
+            lang = file.get('programming_language', 'text')
+            emoji = get_file_emoji(lang)
+            keyboard.append([InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}")])
+        from handlers.pagination import build_pagination_row
+        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
+        if pagination_row:
+            keyboard.append(pagination_row)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        header = (
+            f"⭐ <b>המועדפים שלך</b> — סה״כ: {total_files}\n"
+            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            "✨ לחץ על קובץ להצגה מלאה:"
+        )
+        await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Error in show_favorites_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת מועדפים")
+    return ConversationHandler.END
+
+async def show_favorites_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    from database import db
+    try:
+        favs = db.get_favorites(user_id, limit=1000) or []
+        total_files = len(favs)
+        if total_files == 0:
+            await query.edit_message_text("💭 אין מועדפים להצגה")
+            await query.message.reply_text("🎮 בחר פעולה:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="files")]]))
+            return ConversationHandler.END
+        data = query.data
+        try:
+            page = int(str(data).split("_")[-1])
+        except Exception:
+            page = int(context.user_data.get('files_last_page') or 1)
+        page = max(1, page)
+        total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE
+        page = min(page, total_pages)
+        context.user_data['files_last_page'] = page
+        context.user_data['files_origin'] = { 'type': 'favorites' }
+        context.user_data['files_cache'] = {}
+        start = (page - 1) * FILES_PAGE_SIZE
+        end = min(start + FILES_PAGE_SIZE, total_files)
+        keyboard = []
+        for i, file in enumerate(favs[start:end], start):
+            context.user_data['files_cache'][str(i)] = file
+            name = file.get('file_name', 'file')
+            lang = file.get('programming_language', 'text')
+            emoji = get_file_emoji(lang)
+            keyboard.append([InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}")])
+        from handlers.pagination import build_pagination_row
+        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
+        if pagination_row:
+            keyboard.append(pagination_row)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        header = (
+            f"⭐ <b>המועדפים שלך</b> — סה״כ: {total_files}\n"
+            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            "✨ לחץ על קובץ להצגה מלאה:"
+        )
+        await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Error in show_favorites_page_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת עמוד מועדפים")
     return ConversationHandler.END
 
 async def show_regular_files_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
