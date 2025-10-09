@@ -723,9 +723,16 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
                 tokens_map = context.user_data.get('fav_tokens') or {}
                 tokens_map[str(i)] = name
                 context.user_data['fav_tokens'] = tokens_map
+            # קבע תווית מדויקת לפי המסד (בטוח יותר מהשדה במסמך שמוחזר מהרשימה)
+            try:
+                from database import db as _db
+                is_fav = bool(_db.is_favorite(user_id, name))
+            except Exception:
+                is_fav = True  # בהקשר 'מועדפים' נניח שזה מועדף
+            fav_label = "💔 הסר ממועדפים" if is_fav else "⭐ הוסף למועדפים"
             keyboard.append([
                 InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}"),
-                InlineKeyboardButton("💔 הסר ממועדפים" if file.get('is_favorite') else "⭐ הוסף למועדפים", callback_data=fav_cb)
+                InlineKeyboardButton(fav_label, callback_data=fav_cb)
             ])
         from handlers.pagination import build_pagination_row
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
