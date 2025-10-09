@@ -10,6 +10,7 @@
 ### 3. **אבטחה וValidation חזקים** ✅
 ### 4. **טיפול בשגיאות מקיף** ✅
 ### 5. **UI/UX בטוח לטלגרם** ✅
+### 6. **תיקון באג file_count** ✅ - מונה מתעדכן רק כשקובץ באמת נוסף (לא בהוספות כפולות)
 
 ---
 
@@ -505,21 +506,53 @@ class ProjectManager:
     ) -> Dict:
         """
         הוספת קובץ לפרויקט בפעולה אטומית אחת
+        
+        תיקון: מעדכן file_count רק אם הקובץ באמת נוסף (לא היה קיים)
         """
         try:
             with self.db.client.start_session() as session:
                 with session.start_transaction():
                     
-                    # בדיקה ועדכון בפעולה אחת
+                    # שלב 1: בדיקה אם הקובץ כבר בפרויקט
+                    existing_project = self.projects_collection.find_one(
+                        {
+                            "user_id": user_id,
+                            "project_name": project_name,
+                            "files": file_name  # בודק אם הקובץ כבר קיים
+                        },
+                        session=session
+                    )
+                    
+                    if existing_project:
+                        # הקובץ כבר בפרויקט - רק מעדכן timestamp
+                        self.projects_collection.update_one(
+                            {
+                                "user_id": user_id,
+                                "project_name": project_name
+                            },
+                            {
+                                "$set": {"updated_at": datetime.now(timezone.utc)}
+                            },
+                            session=session
+                        )
+                        
+                        return {
+                            "success": True,
+                            "project_id": existing_project["project_id"],
+                            "already_exists": True
+                        }
+                    
+                    # שלב 2: הקובץ לא קיים - מוסיף אותו ומעדכן counter
                     project = self.projects_collection.find_one_and_update(
                         {
                             "user_id": user_id,
                             "project_name": project_name,
+                            "files": {"$ne": file_name},  # וידוא נוסף שהקובץ לא קיים
                             "file_count": {"$lt": self.validator.MAX_FILES_PER_PROJECT}
                         },
                         {
                             "$addToSet": {"files": file_name},
-                            "$inc": {"file_count": 1},
+                            "$inc": {"file_count": 1},  # מגדיל רק כשבאמת מוסיף
                             "$set": {"updated_at": datetime.now(timezone.utc)}
                         },
                         return_document=ReturnDocument.AFTER,
@@ -532,7 +565,7 @@ class ProjectManager:
                             "error": "פרויקט לא נמצא או מלא"
                         }
                     
-                    # עדכון הקובץ
+                    # שלב 3: עדכון הקובץ עצמו
                     result = self.collection.update_one(
                         {
                             "user_id": user_id,
@@ -557,7 +590,8 @@ class ProjectManager:
                     
                     return {
                         "success": True,
-                        "project_id": project["project_id"]
+                        "project_id": project["project_id"],
+                        "newly_added": True
                     }
                     
         except Exception as e:
