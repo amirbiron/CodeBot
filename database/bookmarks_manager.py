@@ -34,7 +34,12 @@ class BookmarksManager:
         self.db = db
         self.collection = db.file_bookmarks
         self.events_collection = db.bookmark_events
-        self.files_collection = db.files
+        # בקוד היישום קטעי הקוד נשמרים באוסף code_snippets (לא files)
+        # שומרים תאימות לאחור במקרה נדיר של 'files'
+        try:
+            self.files_collection = db.code_snippets
+        except Exception:
+            self.files_collection = getattr(db, 'code_snippets', db.files)
         
         # יצירת indexes
         self._ensure_indexes()
@@ -381,7 +386,15 @@ class BookmarksManager:
                 return {"changed": False, "affected": []}
             
             # ניתוח השפעה על סימניות
-            old_lines = file_doc.get("content", "").splitlines() if file_doc else []
+            content_str = ""
+            if file_doc:
+                # תמיכה גם בשמות שדות שונים
+                content_str = (
+                    file_doc.get("code")
+                    or file_doc.get("content")
+                    or ""
+                )
+            old_lines = content_str.splitlines()
             new_lines = new_content.splitlines()
             
             affected = self._analyze_bookmark_changes(file_id, old_lines, new_lines)
@@ -391,7 +404,8 @@ class BookmarksManager:
                 {"_id": ObjectId(file_id)},
                 {"$set": {
                     "content_hash": new_hash,
-                    "content": new_content,
+                    # שדה התוכן באוסף code_snippets נקרא 'code'
+                    "code": new_content,
                     "last_sync": datetime.now(timezone.utc)
                 }}
             )
@@ -594,8 +608,10 @@ class BookmarksManager:
         """חישוב hash של תוכן הקובץ"""
         try:
             file_doc = self.files_collection.find_one({"_id": ObjectId(file_id)})
-            if file_doc and "content" in file_doc:
-                return hashlib.sha256(file_doc["content"].encode()).hexdigest()
+            if file_doc:
+                text = file_doc.get("code") or file_doc.get("content")
+                if isinstance(text, str):
+                    return hashlib.sha256(text.encode()).hexdigest()
         except Exception as e:
             logger.warning(f"Failed to calculate file hash: {e}")
         
