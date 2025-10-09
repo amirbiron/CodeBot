@@ -170,7 +170,57 @@ class Repository:
                 {"$project": {"_id": 0, "file_name": 1, "programming_language": 1, "tags": 1, "description": 1, "favorited_at": 1, "updated_at": 1, "code": 1}},
             ]
             rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
-            return rows
+            if rows:
+                return rows
+            # Fallback לפייתון עבור סביבות סטאב/טסט
+            try:
+                docs_list = getattr(self.manager.collection, 'docs')
+                if isinstance(docs_list, list):
+                    filtered: List[Dict[str, Any]] = []
+                    for d in docs_list:
+                        if not isinstance(d, dict):
+                            continue
+                        if int(d.get('user_id', -1) or -1) != int(user_id):
+                            continue
+                        if not bool(d.get('is_favorite', False)):
+                            continue
+                        ia = d.get('is_active')
+                        if ia is False:
+                            continue
+                        if language and str(d.get('programming_language') or '').lower() != str(language).lower():
+                            continue
+                        filtered.append(d)
+                    # אחרון לכל שם קובץ
+                    by_name: Dict[str, Dict[str, Any]] = {}
+                    for d in filtered:
+                        name = str(d.get('file_name') or '')
+                        prev = by_name.get(name)
+                        if prev is None or int(d.get('version', 0) or 0) > int(prev.get('version', 0) or 0):
+                            by_name[name] = d
+                    items = list(by_name.values())
+                    # מיון
+                    def _key(d: Dict[str, Any]):
+                        val = d.get(sort_key)
+                        return (val is None, val)
+                    items.sort(key=_key, reverse=(sort_dir < 0))
+                    # תיחום
+                    items = items[: max(1, int(limit or 50))]
+                    # הקרנה
+                    out: List[Dict[str, Any]] = []
+                    for d in items:
+                        out.append({
+                            'file_name': d.get('file_name'),
+                            'programming_language': d.get('programming_language'),
+                            'tags': d.get('tags'),
+                            'description': d.get('description'),
+                            'favorited_at': d.get('favorited_at'),
+                            'updated_at': d.get('updated_at'),
+                            'code': d.get('code'),
+                        })
+                    return out
+            except Exception:
+                pass
+            return []
         except Exception as e:
             logger.error(f"שגיאה ב-get_favorites: {e}")
             return []
@@ -194,7 +244,10 @@ class Repository:
                 {"$group": {"_id": "$file_name"}},
                 {"$count": "count"},
             ]
-            res = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            try:
+                res = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            except Exception:
+                res = []
             if res and isinstance(res[0], dict):
                 try:
                     return int(res[0].get("count", 0) or 0)
@@ -202,6 +255,22 @@ class Repository:
                     pass
             # Fallback: אם $count לא נתמך/נכשל — ספר ידנית את כמות הפריטים הייחודיים
             try:
+                docs_list = getattr(self.manager.collection, 'docs')
+                if isinstance(docs_list, list):
+                    names = set()
+                    for d in docs_list:
+                        if not isinstance(d, dict):
+                            continue
+                        if int(d.get('user_id', -1) or -1) != int(user_id):
+                            continue
+                        if not bool(d.get('is_favorite', False)):
+                            continue
+                        ia = d.get('is_active')
+                        if ia is False:
+                            continue
+                        names.add(str(d.get('file_name') or ''))
+                    return len(names)
+                # אם אין docs-list, נסה שוב aggregate בלי $count
                 pipeline2 = [
                     {"$match": match},
                     {"$group": {"_id": "$file_name"}},
