@@ -217,7 +217,7 @@
 {% if total_pages > 1 %}
 <div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
     {% if has_prev %}
-    <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}"
+    <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
         <i class="fas fa-chevron-right"></i>
         הקודם

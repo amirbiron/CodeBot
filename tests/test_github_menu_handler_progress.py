@@ -102,6 +102,71 @@ async def test_validate_repo_progress_success_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_import_repo_message_mentions_expected_duration(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    # Build stubs
+    class _Msg:
+        def __init__(self):
+            self.texts = []
+        async def edit_text(self, text, **kwargs):
+            self.texts.append(text)
+            return self
+    class _Query:
+        def __init__(self):
+            self.message = _Msg()
+            self.data = "import_repo_start"
+            self.from_user = types.SimpleNamespace(id=7)
+        async def edit_message_text(self, text, **kwargs):
+            # capture the message text
+            self.message.texts.append(text)
+            return self.message
+        async def answer(self, *args, **kwargs):
+            return None
+    class _Update:
+        def __init__(self):
+            self.callback_query = _Query()
+            self.effective_user = types.SimpleNamespace(id=7)
+    class _Context:
+        def __init__(self):
+            self.user_data = {}
+            self.bot_data = {}
+
+    # Prepare session and token
+    session = handler.get_user_session(7)
+    session["selected_repo"] = "o/r"
+    session["selected_branch"] = "main"
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    # Stub Github and requests to avoid network
+    class _Repo:
+        def get_archive_link(self, *_a, **_k):
+            return "https://example.com/archive.zip"
+    class _Gh:
+        def __init__(self, *a, **k):
+            pass
+        def get_repo(self, _full):
+            return _Repo()
+    class _Resp:
+        def __init__(self):
+            self.content = b"PK\x03\x04dummy"  # minimal zip-like bytes
+        def raise_for_status(self):
+            return None
+    monkeypatch.setattr(gh, "Github", _Gh)
+    monkeypatch.setattr(gh.requests, "get", lambda url, timeout=60: _Resp())
+
+    upd, ctx = _Update(), _Context()
+    # Directly invoke the start branch to hit the message text
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+
+    # Assert one of the edited texts mentions 1–8 minutes (either hyphen or en dash)
+    combined = "\n".join(upd.callback_query.message.texts)
+    assert ("1–8" in combined) or ("1-8" in combined)
+
+
+@pytest.mark.asyncio
 async def test_validate_repo_progress_exception_path(monkeypatch):
     import github_menu_handler as gh
 
