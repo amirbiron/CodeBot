@@ -10,15 +10,34 @@ import logging
 import re
 import html
 import secrets
-import telegram.error
+try:
+    import telegram.error  # type: ignore
+except Exception:
+    import types as _types
+    class _BadRequest(Exception):
+        pass
+    telegram = _types.SimpleNamespace(error=_types.SimpleNamespace(BadRequest=_BadRequest))  # type: ignore
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
-                      Update, ReplyKeyboardMarkup)
-from telegram.constants import ParseMode
-from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
-from telegram.ext import ApplicationHandlerStop
+try:
+    from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
+                          Update, ReplyKeyboardMarkup)  # type: ignore
+    from telegram.constants import ParseMode  # type: ignore
+    from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes  # type: ignore
+    from telegram.ext import ApplicationHandlerStop  # type: ignore
+except Exception:
+    # סביבת טסטים ללא telegram מלאה
+    InlineKeyboardButton = InlineKeyboardMarkup = Update = ReplyKeyboardMarkup = object  # type: ignore
+    class _PM:
+        HTML = 'HTML'
+        MARKDOWN = 'Markdown'
+    ParseMode = _PM  # type: ignore
+    CallbackQueryHandler = CommandHandler = object  # type: ignore
+    class _CTX: DEFAULT_TYPE = object
+    ContextTypes = _CTX  # type: ignore
+    class ApplicationHandlerStop(Exception):
+        pass
 
 from services import code_service as code_processor
 from config import config
