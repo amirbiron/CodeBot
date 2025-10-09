@@ -84,6 +84,18 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             back_cb = f"back_after_view:{file_name}"
 
+        # קבע חזרה בהתאם למקור (מועדפים/רגיל/ריפו/ברירת מחדל)
+        last_page = context.user_data.get('files_last_page')
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        else:
+            back_cb = f"back_after_view:{file_name}"
+
         keyboard = [
             [
                 InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
