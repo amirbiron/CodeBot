@@ -47,6 +47,10 @@ class InMemoryCollection:
                 modified += 1
         return InMemoryResult(matched=matched, modified=modified)
 
+    def _sort_latest_version(self, docs: List[Dict[str, Any]]):
+        # helper for internal use if needed
+        return sorted(docs, key=lambda d: d.get("version", 0) or 0, reverse=True)
+
     def aggregate(self, pipeline: List[Dict[str, Any]], allowDiskUse: bool = False):
         data = list(self.docs)
         for stage in pipeline:

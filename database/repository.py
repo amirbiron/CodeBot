@@ -86,10 +86,16 @@ class Repository:
                     "favorited_at": (now if new_state else None),
                 }
             }
-            res = self.manager.collection.update_many(
-                {"user_id": user_id, "file_name": file_name, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
-                update,
-            )
+            # עדכן את הגרסה האחרונה בלבד (לפי _id) כדי לוודא עקביות בדו"ח מועדפים
+            try:
+                target_id = snippet.get("_id")
+            except Exception:
+                target_id = None
+            query = {"_id": target_id} if target_id is not None else {
+                "user_id": user_id, "file_name": file_name,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
+            }
+            res = self.manager.collection.update_many(query, update)
             try:
                 cache.invalidate_user_cache(user_id)
             except Exception:
