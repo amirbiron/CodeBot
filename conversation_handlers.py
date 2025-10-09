@@ -352,8 +352,9 @@ async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
 # --- רישום handlers לקטגוריית מועדפים ---
 def setup_favorites_category_handlers(application):
     try:
-        application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'))
-        application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'))
+        # הוספה בקבוצת עדיפות גבוהה לפני ה-catch-all הכללי
+        application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'), group=-5)
+        application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'), group=-5)
     except Exception:
         pass
 
