@@ -98,14 +98,16 @@ class AdvancedBotHandlers:
             # סביבת בדיקות עם add_handler ללא פרמטר group
             self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
+        share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
+        share_handler = CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern)
         try:
-            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
-            try:
-                self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
-            except TypeError:
-                self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern))
-        except Exception:
-            pass
+            self.application.add_handler(share_handler, group=-5)
+        except TypeError:
+            # סביבת בדיקות/סטאב שבה add_handler לא תומך בפרמטר group
+            self.application.add_handler(share_handler)
+        except Exception as e:
+            # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
+            logger.error(f"Failed to register share CallbackQueryHandler: {e}")
     
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
