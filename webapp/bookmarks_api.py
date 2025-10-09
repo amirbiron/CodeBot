@@ -205,8 +205,23 @@ def get_all_bookmarks():
     """
     try:
         user_id = session['user_id']
-        limit = min(int(request.args.get('limit', 100)), 500)
-        skip = int(request.args.get('skip', 0))
+        # Guard query params: default and validate non-numeric values
+        limit_raw = request.args.get('limit')
+        skip_raw = request.args.get('skip')
+
+        try:
+            limit = int(limit_raw) if (limit_raw not in (None, "")) else 100
+            skip = int(skip_raw) if (skip_raw not in (None, "")) else 0
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Invalid limit/skip'}), 400
+
+        # clamp values
+        if limit < 1:
+            limit = 1
+        if limit > 500:
+            limit = 500
+        if skip < 0:
+            skip = 0
         
         bm_manager = get_bookmarks_manager()
         result = bm_manager.get_user_bookmarks(user_id, limit, skip)
