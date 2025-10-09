@@ -330,7 +330,7 @@ class Repository:
         try:
             # Primary fast-path for test/CI in-memory collections
             try:
-                docs_list = getattr(self.manager.collection, 'docs')
+                docs_list = getattr(self.manager.collection, 'docs', None)
                 if isinstance(docs_list, list):
                     names = set()
                     for d in docs_list:
