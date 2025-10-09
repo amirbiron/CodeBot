@@ -914,6 +914,21 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             fid = str(file_data.get('_id') or '')
         except Exception:
             fid = ''
+
+        # יעד כפתור "חזרה" לפי מקור הרשימה אם קיים; אחרת חזרה אחרי תצוגה ישירה
+        try:
+            last_page = context.user_data.get('files_last_page')
+            origin = context.user_data.get('files_origin') or {}
+            if origin.get('type') == 'by_repo' and origin.get('tag'):
+                back_cb = f"by_repo:{origin.get('tag')}"
+            elif origin.get('type') == 'favorites':
+                back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+            elif origin.get('type') == 'regular':
+                back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+            else:
+                back_cb = f"back_after_view:{file_name}"
+        except Exception:
+            back_cb = f"back_after_view:{file_name}"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
