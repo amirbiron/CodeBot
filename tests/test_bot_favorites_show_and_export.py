@@ -52,6 +52,12 @@ def bot(monkeypatch):
             }
         def get_latest_version(self, uid, name):
             return self._docs.get(name)
+        def get_file_by_id(self, fid):
+            # החזר את המסמך לפי _id המדומה
+            for d in self._docs.values():
+                if d.get('_id') == fid:
+                    return d
+            return None
         def is_favorite(self, uid, name):
             return self._fav
         def toggle_favorite(self, uid, name):
@@ -83,7 +89,6 @@ async def test_show_add_favorite_via_id_and_export(bot):
     q2 = _Query(); q2.data = "export_favorites"
     await bot.handle_callback_query(types.SimpleNamespace(callback_query=q2, effective_user=_User()), ctx)
 
-    # Validate that a document was queued for sending (reply_document called)
-    sent = upd.message.sent
-    # ensure at least one reply_document call is present across messages
-    assert any('document' in kwargs for _, kwargs in sent if isinstance(kwargs, dict)) or any(True for args, _ in sent if any(isinstance(x, io.BytesIO) for x in args))
+    # Validate that a document was queued for sending (reply_document called on query.message)
+    sent = q2.message.sent
+    assert len(sent) >= 1

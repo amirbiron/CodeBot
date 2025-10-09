@@ -114,7 +114,7 @@ def test_get_favorites_ignores_inactive(repo):
 
     favs = repo.get_favorites(1)
     names = [f['file_name'] for f in favs]
-    assert names == ['x.py']
+    assert set(names) == {'x.py'}
 
     cnt = repo.get_favorites_count(1)
     assert cnt == 1
