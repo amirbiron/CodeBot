@@ -98,8 +98,26 @@ from config import config
 from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
-from bot_handlers import AdvancedBotHandlers  # still used by legacy code
-from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
+try:
+    from bot_handlers import AdvancedBotHandlers  # still used by legacy code
+except Exception:
+    class AdvancedBotHandlers:  # type: ignore
+        def __init__(self, *a, **k):
+            pass
+        def setup_advanced_handlers(self):
+            return None
+try:
+    from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
+except Exception:
+    # Fallbacks for test/minimal environments
+    MAIN_KEYBOARD = [
+        ["🗜️ יצירת ZIP", "➕ הוסף קוד חדש"],
+        ["📚 הצג את כל הקבצים שלי", "🔧 GitHub"],
+    ]
+    def get_save_conversation_handler(_db):  # type: ignore
+        class _DummyConv:
+            pass
+        return _DummyConv()
 from activity_reporter import create_reporter
 try:
     from github_menu_handler import GitHubMenuHandler  # type: ignore
