@@ -89,7 +89,22 @@ class CacheManager:
             
         try:
             serialized = json.dumps(value, default=str, ensure_ascii=False)
-            return self.redis_client.setex(key, expire_seconds, serialized)
+            # תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire
+            client = self.redis_client
+            if hasattr(client, 'setex'):
+                return bool(client.setex(key, expire_seconds, serialized))
+            # חלק מהלקוחות תומכים ב-ex ב-set
+            try:
+                return bool(client.set(key, serialized, ex=expire_seconds))
+            except Exception:
+                pass
+            # נסה set ואז expire
+            ok = bool(client.set(key, serialized))
+            try:
+                _ = client.expire(key, int(expire_seconds))
+            except Exception:
+                pass
+            return ok
         except Exception as e:
             logger.error(f"שגיאה בכתיבה ל-cache: {e}")
             return False

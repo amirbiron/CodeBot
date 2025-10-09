@@ -3,6 +3,7 @@ import os
 from types import SimpleNamespace
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional as _Optional  # for type hints below without shadowing
 try:
     from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
     _PYMONGO_AVAILABLE = True
@@ -140,6 +141,8 @@ class DatabaseManager:
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
+            # אינדקס למועדפים: שליפה מהירה לפי משתמש ומועדפים, מיון לפי תאריך הוספה
+            IndexModel([("user_id", ASCENDING), ("is_favorite", ASCENDING), ("favorited_at", DESCENDING)], name="user_favorites_idx"),
             # אינדקס משופר לתמיכה במיון file_name, version לאחר match על user_id,is_active
             IndexModel([
                 ("user_id", ASCENDING),
@@ -381,6 +384,19 @@ class DatabaseManager:
 
     def rename_file(self, user_id: int, old_name: str, new_name: str) -> bool:
         return self._get_repo().rename_file(user_id, old_name, new_name)
+
+    # Favorites API wrappers
+    def toggle_favorite(self, user_id: int, file_name: str) -> _Optional[bool]:
+        return self._get_repo().toggle_favorite(user_id, file_name)
+
+    def get_favorites(self, user_id: int, language: _Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
+        return self._get_repo().get_favorites(user_id, language=language, sort_by=sort_by, limit=limit)
+
+    def get_favorites_count(self, user_id: int) -> int:
+        return self._get_repo().get_favorites_count(user_id)
+
+    def is_favorite(self, user_id: int, file_name: str) -> bool:
+        return self._get_repo().is_favorite(user_id, file_name)
 
     # Large files API
     def save_large_file(self, large_file) -> bool:

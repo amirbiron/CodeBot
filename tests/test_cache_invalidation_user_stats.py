@@ -9,6 +9,12 @@ def test_invalidate_user_cache_removes_user_stats(monkeypatch):
     class _FakeRedis:
         def __init__(self):
             self.store = {}
+        def set(self, key, value, ex=None):
+            self.store[key] = value
+            return True
+        def expire(self, key, seconds):
+            # לא נדרש לזמן קצר בטסט; נחזיר True
+            return True
         def keys(self, pattern):
             import fnmatch
             return [k for k in list(self.store.keys()) if fnmatch.fnmatch(k, pattern)]
