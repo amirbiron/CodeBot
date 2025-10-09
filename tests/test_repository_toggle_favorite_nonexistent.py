@@ -26,4 +26,3 @@ def test_toggle_favorite_nonexistent_returns_none(repo):
     # no docs
     res = repo.toggle_favorite(1, 'nope.py')
     assert res is None
-}  
