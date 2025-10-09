@@ -5505,7 +5505,18 @@ class GitHubMenuHandler:
         if nav:
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")])
-        await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        # עריכת ההודעה עם טיפול ב"message is not modified" – במקרה כזה ננסה לעדכן רק את המקלדת
+        try:
+            await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    pass
+            else:
+                raise
 
     async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -5520,7 +5531,17 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")],
             [InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")],
         ]
-        await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        try:
+            await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        except BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
+                except Exception:
+                    pass
+            else:
+                raise
 
     async def ask_upload_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
