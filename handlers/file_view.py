@@ -135,7 +135,8 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
-            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+            # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
+            back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
@@ -234,7 +235,8 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
-            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+            # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
+            back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
