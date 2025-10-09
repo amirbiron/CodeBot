@@ -1,0 +1,110 @@
+<!-- 
+    Bookmarks System HTML Snippet
+    להוספה בקובץ view_file.html או בכל עמוד שמציג קוד
+-->
+
+<!-- Hidden file ID for JavaScript -->
+<input type="hidden" id="fileId" value="{{ file_id }}">
+
+<!-- Bookmarks Toggle Button -->
+<button 
+    id="toggleBookmarksBtn" 
+    class="bookmarks-toggle-btn"
+    aria-label="פתח פאנל סימניות"
+    aria-expanded="false"
+    aria-controls="bookmarksPanel"
+    title="סימניות">
+    <span aria-hidden="true">🔖</span>
+    <span id="bookmarkCount" class="bookmark-count" style="display: none;">0</span>
+</button>
+
+<!-- Bookmarks Panel -->
+<aside 
+    id="bookmarksPanel" 
+    class="bookmarks-panel"
+    role="complementary"
+    aria-label="פאנל סימניות">
+    
+    <!-- Panel Header -->
+    <div class="bookmarks-panel-header">
+        <h2>
+            <span aria-hidden="true">🔖</span>
+            סימניות בקובץ
+        </h2>
+        <div class="bookmarks-panel-actions">
+            <button 
+                id="exportBookmarks"
+                title="ייצא סימניות"
+                aria-label="ייצא סימניות לקובץ JSON">
+                <span aria-hidden="true">💾</span>
+                ייצא
+            </button>
+            <button 
+                id="clearAllBookmarks"
+                title="מחק הכל"
+                aria-label="מחק את כל הסימניות">
+                <span aria-hidden="true">🗑️</span>
+                נקה הכל
+            </button>
+            <button 
+                id="closePanel"
+                onclick="document.getElementById('bookmarksPanel').classList.remove('open')"
+                title="סגור"
+                aria-label="סגור פאנל סימניות">
+                <span aria-hidden="true">✕</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Bookmarks List -->
+    <div class="bookmarks-list" role="list">
+        <!-- Bookmarks will be dynamically inserted here -->
+        <div class="empty-state">
+            <p>אין עדיין סימניות בקובץ זה</p>
+            <p>לחץ על מספר שורה כדי להוסיף סימנייה</p>
+        </div>
+    </div>
+</aside>
+
+<!-- Include Styles -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bookmarks.css') }}">
+
+<!-- Include JavaScript -->
+<script src="{{ url_for('static', filename='js/bookmarks.js') }}" defer></script>
+
+<!-- Inline styles for immediate rendering (optional) -->
+<style>
+    /* Critical styles for immediate rendering */
+    .bookmarks-toggle-btn {
+        position: fixed;
+        top: 100px;
+        right: 20px;
+        z-index: 1000;
+        background: white;
+        border: 2px solid #ffd700;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+    
+    .bookmarks-panel {
+        position: fixed;
+        top: 0;
+        right: -400px;
+        width: 400px;
+        height: 100vh;
+        background: white;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+        transition: right 0.3s ease;
+        z-index: 999;
+    }
+    
+    .bookmarks-panel.open {
+        right: 0;
+    }
+</style>
