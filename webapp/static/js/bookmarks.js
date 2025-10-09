@@ -41,8 +41,11 @@ class BookmarkManager {
     }
     
     setupEventDelegation() {
-        // Event delegation לקוד
-        const codeContainer = document.querySelector('.highlight, .highlighttable');
+        // Event delegation לקוד – מאזינים למכולה העוטפת את כל ה-highlight
+        // כך שנתפוס גם קליקים על מספרי שורות (שהם לעתים אחים של הקוד ולא צאצאים שלו)
+        const codeContainer = document.querySelector('#codeCard .code-container')
+            || document.querySelector('.highlighttable')
+            || document.querySelector('.highlight');
         if (codeContainer) {
             codeContainer.addEventListener('click', (e) => this.handleCodeClick(e));
             codeContainer.addEventListener('mouseover', (e) => this.handleCodeHover(e));
@@ -86,7 +89,10 @@ class BookmarkManager {
     }
     
     async handleCodeClick(event) {
-        const lineNumEl = event.target.closest('.linenos span, .linenodiv a');
+        // תמיכה בשני פורמטי Pygments: highlighttable (td.linenos) ו-linenodiv
+        const lineNumEl = event.target.closest(
+            '.highlighttable .linenos pre > span, .linenodiv pre > span, .linenos a, .linenodiv a, .linenos span'
+        );
         if (!lineNumEl) return;
         
         event.preventDefault();
@@ -112,7 +118,9 @@ class BookmarkManager {
     }
     
     handleCodeHover(event) {
-        const lineNumEl = event.target.closest('.linenos span, .linenodiv a');
+        const lineNumEl = event.target.closest(
+            '.highlighttable .linenos pre > span, .linenodiv pre > span, .linenos a, .linenodiv a, .linenos span'
+        );
         if (!lineNumEl) return;
         
         const lineNumber = this.extractLineNumber(lineNumEl);
@@ -309,7 +317,7 @@ class BookmarkManager {
     
     scrollToLine(lineNumber) {
         const lineElement = document.querySelector(
-            `.linenos span:nth-child(${lineNumber}), .linenodiv a:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
         );
         
         if (lineElement) {
@@ -339,7 +347,8 @@ class BookmarkManager {
         // נסה לקבל מ-href (לפורמט #L123)
         const href = element.getAttribute('href');
         if (href) {
-            const match = href.match(/#L?(\d+)/);
+            // תומך גם בפורמט #L123 וגם #line-123
+            const match = href.match(/#(?:L|line-?)(\d+)/i);
             if (match) return parseInt(match[1]);
         }
         
@@ -542,7 +551,7 @@ class BookmarkUI {
     
     addBookmarkIndicator(lineNumber) {
         const lineElement = document.querySelector(
-            `.linenos span:nth-child(${lineNumber}), .linenodiv a:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
         );
         
         if (lineElement && !lineElement.classList.contains('bookmarked')) {
@@ -560,7 +569,7 @@ class BookmarkUI {
     
     removeBookmarkIndicator(lineNumber) {
         const lineElement = document.querySelector(
-            `.linenos span:nth-child(${lineNumber}), .linenodiv a:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
         );
         
         if (lineElement) {
@@ -644,7 +653,7 @@ class BookmarkUI {
     
     showLineLoading(lineNumber, show) {
         const lineElement = document.querySelector(
-            `.linenos span:nth-child(${lineNumber}), .linenodiv a:nth-child(${lineNumber})`
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber})`
         );
         
         if (lineElement) {

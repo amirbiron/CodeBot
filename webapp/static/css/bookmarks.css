@@ -20,7 +20,8 @@
 
 /* Indicators */
 .linenos span.bookmarked,
-.linenodiv a.bookmarked {
+.linenodiv a.bookmarked,
+.linenodiv span.bookmarked {
     position: relative;
     background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
     font-weight: bold;
@@ -34,13 +35,17 @@
 }
 
 .linenos span.loading,
-.linenodiv a.loading {
+.linenodiv a.loading,
+.linenodiv span.loading,
+.highlighttable .linenos pre > span.loading {
     opacity: 0.5;
     cursor: wait;
 }
 
 .linenos span:hover,
-.linenodiv a:hover {
+.linenodiv a:hover,
+.linenodiv span:hover,
+.highlighttable .linenos pre > span:hover {
     cursor: pointer;
     background-color: rgba(255, 215, 0, 0.1);
     transition: background-color 0.2s ease;
