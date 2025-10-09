@@ -21,15 +21,26 @@ logger = logging.getLogger(__name__)
 
 
 def check_mongodb_connection():
-    """בדיקת חיבור ל-MongoDB"""
+    """בדיקת חיבור ל-MongoDB (ללא תלות ב-config.py)"""
     try:
         from pymongo import MongoClient
-        from config import config
-        
-        client = MongoClient(config.MONGODB_URL, serverSelectionTimeoutMS=5000)
+        # תמיכה גם בשמות מהאישוז/גיסטים וגם בקוד הפרויקט
+        mongo_uri = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI")
+        db_name = (
+            os.getenv("DATABASE_NAME")
+            or os.getenv("MONGO_DB_NAME")
+            or "code_keeper_bot"
+        )
+
+        if not mongo_uri:
+            raise RuntimeError(
+                "MONGODB_URL/MONGO_URI לא הוגדר. יש להגדיר משתני סביבה."
+            )
+
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
         client.server_info()  # Force connection
-        db = client[config.DATABASE_NAME]
-        
+        db = client[db_name]
+
         logger.info("✅ MongoDB connection successful")
         return db
     except Exception as e:
