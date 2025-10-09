@@ -611,7 +611,14 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 language = file.get('programming_language', 'text')
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
-                button_text = f"{emoji} {file_name}"
+                # ⭐ חיווי מועדף — רק אם השם לא ארוך מדי כדי לא לפגוע בקריאות
+                try:
+                    from database import db as _db
+                    is_fav = bool(_db.is_favorite(user_id, file_name))
+                except Exception:
+                    is_fav = False
+                star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
+                button_text = f"{star}{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
@@ -786,15 +793,21 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             i = start_index + offset
             file_name = file.get('file_name', 'קובץ ללא שם')
             language = file.get('programming_language', 'text')
-            emoji = get_file_emoji(language)
-            if multi_on:
+                emoji = get_file_emoji(language)
+                if multi_on:
                 file_id = str(file.get('_id') or '')
                 checked = "☑️" if file_id in selected_ids else "⬜️"
                 button_text = f"{checked} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page_used}:{file_id}")])
             else:
                 context.user_data['files_cache'][str(i)] = file
-                button_text = f"{emoji} {file_name}"
+                    try:
+                        from database import db as _db
+                        is_fav = bool(_db.is_favorite(user_id, file_name))
+                    except Exception:
+                        is_fav = False
+                    star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
+                    button_text = f"{star}{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
         pagination_row = build_pagination_row(page_used, total_files, FILES_PAGE_SIZE, "files_page_")
