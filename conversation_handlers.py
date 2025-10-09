@@ -738,6 +738,8 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
         if pagination_row:
             keyboard.append(pagination_row)
+        # כפתור חזרה לתת־תפריט הקבצים
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         header = (
             f"⭐ <b>המועדפים שלך</b> — סה״כ: {total_files}\n"
             f"📄 עמוד {page} מתוך {total_pages}\n\n"

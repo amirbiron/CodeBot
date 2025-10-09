@@ -20,6 +20,24 @@ import secrets
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 
+
+async def _edit_message_text_unified(query, text: str, *, reply_markup=None, parse_mode=None):
+    """Edit message text using query.edit_message_text when available, otherwise fallback to TelegramUtils.safe_edit_message_text.
+
+    This keeps tests that stub only one path working and unifies behavior.
+    """
+    try:
+        if hasattr(query, 'edit_message_text') and callable(getattr(query, 'edit_message_text')):
+            return await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            return await TelegramUtils.safe_edit_message_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        # last resort — try the other path once
+        try:
+            return await TelegramUtils.safe_edit_message_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            return await query.edit_message_text(text)
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, ConversationHandler
