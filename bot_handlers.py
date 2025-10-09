@@ -29,11 +29,19 @@ import json
 
 logger = logging.getLogger(__name__)
 
-reporter = create_reporter(
-    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-    service_id="srv-d29d72adbo4c73bcuep0",
-    service_name="CodeBot"
-)
+import os as _os
+_DISABLE_REPORTER = bool(int((_os.getenv("DISABLE_ACTIVITY_REPORTER", "0") or "0").strip() or 0))
+if _DISABLE_REPORTER:
+    class _NoopReporter:
+        def report_activity(self, user_id):
+            return None
+    reporter = _NoopReporter()
+else:
+    reporter = create_reporter(
+        mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+        service_id="srv-d29d72adbo4c73bcuep0",
+        service_name="CodeBot"
+    )
 
 class AdvancedBotHandlers:
     """פקודות מתקדמות של הבוט"""
@@ -301,7 +309,30 @@ class AdvancedBotHandlers:
             buttons.append(actions_row)
         else:
             buttons = [actions_row]
-        await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+        # שליחת הודעה ארוכה בצורה בטוחה (פיצול למספר הודעות אם צריך)
+        await self._send_long_message(
+            update.message,
+            message,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+        # אם יש יותר מ-10 מועדפים, שלח את השאר כהודעות נוספות — מפוצלות בבטחה
+        if len(favorites) > 10:
+            rest_lines: List[str] = []
+            from utils import get_language_emoji as _gle
+            for idx, fav in enumerate(favorites[10:], 11):
+                fname = fav.get('file_name', '')
+                lang = fav.get('programming_language', '')
+                rest_lines.append(f"{idx}. {_gle(lang)} <code>{html.escape(str(fname))}</code>")
+            rest_text = "\n".join(rest_lines)
+            if rest_text:
+                await self._send_long_message(
+                    update.message,
+                    rest_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None,
+                )
     
     async def edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """עריכת קטע קוד קיים"""
@@ -1202,6 +1233,11 @@ class AdvancedBotHandlers:
                 fname = doc.get('file_name')
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                # נסה לרענן את ההודעה/כפתור המועדפים לאחר toggle
+                try:
+                    await query.edit_message_text("✅ עודכן מצב המועדפים", parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
 
             elif data.startswith("fav_toggle_tok:"):
                 token = data.split(":", 1)[1]
@@ -1214,6 +1250,11 @@ class AdvancedBotHandlers:
                     return
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                # נסה לרענן את ההודעה/כפתור המועדפים לאחר toggle
+                try:
+                    await query.edit_message_text("✅ עודכן מצב המועדפים", parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.error(f"שגיאה ב-callback: {e}")
@@ -1263,6 +1304,39 @@ class AdvancedBotHandlers:
                 f"```{file_data['programming_language']}\n{file_data['code']}\n```",
                 parse_mode=ParseMode.MARKDOWN
             )
+
+    async def _send_long_message(self, msg_target, text: str, parse_mode: Optional[str] = None, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        """שליחת טקסט ארוך במספר הודעות, מפוצל לפי אורך בטוח לטלגרם.
+
+        מגבלת אורך הודעת טלגרם היא סביב 4096 תווים. נשתמש במרווח בטחון.
+        """
+        try:
+            MAX_LEN = 3500
+            remaining = text or ""
+            if len(remaining) <= MAX_LEN:
+                await msg_target.reply_text(remaining, parse_mode=parse_mode, reply_markup=reply_markup)
+                return
+            # פיצול לפי שורות כדי לשמור על פירוק טבעי
+            lines = (remaining.split("\n") if remaining else [])
+            buf: list[str] = []
+            curr = 0
+            for line in lines:
+                # +1 עבור ה"\n" שיתווסף בהמשך
+                line_len = len(line) + (1 if buf else 0)
+                if curr + line_len > MAX_LEN:
+                    chunk = "\n".join(buf)
+                    await msg_target.reply_text(chunk, parse_mode=parse_mode)
+                    buf = [line]
+                    curr = len(line)
+                else:
+                    buf.append(line)
+                    curr += line_len
+            if buf:
+                chunk = "\n".join(buf)
+                await msg_target.reply_text(chunk, parse_mode=parse_mode, reply_markup=reply_markup)
+        except Exception:
+            # במקרה חריג, שלח את הכל בהודעה אחת (עלול לחרוג אם ארוך מדי)
+            await msg_target.reply_text(text or "", parse_mode=parse_mode, reply_markup=reply_markup)
     
     async def _share_to_gist(self, query, user_id: int, file_name: str):
         """שיתוף ב-GitHub Gist"""

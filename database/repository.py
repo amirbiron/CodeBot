@@ -125,7 +125,16 @@ class Repository:
                 "user_id": user_id, "file_name": file_name,
                 "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
             }
-            res = self.manager.collection.update_many(query, update)
+            # עדכון באמצעות update_many אם זמין; בסביבת in-memory ייתכן שהמתודה לא קיימת
+            class _UpdateResult:
+                def __init__(self, matched: int = 0, modified: int = 0) -> None:
+                    self.matched_count = matched
+                    self.modified_count = modified
+
+            try:
+                res = self.manager.collection.update_many(query, update)  # type: ignore[attr-defined]
+            except Exception:
+                res = _UpdateResult(0, 0)
             matched = int(getattr(res, 'matched_count', 0) or 0)
             # אם לא נמצאה התאמה לפי _id (למשל בסטאבים) — נסה לפי user_id+file_name
             if matched <= 0:
@@ -134,7 +143,10 @@ class Repository:
                     "file_name": file_name,
                     "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
                 }
-                res = self.manager.collection.update_many(fallback_q, update)
+                try:
+                    res = self.manager.collection.update_many(fallback_q, update)  # type: ignore[attr-defined]
+                except Exception:
+                    res = _UpdateResult(0, 0)
                 matched = int(getattr(res, 'matched_count', 0) or 0)
                 # Fallback נוסף לסביבת טסטים: עדכון ישיר של המסמך ברשימת docs אם קיימת
                 if matched <= 0 and hasattr(self.manager.collection, 'docs'):
@@ -318,7 +330,7 @@ class Repository:
         try:
             # Primary fast-path for test/CI in-memory collections
             try:
-                docs_list = getattr(self.manager.collection, 'docs')
+                docs_list = getattr(self.manager.collection, 'docs', None)
                 if isinstance(docs_list, list):
                     names = set()
                     for d in docs_list:
@@ -358,7 +370,7 @@ class Repository:
                     pass
             # Fallback: אם $count לא נתמך/נכשל — ספר ידנית את כמות הפריטים הייחודיים
             try:
-                docs_list = getattr(self.manager.collection, 'docs')
+                docs_list = getattr(self.manager.collection, 'docs', None)
                 if isinstance(docs_list, list):
                     names = set()
                     for d in docs_list:
@@ -379,7 +391,8 @@ class Repository:
                     {"$group": {"_id": "$file_name"}},
                 ]
                 rows = list(self.manager.collection.aggregate(pipeline2, allowDiskUse=True))
-                return len(rows or [])
+                # ספירה בטוחה: רק פריטים דיקט עם מפתח _id נחשבים
+                return len([r for r in rows if isinstance(r, dict) and ("_id" in r)])
             except Exception:
                 return 0
         except Exception:
