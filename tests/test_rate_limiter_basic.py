@@ -27,8 +27,8 @@ async def test_rate_limiter_window_cleanup_allows_after_old_entries_removed():
     assert await limiter.check_rate_limit(user_id) is False
 
     # הפוך את כל הרשומות לישנות מ-60 שניות כדי להתנקה בבדיקה הבאה
-    from datetime import datetime, timedelta
-    too_old = datetime.utcnow() - timedelta(seconds=120)
+    from datetime import datetime, timedelta, timezone
+    too_old = datetime.now(timezone.utc) - timedelta(seconds=120)
     limiter._requests[user_id] = [too_old, too_old]
 
     # עכשיו צריך לאפשר מחדש
@@ -43,8 +43,8 @@ async def test_rate_limiter_cleanup_all_expired_limit_1():
     assert await limiter.check_rate_limit(user_id) is True
     assert await limiter.check_rate_limit(user_id) is False
     # הפוך את הרשומה היחידה לישנה
-    from datetime import datetime, timedelta
-    too_old = datetime.utcnow() - timedelta(seconds=120)
+    from datetime import datetime, timedelta, timezone
+    too_old = datetime.now(timezone.utc) - timedelta(seconds=120)
     limiter._requests[user_id] = [too_old]
     # צריך להתנקה לחלוטין ולאפשר
     assert await limiter.check_rate_limit(user_id) is True
