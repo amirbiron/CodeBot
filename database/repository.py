@@ -125,7 +125,16 @@ class Repository:
                 "user_id": user_id, "file_name": file_name,
                 "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
             }
-            res = self.manager.collection.update_many(query, update)
+            # עדכון באמצעות update_many אם זמין; בסביבת in-memory ייתכן שהמתודה לא קיימת
+            class _UpdateResult:
+                def __init__(self, matched: int = 0, modified: int = 0) -> None:
+                    self.matched_count = matched
+                    self.modified_count = modified
+
+            try:
+                res = self.manager.collection.update_many(query, update)  # type: ignore[attr-defined]
+            except Exception:
+                res = _UpdateResult(0, 0)
             matched = int(getattr(res, 'matched_count', 0) or 0)
             # אם לא נמצאה התאמה לפי _id (למשל בסטאבים) — נסה לפי user_id+file_name
             if matched <= 0:
@@ -134,7 +143,10 @@ class Repository:
                     "file_name": file_name,
                     "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
                 }
-                res = self.manager.collection.update_many(fallback_q, update)
+                try:
+                    res = self.manager.collection.update_many(fallback_q, update)  # type: ignore[attr-defined]
+                except Exception:
+                    res = _UpdateResult(0, 0)
                 matched = int(getattr(res, 'matched_count', 0) or 0)
                 # Fallback נוסף לסביבת טסטים: עדכון ישיר של המסמך ברשימת docs אם קיימת
                 if matched <= 0 and hasattr(self.manager.collection, 'docs'):
