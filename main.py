@@ -784,8 +784,8 @@ class CodeKeeperBot:
                 return True
             # קלט נתיב יעד ידני לסביבת העלאה (upload_folder_custom)
             if context.user_data.get('waiting_for_upload_folder'):
-                # שליחת הטקסט ישירות למטפל ההעלאה (תומך גם בטקסט ולא רק בקובץ)
-                return await github_handler.handle_file_upload(update, context)
+                # ניתוב טקסט למטפל טקסטים של GitHub (סמנטי ונקי)
+                return await github_handler.handle_text_input(update, context)
 
             if context.user_data.get('waiting_for_repo_url') or \
                context.user_data.get('waiting_for_delete_file_path') or \
