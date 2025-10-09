@@ -623,7 +623,24 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                     is_fav = False
                 star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
                 button_text = f"{star}{emoji} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
+                # כפתור כניסה + כפתור מועדפים ישיר
+                try:
+                    fid = str(file.get('_id') or '')
+                except Exception:
+                    fid = ''
+                if fid:
+                    fav_cb = f"fav_toggle_id:{fid}"
+                else:
+                    fav_cb = f"fav_toggle_tok:{i}"
+                    # מיפוי טוקן זמני לשם קובץ
+                    tokens_map = context.user_data.get('fav_tokens') or {}
+                    tokens_map[str(i)] = file_name
+                    context.user_data['fav_tokens'] = tokens_map
+                fav_label = "💔 הסר ממועדפים" if is_fav else "⭐ הוסף למועדפים"
+                keyboard.append([
+                    InlineKeyboardButton(button_text, callback_data=f"file_{i}"),
+                    InlineKeyboardButton(fav_label, callback_data=fav_cb)
+                ])
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
@@ -694,12 +711,28 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
             name = file.get('file_name', 'file')
             lang = file.get('programming_language', 'text')
             emoji = get_file_emoji(lang)
-            keyboard.append([InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}")])
+            # כפתור כניסה + כפתור מועדפים ישיר
+            try:
+                fid = str(file.get('_id') or '')
+            except Exception:
+                fid = ''
+            if fid:
+                fav_cb = f"fav_toggle_id:{fid}"
+            else:
+                fav_cb = f"fav_toggle_tok:{i}"
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[str(i)] = name
+                context.user_data['fav_tokens'] = tokens_map
+            keyboard.append([
+                InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}"),
+                InlineKeyboardButton("💔 הסר ממועדפים" if file.get('is_favorite') else "⭐ הוסף למועדפים", callback_data=fav_cb)
+            ])
         from handlers.pagination import build_pagination_row
         pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
         if pagination_row:
             keyboard.append(pagination_row)
-        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        # חזרה לרשימת מועדפים
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="show_favorites")])
         header = (
             f"⭐ <b>המועדפים שלך</b> — סה״כ: {total_files}\n"
             f"📄 עמוד {page} מתוך {total_pages}\n\n"

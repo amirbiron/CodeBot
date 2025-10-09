@@ -72,6 +72,18 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
+        # קבע כפתור חזרה בהתאם למקור (מועדפים/רגיל/אחר)
+        last_page = context.user_data.get('files_last_page')
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        else:
+            back_cb = f"back_after_view:{file_name}"
+
         keyboard = [
             [
                 InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
@@ -883,7 +895,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             [
                 InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
             ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
+            [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
