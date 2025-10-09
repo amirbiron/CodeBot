@@ -623,24 +623,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                     is_fav = False
                 star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
                 button_text = f"{star}{emoji} {file_name}"
-                # כפתור כניסה + כפתור מועדפים ישיר
-                try:
-                    fid = str(file.get('_id') or '')
-                except Exception:
-                    fid = ''
-                if fid:
-                    fav_cb = f"fav_toggle_id:{fid}"
-                else:
-                    fav_cb = f"fav_toggle_tok:{i}"
-                    # מיפוי טוקן זמני לשם קובץ
-                    tokens_map = context.user_data.get('fav_tokens') or {}
-                    tokens_map[str(i)] = file_name
-                    context.user_data['fav_tokens'] = tokens_map
-                fav_label = "💔 הסר ממועדפים" if is_fav else "⭐ הוסף למועדפים"
-                keyboard.append([
-                    InlineKeyboardButton(button_text, callback_data=f"file_{i}"),
-                    InlineKeyboardButton(fav_label, callback_data=fav_cb)
-                ])
+                # כפתור כניסה בלבד (ללא כפתור מועדפים ברשימה)
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
