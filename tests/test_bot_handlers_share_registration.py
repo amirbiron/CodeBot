@@ -16,4 +16,8 @@ def test_share_handler_registers_without_group_support(monkeypatch):
     app = _AppNoGroup()
     adv = bh.AdvancedBotHandlers(app)
     # One of the handlers should be the share handler; ensure at least one CallbackQueryHandler was registered
-    assert any(getattr(h[0][0], '__class__', type('x', (), {})).__name__ == 'CallbackQueryHandler' for h in app.handlers)
+    def _is_cq(entry):
+        args = entry[0]
+        handler = args[0] if isinstance(args, tuple) else args
+        return getattr(handler, '__class__', type('x', (), {})).__name__ == 'CallbackQueryHandler'
+    assert any(_is_cq(h) for h in app.handlers)
