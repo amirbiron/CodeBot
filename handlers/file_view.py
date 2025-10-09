@@ -102,16 +102,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             back_cb = f"back_after_view:{file_name}"
 
-        # קבע חזרה בהתאם למקור (מועדפים/רגיל/ריפו/ברירת מחדל) — הגדר ברירת מחדל קודם
-        back_cb = f"back_after_view:{file_name}"
-        last_page = context.user_data.get('files_last_page')
-        origin = context.user_data.get('files_origin') or {}
-        if origin.get('type') == 'by_repo' and origin.get('tag'):
-            back_cb = f"by_repo:{origin.get('tag')}"
-        elif origin.get('type') == 'favorites':
-            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
-        elif origin.get('type') == 'regular':
-            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        # הערה: לוגיקת ה־back כבר חושבה למעלה – אין לשכפל כדי לא לדרוס ערך
 
         keyboard = [
             [
@@ -144,7 +135,8 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
-            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+            # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
+            back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
@@ -243,7 +235,8 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
-            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+            # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
+            back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
