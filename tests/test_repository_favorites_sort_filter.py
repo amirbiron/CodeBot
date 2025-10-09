@@ -125,7 +125,7 @@ def test_get_favorites_sort_and_filter(repo):
     # default: sort by favorited_at desc (date)
     favs = repo.get_favorites(1)
     names = [f['file_name'] for f in favs]
-    assert names[0] in {'a.py', 'b.js'}  # newest favorited first
+    # ודא שהוחזרו בדיוק שני מועדפים ושהם הקבצים המצופים
     assert set(names) == {'a.py', 'b.js'}
 
     # filter by language

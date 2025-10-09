@@ -47,7 +47,7 @@ def bot(monkeypatch):
             self._fav = False
             self._docs = {
                 'readme.md': {
-                    '_id': 'ID-1', 'file_name': 'readme.md', 'code': '# hi', 'programming_language': 'markdown'
+                    '_id': '507f1f77bcf86cd799439011', 'file_name': 'readme.md', 'code': '# hi', 'programming_language': 'markdown'
                 }
             }
         def get_latest_version(self, uid, name):
@@ -74,7 +74,7 @@ async def test_show_add_favorite_via_id_and_export(bot):
     await bot.show_command(upd, ctx)
 
     # simulate pressing the favorite toggle button by id
-    q = _Query(); q.data = "fav_toggle_id:ID-1"
+    q = _Query(); q.data = "fav_toggle_id:507f1f77bcf86cd799439011"
     await bot.handle_callback_query(types.SimpleNamespace(callback_query=q, effective_user=_User()), ctx)
 
     # now /favorites should have one, and export should produce a document
