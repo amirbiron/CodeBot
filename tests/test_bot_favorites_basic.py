@@ -25,6 +25,8 @@ class _Query:
     def __init__(self):
         self.data = ""
         self.message = _Msg()
+        # add from_user to satisfy handler access
+        self.from_user = _User()
     async def answer(self, *a, **k):
         return None
     async def edit_message_text(self, *a, **k):

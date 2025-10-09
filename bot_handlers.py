@@ -1067,7 +1067,11 @@ class AdvancedBotHandlers:
         await query.answer()
         
         data = query.data
-        user_id = query.from_user.id
+        try:
+            user_obj = getattr(query, 'from_user', None) or getattr(update, 'effective_user', None)
+            user_id = int(getattr(user_obj, 'id', 0) or 0)
+        except Exception:
+            user_id = 0
         
         try:
             if data.startswith("confirm_delete_"):
