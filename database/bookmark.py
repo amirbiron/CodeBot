@@ -69,12 +69,26 @@ class FileBookmark:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FileBookmark":
         """יצירה מ-dictionary שהגיע מ-MongoDB"""
+        def _required(key: str) -> Any:
+            if key not in data or data[key] is None:
+                raise ValueError(f"Missing required field: {key}")
+            return data[key]
+
+        # שדות חובה עם המרות בסיסיות
+        user_id = _required("user_id")
+        file_id = _required("file_id")
+        try:
+            line_number_val = _required("line_number")
+            line_number = int(line_number_val)
+        except Exception:
+            raise ValueError("Invalid line_number: must be an integer")
+
         bookmark = cls(
-            user_id=data.get("user_id"),
-            file_id=data.get("file_id"),
+            user_id=user_id,
+            file_id=file_id,
             file_name=data.get("file_name", ""),
             file_path=data.get("file_path", ""),
-            line_number=data["line_number"],
+            line_number=line_number,
             line_text_preview=data.get("line_text_preview", ""),
             code_context=data.get("code_context", ""),
             note=data.get("note", ""),
