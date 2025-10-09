@@ -158,6 +158,8 @@ async def test_import_repo_message_mentions_expected_duration(monkeypatch):
     monkeypatch.setattr(gh.requests, "get", lambda url, timeout=60: _Resp())
 
     upd, ctx = _Update(), _Context()
+    # חקוי בחירת ענף כפי שנעשה בזרימה לפני לחיצה על "ייבא"
+    ctx.user_data["import_repo_branch"] = "main"
     # Directly invoke the start branch to hit the message text
     await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
 
