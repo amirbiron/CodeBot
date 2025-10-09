@@ -1123,6 +1123,9 @@ def files():
     # חישוב עמודים
     total_pages = (total_count + per_page - 1) // per_page
     
+    # שמירה על הקשר ריפו שנבחר (אם קיים) כדי לא לשבור עימוד/מסננים
+    selected_repo_value = repo_name if (category_filter == 'repo' and repo_name) else ''
+
     return render_template('files.html',
                          user=session['user_data'],
                          files=files_list,
@@ -1136,6 +1139,7 @@ def files():
                          total_pages=total_pages,
                          has_prev=page > 1,
                          has_next=page < total_pages,
+                         selected_repo=selected_repo_value,
                          bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/file/<file_id>')
@@ -1370,6 +1374,13 @@ def edit_file_page(file_id):
                                 language = guessed
                     except Exception:
                         pass
+
+                # חיזוק מיפוי: אם הסיומת .md והשפה עדיין לא זוהתה כ-markdown – תיוג כ-markdown
+                try:
+                    if isinstance(file_name, str) and file_name.lower().endswith('.md') and (not language or language.lower() == 'text'):
+                        language = 'markdown'
+                except Exception:
+                    pass
 
                 # עדכון שם קובץ לפי השפה (אם אין סיומת או .txt)
                 try:
@@ -1852,6 +1863,13 @@ def upload_file_web():
                                 language = guessed
                     except Exception:
                         pass
+
+                # חיזוק מיפוי: אם הסיומת .md והשפה עדיין לא זוהתה כ-markdown – תיוג כ-markdown
+                try:
+                    if isinstance(file_name, str) and file_name.lower().endswith('.md') and (not language or language.lower() == 'text'):
+                        language = 'markdown'
+                except Exception:
+                    pass
 
                 # עדכון שם קובץ כך שיתאם את השפה (סיומת מתאימה)
                 try:

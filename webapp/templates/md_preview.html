@@ -64,9 +64,10 @@
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 16px;               /* נגישות טובה יותר */
   line-height: 1.5;              /* רווח אנכי טוב */
-  white-space: pre-wrap !important;  /* עטיפת שורות ארוכות */
-  word-break: break-word !important;
-  overflow-wrap: anywhere !important;
+  /* גלילה אופקית במקום עטיפה – כדי לא לחתוך קוד ארוך */
+  white-space: pre !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
 }
 #md-content .md-highlight {
   background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
