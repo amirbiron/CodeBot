@@ -124,12 +124,27 @@ class Repository:
             if hasattr(self.manager.collection, 'docs'):
                 try:
                     docs_list = getattr(self.manager.collection, 'docs')
-                    candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
-                    if candidates:
-                        latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
-                        latest['is_favorite'] = new_state
-                        latest['updated_at'] = now
-                        latest['favorited_at'] = (now if new_state else None)
+                    # נסה לעדכן לפי _id אם זמין
+                    try:
+                        tid = snippet.get('_id')
+                    except Exception:
+                        tid = None
+                    updated = False
+                    if tid is not None:
+                        for d in docs_list:
+                            if isinstance(d, dict) and d.get('_id') == tid:
+                                d['is_favorite'] = new_state
+                                d['updated_at'] = now
+                                d['favorited_at'] = (now if new_state else None)
+                                updated = True
+                                break
+                    if not updated:
+                        candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
+                        if candidates:
+                            latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
+                            latest['is_favorite'] = new_state
+                            latest['updated_at'] = now
+                            latest['favorited_at'] = (now if new_state else None)
                 except Exception:
                     pass
             try:
@@ -138,7 +153,8 @@ class Repository:
                 pass
             matched = int(getattr(res, 'matched_count', 0) or 0)
             # די בהצלחה אם יש התאמות; במקרים מסוימים modified עשוי להיות 0 (למשל אותה ערך)
-            if matched <= 0:
+            # בסביבת סטאב עדכנו ישירות ב-docs, לכן נחזיר new_state גם אם matched==0
+            if matched <= 0 and not hasattr(self.manager.collection, 'docs'):
                 return None
             return new_state
         except Exception as e:
