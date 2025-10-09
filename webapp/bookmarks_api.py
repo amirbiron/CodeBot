@@ -4,6 +4,7 @@ Bookmarks API Endpoints for WebApp
 from flask import Blueprint, jsonify, request, session
 from bson import ObjectId
 from functools import wraps
+from typing import Optional, Dict
 import logging
 import html
 
@@ -17,7 +18,7 @@ bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
 # ==================== Internal helpers (placed before routes) ====================
 
-def _get_file_info(file_id: str) -> dict | None:
+def _get_file_info(file_id: str) -> Optional[Dict[str, str]]:
     """שליפת פרטי קובץ לפי מזהה לשימוש ה-API.
     מקור האמת הוא אוסף code_snippets, בהתאם לקוד האפליקציה.
     """
@@ -27,10 +28,15 @@ def _get_file_info(file_id: str) -> dict | None:
         doc = db.code_snippets.find_one({'_id': _ObjectId(file_id)})
         if not doc:
             return None
+        file_name = doc.get('file_name', '')
+        file_path = (
+            doc.get('file_path')
+            or doc.get('path')
+            or file_name
+        )
         return {
-            'file_name': doc.get('file_name', ''),
-            # אין "path" אמיתי – נשמור file_name כדי לא לשבור ממשק
-            'file_path': doc.get('file_name', ''),
+            'file_name': file_name,
+            'file_path': file_path,
         }
     except Exception:
         return None
