@@ -65,6 +65,16 @@ def _get_main_keyboard() -> list:
         return [[]]
 
 
+async def _edit_message_text_unified(query, text: str, reply_markup=None, parse_mode: Optional[str] = None) -> None:
+    """עטיפת עריכת הודעה לשימוש אחיד ובטוח.
+
+    תמיד משתמשת ב-TelegramUtils.safe_edit_message_text כדי לטפל בשגיאת
+    "Message is not modified" ובמקרי קצה נוספים בצורה עקבית.
+    """
+    await TelegramUtils.safe_edit_message_text(
+        query, text, reply_markup=reply_markup, parse_mode=parse_mode
+    )
+
 async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     מציג תפריט פעולות עבור קובץ נבחר.
@@ -86,7 +96,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ החכם")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ החכם")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
@@ -185,7 +195,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # הוסף שורת מועדפים לפני כפתור החזרה
         keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
 
-        await TelegramUtils.safe_edit_message_text(
+        await _edit_message_text_unified(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
             f"📄 **קובץ:** `{file_name}`\n"
@@ -196,7 +206,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
     except Exception as e:
         logger.error(f"Error in handle_file_menu: {e}")
-        await TelegramUtils.safe_edit_message_text(query, "💥 שגיאה במרכז הבקרה המתקדם")
+        await _edit_message_text_unified(query, "💥 שגיאה במרכז הבקרה המתקדם")
     return ConversationHandler.END
 
 
@@ -209,7 +219,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await TelegramUtils.safe_edit_message_text(query, "⚠️ הקובץ נעלם מהמערכת החכמה")
+            await _edit_message_text_unified(query, "⚠️ הקובץ נעלם מהמערכת החכמה")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         code = file_data.get('code', '')
@@ -320,7 +330,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 preview_raw_limit = max(0, preview_raw_limit - step)
                 safe_code = html_escape(code[:preview_raw_limit])
         code_preview = code[:preview_raw_limit]
-        await TelegramUtils.safe_edit_message_text(
+        await _edit_message_text_unified(
             query,
             f"{header_html}<pre><code>{safe_code}</code></pre>",
             reply_markup=reply_markup,
@@ -328,7 +338,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
     except Exception as e:
         logger.error(f"Error in handle_view_file: {e}")
-        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהצגת הקוד המתקדם")
+        await _edit_message_text_unified(query, "❌ שגיאה בהצגת הקוד המתקדם")
     return ConversationHandler.END
 
 
@@ -340,12 +350,12 @@ async def handle_edit_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         context.user_data['editing_file_index'] = file_index
         context.user_data['editing_file_data'] = file_data
         file_name = file_data.get('file_name', 'קובץ')
-        await TelegramUtils.safe_edit_message_text(
+        await _edit_message_text_unified(
             query,
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
@@ -356,7 +366,7 @@ async def handle_edit_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_CODE
     except Exception as e:
         logger.error(f"Error in handle_edit_code: {e}")
-        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהתחלת עריכה\n\n🔄 אנא נסה שוב או חזור לתפריט הראשי\n📞 אם הבעיה נמשכת, פנה לתמיכה")
+        await _edit_message_text_unified(query, "❌ שגיאה בהתחלת עריכה\n\n🔄 אנא נסה שוב או חזור לתפריט הראשי\n📞 אם הבעיה נמשכת, פנה לתמיכה")
     return ConversationHandler.END
 
 
@@ -517,12 +527,12 @@ async def handle_edit_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         context.user_data['editing_file_index'] = file_index
         context.user_data['editing_file_data'] = file_data
         current_name = file_data.get('file_name', 'קובץ')
-        await TelegramUtils.safe_edit_message_text(
+        await _edit_message_text_unified(
             query,
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{current_name}`\n\n"
@@ -533,7 +543,7 @@ async def handle_edit_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_NAME
     except Exception as e:
         logger.error(f"Error in handle_edit_name: {e}")
-        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהתחלת עריכת שם")
+        await _edit_message_text_unified(query, "❌ שגיאה בהתחלת עריכת שם")
     return ConversationHandler.END
 
 
@@ -545,12 +555,12 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         current_note = file_data.get('description', '') or '—'
         context.user_data['editing_note_file'] = file_name
-        await TelegramUtils.safe_edit_message_text(
+        await _edit_message_text_unified(
             query,
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
@@ -562,7 +572,7 @@ async def handle_edit_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return EDIT_CODE
     except Exception as e:
         logger.error(f"Error in handle_edit_note: {e}")
-        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בהתחלת עריכת הערה")
+        await _edit_message_text_unified(query, "❌ שגיאה בהתחלת עריכת הערה")
     return ConversationHandler.END
 
 
@@ -638,14 +648,14 @@ async def handle_versions_history(update, context: ContextTypes.DEFAULT_TYPE) ->
             file_index = data.split('_')[1]
             file_data = files_cache.get(file_index)
             if not file_data:
-                await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+                await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
                 return ConversationHandler.END
             file_name = file_data.get('file_name')
         user_id = update.effective_user.id
         from database import db
         versions = db.get_all_versions(user_id, file_name)
         if not versions:
-            await query.edit_message_text("📚 אין היסטוריית גרסאות לקובץ זה")
+            await _edit_message_text_unified(query, "📚 אין היסטוריית גרסאות לקובץ זה")
             return ConversationHandler.END
         latest_version_num = versions[0].get('version') if versions and isinstance(versions[0], dict) else None
         history_text = f"📚 *היסטוריית גרסאות - {file_name}*\n\n"
@@ -677,10 +687,10 @@ async def handle_versions_history(update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(history_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await _edit_message_text_unified(query, history_text, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Error in handle_versions_history: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת היסטוריה")
+        await _edit_message_text_unified(query, "❌ שגיאה בהצגת היסטוריה")
     return ConversationHandler.END
 
 
@@ -696,24 +706,24 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
             file_index = data.split('_')[1]
             file_data = files_cache.get(file_index)
             if not file_data:
-                await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+                await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
                 return ConversationHandler.END
             file_name = file_data.get('file_name', 'file.txt')
             code = file_data.get('code', '')
         elif data.startswith('download_direct_'):
             file_name = data.replace('download_direct_', '', 1)
             if not isinstance(file_name, str):
-                await query.edit_message_text("❌ שם קובץ שגוי להורדה")
+                await _edit_message_text_unified(query, "❌ שם קובץ שגוי להורדה")
                 return ConversationHandler.END
             from database import db
             user_id = update.effective_user.id
             latest = db.get_latest_version(user_id, file_name)
             if not latest:
-                await query.edit_message_text("❌ לא נמצאה גרסה אחרונה לקובץ")
+                await _edit_message_text_unified(query, "❌ לא נמצאה גרסה אחרונה לקובץ")
                 return ConversationHandler.END
             code = latest.get('code', '')
         else:
-            await query.edit_message_text("❌ בקשת הורדה לא חוקית")
+            await _edit_message_text_unified(query, "❌ בקשת הורדה לא חוקית")
             return ConversationHandler.END
         file_bytes = BytesIO()
         file_bytes.write(code.encode('utf-8'))
@@ -730,7 +740,7 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
         else:
             keyboard.append([InlineKeyboardButton("🔙 חזרה", callback_data=f"view_direct_{file_name}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
+        await _edit_message_text_unified(
             f"✅ *הקובץ הורד בהצלחה!*\n\n"
             f"📄 **שם:** `{file_name}`",
             reply_markup=reply_markup,
@@ -738,7 +748,7 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
         )
     except Exception as e:
         logger.error(f"Error in handle_download_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהורדת הקובץ")
+        await _edit_message_text_unified(query, "❌ שגיאה בהורדת הקובץ")
     return ConversationHandler.END
 
 
@@ -750,7 +760,7 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         keyboard = [[
@@ -758,7 +768,7 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
             InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}"),
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
+        await _edit_message_text_unified(
             f"⚠️ *אישור מחיקה*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"🗑️ האם להעביר את הקובץ לסל המיחזור?\n"
@@ -768,7 +778,7 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
         )
     except Exception as e:
         logger.error(f"Error in handle_delete_confirmation: {e}")
-        await query.edit_message_text("❌ שגיאה באישור מחיקה")
+        await _edit_message_text_unified(query, "❌ שגיאה באישור מחיקה")
     return ConversationHandler.END
 
 
@@ -780,7 +790,7 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         user_id = update.effective_user.id
         file_name = file_data.get('file_name')
@@ -789,7 +799,7 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if success:
             keyboard = [[InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
+            await _edit_message_text_unified(
                 f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
                 f"📄 **קובץ:** `{file_name}`\n"
                 f"♻️ ניתן לשחזר אותו מתפריט '🗑️ סל מיחזור' עד למחיקה אוטומטית",
@@ -797,10 +807,10 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 parse_mode='Markdown',
             )
         else:
-            await query.edit_message_text(f"❌ שגיאה במחיקת הקובץ `{file_name}`")
+            await _edit_message_text_unified(query, f"❌ שגיאה במחיקת הקובץ `{file_name}`")
     except Exception as e:
         logger.error(f"Error in handle_delete_file: {e}")
-        await query.edit_message_text("❌ שגיאה במחיקת הקובץ")
+        await _edit_message_text_unified(query, "❌ שגיאה במחיקת הקובץ")
     return ConversationHandler.END
 
 
@@ -812,7 +822,7 @@ async def handle_file_info(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         code = file_data.get('code', '')
@@ -835,10 +845,10 @@ async def handle_file_info(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(info_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await _edit_message_text_unified(query, info_text, reply_markup=reply_markup, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Error in handle_file_info: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת מידע")
+        await _edit_message_text_unified(query, "❌ שגיאה בהצגת מידע")
     return ConversationHandler.END
 
 
@@ -1033,11 +1043,11 @@ async def handle_edit_code_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         context.user_data['editing_file_data'] = file_data
         context.user_data['editing_file_name'] = file_name
-        await query.edit_message_text(
+        await _edit_message_text_unified(
             f"✏️ *עריכת קוד מתקדמת*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
             f"📝 שלח את הקוד החדש והמעודכן:",
@@ -1047,7 +1057,7 @@ async def handle_edit_code_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         return EDIT_CODE
     except Exception as e:
         logger.error(f"Error in handle_edit_code_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכה")
+        await _edit_message_text_unified(query, "❌ שגיאה בהתחלת עריכה")
     return ConversationHandler.END
 
 
@@ -1060,11 +1070,11 @@ async def handle_edit_name_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
-            await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
         context.user_data['editing_file_data'] = file_data
         context.user_data['editing_file_name'] = file_name
-        await query.edit_message_text(
+        await _edit_message_text_unified(
             f"📝 *עריכת שם קובץ*\n\n"
             f"📄 **שם נוכחי:** `{file_name}`\n\n"
             f"✏️ שלח שם חדש לקובץ:",
@@ -1074,7 +1084,7 @@ async def handle_edit_name_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         return EDIT_NAME
     except Exception as e:
         logger.error(f"Error in handle_edit_name_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בהתחלת עריכת שם")
+        await _edit_message_text_unified(query, "❌ שגיאה בהתחלת עריכת שם")
     return ConversationHandler.END
 
 
@@ -1087,11 +1097,11 @@ async def handle_edit_note_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
-            await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
+            await _edit_message_text_unified(query, "❌ לא נמצא הקובץ לעריכת הערה")
             return ConversationHandler.END
         current_note = file_data.get('description', '') or '—'
         context.user_data['editing_note_file'] = file_name
-        await query.edit_message_text(
+        await _edit_message_text_unified(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
             f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
@@ -1102,7 +1112,7 @@ async def handle_edit_note_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
         return EDIT_CODE
     except Exception as e:
         logger.exception("Error in handle_edit_note_direct: %s", e)
-        await query.edit_message_text("❌ שגיאה בעריכת הערה")
+        await _edit_message_text_unified(query, "❌ שגיאה בעריכת הערה")
     return ConversationHandler.END
 
 
@@ -1114,7 +1124,7 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         files_cache = context.user_data.get('files_cache', {})
         file_data = files_cache.get(file_index)
         if not file_data:
-            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בזיהוי הקובץ לשכפול")
+            await _edit_message_text_unified(query, "❌ שגיאה בזיהוי הקובץ לשכפול")
             return ConversationHandler.END
         original_name = file_data.get('file_name', 'file.txt')
         code = file_data.get('code', '')
@@ -1174,7 +1184,7 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 ],
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await TelegramUtils.safe_edit_message_text(
+            await _edit_message_text_unified(
                 query,
                 f"✅ *הקובץ שוכפל בהצלחה!*\n\n"
                 f"📄 **מקור:** `{original_name}`\n"
@@ -1183,10 +1193,10 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 parse_mode='Markdown',
             )
         else:
-            await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשכפול הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בשכפול הקובץ")
     except Exception as e:
         logger.error(f"Error in handle_clone: {e}")
-        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשכפול הקובץ")
+        await _edit_message_text_unified(query, "❌ שגיאה בשכפול הקובץ")
     return ConversationHandler.END
 
 
@@ -1199,7 +1209,7 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
         from database import db
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
-            await query.edit_message_text("❌ הקובץ לא נמצא לשכפול")
+            await _edit_message_text_unified(query, "❌ הקובץ לא נמצא לשכפול")
             return ConversationHandler.END
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
@@ -1278,10 +1288,10 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
                 f"📄 **מקור:** `{file_name}`\n"
                 f"📄 **עותק חדש:** `{new_name}`"
             )
-            await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+            await _edit_message_text_unified(query, text, reply_markup=reply_markup, parse_mode='Markdown')
         else:
-            await query.edit_message_text("❌ שגיאה בשכפול הקובץ")
+            await _edit_message_text_unified(query, "❌ שגיאה בשכפול הקובץ")
     except Exception as e:
         logger.error(f"Error in handle_clone_direct: {e}")
-        await query.edit_message_text("❌ שגיאה בשכפול הקובץ")
+        await _edit_message_text_unified(query, "❌ שגיאה בשכפול הקובץ")
     return ConversationHandler.END
