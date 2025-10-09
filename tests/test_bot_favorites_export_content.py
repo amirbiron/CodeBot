@@ -55,7 +55,10 @@ def bot(monkeypatch):
         def get_latest_version(self, uid, name):
             return {'_id': '507f1f77bcf86cd799439011', 'file_name': name, 'code': 'x', 'programming_language': 'python'}
     db_mod = __import__('database', fromlist=['db'])
-    monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
+    inst = _DB()
+    monkeypatch.setattr(db_mod, 'db', inst, raising=True)
+    # חשוב: עדכון גם במודול bot_handlers כדי לעקוף bind בזמן import
+    monkeypatch.setattr(bh, 'db', inst, raising=True)
     return bh.AdvancedBotHandlers(_App())
 
 @pytest.mark.asyncio
