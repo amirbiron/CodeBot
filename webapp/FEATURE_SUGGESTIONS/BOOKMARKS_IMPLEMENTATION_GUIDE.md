@@ -456,6 +456,7 @@ class BookmarksManager:
     const fileId = '{{ file.id }}';
     let bookmarks = [];
     let currentEditingBookmark = null;
+    let isEditingExistingBookmark = false;  // האם עורכים סימנייה קיימת או יוצרים חדשה
     
     // טעינת סימניות בעת טעינת הדף
     async function loadBookmarks() {
@@ -689,6 +690,7 @@ class BookmarksManager:
     // מודל הערה
     window.openNoteModal = function(lineNumber) {
         currentEditingBookmark = lineNumber;
+        isEditingExistingBookmark = false;  // יצירת סימנייה חדשה
         document.getElementById('bookmarkNoteInput').value = '';
         document.getElementById('bookmarkNoteModal').classList.add('show');
     };
@@ -696,18 +698,45 @@ class BookmarksManager:
     window.closeNoteModal = function() {
         document.getElementById('bookmarkNoteModal').classList.remove('show');
         currentEditingBookmark = null;
+        isEditingExistingBookmark = false;
     };
     
     window.saveBookmarkNote = async function() {
         const note = document.getElementById('bookmarkNoteInput').value.trim();
-        if (currentEditingBookmark) {
-            await toggleBookmark(currentEditingBookmark, note);
+        if (!currentEditingBookmark) return;
+        
+        try {
+            if (isEditingExistingBookmark) {
+                // עדכון הערה של סימנייה קיימת
+                const response = await fetch(`/api/bookmarks/${fileId}/${currentEditingBookmark}/note`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ note: note })
+                });
+                
+                const data = await response.json();
+                if (data.ok) {
+                    await loadBookmarks();
+                    showNotification('ההערה עודכנה בהצלחה');
+                } else {
+                    showNotification('שגיאה בעדכון הערה', 'error');
+                }
+            } else {
+                // יצירת סימנייה חדשה
+                await toggleBookmark(currentEditingBookmark, note);
+            }
             closeNoteModal();
+        } catch (error) {
+            console.error('Error saving note:', error);
+            showNotification('שגיאה בשמירת הערה', 'error');
         }
     };
     
     window.editBookmarkNote = function(lineNumber, currentNote) {
         currentEditingBookmark = lineNumber;
+        isEditingExistingBookmark = true;  // עדכון סימנייה קיימת
         document.getElementById('bookmarkNoteInput').value = currentNote;
         document.getElementById('bookmarkNoteModal').classList.add('show');
     };
