@@ -11,6 +11,7 @@
 ### 4. **טיפול בשגיאות מקיף** ✅
 ### 5. **UI/UX בטוח לטלגרם** ✅
 ### 6. **תיקון באג file_count** ✅ - מונה מתעדכן רק כשקובץ באמת נוסף (לא בהוספות כפולות)
+### 7. **תיקון באג textScore** ✅ - הוחלף בחישוב relevance מותאם אישית או שימוש נכון ב-$text
 
 ---
 
@@ -608,9 +609,12 @@ class ProjectManager:
         query: str,
         limit: int = 20
     ) -> List[Dict]:
-        """חיפוש מתקדם בתוך פרויקט"""
+        """חיפוש מתקדם בתוך פרויקט
+        
+        תיקון: הוסרה התייחסות ל-textScore שלא רלוונטית לחיפוש regex
+        """
         try:
-            # חיפוש בכל השדות הרלוונטיים
+            # אופציה 1: חיפוש עם regex (ללא text index)
             pipeline = [
                 {
                     "$match": {
@@ -630,6 +634,25 @@ class ProjectManager:
                     }
                 },
                 {
+                    "$addFields": {
+                        # חישוב score מותאם אישית במקום textScore
+                        "relevance_score": {
+                            "$sum": [
+                                {"$cond": [{"$regexMatch": {"input": "$file_name", "regex": query, "options": "i"}}, 5, 0]},
+                                {"$cond": [{"$in": [query, {"$ifNull": ["$tags", []]}]}, 3, 0]},
+                                {"$cond": [{"$regexMatch": {"input": {"$ifNull": ["$note", ""]}, "regex": query, "options": "i"}}, 2, 0]},
+                                {"$cond": [{"$regexMatch": {"input": {"$ifNull": ["$code", ""]}, "regex": query, "options": "i"}}, 1, 0]}
+                            ]
+                        }
+                    }
+                },
+                {
+                    "$sort": {
+                        "relevance_score": -1,  # מיון לפי רלוונטיות מחושבת
+                        "updated_at": -1
+                    }
+                },
+                {
                     "$limit": limit
                 },
                 {
@@ -639,15 +662,7 @@ class ProjectManager:
                         "tags": 1,
                         "note": 1,
                         "updated_at": 1,
-                        "_score": {
-                            "$meta": "textScore"
-                        }
-                    }
-                },
-                {
-                    "$sort": {
-                        "_score": -1,
-                        "updated_at": -1
+                        "relevance_score": 1
                     }
                 }
             ]
@@ -663,6 +678,71 @@ class ProjectManager:
         except Exception as e:
             logger.error(f"שגיאה בחיפוש: {e}")
             return []
+    
+    def search_in_project_with_text_index(
+        self,
+        user_id: int,
+        project_name: str,
+        query: str,
+        limit: int = 20
+    ) -> List[Dict]:
+        """
+        חיפוש עם text index (דורש יצירת אינדקס טקסט על השדות הרלוונטיים)
+        
+        להרצה חד-פעמית:
+        db.code_snippets.create_index({
+            "file_name": "text",
+            "code": "text",
+            "note": "text",
+            "tags": "text"
+        })
+        """
+        try:
+            pipeline = [
+                {
+                    "$match": {
+                        "user_id": user_id,
+                        "project_name": project_name,
+                        "$text": {"$search": query}  # שימוש בtext search
+                    }
+                },
+                {
+                    "$addFields": {
+                        "_score": {"$meta": "textScore"}  # עכשיו זה תקף!
+                    }
+                },
+                {
+                    "$sort": {
+                        "_score": -1,
+                        "updated_at": -1
+                    }
+                },
+                {
+                    "$limit": limit
+                },
+                {
+                    "$project": {
+                        "file_name": 1,
+                        "programming_language": 1,
+                        "tags": 1,
+                        "note": 1,
+                        "updated_at": 1,
+                        "_score": 1
+                    }
+                }
+            ]
+            
+            results = list(self.collection.aggregate(pipeline))
+            
+            for r in results:
+                r["_id"] = str(r["_id"])
+                
+            return results
+            
+        except Exception as e:
+            logger.error(f"שגיאה בחיפוש טקסט: {e}")
+            # נסיון fallback לחיפוש regex
+            return self.search_in_project(user_id, project_name, query, limit)
     
     def get_project_statistics(
         self,
