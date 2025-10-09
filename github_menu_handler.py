@@ -1292,6 +1292,11 @@ class GitHubMenuHandler:
             context.user_data["pending_saved_file_id"] = file_id
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_branch":
+            # מענה מיידי כדי לשחרר את ה-UI לפני טעינת רשימת ענפים
+            try:
+                await query.answer("טוען ענפים…", show_alert=False)
+            except Exception:
+                pass
             await self.show_upload_branch_menu(update, context)
         elif query.data.startswith("upload_branches_page_"):
             try:
@@ -1305,6 +1310,10 @@ class GitHubMenuHandler:
             context.user_data["upload_target_branch"] = br
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_folder":
+            try:
+                await query.answer("טוען תיקיות…", show_alert=False)
+            except Exception:
+                pass
             await self.show_upload_folder_menu(update, context)
         elif query.data.startswith("upload_select_folder:"):
             # בחירת תיקייה מתוך דפדפן הריפו
