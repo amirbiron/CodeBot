@@ -70,9 +70,9 @@ class FileBookmark:
     def from_dict(cls, data: Dict[str, Any]) -> "FileBookmark":
         """יצירה מ-dictionary שהגיע מ-MongoDB"""
         bookmark = cls(
-            user_id=data["user_id"],
-            file_id=data["file_id"],
-            file_name=data["file_name"],
+            user_id=data.get("user_id"),
+            file_id=data.get("file_id"),
+            file_name=data.get("file_name", ""),
             file_path=data.get("file_path", ""),
             line_number=data["line_number"],
             line_text_preview=data.get("line_text_preview", ""),

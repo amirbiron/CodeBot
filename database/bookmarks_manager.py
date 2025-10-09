@@ -2,6 +2,7 @@
 Bookmarks Manager - מנהל סימניות לקבצי קוד
 """
 import hashlib
+import re
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Tuple
@@ -448,6 +449,10 @@ class BookmarksManager:
                           matcher: SequenceMatcher) -> Dict[str, Any]:
         """בדיקת סטטוס של שורה ספציפית"""
         
+        # ספי דמיון
+        SIMILARITY_MODIFIED_THRESHOLD = 0.7
+        SIMILARITY_MOVED_THRESHOLD = 0.7
+
         # בדיקה אם השורה עדיין קיימת באותו מקום
         if 0 < line_num <= len(new_lines):
             new_text = new_lines[line_num - 1]
@@ -456,19 +461,45 @@ class BookmarksManager:
             if old_text in new_text or new_text in old_text:
                 return {"needs_update": False}
             
+            # בדיקת "def <name>" בפייתון: אם שמות הפונקציות שונים לגמרי,
+            # לא נסווג כ"modified" רק על בסיס דמיון טקסט כללי.
+            try:
+                old_def = re.match(r"\s*def\s+([A-Za-z_][\w]*)", old_text or "")
+                new_def = re.match(r"\s*def\s+([A-Za-z_][\w]*)", new_text or "")
+                if old_def and new_def:
+                    old_name = old_def.group(1)
+                    new_name = new_def.group(1)
+                    names_close = (old_name == new_name) or old_name in new_name or new_name in old_name
+                else:
+                    names_close = True
+            except Exception:
+                names_close = True
+
             # השורה השתנתה מעט
             similarity = SequenceMatcher(None, old_text, new_text).ratio()
-            if similarity > 0.7:  # 70% דמיון
+            if names_close and similarity >= SIMILARITY_MODIFIED_THRESHOLD:
                 return {
                     "needs_update": True,
                     "status": "modified",
                     "new_line": line_num,
                     "confidence": similarity
                 }
+            # אם לא מספיק דומה במקום המקורי, נבדוק האם קיימת התאמה חזקה במקום אחר
+            for i, candidate in enumerate(new_lines, 1):
+                if i == line_num:
+                    continue
+                sim_other = SequenceMatcher(None, old_text, candidate).ratio()
+                if sim_other >= SIMILARITY_MOVED_THRESHOLD:
+                    return {
+                        "needs_update": True,
+                        "status": "moved",
+                        "new_line": i,
+                        "confidence": sim_other
+                    }
         
         # חיפוש השורה במקום אחר
         best_match = None
-        best_similarity = 0.7  # סף מינימלי
+        best_similarity = SIMILARITY_MOVED_THRESHOLD
         
         for i, new_line in enumerate(new_lines, 1):
             similarity = SequenceMatcher(None, old_text, new_line).ratio()
@@ -477,6 +508,23 @@ class BookmarksManager:
                 best_match = i
         
         if best_match:
+            # אם נמצא match במקום אחר, אך שם הפונקציה שונה לגמרי — העדף 'deleted'
+            try:
+                old_def = re.match(r"\s*def\s+([A-Za-z_][\w]*)", old_text or "")
+                new_def = re.match(r"\s*def\s+([A-Za-z_][\w]*)", new_lines[best_match - 1] or "")
+                if old_def and new_def:
+                    old_name = old_def.group(1)
+                    new_name = new_def.group(1)
+                    names_far = (old_name != new_name) and (old_name not in new_name) and (new_name not in old_name)
+                    if names_far:
+                        return {
+                            "needs_update": True,
+                            "status": "deleted",
+                            "new_line": None,
+                            "confidence": 0
+                        }
+            except Exception:
+                pass
             return {
                 "needs_update": True,
                 "status": "moved",

@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch, MagicMock
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from database.models.bookmark import FileBookmark, MAX_BOOKMARKS_PER_FILE, MAX_BOOKMARKS_PER_USER
+from database.bookmark import FileBookmark, MAX_BOOKMARKS_PER_FILE, MAX_BOOKMARKS_PER_USER
 from database.bookmarks_manager import BookmarksManager
 
 
