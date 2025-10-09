@@ -37,7 +37,8 @@ python-dotenv==1.0.0
 pathlib2==2.3.7
 
 # Image Processing (for syntax highlighting images)
-Pillow==10.2.0
+# Python 3.13 requires Pillow >= 11.0 (prebuilt wheels available)
+Pillow==11.0.0
 cairosvg==2.7.1
 
 # Utilities
