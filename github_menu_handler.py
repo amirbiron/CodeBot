@@ -1339,12 +1339,37 @@ class GitHubMenuHandler:
                 InlineKeyboardButton("🔙 חזור", callback_data="create_folder_back"),
                 InlineKeyboardButton("❌ ביטול", callback_data="create_folder_cancel")
             ]]
-            await query.edit_message_text(
-                "➕ יצירת תיקייה חדשה\n\n"
-                "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
-                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            # שחרר את ה‑UI מיד כדי למנוע תחושת תקיעה
+            try:
+                await query.answer("הקלד/י נתיב תיקייה…", show_alert=False)
+            except Exception:
+                pass
+            # נסה לערוך את ההודעה, ובמקרה של "message is not modified" עדכן רק את המקלדת, או שלח הודעה חדשה
+            try:
+                await query.edit_message_text(
+                    "➕ יצירת תיקייה חדשה\n\n"
+                    "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                    "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as br:
+                if "message is not modified" in str(br).lower():
+                    try:
+                        from utils import TelegramUtils as _TU
+                        await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                    except Exception:
+                        # כגיבוי, שלח הודעה חדשה
+                        try:
+                            await query.message.reply_text(
+                                "➕ יצירת תיקייה חדשה\n\n"
+                                "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception:
+                            pass
+                else:
+                    raise
             return REPO_SELECT
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
