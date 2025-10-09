@@ -1252,9 +1252,24 @@ class AdvancedBotHandlers:
                 fname = doc.get('file_name')
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
-                # נסה לרענן את ההודעה/כפתור המועדפים לאחר toggle
+                # אם אנחנו במסך בקרה/פעולות, הצג הודעת סטטוס מעל הכפתורים ושמור את המקלדת
                 try:
-                    await query.edit_message_text("✅ עודכן מצב המועדפים", parse_mode=ParseMode.HTML)
+                    # שלוף פרטים להצגה
+                    latest = db.get_latest_version(user_id, fname) or {}
+                    lang = latest.get('programming_language') or 'text'
+                    note = latest.get('description') or '—'
+                    notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
+                    from html import escape as _e
+                    new_text = (
+                        f"{notice}\n\n"
+                        f"📄 קובץ: <code>{_e(str(fname))}</code>\n"
+                        f"🧠 שפה: {_e(str(lang))}\n"
+                        f"📝 הערה: {_e(str(note))}\n\n"
+                        f"🎮 בחר פעולה מתקדמת:"
+                    )
+                    # עדכן טקסט בלבד; שמור reply_markup קיים אם זמין
+                    kb = getattr(query.message, 'reply_markup', None)
+                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=kb)
                 except Exception:
                     pass
 
@@ -1269,9 +1284,21 @@ class AdvancedBotHandlers:
                     return
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
-                # נסה לרענן את ההודעה/כפתור המועדפים לאחר toggle
                 try:
-                    await query.edit_message_text("✅ עודכן מצב המועדפים", parse_mode=ParseMode.HTML)
+                    latest = db.get_latest_version(user_id, fname) or {}
+                    lang = latest.get('programming_language') or 'text'
+                    note = latest.get('description') or '—'
+                    notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
+                    from html import escape as _e
+                    new_text = (
+                        f"{notice}\n\n"
+                        f"📄 קובץ: <code>{_e(str(fname))}</code>\n"
+                        f"🧠 שפה: {_e(str(lang))}\n"
+                        f"📝 הערה: {_e(str(note))}\n\n"
+                        f"🎮 בחר פעולה מתקדמת:"
+                    )
+                    kb = getattr(query.message, 'reply_markup', None)
+                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=kb)
                 except Exception:
                     pass
             
