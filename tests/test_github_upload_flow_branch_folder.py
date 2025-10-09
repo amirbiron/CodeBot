@@ -24,14 +24,23 @@ class _Query:
     async def answer(self, *args, **kwargs):
         return None
 
+class _UserMsg:
+    def __init__(self, uid=5):
+        self.text = None
+        self.texts = []
+        self.from_user = types.SimpleNamespace(id=uid)
+    async def reply_text(self, text, **kwargs):
+        self.texts.append(text)
+        return self
+    async def edit_text(self, text, **kwargs):
+        self.texts.append(text)
+        return self
+
 class _Update:
     def __init__(self):
         self.callback_query = _Query()
         self.effective_user = types.SimpleNamespace(id=5)
-        class _U:
-            def __init__(self):
-                self.text = None
-        self.message = _U()
+        self.message = _UserMsg(uid=5)
 
 class _Context:
     def __init__(self):
@@ -114,7 +123,8 @@ async def test_upload_folder_create_and_return_to_checks(monkeypatch):
     await asyncio.wait_for(handler.handle_text_input(upd, ctx), timeout=2.0)
 
     # Expect that state cleared and a success text was sent returning to checks
-    assert any("התיקייה נוצרה" in t for t in upd.callback_query.message.texts or [])
+    combined = (upd.message.texts or []) + (upd.callback_query.message.texts or [])
+    assert any("התיקייה נוצרה" in t for t in combined)
 
 
 @pytest.mark.asyncio
