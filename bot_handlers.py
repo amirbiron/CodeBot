@@ -91,11 +91,19 @@ class AdvancedBotHandlers:
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+        # חשוב: הוספה בקבוצה מאוחרת, כדי לתת עדיפות ל-handlers ספציפיים (למשל מועדפים)
+        try:
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query), group=5)
+        except TypeError:
+            # סביבת בדיקות עם add_handler ללא פרמטר group
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         # Handler ממוקד עם קדימות גבוהה לכפתורי /share
         try:
             share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
-            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
+            try:
+                self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
+            except TypeError:
+                self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern))
         except Exception:
             pass
     

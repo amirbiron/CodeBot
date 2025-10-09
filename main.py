@@ -904,9 +904,15 @@ class CodeKeeperBot:
             logger.warning(f"⚠️ דילוג על RefactorHandlers: {e}")
 
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
+        # חשוב: הוספה בקבוצה מאוחרת כדי שלא תתפוס לפני handlers ייעודיים (למשל מועדפים)
         from conversation_handlers import handle_callback_query
-        self.application.add_handler(CallbackQueryHandler(handle_callback_query))
-        logger.info("CallbackQueryHandler גלובלי נוסף")
+        try:
+            self.application.add_handler(CallbackQueryHandler(handle_callback_query), group=5)
+            logger.info("CallbackQueryHandler גלובלי נוסף (group=5)")
+        except TypeError:
+            # סביבת בדיקות עם add_handler ללא פרמטר group
+            self.application.add_handler(CallbackQueryHandler(handle_callback_query))
+            logger.info("CallbackQueryHandler גלובלי נוסף (ללא group)")
 
         # ספור סופי
         final_handler_count = len(self.application.handlers)
