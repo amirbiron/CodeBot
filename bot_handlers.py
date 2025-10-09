@@ -301,7 +301,13 @@ class AdvancedBotHandlers:
             buttons.append(actions_row)
         else:
             buttons = [actions_row]
-        await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+        # שליחת הודעה ארוכה בצורה בטוחה (פיצול למספר הודעות אם צריך)
+        await self._send_long_message(
+            update.message,
+            message,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
     
     async def edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """עריכת קטע קוד קיים"""
@@ -1202,6 +1208,11 @@ class AdvancedBotHandlers:
                 fname = doc.get('file_name')
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                # נסה לרענן את ההודעה/כפתור המועדפים לאחר toggle
+                try:
+                    await query.edit_message_text("✅ עודכן מצב המועדפים", parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
 
             elif data.startswith("fav_toggle_tok:"):
                 token = data.split(":", 1)[1]
@@ -1214,6 +1225,11 @@ class AdvancedBotHandlers:
                     return
                 state = db.toggle_favorite(user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                # נסה לרענן את ההודעה/כפתור המועדפים לאחר toggle
+                try:
+                    await query.edit_message_text("✅ עודכן מצב המועדפים", parse_mode=ParseMode.HTML)
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.error(f"שגיאה ב-callback: {e}")
@@ -1263,6 +1279,39 @@ class AdvancedBotHandlers:
                 f"```{file_data['programming_language']}\n{file_data['code']}\n```",
                 parse_mode=ParseMode.MARKDOWN
             )
+
+    async def _send_long_message(self, msg_target, text: str, parse_mode: Optional[str] = None, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        """שליחת טקסט ארוך במספר הודעות, מפוצל לפי אורך בטוח לטלגרם.
+
+        מגבלת אורך הודעת טלגרם היא סביב 4096 תווים. נשתמש במרווח בטחון.
+        """
+        try:
+            MAX_LEN = 3500
+            remaining = text or ""
+            if len(remaining) <= MAX_LEN:
+                await msg_target.reply_text(remaining, parse_mode=parse_mode, reply_markup=reply_markup)
+                return
+            # פיצול לפי שורות כדי לשמור על פירוק טבעי
+            lines = (remaining.split("\n") if remaining else [])
+            buf: list[str] = []
+            curr = 0
+            for line in lines:
+                # +1 עבור ה"\n" שיתווסף בהמשך
+                line_len = len(line) + (1 if buf else 0)
+                if curr + line_len > MAX_LEN:
+                    chunk = "\n".join(buf)
+                    await msg_target.reply_text(chunk, parse_mode=parse_mode)
+                    buf = [line]
+                    curr = len(line)
+                else:
+                    buf.append(line)
+                    curr += line_len
+            if buf:
+                chunk = "\n".join(buf)
+                await msg_target.reply_text(chunk, parse_mode=parse_mode, reply_markup=reply_markup)
+        except Exception:
+            # במקרה חריג, שלח את הכל בהודעה אחת (עלול לחרוג אם ארוך מדי)
+            await msg_target.reply_text(text or "", parse_mode=parse_mode, reply_markup=reply_markup)
     
     async def _share_to_gist(self, query, user_id: int, file_name: str):
         """שיתוף ב-GitHub Gist"""
