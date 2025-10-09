@@ -1704,6 +1704,11 @@ class GitHubMenuHandler:
             context.user_data["browse_page"] = 0
             context.user_data["multi_mode"] = False
             context.user_data["multi_selection"] = []
+            # מענה מיידי כדי למנוע תחושת תקיעה
+            try:
+                await query.answer("טוען דפדפן תיקיות…", show_alert=False)
+            except Exception:
+                pass
             await self.show_repo_browser(update, context)
 
         elif query.data.startswith("folder_"):
@@ -5520,7 +5525,12 @@ class GitHubMenuHandler:
         end = start + page_size
         keyboard = []
         for br in branches[start:end]:
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"upload_select_branch:{br.name}")])
+            # הקפד על מגבלת 64 בתים ב-callback_data (בטוח מול PTB/Telegram)
+            br_name = str(getattr(br, "name", "") or "")
+            # אם השם ארוך מדי, חתוך
+            max_len = 40  # "upload_select_branch:" ~23 בתים + שם
+            safe_name = br_name[:max_len]
+            keyboard.append([InlineKeyboardButton(f"🌿 {br_name}", callback_data=f"upload_select_branch:{safe_name}")])
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"upload_branches_page_{page-1}"))
