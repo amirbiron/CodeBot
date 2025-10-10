@@ -1433,7 +1433,8 @@ def view_file(file_id):
         'lines': len(code.splitlines()),
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
-        'version': file.get('version', 1)
+        'version': file.get('version', 1),
+        'is_favorite': bool(file.get('is_favorite', False)),
     }
     
     return render_template('view_file.html',
@@ -2137,7 +2138,7 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
-                    return redirect(url_for('files'))
+                    return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
@@ -2145,6 +2146,52 @@ def upload_file_web():
     languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     languages = sorted([l for l in languages if l]) if languages else []
     return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
+
+@app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
+@login_required
+def api_toggle_favorite(file_id):
+    """טוגל מועדפים עבור קובץ: מעדכן את המסמך הפעיל העדכני לפי file_name למשתמש."""
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        try:
+            src = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+        except Exception:
+            src = None
+        if not src:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+        file_name = src.get('file_name')
+        if not file_name:
+            return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
+
+        current = bool(src.get('is_favorite', False))
+        new_state = not current
+        now = datetime.now(timezone.utc)
+
+        # עדכן את הגרסאות הפעילות האחרונות עבור אותו שם קובץ
+        q = {
+            'user_id': user_id,
+            'file_name': file_name,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        try:
+            db.code_snippets.update_many(q, {
+                '$set': {
+                    'is_favorite': new_state,
+                    'favorited_at': (now if new_state else None),
+                    'updated_at': now,
+                }
+            })
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'לא ניתן לעדכן מועדפים: {e}'}), 500
+
+        return jsonify({'ok': True, 'state': new_state})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @app.route('/api/stats')
 @login_required

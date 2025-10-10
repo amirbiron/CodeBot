@@ -159,6 +159,12 @@
 
 .bookmarks-toggle-btn:active { transform: scale(0.95); }
 
+/* מצב מוקטן: ננעל עד לחיצה רגילה */
+.bookmarks-toggle-btn.mini {
+    transform: scale(0.3) !important;
+    opacity: 0.3 !important;
+}
+
 .bookmark-count {
     position: absolute;
     top: -5px;

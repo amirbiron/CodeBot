@@ -30,6 +30,7 @@
         <h2>
             <span aria-hidden="true">🔖</span>
             סימניות בקובץ
+            <button id="bookmarksInfoBtn" type="button" title="איך משתמשים" aria-label="איך משתמשים" style="margin-inline-start:8px;background:transparent;border:none;cursor:pointer;font-size:1rem;">ℹ️</button>
         </h2>
         <div class="bookmarks-panel-actions">
             <div class="color-picker" title="צבע ברירת מחדל" aria-label="צבע ברירת מחדל" style="display:inline-flex;align-items:center;gap:6px;">
@@ -77,6 +78,28 @@
     </div>
 </aside>
 
+<!-- Info Modal -->
+<dialog id="bookmarksInfoModal" style="max-width:720px;border:none;border-radius:12px;box-shadow:0 12px 48px rgba(0,0,0,.3);padding:0;">
+  <div style="padding:16px 20px;display:flex;gap:12px;align-items:flex-start;border-bottom:1px solid rgba(0,0,0,.08);">
+    <div style="font-size:1.25rem">ℹ️</div>
+    <div style="font-weight:600;">איך משתמשים בסימניות</div>
+    <button type="button" id="bookmarksInfoClose" style="margin-inline-start:auto;background:transparent;border:none;font-size:1.25rem;cursor:pointer;">✕</button>
+  </div>
+  <div style="padding:18px 22px;">
+    <div style="font-size:0.95rem;line-height:1.6;">
+      <p><b>🏷️ איך משתמשים בסימניות:</b></p>
+      <ul style="margin:0 1.25rem; padding:0;">
+        <li>הקש על מספר שורה כדי להוסיף סימנייה.</li>
+        <li>לחץ שוב כדי להסיר.</li>
+        <li>ניתן לבחור צבע שונה למיון נוח.</li>
+      </ul>
+      <p style="margin-top:0.75rem;">💡 הסימניות נשמרות אוטומטית לכל קובץ.</p>
+      <p>⚙️ אפשר להסתיר את כפתור הסימניות דרך ההגדרות של ה‑WebApp.</p>
+      <p>ℹ️ למידע מלא והסברים נוספים – השתמש בכפתור „הסבר על הבוט" בתוך הבוט עצמו.</p>
+    </div>
+  </div>
+</dialog>
+
 <!-- Include Styles -->
 <link rel="stylesheet" href="{{ url_for('static', filename='css/bookmarks.css') }}">
 
@@ -119,5 +142,12 @@
     
     .bookmarks-panel.open {
         right: 0;
+    }
+    /* מצב מסך מלא – הכפתור מוצג ומוקטן כברירת מחדל */
+    #codeCard:fullscreen ~ #toggleBookmarksBtn,
+    :fullscreen #toggleBookmarksBtn {
+        display: flex !important;
+        transform: scale(0.3) !important;
+        opacity: 0.3 !important;
     }
 </style>
