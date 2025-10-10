@@ -687,7 +687,7 @@ async function copyLinkMd(){
 
 async function shareToTelegramMd(){
   const url = await ensurePublicLinkMd();
-  const text = `צפה במסמך Markdown ב-Code Keeper:\n${url}`;
+  const text = `צפה במסמך Markdown ב-Code Keeper:`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
   try { window.open(telegramUrl, '_blank'); } catch(_) { window.location.href = telegramUrl; }
 }

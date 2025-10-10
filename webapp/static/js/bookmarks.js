@@ -89,6 +89,8 @@ class BookmarkManager {
             toggleBtn.addEventListener('click', (e) => {
                 if (this.ui.isDraggingToggle) { e.preventDefault(); e.stopPropagation(); return; }
                 if (this.ui.justFinishedDrag) { e.preventDefault(); e.stopPropagation(); this.ui.justFinishedDrag = false; return; }
+                // לחיצה רגילה משחזרת מגודל mini לגודל רגיל (אם קיים) ופותחת/סוגרת פאנל
+                this.ui.setToggleMini(false);
                 this.ui.togglePanel();
             });
 
@@ -659,9 +661,12 @@ class BookmarkUI {
         this.notificationContainer = this.createNotificationContainer();
         this.TOGGLE_VISIBILITY_KEY = 'bookmarks_toggle_btn_visible';
         this.TOGGLE_POS_KEY = 'bookmarks_toggle_btn_position';
+        this.TOGGLE_MINI_KEY = 'bookmarks_toggle_btn_mini';
         this.isDraggingToggle = false;
         this.ensureToggleButtonVisibilityRestored();
         this.restoreTogglePosition();
+        this.restoreToggleMiniState();
+        this.initInfoModal();
         // ביטול טיפ אוטומטי כברירת מחדל כדי לא להפריע במסכים קטנים
         // אם תרצה להחזיר: קבע דגל והפעל this.maybeShowFirstRunHint()
     }
@@ -756,6 +761,8 @@ class BookmarkUI {
         };
 
         const onLongPress = (ev) => {
+            // לחיצה ממושכת: נעל מצב mini עד לחיצה רגילה
+            this.setToggleMini(true);
             dragging = true;
             this.isDraggingToggle = true;
             btn.style.transition = 'none';
@@ -833,6 +840,52 @@ class BookmarkUI {
             if (!btn || typeof data.left !== 'number' || typeof data.top !== 'number') return;
             this.positionToggleAt(btn, data.left, data.top);
         } catch (_) {}
+    }
+
+    setToggleMini(mini) {
+        const btn = document.getElementById('toggleBookmarksBtn');
+        if (!btn) return;
+        btn.classList.toggle('mini', !!mini);
+        try { localStorage.setItem(this.TOGGLE_MINI_KEY, mini ? '1' : '0'); } catch(_) {}
+    }
+
+    restoreToggleMiniState() {
+        try {
+            const raw = localStorage.getItem(this.TOGGLE_MINI_KEY);
+            const shouldMini = raw === '1';
+            const btn = document.getElementById('toggleBookmarksBtn');
+            if (btn) btn.classList.toggle('mini', shouldMini);
+        } catch(_) {}
+        // במסך מלא – ברירת מחדל mini כאשר הכרטיס במסך מלא
+        document.addEventListener('fullscreenchange', () => {
+            const btn = document.getElementById('toggleBookmarksBtn');
+            const card = document.getElementById('codeCard');
+            if (!btn) return;
+            if (document.fullscreenElement && card && document.fullscreenElement === card) {
+                btn.classList.add('mini');
+            } else {
+                // שחזור מצב mini לפי localStorage
+                try {
+                    const raw = localStorage.getItem(this.TOGGLE_MINI_KEY);
+                    const shouldMini = raw === '1';
+                    btn.classList.toggle('mini', shouldMini);
+                } catch(_) {}
+            }
+        });
+    }
+
+    initInfoModal() {
+        try {
+            const infoBtn = document.getElementById('bookmarksInfoBtn');
+            const dlg = document.getElementById('bookmarksInfoModal');
+            const closeBtn = document.getElementById('bookmarksInfoClose');
+            if (!infoBtn || !dlg) return;
+            const open = () => { try { dlg.showModal ? dlg.showModal() : (dlg.open = true); } catch(_) { dlg.open = true; } };
+            const close = () => { try { dlg.close ? dlg.close() : (dlg.open = false); } catch(_) { dlg.open = false; } };
+            infoBtn.addEventListener('click', (e) => { e.preventDefault(); open(); });
+            if (closeBtn) closeBtn.addEventListener('click', (e) => { e.preventDefault(); close(); });
+            dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+        } catch(_) {}
     }
 
     maybeShowFirstRunHint() {
