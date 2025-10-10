@@ -85,7 +85,37 @@ class BookmarkManager {
         // כפתור toggle פאנל
         const toggleBtn = document.getElementById('toggleBookmarksBtn');
         if (toggleBtn) {
+            // לחיצה רגילה – פתח/סגור פאנל
             toggleBtn.addEventListener('click', () => this.ui.togglePanel());
+
+            // לחיצה ארוכה – הסתר את הכפתור (ניתן להחזיר מהפאנל)
+            let longPressTimerId = null;
+            const startLongPress = () => {
+                clearTimeout(longPressTimerId);
+                longPressTimerId = setTimeout(() => {
+                    this.ui.setToggleButtonVisible(false);
+                    this.ui.showNotification('הכפתור הוסתר. כדי להחזירו: Ctrl+Shift+B לפתיחת הפאנל > "הצג כפתור".', 'info');
+                    // פתח את הפאנל כדי שהמשתמש יראה את האפשרות להחזיר
+                    this.ui.openPanel && this.ui.openPanel();
+                }, 700);
+            };
+            const cancelLongPress = () => {
+                clearTimeout(longPressTimerId);
+            };
+            ['mousedown','touchstart'].forEach(evt => toggleBtn.addEventListener(evt, startLongPress));
+            ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt => toggleBtn.addEventListener(evt, cancelLongPress));
+        }
+
+        // כפתור הצגה/הסתרה של כפתור הסימנייה מתוך הפאנל
+        const visibilityBtn = document.getElementById('toggleBtnVisibility');
+        if (visibilityBtn) {
+            const updateLabel = () => this.ui.updateVisibilityControlLabel();
+            visibilityBtn.addEventListener('click', () => {
+                this.ui.toggleToggleButtonVisibility();
+                updateLabel();
+            });
+            // סנכרון מצב התווית בעת הטעינה
+            updateLabel();
         }
     }
     
@@ -424,12 +454,41 @@ class BookmarkManager {
     }
     
     getLineText(lineNumber) {
-        const codeLines = document.querySelectorAll('.code pre > span, .highlight pre > span');
-        
-        if (codeLines[lineNumber - 1]) {
-            return codeLines[lineNumber - 1].textContent.trim().substring(0, 100);
-        }
-        
+        // עדיפות ראשונה: raw code מהשרת (הכי אמין למיפוי מספרי שורות)
+        try {
+            const rawArea = document.getElementById('rawCode');
+            if (rawArea && typeof rawArea.value === 'string' && rawArea.value.length > 0) {
+                const rawLines = rawArea.value.split('\n');
+                const idx = Math.max(0, lineNumber - 1);
+                const rawLine = rawLines[idx] || '';
+                return (rawLine || '').trim().substring(0, 100);
+            }
+        } catch (_) {}
+
+        // עדיפות שניה: טקסט מלא של תא הקוד ב-highlighttable (ללא עמודת מספרי השורות)
+        try {
+            const codePre = document.querySelector('.highlighttable td.code pre')
+                || document.querySelector('.source .highlight pre')
+                || document.querySelector('.highlight pre');
+            if (codePre) {
+                const fullText = codePre.textContent || '';
+                const lines = fullText.split('\n');
+                const idx = Math.max(0, lineNumber - 1);
+                let lineText = lines[idx] || '';
+                // סילוק אפשרי של מספרי שורות שמוחדרים בטעות לטקסט
+                lineText = lineText.replace(/^\s*\d+\s*/, '');
+                return lineText.trim().substring(0, 100);
+            }
+        } catch (_) {}
+
+        // נפילה לאחור: רינדור שגוי עם span-ים – נסה לגשת ישירות לפי nth-child
+        try {
+            const fallback = document.querySelector(`.source .highlight pre > span:nth-child(${lineNumber}), .highlight pre > span:nth-child(${lineNumber})`);
+            if (fallback) {
+                return (fallback.textContent || '').trim().substring(0, 100);
+            }
+        } catch (_) {}
+
         return '';
     }
     
@@ -608,6 +667,8 @@ class BookmarkUI {
         this.panel = document.getElementById('bookmarksPanel');
         this.countBadge = document.getElementById('bookmarkCount');
         this.notificationContainer = this.createNotificationContainer();
+        this.TOGGLE_VISIBILITY_KEY = 'bookmarks_toggle_btn_visible';
+        this.ensureToggleButtonVisibilityRestored();
         this.maybeShowFirstRunHint();
     }
     
@@ -644,6 +705,47 @@ class BookmarkUI {
     
     showError(message) {
         this.showNotification(message, 'error');
+    }
+
+    ensureToggleButtonVisibilityRestored() {
+        try {
+            const visible = localStorage.getItem(this.TOGGLE_VISIBILITY_KEY);
+            if (visible === '0') {
+                this.setToggleButtonVisible(false);
+            } else {
+                this.setToggleButtonVisible(true);
+            }
+            this.updateVisibilityControlLabel();
+        } catch (_) {
+            // ignore
+        }
+    }
+
+    setToggleButtonVisible(show) {
+        const btn = document.getElementById('toggleBookmarksBtn');
+        if (btn) {
+            btn.style.display = show ? 'flex' : 'none';
+        }
+        try {
+            localStorage.setItem(this.TOGGLE_VISIBILITY_KEY, show ? '1' : '0');
+        } catch (_) {}
+        this.updateVisibilityControlLabel();
+    }
+
+    toggleToggleButtonVisibility() {
+        const btn = document.getElementById('toggleBookmarksBtn');
+        const nowVisible = !btn || btn.style.display !== 'none';
+        this.setToggleButtonVisible(!nowVisible);
+    }
+
+    updateVisibilityControlLabel() {
+        const control = document.getElementById('toggleBtnVisibility');
+        if (!control) return;
+        const btn = document.getElementById('toggleBookmarksBtn');
+        const visible = !btn || btn.style.display !== 'none';
+        control.textContent = `כפתור: ${visible ? 'מציג' : 'מוסתר'}`;
+        control.setAttribute('aria-pressed', String(visible));
+        control.setAttribute('title', visible ? 'הסתר כפתור סימנייה' : 'הצג כפתור סימנייה');
     }
 
     maybeShowFirstRunHint() {
@@ -763,6 +865,14 @@ class BookmarkUI {
                 const isOpen = this.panel.classList.contains('open');
                 toggleBtn.setAttribute('aria-expanded', isOpen);
             }
+        }
+    }
+    
+    openPanel() {
+        if (this.panel && !this.panel.classList.contains('open')) {
+            this.panel.classList.add('open');
+            const toggleBtn = document.getElementById('toggleBookmarksBtn');
+            if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
         }
     }
     
