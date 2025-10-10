@@ -7,27 +7,27 @@
 
 <!-- כפתורי קטגוריות -->
 <div class="categories-section" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
-    <a href="/files" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files#results" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-th"></i>
         כל הקבצים
     </a>
-    <a href="/files?category=recent" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=recent#results" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-history"></i>
         נפתחו לאחרונה
     </a>
-    <a href="/files?category=repo" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=repo#results" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fab fa-github"></i>
         לפי ריפו
     </a>
-    <a href="/files?category=favorites" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=favorites#results" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-star"></i>
         מועדפים
     </a>
-    <a href="/files?category=large" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=large#results" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-weight-hanging"></i>
         קבצים גדולים
     </a>
-    <a href="/files?category=other" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=other#results" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-folder"></i>
         שאר קבצים
     </a>
@@ -116,6 +116,9 @@
         </div>
     </div>
 </div>
+
+<!-- Anchor for auto-scroll to results -->
+<div id="results"></div>
 
 {% if repos %}
 <div class="glass-card">

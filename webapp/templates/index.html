@@ -165,13 +165,29 @@
         try {
             // אם הוזרק ערך מהשרת (SSR), השתמש בו קודם; תומך גם ב-0%
             {% if uptime is defined and uptime is not none and uptime.uptime_percentage is not none %}
-            el.textContent = '{{ '%.2f' % uptime.uptime_percentage }}%';
+            el.textContent = (function(v){
+                try {
+                    const n = Number(v);
+                    if (!isFinite(n)) return '—';
+                    const whole = Math.round(n);
+                    if (Math.abs(n - whole) < 0.005) return whole + '%';
+                    const fixed = (Math.abs(n) >= 10) ? n.toFixed(1) : n.toFixed(2);
+                    return String(parseFloat(fixed)) + '%';
+                } catch(_) { return '—'; }
+            })({{ '%.4f' % uptime.uptime_percentage }});
             return;
             {% endif %}
             const res = await fetch('/api/uptime', { credentials: 'same-origin' });
             const data = await res.json();
             if (!data || data.ok === false || data.uptime_percentage == null) throw new Error('bad uptime');
-            el.textContent = Number(data.uptime_percentage).toFixed(2) + '%';
+            (function(){
+                const n = Number(data.uptime_percentage);
+                if (!isFinite(n)) { el.textContent = '—'; return; }
+                const whole = Math.round(n);
+                if (Math.abs(n - whole) < 0.005) { el.textContent = whole + '%'; return; }
+                const fixed = (Math.abs(n) >= 10) ? n.toFixed(1) : n.toFixed(2);
+                el.textContent = String(parseFloat(fixed)) + '%';
+            })();
         } catch (e) {
             el.textContent = '—';
         }
