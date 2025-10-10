@@ -28,51 +28,52 @@
 
 קוד קיים (CODE REFERENCE):
 
-```12:15:app/components/Todo.tsx
-export const Todo = () => {
-  return <div>Todo</div>;
-};
-```
+.. code-block:: none
+
+   12:15:app/components/Todo.tsx
+   export const Todo = () => {
+     return <div>Todo</div>;
+   };
 
 קוד חדש/מוצע (Markdown code block רגיל):
 
-```bash
-gh pr create --title "feat: add X" --body "Why and test plan"
-```
+.. code-block:: bash
+
+   gh pr create --title "feat: add X" --body "Why and test plan"
 
 מחיקה בטוחה (רק ב-/tmp)
 ------------------------
 
-```python
-from pathlib import Path
-import shutil
+.. code-block:: python
 
-def safe_rmtree(path: Path, allow_under: Path) -> None:
-    p = path.resolve()
-    base = allow_under.resolve()
-    if not str(p).startswith(str(base)) or p in (Path('/'), base.parent, Path.cwd()):
-        raise RuntimeError(f"Refusing to delete unsafe path: {p}")
-    shutil.rmtree(p)
+   from pathlib import Path
+   import shutil
 
-# שימוש
-safe_rmtree(Path("/tmp/test"), allow_under=Path("/tmp"))
-```
+   def safe_rmtree(path: Path, allow_under: Path) -> None:
+       p = path.resolve()
+       base = allow_under.resolve()
+       if not str(p).startswith(str(base)) or p in (Path('/'), base.parent, Path.cwd()):
+           raise RuntimeError(f"Refusing to delete unsafe path: {p}")
+       shutil.rmtree(p)
+
+   # שימוש
+   safe_rmtree(Path("/tmp/test"), allow_under=Path("/tmp"))
 
 קומיטים ו-PR
 ------------
 
 קומיט עם HEREDOC:
 
-```bash
-git commit -m "$(cat <<'EOF'
-feat: short why-oriented message
+.. code-block:: bash
 
-- List key changes
-- Add tests, update docs
+   git commit -m "$(cat <<'EOF'
+   feat: short why-oriented message
 
-EOF
-)"
-```
+   - List key changes
+   - Add tests, update docs
+
+   EOF
+   )"
 
 Checklist לפני קומיט:
 
@@ -85,6 +86,6 @@ Checklist לפני קומיט:
 
 - :doc:`ai-guidelines`
 - :doc:`installation`
-- :doc:`testing`
-- :doc:`ci-cd`
-- :doc:`architecture`
+- :doc:`examples`
+- :doc:`user/github_browse`
+- :doc:`webapp/overview`
