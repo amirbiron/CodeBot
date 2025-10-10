@@ -75,6 +75,13 @@ http://localhost:5000
    - `BOT_TOKEN` - טוקן של הבוט
    - `BOT_USERNAME` - שם המשתמש של הבוט
    - `WEBAPP_URL` - כתובת ה-Web App
+   - `UPTIME_PROVIDER` - ספק מעקב זמינות חיצוני (`betteruptime`/`uptimerobot`)
+   - `UPTIME_API_KEY` - מפתח API לספק שבחרתם (אם נדרש)
+   - `UPTIME_MONITOR_ID` - מזהה monitor בספק (אם נדרש)
+   - `UPTIME_STATUS_URL` - קישור ציבורי לדף סטטוס (אופציונלי)
+   - `UPTIME_WIDGET_ID` - מזהה widget להטמעה (Better Stack) (אופציונלי)
+   - `UPTIME_WIDGET_SCRIPT_URL` - כתובת הסקריפט ל-widget (ברירת מחדל Better Stack)
+   - `UPTIME_CACHE_TTL_SECONDS` - מטמון לתוצאות ה‑API בשניות (ברירת מחדל: 120)
 
 3. **Deploy!**
 
@@ -88,6 +95,13 @@ http://localhost:5000
 | `BOT_USERNAME` | שם המשתמש של הבוט | ❌ | `my_code_keeper_bot` |
 | `DATABASE_NAME` | שם מסד הנתונים | ❌ | `code_keeper_bot` |
 | `WEBAPP_URL` | כתובת ה-Web App | ❌ | `https://code-keeper-webapp.onrender.com` |
+| `UPTIME_PROVIDER` | ספק זמינות חיצוני (`betteruptime`/`uptimerobot`) | ❌ | - |
+| `UPTIME_API_KEY` | מפתח API ל‑uptime | ❌ | - |
+| `UPTIME_MONITOR_ID` | מזהה monitor | ❌ | - |
+| `UPTIME_STATUS_URL` | קישור דף סטטוס ציבורי | ❌ | - |
+| `UPTIME_WIDGET_ID` | מזהה widget (Better Stack) | ❌ | - |
+| `UPTIME_WIDGET_SCRIPT_URL` | URL סקריפט widget | ❌ | `https://uptime.betterstack.com/widgets/announcement.js` |
+| `UPTIME_CACHE_TTL_SECONDS` | TTL מטמון לתוצאות | ❌ | `120` |
 
 ## מבנה הפרויקט 📁
 

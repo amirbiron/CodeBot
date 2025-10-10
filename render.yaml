@@ -123,6 +123,13 @@ services:
       # MONGODB_URL (same as bot)
       # BOT_USERNAME
       # WEBAPP_URL
+      # UPTIME_PROVIDER (betteruptime/uptimerobot)
+      # UPTIME_API_KEY
+      # UPTIME_MONITOR_ID
+      # UPTIME_STATUS_URL
+      # UPTIME_WIDGET_ID
+      # UPTIME_WIDGET_SCRIPT_URL
+      # UPTIME_CACHE_TTL_SECONDS
     
     # Auto-deploy מ-Git
     autoDeploy: true
