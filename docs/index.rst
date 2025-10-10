@@ -13,6 +13,7 @@ Code Keeper Bot - תיעוד API
    :caption: למפתחים ולסוכני AI:
 
    quickstart-ai
+   quickstart
    ai-guidelines
    architecture
    contributing
@@ -34,12 +35,14 @@ Code Keeper Bot - תיעוד API
    handlers/index
    services/index
    database/index
+   database-schema
 
 .. toctree::
    :maxdepth: 2
    :caption: עזרה ודוגמאות:
 
    examples
+   conversation-handlers
    user/share_code
    user/github_browse
    user/download_repo
@@ -49,6 +52,8 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
+   ci-cd
+   testing
 
 סקירה כללית
 ------------
