@@ -35,6 +35,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx_autodoc_typehints',
     'sphinx_rtd_theme',
+    'sphinxcontrib.mermaid',
 ]
 
 # Napoleon settings for Google and NumPy style docstrings
