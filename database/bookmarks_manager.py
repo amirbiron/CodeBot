@@ -15,7 +15,8 @@ from database.bookmark import (
     FileBookmark, 
     MAX_BOOKMARKS_PER_FILE, 
     MAX_BOOKMARKS_PER_USER,
-    MAX_NOTE_LENGTH
+    MAX_NOTE_LENGTH,
+    VALID_COLORS
 )
 
 logger = logging.getLogger(__name__)
@@ -322,6 +323,40 @@ class BookmarksManager:
         except Exception as e:
             logger.error(f"Error updating bookmark note: {e}")
             return {"ok": False, "error": "שגיאה בעדכון ההערה"}
+
+    def update_bookmark_color(self,
+                              user_id: int,
+                              file_id: str,
+                              line_number: int,
+                              color: str) -> Dict[str, Any]:
+        """עדכון צבע של סימנייה קיימת"""
+        try:
+            color_norm = (color or '').lower()
+            if color_norm not in VALID_COLORS:
+                return {"ok": False, "error": "צבע לא תקין"}
+
+            result = self.collection.update_one(
+                {
+                    "user_id": user_id,
+                    "file_id": file_id,
+                    "line_number": line_number
+                },
+                {
+                    "$set": {
+                        "color": color_norm,
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+
+            if result.modified_count > 0:
+                self._track_event(user_id, "color_updated", file_id, line_number, {"color": color_norm})
+                return {"ok": True, "message": "הצבע עודכן", "color": color_norm}
+            else:
+                return {"ok": False, "error": "הסימנייה לא נמצאה"}
+        except Exception as e:
+            logger.error(f"Error updating bookmark color: {e}")
+            return {"ok": False, "error": "שגיאה בעדכון הצבע"}
     
     def delete_bookmark(self,
                        user_id: int,

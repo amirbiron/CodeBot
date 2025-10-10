@@ -805,6 +805,9 @@ def files():
             ])
             count_result = list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}]))
             total_count = count_result[0]['total'] if count_result else 0
+        elif category_filter == 'favorites':
+            # קטגוריית "מועדפים" – השתמש בשדה is_favorite
+            query['$and'].append({'is_favorite': True})
         elif category_filter == 'other':
             # שאר הקבצים (לא מסומנים כריפו/גיטהאב, לא ZIP)
             query['$and'].append({

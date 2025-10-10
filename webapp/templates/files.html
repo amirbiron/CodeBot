@@ -19,6 +19,10 @@
         <i class="fab fa-github"></i>
         לפי ריפו
     </a>
+    <a href="/files?category=favorites" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+        <i class="fas fa-star"></i>
+        מועדפים
+    </a>
     <a href="/files?category=large" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-weight-hanging"></i>
         קבצים גדולים
@@ -88,8 +92,8 @@
             {% if selected_repo %}
             | ריפו: {{ selected_repo }}
             {% endif %}
-            {% elif category_filter == 'zip' %}
-            | קטגוריה: קבצי ZIP (גיבויים שמורים בבוט)
+            {% elif category_filter == 'favorites' %}
+            | קטגוריה: מועדפים
             {% elif category_filter == 'large' %}
             | קטגוריה: קבצים גדולים (מעל 100KB)
             {% elif category_filter == 'recent' %}

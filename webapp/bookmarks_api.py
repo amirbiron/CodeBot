@@ -9,6 +9,7 @@ import logging
 import html
 
 from database.bookmarks_manager import BookmarksManager
+from database.bookmark import VALID_COLORS as MODEL_VALID_COLORS
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def toggle_bookmark(file_id):
         color = data.get('color', 'yellow')
         
         # ולידציה של צבע
-        valid_colors = ['yellow', 'red', 'green', 'blue', 'purple', 'orange', 'pink']
+        valid_colors = list(MODEL_VALID_COLORS)
         if color not in valid_colors:
             color = 'yellow'
         
@@ -261,6 +262,29 @@ def update_bookmark_note(file_id, line_number):
     except Exception as e:
         logger.error(f"Error updating bookmark note: {e}")
         return jsonify({'ok': False, 'error': 'Failed to update note'}), 500
+
+
+@bookmarks_bp.route('/<file_id>/<int:line_number>/color', methods=['PUT'])
+@require_auth
+def update_bookmark_color(file_id, line_number):
+    """עדכון צבע של סימנייה"""
+    try:
+        user_id = session['user_id']
+        data = request.get_json()
+        if not data or 'color' not in data:
+            return jsonify({'ok': False, 'error': 'Missing color'}), 400
+        color = str(data.get('color', 'yellow')).lower()
+
+        # ולידציה של צבע מול המודל
+        if color not in MODEL_VALID_COLORS:
+            return jsonify({'ok': False, 'error': 'Invalid color'}), 400
+
+        bm_manager = get_bookmarks_manager()
+        result = bm_manager.update_bookmark_color(user_id, file_id, line_number, color)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error updating bookmark color: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to update color'}), 500
 
 
 @bookmarks_bp.route('/<file_id>/<int:line_number>', methods=['DELETE'])

@@ -140,6 +140,31 @@ class BookmarkManager {
         const bookmarkItem = event.target.closest('.bookmark-item');
         if (bookmarkItem) {
             const lineNumber = parseInt(bookmarkItem.dataset.lineNumber);
+            // בחירת צבע
+            const swatch = event.target.closest('.color-swatch');
+            if (swatch) {
+                event.stopPropagation();
+                const color = swatch.dataset.color;
+                try {
+                    // Optimistic UI: עדכן מיד
+                    this.ui.setBookmarkColor(lineNumber, color);
+                    const result = await this.api.updateColor(lineNumber, color);
+                    if (result.ok) {
+                        const bm = this.bookmarks.get(lineNumber);
+                        if (bm) {
+                            bm.color = color;
+                            this.bookmarks.set(lineNumber, bm);
+                        }
+                        this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                        this.ui.showNotification('הצבע עודכן', 'success');
+                    } else {
+                        throw new Error(result.error || 'שגיאה בעדכון צבע');
+                    }
+                } catch (e) {
+                    this.ui.showError('שגיאה בעדכון צבע');
+                }
+                return;
+            }
             
             // לחיצה על כפתור מחיקה
             if (event.target.closest('.delete-btn')) {
@@ -444,6 +469,12 @@ class BookmarkAPI {
         });
     }
     
+    async updateColor(lineNumber, color) {
+        return this.retryableRequest('PUT', `/${this.fileId}/${lineNumber}/color`, {
+            color
+        });
+    }
+    
     async deleteBookmark(lineNumber) {
         return this.retryableRequest('DELETE', `/${this.fileId}/${lineNumber}`);
     }
@@ -598,6 +629,7 @@ class BookmarkUI {
         
         if (lineElement) {
             lineElement.classList.remove('bookmarked');
+            lineElement.removeAttribute('data-bookmark-color');
             const icon = lineElement.querySelector('.bookmark-icon');
             if (icon) icon.remove();
         }
@@ -606,6 +638,7 @@ class BookmarkUI {
     clearAllIndicators() {
         document.querySelectorAll('.bookmarked').forEach(el => {
             el.classList.remove('bookmarked');
+            el.removeAttribute('data-bookmark-color');
             const icon = el.querySelector('.bookmark-icon');
             if (icon) icon.remove();
         });
@@ -645,6 +678,11 @@ class BookmarkUI {
                     ${bm.note ? `<span class="bookmark-note">${this.escapeHtml(bm.note)}</span>` : ''}
                 </div>
                 <div class="bookmark-actions">
+                    <div class="color-picker" title="בחר צבע" aria-label="בחר צבע" style="display: inline-flex; gap: 4px; align-items: center; margin-inline-end: 6px;">
+                        ${['yellow','red','green','blue','purple','orange','pink'].map(c => `
+                            <button class="color-swatch" data-color="${c}" title="${c}" style="width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-${c}); padding:0;"></button>
+                        `).join('')}
+                    </div>
                     <button class="edit-btn" title="ערוך הערה">✏️</button>
                     <button class="delete-btn" title="מחק סימנייה">🗑️</button>
                 </div>
@@ -707,6 +745,15 @@ class BookmarkUI {
             setTimeout(() => {
                 lineElement.classList.remove('line-highlighted');
             }, 2000);
+        }
+    }
+
+    setBookmarkColor(lineNumber, color) {
+        const lineElement = document.querySelector(
+            `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .highlighttable .linenos pre > a:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenodiv pre > a:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber}), .linenos a:nth-child(${lineNumber})`
+        );
+        if (lineElement) {
+            lineElement.setAttribute('data-bookmark-color', color);
         }
     }
     
