@@ -14,7 +14,7 @@ from functools import wraps
 from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
-from pymongo import MongoClient, DESCENDING
+from pymongo import MongoClient, DESCENDING, ASCENDING
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.formatters import HtmlFormatter
@@ -1433,7 +1433,8 @@ def view_file(file_id):
         'lines': len(code.splitlines()),
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
-        'version': file.get('version', 1)
+        'version': file.get('version', 1),
+        'is_favorite': bool(file.get('is_favorite', False)),
     }
     
     return render_template('view_file.html',
@@ -1916,6 +1917,47 @@ def create_public_share(file_id):
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+# --- Favorites API for WebApp ---
+@app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
+@login_required
+def api_toggle_favorite(file_id):
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        # מצא את שם הקובץ העדכני לפי _id
+        try:
+            doc = db.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+        except Exception:
+            doc = None
+        if not doc:
+            return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+        file_name = str(doc.get('file_name') or '')
+        # טוגל is_favorite על הגרסה האחרונה עבור שם הקובץ
+        # שלוף את המסמך האחרון לשם זה
+        try:
+            latest = db.code_snippets.find_one(
+                {'user_id': user_id, 'file_name': file_name, '$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+                sort=[('version', -1)]
+            ) or doc
+        except Exception:
+            latest = doc
+        now = datetime.now(timezone.utc)
+        new_state = not bool((latest or {}).get('is_favorite', False))
+        try:
+            db.code_snippets.update_many(
+                {'user_id': user_id, 'file_name': file_name, '$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+                {'$set': {'is_favorite': new_state, 'updated_at': now, 'favorited_at': (now if new_state else None)}}
+            )
+        except Exception:
+            # נסה לפחות לעדכן את המסמך לפי _id אם יש כשל כללי
+            try:
+                db.code_snippets.update_one({'_id': latest.get('_id')}, {'$set': {'is_favorite': new_state, 'updated_at': now, 'favorited_at': (now if new_state else None)}})
+            except Exception:
+                return jsonify({'ok': False, 'error': 'שגיאה בעדכון מועדפים'}), 500
+        return jsonify({'ok': True, 'is_favorite': new_state})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload_file_web():
@@ -2137,7 +2179,7 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
-                    return redirect(url_for('files'))
+                    return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'

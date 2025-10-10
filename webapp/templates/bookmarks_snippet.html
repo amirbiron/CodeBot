@@ -30,6 +30,7 @@
         <h2>
             <span aria-hidden="true">🔖</span>
             סימניות בקובץ
+            <button id="bookmarksInfoBtn" class="info-inline-btn" title="איך משתמשים" aria-label="איך משתמשים">ℹ️</button>
         </h2>
         <div class="bookmarks-panel-actions">
             <div class="color-picker" title="צבע ברירת מחדל" aria-label="צבע ברירת מחדל" style="display:inline-flex;align-items:center;gap:6px;">
@@ -121,3 +122,88 @@
         right: 0;
     }
 </style>
+
+<script>
+// 1️⃣ לחיצה ממושכת על הכפתור הצף: הקטן שקיפות
+document.addEventListener('DOMContentLoaded', function(){
+  try {
+    var btn = document.getElementById('toggleBookmarksBtn');
+    if (btn) {
+      var longTimer = null;
+      var isDown = false;
+      var startLongPress = function(){
+        longTimer = setTimeout(function(){ btn.classList.add('mini'); }, 350);
+      };
+      var clearAll = function(){
+        if (longTimer) { clearTimeout(longTimer); longTimer = null; }
+        btn.classList.remove('mini');
+        isDown = false;
+      };
+      btn.addEventListener('mousedown', function(){ isDown = true; startLongPress(); }, {passive:true});
+      btn.addEventListener('touchstart', function(){ isDown = true; startLongPress(); }, {passive:true});
+      ['mouseup','mouseleave','touchend','touchcancel'].forEach(function(ev){ btn.addEventListener(ev, clearAll, {passive:true}); });
+    }
+  } catch(_){}
+
+  // 2️⃣ במסך מלא – הכפתור מוקטן כברירת מחדל
+  try {
+    var codeCard = document.getElementById('codeCard');
+    var btn2 = document.getElementById('toggleBookmarksBtn');
+    if (codeCard && btn2) {
+      var onFs = function(){
+        var inFs = (document.fullscreenElement === codeCard);
+        if (inFs) {
+          // תמיד הצג במסך מלא + במצב מוקטן
+          btn2.style.display = 'flex';
+          btn2.classList.add('mini');
+        } else {
+          // שחזור מצב הצגה לפי ההעדפה המקומית
+          try {
+            var vis = localStorage.getItem('bookmarks_toggle_btn_visible');
+            btn2.style.display = (vis === '0') ? 'none' : 'flex';
+          } catch(_) { btn2.style.display = 'flex'; }
+          btn2.classList.remove('mini');
+        }
+      };
+      document.addEventListener('fullscreenchange', onFs);
+      onFs();
+    }
+  } catch(_){}
+
+  // 3️⃣ כפתור ℹ️ – פותח מידע
+  try {
+    var infoBtn = document.getElementById('bookmarksInfoBtn');
+    if (infoBtn) {
+      infoBtn.addEventListener('click', function(){
+        var overlay = document.createElement('div');
+        overlay.className = 'bookmarks-info-overlay';
+        overlay.innerHTML = '\
+<div class="bookmarks-info-modal" role="dialog" aria-modal="true" aria-labelledby="bm-info-title">\
+  <header>\
+    <h3 id="bm-info-title">ℹ️ איך משתמשים</h3>\
+    <button class="close-btn" aria-label="סגור">✕</button>\
+  </header>\
+  <div class="content">\
+    <p><b>🏷️ איך משתמשים בסימניות:</b></p>\
+    <ul>\
+      <li>הקש על מספר שורה כדי להוסיף סימנייה.</li>\
+      <li>לחץ שוב כדי להסיר.</li>\
+      <li>ניתן לבחור צבע שונה למיון נוח.</li>\
+    </ul>\
+    <p><b>💡 הסימניות נשמרות אוטומטית לכל קובץ.</b></p>\
+    <p><b>⚙️ אפשר להסתיר את כפתור הסימניות דרך ההגדרות של ה-WebApp.</b></p>\
+    <p><b>ℹ️ למידע מלא והסברים נוספים – השתמש בכפתור „הסבר על הבוט" בתוך הבוט עצמו.</b></p>\
+  </div>\
+  <footer>\
+    <button class="close-btn">סגור</button>\
+  </footer>\
+</div>';
+        function close(){ try { document.body.removeChild(overlay); } catch(_){} }
+        overlay.addEventListener('click', function(e){ if (e.target === overlay) close(); });
+        overlay.querySelectorAll('.close-btn').forEach(function(b){ b.addEventListener('click', close); });
+        document.body.appendChild(overlay);
+      });
+    }
+  } catch(_){}
+});
+</script>

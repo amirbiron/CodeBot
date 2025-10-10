@@ -152,6 +152,14 @@
     transition: all 0.3s ease;
 }
 
+/* מצב מוקטן: משמש בלחיצה ממושכת ובמסך מלא */
+.bookmarks-toggle-btn.mini,
+.bookmarks-toggle-btn.mini:hover,
+.bookmarks-toggle-btn.mini:active {
+    transform: scale(0.3) !important;
+    opacity: 0.3 !important;
+}
+
 .bookmarks-toggle-btn:hover {
     transform: scale(1.1);
     box-shadow: 0 6px 25px rgba(255, 215, 0, 0.4);
@@ -199,6 +207,27 @@
     background: linear-gradient(135deg, var(--bookmark-yellow), var(--bookmark-orange));
     color: var(--text-primary);
 }
+
+/* יישור אייקון ה-ℹ️ לצד הכותרת */
+.bookmarks-panel-header h2 {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.info-inline-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.1);
+    background: rgba(255,255,255,0.9);
+    cursor: pointer;
+    font-size: 14px;
+}
+.info-inline-btn:hover { background: #fff; }
 
 .bookmarks-panel-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .bookmarks-panel-actions button {
@@ -283,6 +312,18 @@
 
 /* Tooltip */
 .bookmark-tooltip { position: absolute; background: rgba(0,0,0,0.8); color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; z-index: 10000; display: none; max-width: 300px; word-wrap: break-word; }
+
+/* Popup "איך משתמשים" */
+.bookmarks-info-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 10001; display: flex; align-items: center; justify-content: center; }
+.bookmarks-info-modal { background: #fff; color: #111; border-radius: 10px; width: min(520px, 92vw); box-shadow: 0 8px 28px rgba(0,0,0,0.25); }
+.bookmarks-info-modal header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #e5e7eb; }
+.bookmarks-info-modal header h3 { margin: 0; font-size: 1.1rem; }
+.bookmarks-info-modal .content { padding: 14px; line-height: 1.6; }
+.bookmarks-info-modal .content p { margin: 0 0 .6rem; }
+.bookmarks-info-modal .content ul { margin: .5rem 1.25rem; padding: 0; }
+.bookmarks-info-modal footer { padding: 10px 14px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; }
+.bookmarks-info-modal .close-btn { border: 1px solid #ddd; background: #f9fafb; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.bookmarks-info-modal .close-btn:hover { background: #fff; }
 
 /* Accessibility */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border-width: 0; }
