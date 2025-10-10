@@ -140,22 +140,34 @@ class BookmarkManager {
         else if (event.button === 2 || event.type === 'contextmenu') {
             event.preventDefault();
             this.ui.showInlineColorMenu(lineNumEl, (color) => {
-                // אם אין סימנייה – צור סימנייה עם צבע ברירת מחדל/נבחר
+                // אם אין סימנייה – צור אותה עם הצבע שנבחר, באותה בקשה
                 if (!this.bookmarks.has(lineNumber)) {
-                    this.toggleBookmark(lineNumber).then(() => {
-                        this.api.updateColor(lineNumber, color).then(() => {
+                    this.ui.showLineLoading(lineNumber, true);
+                    const lineText = this.getLineText(lineNumber);
+                    this.api.toggleBookmark(lineNumber, lineText, '', color)
+                        .then((result) => {
+                            if (result && result.ok && result.action === 'added') {
+                                this.bookmarks.set(lineNumber, result.bookmark);
+                                this.ui.addBookmarkIndicator(lineNumber, color);
+                                this.ui.updateCount(this.bookmarks.size);
+                                this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                                this.ui.showNotification('סימנייה נוספה', 'success');
+                            } else if (result && result.error) {
+                                this.ui.showError(result.error);
+                            }
+                        })
+                        .catch(() => this.ui.showError('שגיאה בשמירת הסימנייה'))
+                        .finally(() => this.ui.showLineLoading(lineNumber, false));
+                } else {
+                    // אחרת, עדכן צבע בבקשה יעודית
+                    this.api.updateColor(lineNumber, color)
+                        .then(() => {
                             const bm = this.bookmarks.get(lineNumber);
                             if (bm) { bm.color = color; this.ui.setBookmarkColor(lineNumber, color); }
                             this.ui.refreshPanel(Array.from(this.bookmarks.values()));
-                        }).catch(() => this.ui.showError('שגיאה בעדכון צבע'));
-                    });
-                } else {
-                    this.api.updateColor(lineNumber, color).then(() => {
-                        const bm = this.bookmarks.get(lineNumber);
-                        if (bm) { bm.color = color; this.ui.setBookmarkColor(lineNumber, color); }
-                        this.ui.refreshPanel(Array.from(this.bookmarks.values()));
-                        this.ui.showNotification('הצבע עודכן', 'success');
-                    }).catch(() => this.ui.showError('שגיאה בעדכון צבע'));
+                            this.ui.showNotification('הצבע עודכן', 'success');
+                        })
+                        .catch(() => this.ui.showError('שגיאה בעדכון צבע'));
                 }
             });
         }
@@ -499,12 +511,14 @@ class BookmarkAPI {
         this.retryDelay = 1000;
     }
     
-    async toggleBookmark(lineNumber, lineText = '', note = '') {
-        return this.retryableRequest('POST', `/${this.fileId}/toggle`, {
+    async toggleBookmark(lineNumber, lineText = '', note = '', color = undefined) {
+        const body = {
             line_number: lineNumber,
             line_text: lineText,
             note: note
-        });
+        };
+        if (color) body.color = color;
+        return this.retryableRequest('POST', `/${this.fileId}/toggle`, body);
     }
     
     async getFileBookmarks() {
