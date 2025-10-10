@@ -154,6 +154,24 @@
             </div>
         </div>
     </div>
+
+    <!-- Bookmarks toggle visibility (moved from panel) -->
+    <div class="glass-card" style="background: rgba(255,255,255,0.05); margin-top: 1rem;">
+        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
+            <div style="display:flex; align-items:center; gap: 1rem;">
+                <i class="fas fa-bookmark" style="font-size: 1.5rem;"></i>
+                <div>
+                    <div style="font-weight:600;">הצגת כפתור סימניות</div>
+                    <div style="opacity:.8; font-size:.95rem;">הצג / הסתר את הכפתור הצף 🔖</div>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:.5rem; flex-wrap: wrap;">
+                <button id="bmShowBtn" class="btn btn-secondary">הצג</button>
+                <button id="bmHideBtn" class="btn btn-secondary">הסתר</button>
+                <span id="bmState" class="badge" style="min-width:64px; text-align:center"></span>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="glass-card">
@@ -287,6 +305,26 @@ input:checked + .slider:before { transform: translateX(24px); }
       location.reload();
     } catch (e) { alert('שגיאה בעדכון ערכת הנושא'); }
   });
+
+  // Bookmarks toggle visibility controls
+  const BM_KEY = 'bookmarks_toggle_btn_visible';
+  const bmShow = document.getElementById('bmShowBtn');
+  const bmHide = document.getElementById('bmHideBtn');
+  const bmState = document.getElementById('bmState');
+  function refreshBmState(){
+    try {
+      const v = localStorage.getItem(BM_KEY);
+      const shown = v !== '0';
+      if (bmState) bmState.textContent = shown ? 'מוצג' : 'מוסתר';
+    } catch(_) { if (bmState) bmState.textContent = '—'; }
+  }
+  function setBm(show){
+    try { localStorage.setItem(BM_KEY, show ? '1' : '0'); } catch(_) {}
+    refreshBmState();
+  }
+  if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
+  if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
+  refreshBmState();
 })();
 </script>
 {% endblock %}
