@@ -74,6 +74,55 @@ GitHub Flow (תרשים מצבים)
        persistent=True,
    )
 
+סיכום זרימות עיקריות
+---------------------
+
+.. list-table:: Flows Summary (תמצית)
+   :header-rows: 1
+
+   * - פקודה / טריגר
+     - Entry Point
+     - States מרכזיים
+     - Handlers מעורבים
+     - Services תלויים
+     - הערות
+   * - ``/save``
+     - ``start_save`` / ``save_conversation``
+     - ``WAITING_FOR_FILENAME → WAITING_FOR_CODE → WAITING_FOR_NOTE``
+     - ``MessageHandler``, ``CallbackQueryHandler``
+     - :mod:`services.code_service`
+     - שמירה/עריכה של קבצים והערות
+   * - תפריט → העלאה (``upload_file``)
+     - ``upload_conv_handler``
+     - קלט טקסט/מסמך
+     - ``MessageHandler(Document|Text)``
+     - :mod:`services.github_service`
+     - העלאה ל‑GitHub Gist (דורש ``GITHUB_TOKEN``)
+   * - ``/github``
+     - ``github_menu_command``
+     - ``GITHUB_MENU → GITHUB_REPO_SELECT → GITHUB_FILE_BROWSE``
+     - ``CallbackQueryHandler``
+     - :mod:`services.github_service`
+     - ניווט ושיתוף קבצים מריפו
+   * - ``/backup``
+     - ``show_backup_menu``
+     - —
+     - ``CallbackQueryHandler`` (דיאלוג קצר)
+     - :mod:`services.backup_service`
+     - פעולות גיבוי/שחזור בסיסיות
+   * - ``/drive``
+     - ``show_drive_menu``
+     - —
+     - ``CallbackQueryHandler``
+     - :mod:`services.google_drive_service`
+     - אינטגרציה עם Google Drive
+   * - ``/search``
+     - ``search_command``
+     - —
+     - ``MessageHandler`` (קלט חופשי)
+     - :mod:`search_engine`
+     - חיפוש מתקדם בקוד ושמות קבצים
+
 קישורים
 -------
 
