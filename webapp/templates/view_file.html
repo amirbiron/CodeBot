@@ -300,7 +300,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
     
     <div class="file-actions">
-        <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="הוסף למועדפים">
+        <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}" aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
             <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
             <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
         </button>
@@ -510,7 +510,12 @@ async function toggleFavorite(){
         const btn = document.getElementById('favoriteBtn');
         const icon = document.getElementById('favoriteIcon');
         const label = document.getElementById('favoriteLabel');
-        if (btn) btn.setAttribute('aria-pressed', state ? 'true' : 'false');
+        if (btn) {
+            btn.setAttribute('aria-pressed', state ? 'true' : 'false');
+            const tt = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
+            btn.setAttribute('title', tt);
+            btn.setAttribute('aria-label', tt);
+        }
         if (icon) icon.textContent = state ? '💔' : '⭐';
         if (label) label.textContent = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
         showToast(state ? '⭐ הקובץ נוסף למועדפים' : '💔 הקובץ הוסר מהמועדפים', state ? 'success' : 'info');
