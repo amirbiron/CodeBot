@@ -265,7 +265,7 @@ class BookmarkManager {
 
             const currentlyBookmarked = this.bookmarks.has(lineNumber);
             if (!currentlyBookmarked) {
-                this.ui.addBookmarkIndicator(lineNumber);
+                this.ui.addBookmarkIndicator(lineNumber, this.defaultColor);
             } else {
                 this.ui.removeBookmarkIndicator(lineNumber);
             }
@@ -289,7 +289,8 @@ class BookmarkManager {
                 if (!currentlyBookmarked) {
                     this.ui.removeBookmarkIndicator(lineNumber);
                 } else {
-                    this.ui.addBookmarkIndicator(lineNumber);
+                    const prevColor = (this.bookmarks.get(lineNumber)?.color) || this.defaultColor;
+                    this.ui.addBookmarkIndicator(lineNumber, prevColor);
                 }
                 throw new Error(result.error || 'שגיאה בשמירת הסימנייה');
             }
@@ -401,7 +402,7 @@ class BookmarkManager {
             if (cached.length > 0) {
                 cached.forEach(bm => {
                     this.bookmarks.set(bm.line_number, bm);
-                    this.ui.addBookmarkIndicator(bm.line_number);
+                    this.ui.addBookmarkIndicator(bm.line_number, bm.color || this.defaultColor);
                 });
                 
                 this.ui.showNotification('טעינה ממטמון מקומי', 'warning');
