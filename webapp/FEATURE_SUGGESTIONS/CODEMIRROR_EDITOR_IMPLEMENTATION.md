@@ -174,49 +174,71 @@ class EditorManager {
   
   // אתחול CodeMirror
   async initCodeMirror(container, options) {
-    // הסתרת textarea
-    this.textarea.style.display = 'none';
-    
-    // יצירת container ל-CodeMirror
-    const cmContainer = document.createElement('div');
-    cmContainer.className = 'codemirror-container';
-    this.textarea.parentNode.insertBefore(cmContainer, this.textarea.nextSibling);
-    
-    // טעינת CodeMirror
-    if (!window.CodeMirror6) {
-      await this.loadCodeMirror();
+    try {
+      // הצגת מצב טעינה
+      this.showLoadingState(container);
+      
+      // הסתרת textarea
+      this.textarea.style.display = 'none';
+      
+      // יצירת container ל-CodeMirror
+      const cmContainer = document.createElement('div');
+      cmContainer.className = 'codemirror-container';
+      this.textarea.parentNode.insertBefore(cmContainer, this.textarea.nextSibling);
+      
+      // טעינת CodeMirror
+      if (!window.CodeMirror6) {
+        await this.loadCodeMirror();
+      }
+      
+      const { EditorState, EditorView, basicSetup } = window.CodeMirror6;
+      const langSupport = await this.getLanguageSupport(options.language);
+      const themeExtension = await this.getTheme(options.theme);
+      
+      // יצירת debounced sync function
+      const debouncedSync = this.debounce((value) => {
+        this.textarea.value = value;
+        this.textarea.dispatchEvent(new Event('input', {bubbles: true}));
+      }, 100);
+      
+      // הגדרת העורך
+      const state = EditorState.create({
+        doc: this.textarea.value || options.value,
+        extensions: [
+          basicSetup,
+          langSupport,
+          themeExtension,
+          EditorView.lineWrapping,
+          EditorView.updateListener.of(update => {
+            if (update.docChanged) {
+              // סנכרון מותאם ביצועים עם textarea
+              debouncedSync(update.state.doc.toString());
+            }
+          }),
+          // הגדרות נוספות
+          this.getCustomExtensions(options)
+        ]
+      });
+      
+      // יצירת העורך
+      this.cmInstance = new EditorView({
+        state,
+        parent: cmContainer
+      });
+      
+      // הוספת event listener לניקוי
+      this.beforeUnloadHandler = () => this.destroy();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
+      
+    } catch (error) {
+      console.error('CodeMirror initialization failed:', error);
+      // fallback לעורך פשוט
+      this.currentEditor = 'simple';
+      this.initSimpleEditor(container, options);
+      this.showErrorNotification('העורך המתקדם לא זמין כרגע, עובר לעורך פשוט');
+    } finally {
+      this.hideLoadingState(container);
     }
-    
-    const { EditorState, EditorView, basicSetup } = window.CodeMirror6;
-    const langSupport = await this.getLanguageSupport(options.language);
-    const themeExtension = await this.getTheme(options.theme);
-    
-    // הגדרת העורך
-    const state = EditorState.create({
-      doc: this.textarea.value || options.value,
-      extensions: [
-        basicSetup,
-        langSupport,
-        themeExtension,
-        EditorView.lineWrapping,
-        EditorView.updateListener.of(update => {
-          if (update.docChanged) {
-            // סנכרון עם textarea
-            this.textarea.value = update.state.doc.toString();
-            // הפעלת אירוע change
-            this.textarea.dispatchEvent(new Event('input', {bubbles: true}));
-          }
-        }),
-        // הגדרות נוספות
-        this.getCustomExtensions(options)
-      ]
-    });
-    
-    // יצירת העורך
-    this.cmInstance = new EditorView({
-      state,
-      parent: cmContainer
-    });
   }
   
   // הוספת כפתור מעבר
@@ -252,18 +274,33 @@ class EditorManager {
   
   // החלפת עורך
   async toggleEditor(container) {
-    const newEditor = this.currentEditor === 'simple' ? 'codemirror' : 'simple';
-    const currentValue = this.getValue();
+    // הצגת loading spinner
+    this.showLoadingState(container);
     
-    this.currentEditor = newEditor;
-    this.savePreference(newEditor);
-    
-    // אתחול מחדש
-    await this.initEditor(container, {
-      value: currentValue,
-      language: this.detectLanguage(currentValue),
-      theme: this.getThemePreference()
-    });
+    try {
+      const newEditor = this.currentEditor === 'simple' ? 'codemirror' : 'simple';
+      const currentValue = this.getValue();
+      
+      // ולידציה של התוכן לפני המעבר
+      if (!this.validateCodeContent(currentValue)) {
+        throw new Error('תוכן הקוד מכיל אלמנטים לא בטוחים');
+      }
+      
+      this.currentEditor = newEditor;
+      this.savePreference(newEditor);
+      
+      // אתחול מחדש
+      await this.initEditor(container, {
+        value: currentValue,
+        language: this.detectLanguage(currentValue),
+        theme: this.getThemePreference()
+      });
+      
+    } catch (error) {
+      this.handleToggleError(error);
+    } finally {
+      this.hideLoadingState(container);
+    }
   }
   
   // קבלת הערך הנוכחי
@@ -368,6 +405,111 @@ class EditorManager {
   // העדפת ערכת נושא
   getThemePreference() {
     return localStorage.getItem('editorTheme') || 'dark';
+  }
+  
+  // *** פונקציות עזר חשובות לביצועים ואבטחה ***
+  
+  // Debounce utility לביצועים
+  debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+  
+  // ולידציה של תוכן הקוד לאבטחה
+  validateCodeContent(code) {
+    // מניעת הזרקת קוד מסוכן
+    const dangerousPatterns = [
+      /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+      /javascript:/gi,
+      /on\w+\s*=/gi
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(code)) {
+        console.warn('Dangerous pattern detected in code:', pattern);
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  // ניהול זיכרון - ניקוי משאבים
+  destroy() {
+    // ניקוי CodeMirror instance
+    if (this.cmInstance) {
+      this.cmInstance.destroy();
+      this.cmInstance = null;
+    }
+    
+    // ניקוי event listeners
+    if (this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      this.beforeUnloadHandler = null;
+    }
+    
+    // ניקוי timers
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+    }
+    
+    // ניקוי DOM references
+    this.textarea = null;
+    this.loadingElement = null;
+  }
+  
+  // הצגת מצב טעינה
+  showLoadingState(container) {
+    if (this.loadingElement) return;
+    
+    this.loadingElement = document.createElement('div');
+    this.loadingElement.className = 'editor-loading';
+    this.loadingElement.innerHTML = `
+      <div class="spinner">
+        <i class="fas fa-spinner fa-spin"></i>
+        <span>טוען עורך...</span>
+      </div>
+    `;
+    container.classList.add('editor-transitioning');
+    container.appendChild(this.loadingElement);
+  }
+  
+  // הסתרת מצב טעינה
+  hideLoadingState(container) {
+    if (this.loadingElement) {
+      this.loadingElement.remove();
+      this.loadingElement = null;
+    }
+    container.classList.remove('editor-transitioning');
+  }
+  
+  // הצגת הודעת שגיאה
+  showErrorNotification(message) {
+    const notification = document.createElement('div');
+    notification.className = 'editor-notification error';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      notification.classList.add('fade-out');
+      setTimeout(() => notification.remove(), 300);
+    }, 3000);
+  }
+  
+  // טיפול בשגיאת החלפה
+  handleToggleError(error) {
+    console.error('Editor toggle failed:', error);
+    this.showErrorNotification(error.message || 'שגיאה במעבר בין עורכים');
+    
+    // חזרה למצב הקודם
+    this.currentEditor = this.currentEditor === 'simple' ? 'codemirror' : 'simple';
   }
 }
 
@@ -588,6 +730,82 @@ def edit_file(file_id):
 צור `static/css/codemirror-custom.css`:
 
 ```css
+/* Loading States */
+.editor-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(5px);
+  z-index: 1000;
+  border-radius: 10px;
+}
+
+.editor-loading .spinner {
+  text-align: center;
+  color: white;
+}
+
+.editor-loading .spinner i {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.editor-transitioning {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* Notifications */
+.editor-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 1rem 1.5rem;
+  background: rgba(40,40,50,0.95);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  z-index: 10000;
+  animation: slideIn 0.3s ease;
+}
+
+.editor-notification.error {
+  border-color: #ff4444;
+  background: rgba(80,20,20,0.95);
+}
+
+.editor-notification.fade-out {
+  animation: fadeOut 0.3s ease;
+  opacity: 0;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
 /* התאמות לעורך CodeMirror */
 .cm-editor {
   direction: ltr;
@@ -682,6 +900,137 @@ def edit_file(file_id):
     gap: 0.5rem;
   }
 }
+```
+
+---
+
+## ⚡ ניטור ביצועים ואופטימיזציה
+
+### Performance Monitoring
+
+```javascript
+class PerformanceMonitor {
+  constructor() {
+    this.metrics = {
+      editorLoadTime: 0,
+      switchTime: 0,
+      memoryUsage: 0,
+      renderTime: 0
+    };
+  }
+  
+  // מדידת זמן טעינת העורך
+  measureEditorLoad(startTime) {
+    this.metrics.editorLoadTime = performance.now() - startTime;
+    console.log(`Editor loaded in ${this.metrics.editorLoadTime}ms`);
+    
+    // שליחה לאנליטיקס
+    if (window.gtag) {
+      gtag('event', 'timing_complete', {
+        name: 'editor_load',
+        value: Math.round(this.metrics.editorLoadTime)
+      });
+    }
+  }
+  
+  // מדידת זיכרון
+  checkMemoryUsage() {
+    if (performance.memory) {
+      this.metrics.memoryUsage = performance.memory.usedJSHeapSize / 1048576;
+      
+      // התראה על שימוש גבוה בזיכרון
+      if (this.metrics.memoryUsage > 100) { // 100MB
+        console.warn(`High memory usage: ${this.metrics.memoryUsage.toFixed(2)}MB`);
+        this.suggestOptimization();
+      }
+    }
+  }
+  
+  // הצעות אופטימיזציה
+  suggestOptimization() {
+    console.log('Performance tip: Consider clearing undo history or reducing file size');
+  }
+  
+  // דיווח מטריקות
+  reportMetrics() {
+    return {
+      ...this.metrics,
+      timestamp: Date.now(),
+      userAgent: navigator.userAgent
+    };
+  }
+}
+
+// שילוב ב-EditorManager
+class EditorManager {
+  constructor() {
+    // ... קוד קיים ...
+    this.perfMonitor = new PerformanceMonitor();
+  }
+  
+  async initCodeMirror(container, options) {
+    const startTime = performance.now();
+    
+    try {
+      // ... קוד אתחול ...
+      
+      // מדידת ביצועים
+      this.perfMonitor.measureEditorLoad(startTime);
+      this.perfMonitor.checkMemoryUsage();
+      
+    } catch (error) {
+      // ... טיפול בשגיאות ...
+    }
+  }
+}
+```
+
+### אופטימיזציות מומלצות
+
+1. **Lazy Loading** - טען שפות רק בעת הצורך:
+```javascript
+const langLoaders = {
+  python: () => import('@codemirror/lang-python'),
+  javascript: () => import('@codemirror/lang-javascript'),
+  // ... שאר השפות
+};
+
+async function loadLanguageOnDemand(lang) {
+  if (!langCache[lang] && langLoaders[lang]) {
+    langCache[lang] = await langLoaders[lang]();
+  }
+  return langCache[lang];
+}
+```
+
+2. **Virtual Scrolling** לקבצים גדולים:
+```javascript
+// הגבלת מספר השורות המרונדרות
+EditorView.theme({
+  ".cm-content": {
+    "max-height": "600px",
+    "overflow-y": "auto"
+  }
+})
+```
+
+3. **Throttling** לאירועים תכופים:
+```javascript
+const throttle = (func, limit) => {
+  let inThrottle;
+  return function() {
+    const args = arguments;
+    const context = this;
+    if (!inThrottle) {
+      func.apply(context, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  }
+};
+
+// שימוש בחיפוש
+const throttledSearch = throttle(performSearch, 300);
 ```
 
 ---
@@ -837,6 +1186,152 @@ gh pr create --title "הוספת אפשרות עורך CodeMirror" \
 - [CodeMirror Forum](https://discuss.codemirror.net/)
 - [GitHub Issues](https://github.com/codemirror/codemirror.next/issues)
 - [Stack Overflow - codemirror-6 tag](https://stackoverflow.com/questions/tagged/codemirror-6)
+
+---
+
+## 🔍 מעקב שגיאות ולוגינג
+
+### Error Tracking System
+
+```javascript
+class ErrorTracker {
+  constructor() {
+    this.errors = [];
+    this.maxErrors = 50; // הגבלת מספר שגיאות בזיכרון
+    this.setupGlobalErrorHandlers();
+  }
+  
+  setupGlobalErrorHandlers() {
+    // תפיסת שגיאות לא מטופלות
+    window.addEventListener('unhandledrejection', (event) => {
+      this.logError({
+        type: 'unhandledRejection',
+        message: event.reason?.message || event.reason,
+        stack: event.reason?.stack,
+        context: 'CodeMirror Editor'
+      });
+    });
+    
+    // תפיסת שגיאות רגילות
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      if (args[0]?.includes('CodeMirror') || args[0]?.includes('editor')) {
+        this.logError({
+          type: 'consoleError',
+          message: args.join(' '),
+          timestamp: Date.now()
+        });
+      }
+      originalConsoleError.apply(console, args);
+    };
+  }
+  
+  logError(error) {
+    // הוספת metadata
+    const enrichedError = {
+      ...error,
+      timestamp: error.timestamp || Date.now(),
+      userAgent: navigator.userAgent,
+      url: window.location.href,
+      editorType: window.editorManager?.currentEditor
+    };
+    
+    // שמירה מקומית
+    this.errors.push(enrichedError);
+    if (this.errors.length > this.maxErrors) {
+      this.errors.shift(); // הסרת השגיאה הישנה ביותר
+    }
+    
+    // שליחה לשרת (אם מוגדר)
+    this.sendToServer(enrichedError);
+    
+    // לוג מקומי
+    console.warn('[Editor Error]', enrichedError);
+  }
+  
+  sendToServer(error) {
+    // שליחה אסינכרונית לשרת
+    if (window.location.hostname !== 'localhost') {
+      fetch('/api/log/editor-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(error)
+      }).catch(() => {
+        // נכשל בשקט - לא רוצים ליצור עוד שגיאות
+      });
+    }
+  }
+  
+  getRecentErrors(count = 10) {
+    return this.errors.slice(-count);
+  }
+  
+  clearErrors() {
+    this.errors = [];
+  }
+}
+
+// אינטגרציה ב-EditorManager
+class EditorManager {
+  constructor() {
+    // ... קוד קיים ...
+    this.errorTracker = new ErrorTracker();
+  }
+  
+  // עטיפת פעולות קריטיות ב-try-catch
+  async safeExecute(operation, fallback) {
+    try {
+      return await operation();
+    } catch (error) {
+      this.errorTracker.logError({
+        type: 'editorOperation',
+        operation: operation.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      if (fallback) {
+        return fallback(error);
+      }
+      throw error;
+    }
+  }
+}
+```
+
+### Backend Error Logging
+
+```python
+# app.py - הוספת endpoint ללוגינג
+@app.route('/api/log/editor-error', methods=['POST'])
+def log_editor_error():
+    """לוגינג של שגיאות עורך מה-frontend"""
+    try:
+        error_data = request.json
+        
+        # ולידציה בסיסית
+        if not error_data or not isinstance(error_data, dict):
+            return jsonify({'error': 'Invalid data'}), 400
+        
+        # הוספת מידע משתמש
+        error_data['user_id'] = session.get('user_id', 'anonymous')
+        error_data['session_id'] = session.get('session_id')
+        error_data['server_timestamp'] = datetime.now(timezone.utc)
+        
+        # שמירה ב-collection נפרד
+        editor_errors_collection.insert_one(error_data)
+        
+        # התראה על שגיאות קריטיות
+        if error_data.get('type') == 'criticalError':
+            notify_admins(error_data)
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        # לוג שקט - לא רוצים שגיאה בלוגינג של שגיאות
+        app.logger.error(f"Error logging failed: {e}")
+        return jsonify({'success': False}), 500
+```
 
 ---
 
