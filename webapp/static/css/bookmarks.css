@@ -32,6 +32,12 @@
     color: #8B92A1 !important;
 }
 
+/* Neutralize opacity reductions so שהצבע ייראה מדויק */
+.highlighttable td.linenos,
+.linenodiv {
+    opacity: 1 !important;
+}
+
 /* Indicators */
 .linenos span.bookmarked,
 .linenodiv a.bookmarked,
