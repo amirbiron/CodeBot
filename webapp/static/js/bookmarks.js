@@ -11,12 +11,20 @@ class BookmarkManager {
         this.ui = new BookmarkUI();
         this.offline = new OfflineBookmarkManager();
         this.syncChecker = new SyncChecker(fileId);
+        this.defaultColor = 'yellow';
         
         this.init();
     }
     
     async init() {
         try {
+            // טען העדפות משתמש (צבע ברירת מחדל)
+            try {
+                const prefs = await this.api.retryableRequest('GET', `/prefs`);
+                if (prefs && prefs.ok && prefs.default_color) {
+                    this.defaultColor = prefs.default_color;
+                }
+            } catch (_e) {}
             // טען סימניות קיימות
             await this.loadBookmarks();
             
@@ -48,6 +56,7 @@ class BookmarkManager {
             || document.querySelector('.highlight');
         if (codeContainer) {
             codeContainer.addEventListener('click', (e) => this.handleCodeClick(e));
+            codeContainer.addEventListener('contextmenu', (e) => this.handleCodeClick(e));
             codeContainer.addEventListener('mouseover', (e) => this.handleCodeHover(e));
         }
         
@@ -55,6 +64,22 @@ class BookmarkManager {
         const panel = document.getElementById('bookmarksPanel');
         if (panel) {
             panel.addEventListener('click', (e) => this.handlePanelClick(e));
+        }
+        // שינוי צבע ברירת מחדל מהכותרת
+        const headerPicker = document.querySelector('.bookmarks-panel-header .color-picker');
+        if (headerPicker) {
+            headerPicker.addEventListener('click', async (e) => {
+                const btn = e.target.closest('[data-default-color]');
+                if (!btn) return;
+                const color = btn.getAttribute('data-default-color');
+                try {
+                    await this.api.retryableRequest('PUT', `/prefs`, { default_color: color });
+                    this.defaultColor = color;
+                    this.ui.showNotification('צבע ברירת מחדל עודכן', 'success');
+                } catch (_) {
+                    this.ui.showError('שגיאה בעדכון ברירת מחדל');
+                }
+            });
         }
         
         // כפתור toggle פאנל
@@ -110,6 +135,29 @@ class BookmarkManager {
             if (this.bookmarks.has(lineNumber)) {
                 await this.deleteBookmark(lineNumber);
             }
+        }
+        // קליק ימני/תפריט הקשר: בחר צבע
+        else if (event.button === 2 || event.type === 'contextmenu') {
+            event.preventDefault();
+            this.ui.showInlineColorMenu(lineNumEl, (color) => {
+                // אם אין סימנייה – צור סימנייה עם צבע ברירת מחדל/נבחר
+                if (!this.bookmarks.has(lineNumber)) {
+                    this.toggleBookmark(lineNumber).then(() => {
+                        this.api.updateColor(lineNumber, color).then(() => {
+                            const bm = this.bookmarks.get(lineNumber);
+                            if (bm) { bm.color = color; this.ui.setBookmarkColor(lineNumber, color); }
+                            this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                        }).catch(() => this.ui.showError('שגיאה בעדכון צבע'));
+                    });
+                } else {
+                    this.api.updateColor(lineNumber, color).then(() => {
+                        const bm = this.bookmarks.get(lineNumber);
+                        if (bm) { bm.color = color; this.ui.setBookmarkColor(lineNumber, color); }
+                        this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                        this.ui.showNotification('הצבע עודכן', 'success');
+                    }).catch(() => this.ui.showError('שגיאה בעדכון צבע'));
+                }
+            });
         }
         // Click רגיל = toggle
         else {
@@ -211,12 +259,12 @@ class BookmarkManager {
             }
 
             // שלח לשרת
-            const result = await this.api.toggleBookmark(lineNumber, lineText);
+            const result = await this.api.toggleBookmark(lineNumber, lineText, '');
 
             if (result.ok) {
                 if (result.action === 'added') {
                     this.bookmarks.set(lineNumber, result.bookmark);
-                    this.ui.addBookmarkIndicator(lineNumber, result.bookmark?.color);
+                    this.ui.addBookmarkIndicator(lineNumber, result.bookmark?.color || this.defaultColor);
                     this.ui.showNotification('סימנייה נוספה', 'success');
                 } else if (result.action === 'removed') {
                     this.bookmarks.delete(lineNumber);
@@ -779,6 +827,48 @@ class BookmarkUI {
         element.addEventListener('mouseleave', () => {
             tooltip.style.display = 'none';
         }, { once: true });
+    }
+    
+    showInlineColorMenu(anchorEl, onPick) {
+        // צור תפריט קטן ליד מספר השורה
+        const id = 'bookmark-color-menu';
+        let menu = document.getElementById(id);
+        if (menu) menu.remove();
+        menu = document.createElement('div');
+        menu.id = id;
+        menu.style.position = 'absolute';
+        menu.style.background = 'white';
+        menu.style.border = '1px solid #ddd';
+        menu.style.borderRadius = '6px';
+        menu.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+        menu.style.padding = '6px';
+        menu.style.display = 'flex';
+        menu.style.gap = '6px';
+        menu.style.zIndex = '10001';
+        const colors = ['yellow','red','green','blue','purple','orange','pink'];
+        colors.forEach(c => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.style.width = '16px';
+            b.style.height = '16px';
+            b.style.borderRadius = '50%';
+            b.style.border = '1px solid rgba(0,0,0,0.2)';
+            b.style.background = getComputedStyle(document.documentElement).getPropertyValue(`--bookmark-${c}`) || c;
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                document.body.removeChild(menu);
+                onPick && onPick(c);
+            });
+            menu.appendChild(b);
+        });
+        document.body.appendChild(menu);
+        const rect = anchorEl.getBoundingClientRect();
+        menu.style.left = rect.right + 8 + 'px';
+        menu.style.top = rect.top + 'px';
+        const close = () => { try { menu.remove(); } catch (_) {} };
+        setTimeout(() => {
+            document.addEventListener('click', close, { once: true });
+        }, 0);
     }
     
     escapeHtml(text) {

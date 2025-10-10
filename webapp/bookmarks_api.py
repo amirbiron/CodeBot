@@ -410,6 +410,56 @@ def export_bookmarks():
         return jsonify({'ok': False, 'error': 'Failed to export'}), 500
 
 
+# ==================== User preferences (default color) ====================
+
+@bookmarks_bp.route('/prefs', methods=['GET'])
+@require_auth
+def get_prefs():
+    """החזרת העדפות סימניות של המשתמש (צבע ברירת מחדל)."""
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        user = db.users.find_one({'user_id': user_id}) or {}
+        prefs = (user.get('bookmark_prefs') or {})
+        default_color = (prefs.get('default_color') or 'yellow')
+        if default_color not in MODEL_VALID_COLORS:
+            default_color = 'yellow'
+        return jsonify({
+            'ok': True,
+            'default_color': default_color,
+            'valid_colors': list(MODEL_VALID_COLORS),
+        })
+    except Exception as e:
+        logger.error(f"Error getting bookmark prefs: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to get prefs'}), 500
+
+
+@bookmarks_bp.route('/prefs', methods=['PUT'])
+@require_auth
+def set_prefs():
+    """עדכון צבע ברירת מחדל לסימניות עבור המשתמש."""
+    try:
+        from datetime import datetime, timezone
+        db = get_db()
+        user_id = session['user_id']
+        data = request.get_json(silent=True) or {}
+        color = (data.get('default_color') or data.get('color') or 'yellow').lower()
+        if color not in MODEL_VALID_COLORS:
+            return jsonify({'ok': False, 'error': 'Invalid color'}), 400
+        db.users.update_one(
+            {'user_id': user_id},
+            {'$set': {
+                'bookmark_prefs.default_color': color,
+                'updated_at': datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+        return jsonify({'ok': True, 'default_color': color})
+    except Exception as e:
+        logger.error(f"Error setting bookmark prefs: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to set prefs'}), 500
+
+
 # ==================== Internal helpers ====================
 
 def _get_file_info(file_id: str) -> dict | None:
