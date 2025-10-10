@@ -270,8 +270,8 @@ class BookmarkManager {
                 this.ui.removeBookmarkIndicator(lineNumber);
             }
 
-            // שלח לשרת
-            const result = await this.api.toggleBookmark(lineNumber, lineText, '');
+            // שלח לשרת עם צבע ברירת המחדל כדי לשמר העדפה משתמש
+            const result = await this.api.toggleBookmark(lineNumber, lineText, '', this.defaultColor);
 
             if (result.ok) {
                 if (result.action === 'added') {
