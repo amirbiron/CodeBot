@@ -662,7 +662,8 @@ class BookmarkUI {
         this.isDraggingToggle = false;
         this.ensureToggleButtonVisibilityRestored();
         this.restoreTogglePosition();
-        this.maybeShowFirstRunHint();
+        // ביטול טיפ אוטומטי כברירת מחדל כדי לא להפריע במסכים קטנים
+        // אם תרצה להחזיר: קבע דגל והפעל this.maybeShowFirstRunHint()
     }
     
     createNotificationContainer() {
@@ -736,7 +737,8 @@ class BookmarkUI {
         if (!control) return;
         const btn = document.getElementById('toggleBookmarksBtn');
         const visible = !btn || btn.style.display !== 'none';
-        control.textContent = `כפתור: ${visible ? 'מציג' : 'מוסתר'}`;
+        // תווית קצרה וברורה: 'הסתרה' כשהכפתור מוצג, 'הצגה' כשהוא מוסתר
+        control.textContent = visible ? 'הסתרה' : 'הצגה';
         control.setAttribute('aria-pressed', String(visible));
         control.setAttribute('title', visible ? 'הסתר כפתור סימנייה' : 'הצג כפתור סימנייה');
     }

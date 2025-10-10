@@ -200,7 +200,7 @@
     color: var(--text-primary);
 }
 
-.bookmarks-panel-actions { display: flex; gap: 10px; margin-top: 10px; }
+.bookmarks-panel-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .bookmarks-panel-actions button {
     padding: 5px 10px;
     border: none;
@@ -267,7 +267,7 @@
 .empty-state p:last-child { font-size: 14px; }
 
 /* Notifications */
-.notification-container { position: fixed; top: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
+.notification-container { position: fixed; bottom: 20px; left: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
 .notification { background: white; border-radius: 8px; padding: 12px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 10px; min-width: 250px; transform: translateX(400px); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .notification.show { transform: translateX(0); }
 .notification-icon { font-size: 18px; font-weight: bold; }
@@ -292,7 +292,9 @@
 @media (max-width: 768px) {
     .bookmarks-panel { width: 100%; right: -100%; }
     .bookmarks-toggle-btn { width: 45px; height: 45px; top: 12px; bottom: auto; }
-    .notification-container { left: 10px; right: 10px; }
+    .bookmarks-panel-actions { gap: 8px; }
+    .bookmarks-panel-actions button { flex: 0 0 auto; }
+    .notification-container { left: 10px; right: 10px; bottom: 10px; }
     .notification { min-width: auto; width: 100%; }
 }
 
