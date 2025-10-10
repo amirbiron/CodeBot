@@ -24,6 +24,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt || true
           pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints
+          # Install doc-specific requirements (includes sphinxcontrib-mermaid)
+          pip install -r docs/requirements.txt || true
 
       - name: Build documentation
         env:
