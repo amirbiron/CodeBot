@@ -85,10 +85,16 @@ class BookmarkManager {
         // כפתור toggle פאנל
         const toggleBtn = document.getElementById('toggleBookmarksBtn');
         if (toggleBtn) {
-            // לחיצה רגילה – פתח/סגור פאנל
+            // לחיצה רגילה – אם הכפתור במצב mini: החזר לגודל רגיל; אחרת: פתח/סגור פאנל
             toggleBtn.addEventListener('click', (e) => {
                 if (this.ui.isDraggingToggle) { e.preventDefault(); e.stopPropagation(); return; }
                 if (this.ui.justFinishedDrag) { e.preventDefault(); e.stopPropagation(); this.ui.justFinishedDrag = false; return; }
+                if (this.ui.isToggleMini()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.ui.setToggleMiniState(false);
+                    return;
+                }
                 this.ui.togglePanel();
             });
 
@@ -659,8 +665,10 @@ class BookmarkUI {
         this.notificationContainer = this.createNotificationContainer();
         this.TOGGLE_VISIBILITY_KEY = 'bookmarks_toggle_btn_visible';
         this.TOGGLE_POS_KEY = 'bookmarks_toggle_btn_position';
+        this.TOGGLE_MINI_KEY = 'bookmarks_toggle_btn_mini';
         this.isDraggingToggle = false;
         this.ensureToggleButtonVisibilityRestored();
+        this.ensureToggleMiniRestored();
         this.restoreTogglePosition();
         // ביטול טיפ אוטומטי כברירת מחדל כדי לא להפריע במסכים קטנים
         // אם תרצה להחזיר: קבע דגל והפעל this.maybeShowFirstRunHint()
@@ -743,6 +751,30 @@ class BookmarkUI {
         control.setAttribute('title', visible ? 'הסתר כפתור סימנייה' : 'הצג כפתור סימנייה');
     }
 
+    ensureToggleMiniRestored() {
+        try {
+            const btn = document.getElementById('toggleBookmarksBtn');
+            if (!btn) return;
+            const raw = localStorage.getItem(this.TOGGLE_MINI_KEY);
+            const isMini = raw === '1';
+            if (isMini) btn.classList.add('mini'); else btn.classList.remove('mini');
+        } catch (_) {}
+    }
+
+    isToggleMini() {
+        const btn = document.getElementById('toggleBookmarksBtn');
+        return !!(btn && btn.classList && btn.classList.contains('mini'));
+    }
+
+    setToggleMiniState(mini) {
+        try {
+            const btn = document.getElementById('toggleBookmarksBtn');
+            if (!btn) return;
+            if (mini) btn.classList.add('mini'); else btn.classList.remove('mini');
+            localStorage.setItem(this.TOGGLE_MINI_KEY, mini ? '1' : '0');
+        } catch (_) {}
+    }
+
     enableToggleDrag(btn) {
         const isTouch = () => ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
         let dragStartX = 0, dragStartY = 0;
@@ -766,6 +798,8 @@ class BookmarkUI {
             dragStartX = p.x;
             dragStartY = p.y;
             ev.preventDefault();
+            // בעת לחיצה ממושכת: העבר למצב mini באופן קבוע (יישמר ב-localStorage)
+            try { this.setToggleMiniState(true); } catch(_) {}
         };
 
         const start = (ev) => {
