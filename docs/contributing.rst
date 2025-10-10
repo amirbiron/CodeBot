@@ -50,6 +50,7 @@ HEREDOC לקומיט::
 -------
 
 - :doc:`ai-guidelines`
-- :doc:`testing`
-- :doc:`ci-cd`
 - :doc:`environment-variables`
+- :doc:`examples`
+- :doc:`user/github_browse`
+- :doc:`webapp/overview`
