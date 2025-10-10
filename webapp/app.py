@@ -254,28 +254,53 @@ def _fetch_uptime_from_betteruptime() -> Optional[Dict[str, Any]]:
         return None
 
 def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
-    # UptimeRobot requires API v2 key and monitor ID; minimal implementation
+    """Fetch uptime from UptimeRobot.
+
+    Notes:
+    - UptimeRobot v2 מחזיר שדה custom_uptime_ratios (לא ranges) כשמבקשים יחסי זמינות
+      עבור X ימים אחרונים. ערך '1' משמע 24 שעות אחרונות.
+    - נתמוך גם ב-custom_uptime_ranges אם יוחזר (תאימות עתידית/ישנה).
+    """
     if not UPTIME_API_KEY:
         return None
     try:
         url = 'https://api.uptimerobot.com/v2/getMonitors'
         payload = {
             'api_key': UPTIME_API_KEY,
-            'monitors': UPTIME_MONITOR_ID or '',
-            'custom_uptime_ranges': '24',
+            # יחס זמינות ל-1 יום (24 שעות)
+            'custom_uptime_ratios': '1',
             'format': 'json',
         }
-        resp = requests.post(url, data=payload, timeout=8)
+        # אם זה לא מפתח monitor‑specific (שמתחיל ב-'m'), ונמסר מזהה monitor – נשלח אותו
+        try:
+            api_key_is_monitor_specific = str(UPTIME_API_KEY).strip().lower().startswith('m')
+        except Exception:
+            api_key_is_monitor_specific = False
+        if UPTIME_MONITOR_ID and not api_key_is_monitor_specific:
+            payload['monitors'] = UPTIME_MONITOR_ID
+        resp = requests.post(url, data=payload, timeout=10)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
         monitors = (body or {}).get('monitors') or []
         uptime_percentage = None
+        if (body or {}).get('stat') == 'fail':
+            return None
         if monitors:
+            # נסה את כל הוריאציות הידועות
+            val = (
+                monitors[0].get('custom_uptime_ratio') or
+                monitors[0].get('custom_uptime_ratios') or
+                monitors[0].get('custom_uptime_range') or
+                monitors[0].get('custom_uptime_ranges')
+            )
             try:
-                # custom_uptime_ranges returns a percentage string
-                val = monitors[0].get('custom_uptime_ranges')
-                uptime_percentage = round(float(val), 2) if val is not None else None
+                if isinstance(val, str):
+                    # custom_uptime_ratios יכול להיות "99.99" או "99.99-..." – ניקח את הראשון
+                    first = val.split('-')[0].strip()
+                    uptime_percentage = round(float(first), 2)
+                elif isinstance(val, (int, float)):
+                    uptime_percentage = round(float(val), 2)
             except Exception:
                 uptime_percentage = None
         return {
