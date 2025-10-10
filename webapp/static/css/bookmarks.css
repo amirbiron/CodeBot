@@ -6,6 +6,7 @@
     --bookmark-blue: #4dabf7;
     --bookmark-purple: #9775fa;
     --bookmark-orange: #ffa94d;
+    --bookmark-pink: #ff69b4;
     --panel-bg: #ffffff;
     --panel-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
     --hover-bg: #f8f9fa;
@@ -24,7 +25,53 @@
 .linenodiv span.bookmarked {
     position: relative;
     background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
+    color: #ff5a5a !important; /* ניראות גבוהה על רקע כהה */
+    text-shadow: 0 0 2px rgba(0,0,0,0.6);
     font-weight: bold;
+}
+
+/* Color-aware indicators by bookmark color */
+.linenos span.bookmarked[data-bookmark-color="yellow"],
+.linenodiv a.bookmarked[data-bookmark-color="yellow"],
+.linenodiv span.bookmarked[data-bookmark-color="yellow"] {
+    background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
+    color: var(--bookmark-yellow) !important;
+}
+.linenos span.bookmarked[data-bookmark-color="red"],
+.linenodiv a.bookmarked[data-bookmark-color="red"],
+.linenodiv span.bookmarked[data-bookmark-color="red"] {
+    background: linear-gradient(90deg, var(--bookmark-red) 3px, transparent 3px);
+    color: var(--bookmark-red) !important;
+}
+.linenos span.bookmarked[data-bookmark-color="green"],
+.linenodiv a.bookmarked[data-bookmark-color="green"],
+.linenodiv span.bookmarked[data-bookmark-color="green"] {
+    background: linear-gradient(90deg, var(--bookmark-green) 3px, transparent 3px);
+    color: var(--bookmark-green) !important;
+}
+.linenos span.bookmarked[data-bookmark-color="blue"],
+.linenodiv a.bookmarked[data-bookmark-color="blue"],
+.linenodiv span.bookmarked[data-bookmark-color="blue"] {
+    background: linear-gradient(90deg, var(--bookmark-blue) 3px, transparent 3px);
+    color: var(--bookmark-blue) !important;
+}
+.linenos span.bookmarked[data-bookmark-color="purple"],
+.linenodiv a.bookmarked[data-bookmark-color="purple"],
+.linenodiv span.bookmarked[data-bookmark-color="purple"] {
+    background: linear-gradient(90deg, var(--bookmark-purple) 3px, transparent 3px);
+    color: var(--bookmark-purple) !important;
+}
+.linenos span.bookmarked[data-bookmark-color="orange"],
+.linenodiv a.bookmarked[data-bookmark-color="orange"],
+.linenodiv span.bookmarked[data-bookmark-color="orange"] {
+    background: linear-gradient(90deg, var(--bookmark-orange) 3px, transparent 3px);
+    color: var(--bookmark-orange) !important;
+}
+.linenos span.bookmarked[data-bookmark-color="pink"],
+.linenodiv a.bookmarked[data-bookmark-color="pink"],
+.linenodiv span.bookmarked[data-bookmark-color="pink"] {
+    background: linear-gradient(90deg, var(--bookmark-pink) 3px, transparent 3px);
+    color: var(--bookmark-pink) !important;
 }
 
 .bookmark-icon {
@@ -64,7 +111,7 @@
 /* Toggle Button */
 .bookmarks-toggle-btn {
     position: fixed;
-    top: 100px;
+    top: 1.5rem; /* אל תסתיר את השורה הראשונה */
     right: 20px;
     z-index: 1000;
     background: var(--panel-bg);
@@ -160,6 +207,27 @@
 
 .bookmark-content { flex: 1; display: flex; flex-direction: column; gap: 5px; }
 .bookmark-item .line-number { font-weight: bold; color: var(--bookmark-yellow); font-size: 12px; }
+/* צבע דינמי ברשימת הפאנל לפי data-color */
+.bookmark-item[data-color="yellow"] .line-number { color: var(--bookmark-yellow); }
+.bookmark-item[data-color="red"] .line-number { color: var(--bookmark-red); }
+.bookmark-item[data-color="green"] .line-number { color: var(--bookmark-green); }
+.bookmark-item[data-color="blue"] .line-number { color: var(--bookmark-blue); }
+.bookmark-item[data-color="purple"] .line-number { color: var(--bookmark-purple); }
+.bookmark-item[data-color="orange"] .line-number { color: var(--bookmark-orange); }
+.bookmark-item[data-color="pink"] .line-number { color: var(--bookmark-pink); }
+
+/* טיפ עזרה בפוטר */
+.help-tip {
+    position: fixed;
+    bottom: 10px;
+    left: 20px;
+    right: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+    opacity: 0.8;
+    pointer-events: none;
+}
 .bookmark-item .line-preview { color: var(--text-primary); font-family: 'Courier New', monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bookmark-item .bookmark-note { color: var(--text-secondary); font-size: 12px; font-style: italic; margin-top: 5px; padding: 5px; background: rgba(255,215,0,0.1); border-radius: 4px; }
 

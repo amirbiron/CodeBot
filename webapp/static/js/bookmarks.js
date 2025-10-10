@@ -174,29 +174,38 @@ class BookmarkManager {
     
     async toggleBookmark(lineNumber) {
         try {
-            // הצג loading
+            // הצג loading ו-Optimistic UI
             this.ui.showLineLoading(lineNumber, true);
-            
-            // קבל טקסט השורה
             const lineText = this.getLineText(lineNumber);
-            
+
+            const currentlyBookmarked = this.bookmarks.has(lineNumber);
+            if (!currentlyBookmarked) {
+                this.ui.addBookmarkIndicator(lineNumber);
+            } else {
+                this.ui.removeBookmarkIndicator(lineNumber);
+            }
+
             // שלח לשרת
             const result = await this.api.toggleBookmark(lineNumber, lineText);
-            
+
             if (result.ok) {
                 if (result.action === 'added') {
                     this.bookmarks.set(lineNumber, result.bookmark);
-                    this.ui.addBookmarkIndicator(lineNumber);
+                    this.ui.addBookmarkIndicator(lineNumber, result.bookmark?.color);
                     this.ui.showNotification('סימנייה נוספה', 'success');
                 } else if (result.action === 'removed') {
                     this.bookmarks.delete(lineNumber);
-                    this.ui.removeBookmarkIndicator(lineNumber);
                     this.ui.showNotification('סימנייה הוסרה', 'info');
                 }
-                
                 this.ui.updateCount(this.bookmarks.size);
                 this.ui.refreshPanel(Array.from(this.bookmarks.values()));
             } else {
+                // החזר מצב במקרה של כשל
+                if (!currentlyBookmarked) {
+                    this.ui.removeBookmarkIndicator(lineNumber);
+                } else {
+                    this.ui.addBookmarkIndicator(lineNumber);
+                }
                 throw new Error(result.error || 'שגיאה בשמירת הסימנייה');
             }
             
@@ -247,7 +256,7 @@ class BookmarkManager {
                 
                 if (result.ok && result.action === 'added') {
                     this.bookmarks.set(lineNumber, result.bookmark);
-                    this.ui.addBookmarkIndicator(lineNumber);
+                    this.ui.addBookmarkIndicator(lineNumber, result.bookmark?.color);
                 }
             } else {
                 // עדכן הערה קיימת
@@ -292,7 +301,7 @@ class BookmarkManager {
             if (result.ok) {
                 result.bookmarks.forEach(bm => {
                     this.bookmarks.set(bm.line_number, bm);
-                    this.ui.addBookmarkIndicator(bm.line_number);
+                    this.ui.addBookmarkIndicator(bm.line_number, bm.color || 'yellow');
                 });
                 
                 this.ui.updateCount(this.bookmarks.size);
@@ -505,6 +514,7 @@ class BookmarkUI {
         this.panel = document.getElementById('bookmarksPanel');
         this.countBadge = document.getElementById('bookmarkCount');
         this.notificationContainer = this.createNotificationContainer();
+        this.maybeShowFirstRunHint();
     }
     
     createNotificationContainer() {
@@ -531,15 +541,26 @@ class BookmarkUI {
         // אנימציית כניסה
         setTimeout(() => notification.classList.add('show'), 10);
         
-        // הסרה אוטומטית
+        // הסרה אוטומטית (4 שניות)
         setTimeout(() => {
             notification.classList.remove('show');
             setTimeout(() => notification.remove(), 300);
-        }, 3000);
+        }, 4000);
     }
     
     showError(message) {
         this.showNotification(message, 'error');
+    }
+
+    maybeShowFirstRunHint() {
+        try {
+            const KEY = 'bookmarks_first_run_hint_shown';
+            if (localStorage.getItem(KEY) === '1') return;
+            this.showNotification('טיפ: לחץ על מספר שורה כדי להוסיף סימנייה. לחץ שוב להסרה.', 'info');
+            localStorage.setItem(KEY, '1');
+        } catch (_) {
+            // ignore storage errors
+        }
     }
     
     getNotificationIcon(type) {
@@ -552,21 +573,21 @@ class BookmarkUI {
         return icons[type] || icons['info'];
     }
     
-    addBookmarkIndicator(lineNumber) {
+    addBookmarkIndicator(lineNumber, color = 'yellow') {
         const lineElement = document.querySelector(
             `.highlighttable .linenos pre > span:nth-child(${lineNumber}), .highlighttable .linenos pre > a:nth-child(${lineNumber}), .linenodiv pre > span:nth-child(${lineNumber}), .linenodiv pre > a:nth-child(${lineNumber}), .linenos span:nth-child(${lineNumber}), .linenos a:nth-child(${lineNumber})`
         );
         
-        if (lineElement && !lineElement.classList.contains('bookmarked')) {
-            lineElement.classList.add('bookmarked');
-            
-            // הוסף אייקון
-            if (!lineElement.querySelector('.bookmark-icon')) {
-                const icon = document.createElement('span');
-                icon.className = 'bookmark-icon';
-                icon.innerHTML = '🔖';
-                lineElement.appendChild(icon);
-            }
+        if (!lineElement) return;
+        lineElement.classList.add('bookmarked');
+        lineElement.setAttribute('data-bookmark-color', color);
+        
+        // הוסף אייקון אם חסר
+        if (!lineElement.querySelector('.bookmark-icon')) {
+            const icon = document.createElement('span');
+            icon.className = 'bookmark-icon';
+            icon.innerHTML = '🔖';
+            lineElement.appendChild(icon);
         }
     }
     
@@ -617,7 +638,7 @@ class BookmarkUI {
         bookmarks.sort((a, b) => a.line_number - b.line_number);
         
         listContainer.innerHTML = bookmarks.map(bm => `
-            <div class="bookmark-item" data-line-number="${bm.line_number}">
+            <div class="bookmark-item" data-line-number="${bm.line_number}" data-color="${bm.color || 'yellow'}">
                 <div class="bookmark-content">
                     <span class="line-number">שורה ${bm.line_number}</span>
                     <span class="line-preview">${this.escapeHtml(bm.line_text_preview || '')}</span>

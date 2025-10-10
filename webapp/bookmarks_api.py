@@ -121,7 +121,7 @@ def toggle_bookmark(file_id):
         color = data.get('color', 'yellow')
         
         # ולידציה של צבע
-        valid_colors = ['yellow', 'red', 'green', 'blue', 'purple', 'orange']
+        valid_colors = ['yellow', 'red', 'green', 'blue', 'purple', 'orange', 'pink']
         if color not in valid_colors:
             color = 'yellow'
         
