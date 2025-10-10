@@ -14,6 +14,8 @@ Code Keeper Bot - תיעוד API
 
    quickstart-ai
    ai-guidelines
+   architecture
+   contributing
 
 .. toctree::
    :maxdepth: 2
@@ -21,6 +23,7 @@ Code Keeper Bot - תיעוד API
 
    installation
    configuration
+   environment-variables
 
 .. toctree::
    :maxdepth: 2
