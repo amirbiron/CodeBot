@@ -56,8 +56,7 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
-   ci-cd
-   testing
+   webapp/api-reference
 
 סקירה כללית
 ------------
