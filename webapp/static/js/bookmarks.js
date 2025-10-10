@@ -87,7 +87,8 @@ class BookmarkManager {
         if (toggleBtn) {
             // לחיצה רגילה – פתח/סגור פאנל
             toggleBtn.addEventListener('click', (e) => {
-                if (this.ui.isDraggingToggle) return; // אל תפתח פאנל בעת גרירה
+                if (this.ui.isDraggingToggle) { e.preventDefault(); e.stopPropagation(); return; }
+                if (this.ui.justFinishedDrag) { e.preventDefault(); e.stopPropagation(); this.ui.justFinishedDrag = false; return; }
                 this.ui.togglePanel();
             });
 
@@ -782,7 +783,10 @@ class BookmarkUI {
             clearTimeout(longPressTimer);
             if (!dragging) return;
             dragging = false;
-            this.isDraggingToggle = false;
+        this.isDraggingToggle = false;
+        // דחה מעט כדי שה-click שלאחר השחרור לא יופעל
+        this.justFinishedDrag = true;
+        setTimeout(() => { this.justFinishedDrag = false; }, 120);
             btn.style.transition = '';
             this.persistTogglePosition(btn);
         };
