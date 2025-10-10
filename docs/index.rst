@@ -43,6 +43,10 @@ Code Keeper Bot - תיעוד API
 
    examples
    conversation-handlers
+   troubleshooting
+   development
+   integrations
+   security
    user/share_code
    user/github_browse
    user/download_repo
