@@ -135,4 +135,4 @@ Errors
 -------
 
 - :doc:`overview`
-- :doc:`../architecture`
+- :doc:`/architecture`

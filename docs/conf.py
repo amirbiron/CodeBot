@@ -85,7 +85,13 @@ todo_include_todos = True
 templates_path = ['_templates']
 
 # List of patterns to exclude
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'api/get-pip.rst']
+exclude_patterns = [
+    '_build',
+    'Thumbs.db',
+    '.DS_Store',
+    'api/get-pip.rst',
+    '_templates/**',  # exclude RST templates not in toctree
+]
 
 # The language for content
 # שפת תוכן ברירת מחדל. RTD לעיתים מגדיר EN מחוץ ל-conf; לא נכשל אם יש שונות.

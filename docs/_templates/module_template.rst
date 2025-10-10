@@ -33,4 +33,4 @@ Examples
 See Also
 --------
 - :mod:`related_module`
-- :doc:`../architecture`
+- :doc:`/architecture`
