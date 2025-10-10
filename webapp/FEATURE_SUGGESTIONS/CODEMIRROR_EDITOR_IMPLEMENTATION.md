@@ -104,6 +104,13 @@ webapp/
     ])
   ];
   
+  // יבוא Compartment לעדכון דינמי של הגדרות
+  import { Compartment } from 'https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js';
+  
+  // יצירת compartments לשפה ונושא
+  const languageCompartment = new Compartment();
+  const themeCompartment = new Compartment();
+  
   // חשיפה גלובלית לשימוש בקוד
   window.CodeMirror6 = { 
     EditorState, 
@@ -112,7 +119,10 @@ webapp/
     keymap,
     lineNumbers,
     bracketMatching,
-    autocompletion
+    autocompletion,
+    Compartment,
+    languageCompartment,
+    themeCompartment
   };
 </script>
 
@@ -265,7 +275,7 @@ class EditorManager {
         await this.loadCodeMirror();
       }
       
-      const { EditorState, EditorView, basicSetup } = window.CodeMirror6;
+      const { EditorState, EditorView, basicSetup, languageCompartment, themeCompartment } = window.CodeMirror6;
       const langSupport = await this.getLanguageSupport(options.language);
       const themeExtension = await this.getTheme(options.theme);
       
@@ -275,13 +285,13 @@ class EditorManager {
         this.textarea.dispatchEvent(new Event('input', {bubbles: true}));
       }, 100);
       
-      // הגדרת העורך
+      // הגדרת העורך עם compartments לעדכון דינמי
       const state = EditorState.create({
         doc: this.textarea.value || options.value,
         extensions: [
           basicSetup,
-          langSupport,
-          themeExtension,
+          languageCompartment.of(langSupport),  // שפה ב-compartment
+          themeCompartment.of(themeExtension),  // נושא ב-compartment
           EditorView.lineWrapping,
           EditorView.updateListener.of(update => {
             if (update.docChanged) {
@@ -503,6 +513,46 @@ class EditorManager {
   // העדפת ערכת נושא
   getThemePreference() {
     return localStorage.getItem('editorTheme') || 'dark';
+  }
+  
+  // עדכון שפת העורך בזמן אמת
+  async updateLanguage(lang) {
+    if (!this.cmInstance) return;
+    
+    try {
+      const { languageCompartment } = window.CodeMirror6;
+      const langSupport = await this.getLanguageSupport(lang);
+      
+      // עדכון השפה באמצעות compartment reconfiguration
+      this.cmInstance.dispatch({
+        effects: languageCompartment.reconfigure(langSupport)
+      });
+      
+      console.log(`Language updated to: ${lang}`);
+    } catch (error) {
+      console.error('Failed to update language:', error);
+      this.showErrorNotification('שגיאה בעדכון הדגשת התחביר');
+    }
+  }
+  
+  // עדכון נושא העורך בזמן אמת
+  async updateTheme(themeName) {
+    if (!this.cmInstance) return;
+    
+    try {
+      const { themeCompartment } = window.CodeMirror6;
+      const themeExtension = await this.getTheme(themeName);
+      
+      // עדכון הנושא באמצעות compartment reconfiguration
+      this.cmInstance.dispatch({
+        effects: themeCompartment.reconfigure(themeExtension)
+      });
+      
+      localStorage.setItem('editorTheme', themeName);
+      console.log(`Theme updated to: ${themeName}`);
+    } catch (error) {
+      console.error('Failed to update theme:', error);
+    }
   }
   
   // *** פונקציות עזר חשובות לביצועים ואבטחה ***
@@ -748,14 +798,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   // עדכון שפה בעת שינוי
   languageSelect.addEventListener('change', async (e) => {
     const lang = e.target.value;
-    if (window.editorManager.cmInstance) {
-      // עדכון הדגשת תחביר ב-CodeMirror
-      const langSupport = await window.editorManager.getLanguageSupport(lang);
-      window.editorManager.cmInstance.dispatch({
-        effects: window.editorManager.cmInstance.state.reconfigure.of([langSupport])
-      });
-    }
+    // שימוש בפונקציה המובנית לעדכון שפה
+    await window.editorManager.updateLanguage(lang);
   });
+  
+  // אופציונלי: הוספת מחליף נושא
+  const themeToggle = document.createElement('button');
+  themeToggle.className = 'theme-toggle';
+  themeToggle.innerHTML = '<i class="fas fa-moon"></i>';
+  themeToggle.title = 'החלף נושא';
+  themeToggle.onclick = async () => {
+    const currentTheme = window.editorManager.getThemePreference();
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    await window.editorManager.updateTheme(newTheme);
+    themeToggle.innerHTML = newTheme === 'dark' ? '<i class="fas fa-moon"></i>' : '<i class="fas fa-sun"></i>';
+  };
+  
+  // הוספת כפתור הנושא לצד מחליף העורך (אם קיים)
+  const switcher = document.querySelector('.editor-switcher');
+  if (switcher) {
+    switcher.appendChild(themeToggle);
+  }
 });
 </script>
 {% endblock %}
