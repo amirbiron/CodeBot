@@ -42,6 +42,8 @@ Code Keeper Bot - תיעוד API
    :caption: עזרה ודוגמאות:
 
    examples
+   testing
+   ci-cd
    conversation-handlers
    troubleshooting
    development
