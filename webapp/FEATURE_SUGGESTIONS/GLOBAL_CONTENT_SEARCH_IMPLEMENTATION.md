@@ -645,17 +645,72 @@ function highlightText(text, highlights) {
         return escapeHtml(text);
     }
     
-    let result = escapeHtml(text);
+    // שיטה 1: בניית הטקסט עם highlights לפני ה-escape
+    // ממיין highlights לפי מיקום (מההתחלה לסוף)
+    const sortedHighlights = [...highlights].sort((a, b) => a[0] - b[0]);
     
-    // מיין highlights לפי מיקום בסדר יורד (מהסוף להתחלה)
-    highlights.sort((a, b) => b[0] - a[0]);
+    let result = '';
+    let lastIndex = 0;
     
-    highlights.forEach(([start, end]) => {
-        const before = result.substring(0, start);
-        const match = result.substring(start, end);
-        const after = result.substring(end);
-        result = before + `<mark class="bg-warning">${match}</mark>` + after;
+    sortedHighlights.forEach(([start, end]) => {
+        // וודא שה-highlights לא חופפים
+        if (start < lastIndex) return;
+        
+        // הוסף את הטקסט לפני ה-highlight (עם escape)
+        result += escapeHtml(text.substring(lastIndex, start));
+        
+        // הוסף את הטקסט המודגש (עם escape)
+        result += `<mark class="bg-warning">${escapeHtml(text.substring(start, end))}</mark>`;
+        
+        lastIndex = end;
     });
+    
+    // הוסף את שאר הטקסט (עם escape)
+    result += escapeHtml(text.substring(lastIndex));
+    
+    return result;
+}
+
+// פונקציה אלטרנטיבית עם תמיכה ב-overlapping highlights
+function highlightTextAdvanced(text, highlights) {
+    if (!text || !highlights || highlights.length === 0) {
+        return escapeHtml(text);
+    }
+    
+    // יצירת מערך של תווים עם סימון האם הם highlighted
+    const chars = text.split('');
+    const isHighlighted = new Array(chars.length).fill(false);
+    
+    // סימון כל התווים שצריכים להיות highlighted
+    highlights.forEach(([start, end]) => {
+        for (let i = start; i < end && i < chars.length; i++) {
+            isHighlighted[i] = true;
+        }
+    });
+    
+    // בניית התוצאה
+    let result = '';
+    let inHighlight = false;
+    
+    for (let i = 0; i < chars.length; i++) {
+        if (isHighlighted[i] && !inHighlight) {
+            // התחלת highlight
+            result += '<mark class="bg-warning">';
+            inHighlight = true;
+        } else if (!isHighlighted[i] && inHighlight) {
+            // סיום highlight
+            result += '</mark>';
+            inHighlight = false;
+        }
+        
+        // הוספת התו עם escape
+        result += escapeHtml(chars[i]);
+    }
+    
+    // סגירת highlight פתוח
+    if (inHighlight) {
+        result += '</mark>';
+    }
     
     return result;
 }
