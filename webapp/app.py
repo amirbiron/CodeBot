@@ -25,6 +25,8 @@ import re
 import sys
 from pathlib import Path
 import secrets
+import threading
+
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
@@ -56,6 +58,22 @@ BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
+
+# --- External uptime monitoring (Option 2 from issue #730) ---
+# Provider options: 'betteruptime' (Better Stack), 'uptimerobot', 'statuscake', 'pingdom'
+UPTIME_PROVIDER = (os.getenv('UPTIME_PROVIDER') or '').strip().lower()  # e.g., 'betteruptime'
+UPTIME_API_KEY = os.getenv('UPTIME_API_KEY', '')
+UPTIME_MONITOR_ID = os.getenv('UPTIME_MONITOR_ID', '')
+# Public status page URL (if you have one externally)
+UPTIME_STATUS_URL = os.getenv('UPTIME_STATUS_URL', '')
+# Optional widget (Better Uptime / Better Stack announcement widget)
+UPTIME_WIDGET_SCRIPT_URL = os.getenv('UPTIME_WIDGET_SCRIPT_URL', 'https://uptime.betterstack.com/widgets/announcement.js')
+UPTIME_WIDGET_ID = os.getenv('UPTIME_WIDGET_ID', '')  # the widget data-id
+# Cache TTL (seconds) for external uptime API calls
+try:
+    UPTIME_CACHE_TTL_SECONDS = max(30, int(os.getenv('UPTIME_CACHE_TTL_SECONDS', '120')))
+except Exception:
+    UPTIME_CACHE_TTL_SECONDS = 120
 try:
     PUBLIC_SHARE_TTL_DAYS = max(1, int(_ttl_env))
 except Exception:
@@ -123,6 +141,11 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        # External uptime config for templates (non-sensitive only)
+        'uptime_provider': UPTIME_PROVIDER,
+        'uptime_status_url': UPTIME_STATUS_URL,
+        'uptime_widget_script_url': UPTIME_WIDGET_SCRIPT_URL,
+        'uptime_widget_id': UPTIME_WIDGET_ID,
     }
 
  
@@ -179,6 +202,109 @@ def ensure_recent_opens_indexes() -> None:
         pass
 
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
+
+# --- Simple in-process cache for external uptime calls ---
+_uptime_cache_lock = threading.Lock()
+_uptime_cache: Dict[str, Any] = {
+    'data': None,
+    'provider': None,
+    'fetched_at': 0.0,
+}
+
+def _get_uptime_cached() -> Optional[Dict[str, Any]]:
+    now_ts = time.time()
+    with _uptime_cache_lock:
+        data = _uptime_cache.get('data')
+        ts = float(_uptime_cache.get('fetched_at') or 0)
+        if data and (now_ts - ts) < UPTIME_CACHE_TTL_SECONDS:
+            return data
+    return None
+
+def _set_uptime_cache(payload: Dict[str, Any]) -> None:
+    with _uptime_cache_lock:
+        _uptime_cache['data'] = payload
+        _uptime_cache['provider'] = UPTIME_PROVIDER
+        _uptime_cache['fetched_at'] = time.time()
+
+def _fetch_uptime_from_betteruptime() -> Optional[Dict[str, Any]]:
+    if not (UPTIME_API_KEY and UPTIME_MONITOR_ID):
+        return None
+    try:
+        # SLA endpoint per issue suggestion
+        url = f'https://uptime.betterstack.com/api/v2/monitors/{UPTIME_MONITOR_ID}/sla'
+        headers = {'Authorization': f'Bearer {UPTIME_API_KEY}'}
+        resp = requests.get(url, headers=headers, timeout=8)
+        if resp.status_code != 200:
+            return None
+        body = resp.json() if resp.content else {}
+        # Normalize output
+        availability = None
+        try:
+            availability = float(((body or {}).get('data') or {}).get('availability'))
+        except Exception:
+            availability = None
+        result = {
+            'provider': 'betteruptime',
+            'uptime_percentage': round(availability, 2) if isinstance(availability, (int, float)) else None,
+            'raw': body,
+            'status_url': UPTIME_STATUS_URL or None,
+        }
+        return result
+    except Exception:
+        return None
+
+def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
+    # UptimeRobot requires API v2 key and monitor ID; minimal implementation
+    if not UPTIME_API_KEY:
+        return None
+    try:
+        url = 'https://api.uptimerobot.com/v2/getMonitors'
+        payload = {
+            'api_key': UPTIME_API_KEY,
+            'monitors': UPTIME_MONITOR_ID or '',
+            'custom_uptime_ranges': '24',
+            'format': 'json',
+        }
+        resp = requests.post(url, data=payload, timeout=8)
+        if resp.status_code != 200:
+            return None
+        body = resp.json() if resp.content else {}
+        monitors = (body or {}).get('monitors') or []
+        uptime_percentage = None
+        if monitors:
+            try:
+                # custom_uptime_ranges returns a percentage string
+                val = monitors[0].get('custom_uptime_ranges')
+                uptime_percentage = round(float(val), 2) if val is not None else None
+            except Exception:
+                uptime_percentage = None
+        return {
+            'provider': 'uptimerobot',
+            'uptime_percentage': uptime_percentage,
+            'raw': body,
+            'status_url': UPTIME_STATUS_URL or None,
+        }
+    except Exception:
+        return None
+
+def fetch_external_uptime() -> Optional[Dict[str, Any]]:
+    """Fetch uptime according to configured provider with basic caching."""
+    # Return from cache if fresh
+    cached = _get_uptime_cached()
+    if cached is not None:
+        return cached
+    result: Optional[Dict[str, Any]] = None
+    provider = (UPTIME_PROVIDER or '').strip().lower()
+    if provider == 'betteruptime':
+        result = _fetch_uptime_from_betteruptime()
+    elif provider == 'uptimerobot':
+        result = _fetch_uptime_from_uptimerobot()
+    elif provider in {'statuscake', 'pingdom'}:
+        # Not implemented: fall back to None to avoid errors
+        result = None
+    if result is not None:
+        _set_uptime_cache(result)
+    return result
 
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
@@ -413,10 +539,19 @@ def format_datetime_display(value) -> str:
 @app.route('/')
 def index():
     """דף הבית"""
-    return render_template('index.html', 
-                         bot_username=BOT_USERNAME_CLEAN,
-                         logged_in='user_id' in session,
-                         user=session.get('user_data', {}))
+    # Try resolve external uptime (non-blocking semantics: short timeout + cache inside helper)
+    uptime_summary: Optional[Dict[str, Any]] = None
+    try:
+        uptime_summary = fetch_external_uptime()
+    except Exception:
+        uptime_summary = None
+    return render_template(
+        'index.html',
+        bot_username=BOT_USERNAME_CLEAN,
+        logged_in=('user_id' in session),
+        user=session.get('user_data', {}),
+        uptime=uptime_summary,
+    )
 
 @app.route('/login')
 def login():
@@ -2235,6 +2370,24 @@ def api_public_stats():
             "active_users_24h": 0,
             "total_snippets": 0,
         }), 200
+
+# --- External uptime public endpoint ---
+@app.route('/api/uptime')
+def api_uptime():
+    """נתוני זמינות חיצוניים (ללא סודות)."""
+    try:
+        summary = fetch_external_uptime()
+        if not summary:
+            return jsonify({'ok': False, 'error': 'uptime_unavailable'}), 503
+        safe = {
+            'ok': True,
+            'provider': summary.get('provider') or UPTIME_PROVIDER or None,
+            'uptime_percentage': summary.get('uptime_percentage'),
+            'status_url': summary.get('status_url') or (UPTIME_STATUS_URL or None),
+        }
+        return jsonify(safe)
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 # --- Public share route ---
 @app.route('/share/<share_id>')
