@@ -130,8 +130,7 @@
 /* Toggle Button */
 .bookmarks-toggle-btn {
     position: fixed;
-    top: auto; /* לא להסתיר תוכן עליון */
-    bottom: 20px; /* הצמדה לתחתית ברירת מחדל כדי למנוע חפיפה עם כותרות */
+    top: 1.5rem; /* החזרה למעלה */
     right: 20px;
     z-index: 1000;
     background: var(--panel-bg);
@@ -286,7 +285,7 @@
 /* Mobile */
 @media (max-width: 768px) {
     .bookmarks-panel { width: 100%; right: -100%; }
-    .bookmarks-toggle-btn { width: 45px; height: 45px; top: auto; bottom: 20px; }
+    .bookmarks-toggle-btn { width: 45px; height: 45px; top: 12px; bottom: auto; }
     .notification-container { left: 10px; right: 10px; }
     .notification { min-width: auto; width: 100%; }
 }

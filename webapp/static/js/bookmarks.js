@@ -86,24 +86,13 @@ class BookmarkManager {
         const toggleBtn = document.getElementById('toggleBookmarksBtn');
         if (toggleBtn) {
             // לחיצה רגילה – פתח/סגור פאנל
-            toggleBtn.addEventListener('click', () => this.ui.togglePanel());
+            toggleBtn.addEventListener('click', (e) => {
+                if (this.ui.isDraggingToggle) return; // אל תפתח פאנל בעת גרירה
+                this.ui.togglePanel();
+            });
 
-            // לחיצה ארוכה – הסתר את הכפתור (ניתן להחזיר מהפאנל)
-            let longPressTimerId = null;
-            const startLongPress = () => {
-                clearTimeout(longPressTimerId);
-                longPressTimerId = setTimeout(() => {
-                    this.ui.setToggleButtonVisible(false);
-                    this.ui.showNotification('הכפתור הוסתר. כדי להחזירו: Ctrl+Shift+B לפתיחת הפאנל > "הצג כפתור".', 'info');
-                    // פתח את הפאנל כדי שהמשתמש יראה את האפשרות להחזיר
-                    this.ui.openPanel && this.ui.openPanel();
-                }, 700);
-            };
-            const cancelLongPress = () => {
-                clearTimeout(longPressTimerId);
-            };
-            ['mousedown','touchstart'].forEach(evt => toggleBtn.addEventListener(evt, startLongPress));
-            ['mouseup','mouseleave','touchend','touchcancel'].forEach(evt => toggleBtn.addEventListener(evt, cancelLongPress));
+            // תמיכה בגרירה בלחיצה ממושכת
+            this.ui.enableToggleDrag(toggleBtn);
         }
 
         // כפתור הצגה/הסתרה של כפתור הסימנייה מתוך הפאנל
@@ -668,7 +657,10 @@ class BookmarkUI {
         this.countBadge = document.getElementById('bookmarkCount');
         this.notificationContainer = this.createNotificationContainer();
         this.TOGGLE_VISIBILITY_KEY = 'bookmarks_toggle_btn_visible';
+        this.TOGGLE_POS_KEY = 'bookmarks_toggle_btn_position';
+        this.isDraggingToggle = false;
         this.ensureToggleButtonVisibilityRestored();
+        this.restoreTogglePosition();
         this.maybeShowFirstRunHint();
     }
     
@@ -746,6 +738,95 @@ class BookmarkUI {
         control.textContent = `כפתור: ${visible ? 'מציג' : 'מוסתר'}`;
         control.setAttribute('aria-pressed', String(visible));
         control.setAttribute('title', visible ? 'הסתר כפתור סימנייה' : 'הצג כפתור סימנייה');
+    }
+
+    enableToggleDrag(btn) {
+        const isTouch = () => ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+        let dragStartX = 0, dragStartY = 0;
+        let startLeft = 0, startTop = 0;
+        let dragging = false;
+        let longPressTimer = null;
+
+        const getEvtPoint = (ev) => {
+            if (ev.touches && ev.touches[0]) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+            return { x: ev.clientX, y: ev.clientY };
+        };
+
+        const onLongPress = (ev) => {
+            dragging = true;
+            this.isDraggingToggle = true;
+            btn.style.transition = 'none';
+            const rect = btn.getBoundingClientRect();
+            startLeft = rect.left;
+            startTop = rect.top;
+            const p = getEvtPoint(ev);
+            dragStartX = p.x;
+            dragStartY = p.y;
+            ev.preventDefault();
+        };
+
+        const start = (ev) => {
+            clearTimeout(longPressTimer);
+            longPressTimer = setTimeout(() => onLongPress(ev), 350);
+        };
+        const move = (ev) => {
+            if (!dragging) return;
+            const p = getEvtPoint(ev);
+            const dx = p.x - dragStartX;
+            const dy = p.y - dragStartY;
+            const left = startLeft + dx;
+            const top = startTop + dy;
+            this.positionToggleAt(btn, left, top);
+        };
+        const end = () => {
+            clearTimeout(longPressTimer);
+            if (!dragging) return;
+            dragging = false;
+            this.isDraggingToggle = false;
+            btn.style.transition = '';
+            this.persistTogglePosition(btn);
+        };
+
+        const opts = { passive: false };
+        btn.addEventListener('mousedown', start, opts);
+        document.addEventListener('mousemove', move, opts);
+        document.addEventListener('mouseup', end, opts);
+        btn.addEventListener('touchstart', start, opts);
+        document.addEventListener('touchmove', move, opts);
+        document.addEventListener('touchend', end, opts);
+        document.addEventListener('touchcancel', end, opts);
+    }
+
+    positionToggleAt(btn, leftPx, topPx) {
+        // הגבלת תנועה לשטח החלון
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const r = btn.getBoundingClientRect();
+        const left = Math.min(Math.max(0, leftPx), vw - r.width);
+        const top = Math.min(Math.max(0, topPx), vh - r.height);
+        btn.style.left = left + 'px';
+        btn.style.top = top + 'px';
+        btn.style.right = 'auto';
+        btn.style.bottom = 'auto';
+        btn.style.position = 'fixed';
+    }
+
+    persistTogglePosition(btn) {
+        try {
+            const r = btn.getBoundingClientRect();
+            const data = { left: r.left, top: r.top };
+            localStorage.setItem(this.TOGGLE_POS_KEY, JSON.stringify(data));
+        } catch (_) {}
+    }
+
+    restoreTogglePosition() {
+        try {
+            const raw = localStorage.getItem(this.TOGGLE_POS_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            const btn = document.getElementById('toggleBookmarksBtn');
+            if (!btn || typeof data.left !== 'number' || typeof data.top !== 'number') return;
+            this.positionToggleAt(btn, data.left, data.top);
+        } catch (_) {}
     }
 
     maybeShowFirstRunHint() {
