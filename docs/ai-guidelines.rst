@@ -113,6 +113,7 @@ Conventional Commits: `feat` | `fix` | `docs` | `test` | `refactor` | `chore` | 
 --------------
 
 - :doc:`quickstart-ai`
-- :doc:`testing`
-- :doc:`ci-cd`
-- :doc:`security`
+- :doc:`installation`
+- :doc:`examples`
+- :doc:`user/github_browse`
+- :doc:`webapp/overview`
