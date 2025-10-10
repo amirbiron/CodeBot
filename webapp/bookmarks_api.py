@@ -9,6 +9,7 @@ import logging
 import html
 
 from database.bookmarks_manager import BookmarksManager
+from database.bookmark import VALID_COLORS as MODEL_VALID_COLORS
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def toggle_bookmark(file_id):
         color = data.get('color', 'yellow')
         
         # ולידציה של צבע
-        valid_colors = ['yellow', 'red', 'green', 'blue', 'purple', 'orange']
+        valid_colors = list(MODEL_VALID_COLORS)
         if color not in valid_colors:
             color = 'yellow'
         
@@ -263,6 +264,29 @@ def update_bookmark_note(file_id, line_number):
         return jsonify({'ok': False, 'error': 'Failed to update note'}), 500
 
 
+@bookmarks_bp.route('/<file_id>/<int:line_number>/color', methods=['PUT'])
+@require_auth
+def update_bookmark_color(file_id, line_number):
+    """עדכון צבע של סימנייה"""
+    try:
+        user_id = session['user_id']
+        data = request.get_json()
+        if not data or 'color' not in data:
+            return jsonify({'ok': False, 'error': 'Missing color'}), 400
+        color = str(data.get('color', 'yellow')).lower()
+
+        # ולידציה של צבע מול המודל
+        if color not in MODEL_VALID_COLORS:
+            return jsonify({'ok': False, 'error': 'Invalid color'}), 400
+
+        bm_manager = get_bookmarks_manager()
+        result = bm_manager.update_bookmark_color(user_id, file_id, line_number, color)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error updating bookmark color: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to update color'}), 500
+
+
 @bookmarks_bp.route('/<file_id>/<int:line_number>', methods=['DELETE'])
 @require_auth
 def delete_bookmark(file_id, line_number):
@@ -384,6 +408,56 @@ def export_bookmarks():
     except Exception as e:
         logger.error(f"Error exporting bookmarks: {e}")
         return jsonify({'ok': False, 'error': 'Failed to export'}), 500
+
+
+# ==================== User preferences (default color) ====================
+
+@bookmarks_bp.route('/prefs', methods=['GET'])
+@require_auth
+def get_prefs():
+    """החזרת העדפות סימניות של המשתמש (צבע ברירת מחדל)."""
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        user = db.users.find_one({'user_id': user_id}) or {}
+        prefs = (user.get('bookmark_prefs') or {})
+        default_color = (prefs.get('default_color') or 'yellow')
+        if default_color not in MODEL_VALID_COLORS:
+            default_color = 'yellow'
+        return jsonify({
+            'ok': True,
+            'default_color': default_color,
+            'valid_colors': list(MODEL_VALID_COLORS),
+        })
+    except Exception as e:
+        logger.error(f"Error getting bookmark prefs: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to get prefs'}), 500
+
+
+@bookmarks_bp.route('/prefs', methods=['PUT'])
+@require_auth
+def set_prefs():
+    """עדכון צבע ברירת מחדל לסימניות עבור המשתמש."""
+    try:
+        from datetime import datetime, timezone
+        db = get_db()
+        user_id = session['user_id']
+        data = request.get_json(silent=True) or {}
+        color = (data.get('default_color') or data.get('color') or 'yellow').lower()
+        if color not in MODEL_VALID_COLORS:
+            return jsonify({'ok': False, 'error': 'Invalid color'}), 400
+        db.users.update_one(
+            {'user_id': user_id},
+            {'$set': {
+                'bookmark_prefs.default_color': color,
+                'updated_at': datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
+        return jsonify({'ok': True, 'default_color': color})
+    except Exception as e:
+        logger.error(f"Error setting bookmark prefs: {e}")
+        return jsonify({'ok': False, 'error': 'Failed to set prefs'}), 500
 
 
 # ==================== Internal helpers ====================

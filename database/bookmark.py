@@ -120,4 +120,4 @@ MAX_BOOKMARKS_PER_FILE = 50
 MAX_BOOKMARKS_PER_USER = 500
 MAX_NOTE_LENGTH = 500
 MAX_CONTEXT_LENGTH = 500
-VALID_COLORS = ["yellow", "red", "green", "blue", "purple", "orange"]
+VALID_COLORS = ["yellow", "red", "green", "blue", "purple", "orange", "pink"]

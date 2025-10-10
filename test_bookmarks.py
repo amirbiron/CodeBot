@@ -259,6 +259,59 @@ class TestBookmarksManager(unittest.TestCase):
         call_args = self.mock_collection.update_one.call_args
         self.assertEqual(call_args[0][0]["line_number"], 42)
         self.assertEqual(call_args[0][1]["$set"]["note"], "Updated note")
+
+    def test_update_bookmark_color_success(self):
+        """Test updating a bookmark's color succeeds and updates DB correctly"""
+        self.mock_collection.update_one.return_value = Mock(modified_count=1)
+        result = self.manager.update_bookmark_color(
+            user_id=123,
+            file_id="file123",
+            line_number=42,
+            color="red",
+        )
+        self.assertTrue(result["ok"])
+        self.assertIn("עודכן", result["message"])  # "הצבע עודכן"
+        # verify call arguments
+        args, kwargs = self.mock_collection.update_one.call_args
+        self.assertEqual(args[0]["line_number"], 42)
+        self.assertEqual(args[1]["$set"]["color"], "red")
+        self.assertIn("updated_at", args[1]["$set"])  # timestamp set
+
+    def test_update_bookmark_color_invalid_color(self):
+        """Invalid color should be rejected without DB write"""
+        result = self.manager.update_bookmark_color(
+            user_id=123,
+            file_id="file123",
+            line_number=42,
+            color="invalid-color",
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("צבע לא תקין", result["error"])  # validation message
+        self.mock_collection.update_one.assert_not_called()
+
+    def test_update_bookmark_color_not_found(self):
+        """When no rows modified, return not found error"""
+        self.mock_collection.update_one.return_value = Mock(modified_count=0)
+        result = self.manager.update_bookmark_color(
+            user_id=123,
+            file_id="file123",
+            line_number=99,
+            color="yellow",
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("לא נמצאה", result["error"])  # "הסימנייה לא נמצאה"
+
+    def test_update_bookmark_color_exception(self):
+        """DB exception path should be handled and return error"""
+        self.mock_collection.update_one.side_effect = Exception("DB error")
+        result = self.manager.update_bookmark_color(
+            user_id=123,
+            file_id="file123",
+            line_number=1,
+            color="blue",
+        )
+        self.assertFalse(result["ok"])
+        self.assertIn("שגיאה בעדכון הצבע", result["error"])  # generic error message
     
     def test_delete_bookmark(self):
         """Test deleting a specific bookmark"""
