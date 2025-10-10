@@ -201,6 +201,10 @@ class EditorManager {
     this.currentEditor = 'simple'; // 'simple' או 'codemirror'
     this.cmInstance = null;
     this.textarea = null;
+    this.lastKnownValue = ''; // ערך אחרון ידוע לשחזור
+    this.loadingElement = null;
+    this.beforeUnloadHandler = null;
+    this.syncTimer = null;
     this.loadPreference();
   }
   
@@ -361,48 +365,113 @@ class EditorManager {
     // הצגת loading spinner
     this.showLoadingState(container);
     
+    // שמירת המצב הנוכחי לפני השינוי
+    const previousEditor = this.currentEditor;
+    const previousValue = this.getValue();
+    const previousInstance = this.cmInstance;
+    
     try {
       const newEditor = this.currentEditor === 'simple' ? 'codemirror' : 'simple';
-      const currentValue = this.getValue();
       
       // ולידציה של התוכן לפני המעבר
-      if (!this.validateCodeContent(currentValue)) {
+      if (!this.validateCodeContent(previousValue)) {
         throw new Error('תוכן הקוד מכיל אלמנטים לא בטוחים');
       }
       
+      // שינוי זמני למצב החדש
       this.currentEditor = newEditor;
-      this.savePreference(newEditor);
       
-      // אתחול מחדש
+      // ניסיון אתחול העורך החדש
       await this.initEditor(container, {
-        value: currentValue,
-        language: this.detectLanguage(currentValue),
+        value: previousValue,
+        language: this.detectLanguage(previousValue),
         theme: this.getThemePreference()
       });
       
+      // רק אם הצלחנו - שומרים את ההעדפה
+      this.savePreference(newEditor);
+      console.log(`Successfully switched to ${newEditor} editor`);
+      
     } catch (error) {
-      this.handleToggleError(error);
+      console.error('Editor toggle failed:', error);
+      
+      // שחזור למצב הקודם
+      this.currentEditor = previousEditor;
+      this.cmInstance = previousInstance;
+      
+      // ניסיון לשחזר את העורך הקודם
+      try {
+        if (previousEditor === 'simple') {
+          this.initSimpleEditor(container, { value: previousValue });
+        } else if (previousInstance) {
+          // אם היה CodeMirror, נשתמש ב-instance השמור
+          this.textarea.style.display = 'none';
+        }
+      } catch (rollbackError) {
+        console.error('Failed to rollback editor:', rollbackError);
+        // כ-fallback אחרון, מציגים את ה-textarea
+        this.textarea.style.display = 'block';
+        this.textarea.value = previousValue;
+      }
+      
+      this.showErrorNotification(error.message || 'שגיאה במעבר בין עורכים');
+      
     } finally {
       this.hideLoadingState(container);
     }
   }
   
+  // בדיקת תקינות העורך
+  isEditorValid() {
+    if (this.currentEditor === 'codemirror') {
+      return this.cmInstance && this.cmInstance.state && !this.cmInstance.destroyed;
+    }
+    return this.textarea && this.textarea.parentNode;
+  }
+  
   // קבלת הערך הנוכחי
   getValue() {
-    if (this.cmInstance) {
-      return this.cmInstance.state.doc.toString();
+    // בדיקת תקינות לפני גישה
+    if (!this.isEditorValid()) {
+      console.warn('Editor not valid, returning cached value');
+      return this.lastKnownValue || '';
     }
-    return this.textarea.value;
+    
+    let value;
+    if (this.cmInstance && !this.cmInstance.destroyed) {
+      value = this.cmInstance.state.doc.toString();
+    } else {
+      value = this.textarea.value;
+    }
+    
+    // שמירת ערך אחרון ידוע
+    this.lastKnownValue = value;
+    return value;
   }
   
   // הגדרת ערך
   setValue(value) {
-    if (this.cmInstance) {
-      this.cmInstance.dispatch({
-        changes: {from: 0, to: this.cmInstance.state.doc.length, insert: value}
-      });
-    } else {
-      this.textarea.value = value;
+    // בדיקת תקינות לפני עדכון
+    if (!this.isEditorValid()) {
+      console.error('Cannot set value - editor not valid');
+      this.lastKnownValue = value;
+      return false;
+    }
+    
+    try {
+      if (this.cmInstance && !this.cmInstance.destroyed) {
+        this.cmInstance.dispatch({
+          changes: {from: 0, to: this.cmInstance.state.doc.length, insert: value}
+        });
+      } else {
+        this.textarea.value = value;
+      }
+      this.lastKnownValue = value;
+      return true;
+    } catch (error) {
+      console.error('Failed to set editor value:', error);
+      this.lastKnownValue = value;
+      return false;
     }
   }
   
@@ -651,13 +720,20 @@ class EditorManager {
     }, 3000);
   }
   
-  // טיפול בשגיאת החלפה
-  handleToggleError(error) {
-    console.error('Editor toggle failed:', error);
-    this.showErrorNotification(error.message || 'שגיאה במעבר בין עורכים');
+  // טיפול כללי בשגיאות (לשימושים אחרים)
+  handleError(error, context = '') {
+    console.error(`Editor error ${context}:`, error);
+    this.showErrorNotification(error.message || 'שגיאה בעורך');
     
-    // חזרה למצב הקודם
-    this.currentEditor = this.currentEditor === 'simple' ? 'codemirror' : 'simple';
+    // לוגינג לשרת אם צריך
+    if (this.errorTracker) {
+      this.errorTracker.logError({
+        type: 'editorError',
+        context,
+        message: error.message,
+        stack: error.stack
+      });
+    }
   }
 }
 
