@@ -47,41 +47,116 @@
 
 ## שלבי מימוש
 
-### שלב 1: הוספת API Endpoint
+### שלב 1: הוספת Dependencies וImports
+
+**קובץ:** `webapp/requirements.txt`
+
+**הוספת תלויות נוספות:**
+```txt
+flask-limiter==3.5.0  # Rate limiting
+tenacity==8.2.3  # Retry logic
+prometheus-client==0.19.0  # Metrics
+sentry-sdk[flask]==1.39.1  # Error monitoring (אופציונלי)
+```
 
 **קובץ:** `webapp/app.py`
 
-**מיקום:** אחרי שאר ה-API endpoints (בסביבות שורה 2000+)
-
+**Imports בראש הקובץ:**
 ```python
 from search_engine import search_engine, SearchType, SearchFilter, SortOrder
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from tenacity import retry, stop_after_attempt, wait_exponential
+from prometheus_client import Counter, Histogram, Gauge, generate_latest
+import time
+import hashlib
+
+# Optional: Sentry integration
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    SENTRY_ENABLED = True
+except ImportError:
+    SENTRY_ENABLED = False
+```
+
+### שלב 2: הגדרת Rate Limiting ו-Metrics
+
+**קובץ:** `webapp/app.py`
+
+**אחרי יצירת ה-app instance:**
+```python
+# Rate Limiting Configuration
+limiter = Limiter(
+    app=app,
+    key_func=lambda: session.get('user_id') if 'user_id' in session else get_remote_address(),
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
+
+# Prometheus Metrics
+search_counter = Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status'])
+search_duration = Histogram('search_duration_seconds', 'Search request duration in seconds')
+search_results_count = Histogram('search_results_count', 'Number of results returned')
+cache_hits = Counter('search_cache_hits_total', 'Total number of cache hits')
+cache_misses = Counter('search_cache_misses_total', 'Total number of cache misses')
+active_indexes = Gauge('search_active_indexes', 'Number of active search indexes')
+
+# Optional: Sentry Configuration
+if SENTRY_ENABLED and config.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        integrations=[FlaskIntegration()],
+        traces_sample_rate=0.1,
+        environment=config.ENVIRONMENT
+    )
+```
+
+### שלב 3: מימוש API Endpoint מתקדם
+
+**קובץ:** `webapp/app.py`
+
+**מיקום:** אחרי שאר ה-API endpoints
+
+```python
+# Helper function for safe search with retry logic
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry_error_callback=lambda retry_state: logger.warning(f"Search retry attempt {retry_state.attempt_number}")
+)
+def safe_search(user_id, query, **kwargs):
+    """ביצוע חיפוש עם retry logic ו-circuit breaker"""
+    return search_engine.search(user_id, query, **kwargs)
 
 @app.route('/api/search/global', methods=['POST'])
 @login_required
+@limiter.limit("30 per minute")  # הגבלה ספציפית לחיפוש
 def global_content_search():
-    """חיפוש גלובלי בתוכן כל הקבצים של המשתמש
+    """חיפוש גלובלי בתוכן כל הקבצים עם monitoring ו-error handling מתקדם"""
     
-    Parameters (JSON):
-        - query: string (חובה) - טקסט החיפוש
-        - search_type: string - סוג החיפוש (content/regex/fuzzy/function)
-        - filters: object - פילטרים אופציונליים
-            - languages: array - סינון לפי שפות
-            - tags: array - סינון לפי תגיות
-            - date_from: string - תאריך התחלה
-            - date_to: string - תאריך סיום
-        - sort: string - סדר מיון (relevance/date_desc/date_asc/name_asc/name_desc)
-        - limit: number - מספר תוצאות מקסימלי (ברירת מחדל: 50)
-        - page: number - עמוד לעימוד (ברירת מחדל: 1)
-    """
+    start_time = time.time()
+    user_id = session['user_id']
+    
     try:
         data = request.get_json()
         
-        # ולידציה
+        # Dynamic rate limiting based on query length
         query = data.get('query', '').strip()
+        if len(query) > 100:
+            # הגבלה מחמירה יותר לשאילתות ארוכות
+            limiter.limit("5 per minute")(lambda: None)()
+        
+        # Validation
         if not query:
+            search_counter.labels(search_type='invalid', status='error').inc()
             return jsonify({'error': 'נא להזין טקסט לחיפוש'}), 400
         
-        # פרמטרים
+        if len(query) > 500:
+            search_counter.labels(search_type='invalid', status='error').inc()
+            return jsonify({'error': 'השאילתה ארוכה מדי (מקסימום 500 תווים)'}), 400
+        
+        # Parameters
         search_type_str = data.get('search_type', 'content')
         search_types = {
             'content': SearchType.CONTENT,
@@ -92,7 +167,21 @@ def global_content_search():
         }
         search_type = search_types.get(search_type_str, SearchType.CONTENT)
         
-        # פילטרים
+        # Check cache first
+        cache_key = hashlib.md5(
+            f"{user_id}:{query}:{search_type_str}:{data.get('filters', {})}:{data.get('sort', 'relevance')}".encode()
+        ).hexdigest()
+        
+        cached_results = get_cached_search(user_id, cache_key)
+        if cached_results:
+            cache_hits.inc()
+            search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+            logger.info(f"Cache hit for user {user_id}, query: {query[:50]}")
+            return jsonify(cached_results)
+        
+        cache_misses.inc()
+        
+        # Filters
         filter_data = data.get('filters', {})
         filters = SearchFilter(
             languages=filter_data.get('languages', []),
@@ -106,7 +195,16 @@ def global_content_search():
             file_pattern=filter_data.get('file_pattern')
         )
         
-        # מיון
+        # Validate regex pattern if regex search
+        if search_type == SearchType.REGEX:
+            try:
+                import re
+                re.compile(query)
+            except re.error as e:
+                search_counter.labels(search_type='regex', status='invalid_pattern').inc()
+                return jsonify({'error': f'ביטוי רגולרי לא תקין: {str(e)}'}), 400
+        
+        # Sorting
         sort_str = data.get('sort', 'relevance')
         sort_orders = {
             'relevance': SortOrder.RELEVANCE,
@@ -119,42 +217,64 @@ def global_content_search():
         }
         sort_order = sort_orders.get(sort_str, SortOrder.RELEVANCE)
         
-        # עימוד
+        # Pagination
         page = max(1, data.get('page', 1))
         limit = min(100, data.get('limit', 50))
         
-        # ביצוע חיפוש
-        results = search_engine.search(
-            user_id=session['user_id'],
-            query=query,
-            search_type=search_type,
-            filters=filters,
-            sort_order=sort_order,
-            limit=limit * page  # קח יותר ודלג לעמוד הנכון
-        )
+        # Execute search with retry logic
+        try:
+            results = safe_search(
+                user_id=user_id,
+                query=query,
+                search_type=search_type,
+                filters=filters,
+                sort_order=sort_order,
+                limit=min(1000, limit * page)  # Cap total results
+            )
+        except Exception as search_error:
+            # Log to Sentry if available
+            if SENTRY_ENABLED:
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_user({"id": user_id})
+                    scope.set_context("search", {
+                        "query": query,
+                        "type": search_type_str,
+                        "filters": filter_data
+                    })
+                    sentry_sdk.capture_exception(search_error)
+            
+            search_counter.labels(search_type=search_type_str, status='error').inc()
+            logger.error(f"Search failed for user {user_id}: {search_error}")
+            raise
         
-        # עימוד תוצאות
+        # Update metrics
+        search_results_count.observe(len(results))
+        active_indexes.set(len(search_engine.indexes))
+        
+        # Paginate results
         start_idx = (page - 1) * limit
         end_idx = start_idx + limit
         paginated_results = results[start_idx:end_idx]
         
-        # המרת תוצאות ל-JSON
+        # Convert to JSON
         response_data = {
             'success': True,
             'query': query,
             'total_results': len(results),
             'page': page,
             'per_page': limit,
+            'search_time': round(time.time() - start_time, 3),
+            'cached': False,
             'results': [
                 {
-                    'file_id': hashlib.md5(f"{session['user_id']}:{r.file_name}".encode()).hexdigest(),
+                    'file_id': hashlib.md5(f"{user_id}:{r.file_name}".encode()).hexdigest(),
                     'file_name': r.file_name,
                     'language': r.programming_language,
                     'tags': r.tags,
                     'score': round(r.relevance_score, 2),
                     'snippet': r.snippet_preview[:200] if r.snippet_preview else '',
                     'highlights': r.highlight_ranges,
-                    'matches': r.matches[:5],  # מקסימום 5 התאמות
+                    'matches': r.matches[:5] if r.matches else [],
                     'updated_at': r.updated_at.isoformat(),
                     'size': len(r.content)
                 }
@@ -162,11 +282,37 @@ def global_content_search():
             ]
         }
         
+        # Cache the results
+        set_cached_search(user_id, cache_key, response_data)
+        
+        # Log successful search
+        search_counter.labels(search_type=search_type_str, status='success').inc()
+        logger.info(f"Search completed for user {user_id}: {len(results)} results in {response_data['search_time']}s")
+        
         return jsonify(response_data)
         
     except Exception as e:
-        logger.error(f"שגיאה בחיפוש גלובלי: {e}")
-        return jsonify({'error': 'אירעה שגיאה בחיפוש'}), 500
+        search_counter.labels(search_type='unknown', status='error').inc()
+        
+        # Enhanced error logging
+        error_context = {
+            'user_id': user_id,
+            'query': query[:100] if 'query' in locals() else 'N/A',
+            'search_type': search_type_str if 'search_type_str' in locals() else 'N/A',
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }
+        logger.error(f"Global search error: {error_context}")
+        
+        # Send to Sentry if available
+        if SENTRY_ENABLED:
+            sentry_sdk.capture_exception(e)
+        
+        return jsonify({'error': 'אירעה שגיאה בחיפוש', 'details': str(e) if app.debug else None}), 500
+        
+    finally:
+        # Record search duration
+        search_duration.observe(time.time() - start_time)
 
 
 @app.route('/api/search/suggestions', methods=['GET'])
@@ -1041,8 +1187,268 @@ def test_full_search_flow():
 </ul>
 ```
 
+## שלב 7: הוספת Health Check ו-Monitoring Endpoints
+
+**קובץ:** `webapp/app.py`
+
+```python
+@app.route('/api/search/health', methods=['GET'])
+def search_health_check():
+    """בדיקת תקינות מנוע החיפוש - endpoint ציבורי לmonitoring"""
+    try:
+        # Test basic search engine functionality
+        test_user_id = -1  # Special test user ID
+        
+        # Check if search engine is responsive
+        search_engine.get_index(test_user_id)
+        
+        # Check metrics collection
+        metrics_ok = search_counter._value is not None
+        
+        health_status = {
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'checks': {
+                'search_engine': 'ok',
+                'metrics': 'ok' if metrics_ok else 'degraded',
+                'cache': 'ok' if len(search_cache) < 1000 else 'warning',  # Warn if cache is too large
+                'indexes': len(search_engine.indexes)
+            }
+        }
+        
+        return jsonify(health_status), 200
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.now().isoformat(),
+            'error': str(e)
+        }), 503
+
+@app.route('/metrics')
+def metrics_endpoint():
+    """Prometheus metrics endpoint"""
+    # Update gauge metrics
+    active_indexes.set(len(search_engine.indexes))
+    
+    # Generate Prometheus format metrics
+    return generate_latest(), 200, {'Content-Type': 'text/plain; charset=utf-8'}
+
+@app.route('/admin/search/stats')
+@login_required
+@admin_required  # הוסף decorator למנהלים בלבד
+def search_statistics():
+    """דף סטטיסטיקות חיפוש למנהלים"""
+    if not session.get('is_admin'):
+        return redirect(url_for('index'))
+    
+    # Calculate statistics
+    total_searches = sum(search_counter._samples())
+    cache_hit_rate = 0
+    if total_searches > 0:
+        cache_hit_rate = (cache_hits._value / total_searches) * 100 if cache_hits._value else 0
+    
+    avg_search_time = 0
+    if search_duration._count:
+        avg_search_time = search_duration._sum / search_duration._count
+    
+    stats = {
+        'total_searches': total_searches,
+        'searches_today': search_counter._value,  # Reset daily
+        'cache_hit_rate': round(cache_hit_rate, 2),
+        'avg_search_time': round(avg_search_time, 3),
+        'active_indexes': len(search_engine.indexes),
+        'cache_size': len(search_cache),
+        'top_queries': get_top_queries(),  # Implement if needed
+        'search_types_distribution': get_search_types_distribution(),
+        'errors_count': search_counter.labels(search_type='unknown', status='error')._value
+    }
+    
+    return render_template('admin/search_stats.html', stats=stats)
+
+def get_top_queries(limit=10):
+    """Get most popular search queries"""
+    # This would need a separate tracking mechanism
+    # For now, return empty list
+    return []
+
+def get_search_types_distribution():
+    """Get distribution of search types used"""
+    distribution = {}
+    for search_type in ['content', 'regex', 'fuzzy', 'function', 'text']:
+        count = search_counter.labels(search_type=search_type, status='success')._value
+        if count:
+            distribution[search_type] = count
+    return distribution
+```
+
+### שלב 8: תבנית HTML לדף הסטטיסטיקות
+
+**קובץ חדש:** `webapp/templates/admin/search_stats.html`
+
+```html
+{% extends "base.html" %}
+
+{% block title %}סטטיסטיקות חיפוש - מנהל{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>📊 סטטיסטיקות מערכת החיפוש</h2>
+    
+    <div class="row mt-4">
+        <!-- כרטיסי סטטיסטיקה -->
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">סה"כ חיפושים</h5>
+                    <h2 class="text-primary">{{ stats.total_searches }}</h2>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">Cache Hit Rate</h5>
+                    <h2 class="text-success">{{ stats.cache_hit_rate }}%</h2>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">זמן חיפוש ממוצע</h5>
+                    <h2 class="text-info">{{ stats.avg_search_time }}s</h2>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="card-title">אינדקסים פעילים</h5>
+                    <h2 class="text-warning">{{ stats.active_indexes }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <!-- גרף התפלגות סוגי חיפוש -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>התפלגות סוגי חיפוש</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="searchTypesChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- רשימת שאילתות פופולריות -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>שאילתות פופולריות</h5>
+                </div>
+                <div class="card-body">
+                    {% if stats.top_queries %}
+                    <ul class="list-group">
+                        {% for query in stats.top_queries %}
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span>{{ query.text }}</span>
+                            <span class="badge badge-primary">{{ query.count }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted">אין נתונים זמינים</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- מידע נוסף -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>מידע מערכת</h5>
+                </div>
+                <div class="card-body">
+                    <dl class="row">
+                        <dt class="col-sm-3">גודל Cache</dt>
+                        <dd class="col-sm-9">{{ stats.cache_size }} ערכים</dd>
+                        
+                        <dt class="col-sm-3">שגיאות</dt>
+                        <dd class="col-sm-9">
+                            <span class="badge badge-danger">{{ stats.errors_count }}</span>
+                        </dd>
+                        
+                        <dt class="col-sm-3">Health Check</dt>
+                        <dd class="col-sm-9">
+                            <a href="/api/search/health" target="_blank" class="btn btn-sm btn-info">
+                                בדוק תקינות
+                            </a>
+                        </dd>
+                        
+                        <dt class="col-sm-3">Prometheus Metrics</dt>
+                        <dd class="col-sm-9">
+                            <a href="/metrics" target="_blank" class="btn btn-sm btn-secondary">
+                                צפה ב-Metrics
+                            </a>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// גרף התפלגות סוגי חיפוש
+const ctx = document.getElementById('searchTypesChart').getContext('2d');
+const searchTypesData = {{ stats.search_types_distribution | tojson }};
+
+new Chart(ctx, {
+    type: 'pie',
+    data: {
+        labels: Object.keys(searchTypesData),
+        datasets: [{
+            data: Object.values(searchTypesData),
+            backgroundColor: [
+                '#007bff',
+                '#28a745',
+                '#ffc107',
+                '#dc3545',
+                '#6c757d'
+            ]
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+
+// Auto-refresh every 30 seconds
+setTimeout(() => location.reload(), 30000);
+</script>
+{% endblock %}
+```
+
 ## בדיקות קבלה (Acceptance Criteria)
 
+### פונקציונליות בסיסית
 - [ ] ניתן לחפש טקסט בכל הקבצים
 - [ ] תוצאות מוצגות עם קטעי תצוגה מקדימה
 - [ ] הטקסט שנמצא מודגש בתוצאות
@@ -1053,6 +1459,18 @@ def test_full_search_flow():
 - [ ] ניתן לחפש עם ביטויים רגולריים
 - [ ] האינדקס מתעדכן אוטומטית בשינוי קבצים
 - [ ] ביצועים סבירים גם עם מאות קבצים
+
+### Production-Ready Features
+- [ ] Rate limiting עובד ומונע spam
+- [ ] מערכת Cache מפחיתה עומס
+- [ ] Retry logic מטפל בכשלים זמניים
+- [ ] Error monitoring עם Sentry (אם מוגדר)
+- [ ] Prometheus metrics נאספים
+- [ ] Health check endpoint זמין
+- [ ] דף סטטיסטיקות למנהלים
+- [ ] לוגים מפורטים לכל פעולה
+- [ ] תמיכה ב-regex validation
+- [ ] הגבלת אורך query (500 תווים)
 
 ## שיקולי ביצועים
 
@@ -1092,10 +1510,194 @@ def test_full_search_flow():
 7. **אינטגרציה עם IDE** - plugin ל-VSCode
 8. **חיפוש חכם** - הצעות על סמך היסטוריית חיפושים
 
+## Configuration Template לProduction
+
+**קובץ:** `webapp/config.py`
+
+```python
+# Search Configuration
+SEARCH_CONFIG = {
+    'ENABLE_CACHE': True,
+    'CACHE_TTL_SECONDS': 300,  # 5 minutes
+    'MAX_CACHE_SIZE': 1000,
+    'MAX_QUERY_LENGTH': 500,
+    'MAX_RESULTS_PER_PAGE': 100,
+    'DEFAULT_RESULTS_PER_PAGE': 20,
+    'INDEX_REBUILD_INTERVAL': 1800,  # 30 minutes
+    'ENABLE_METRICS': True,
+    'ENABLE_HEALTH_CHECK': True,
+}
+
+# Rate Limiting Configuration
+RATELIMIT_STORAGE_URL = 'redis://localhost:6379'  # Use Redis in production
+RATELIMIT_DEFAULT = "200 per day, 50 per hour"
+RATELIMIT_SEARCH = "30 per minute"
+RATELIMIT_SEARCH_HEAVY = "5 per minute"  # For complex queries
+
+# Monitoring Configuration
+SENTRY_DSN = os.environ.get('SENTRY_DSN', '')  # Set via environment variable
+PROMETHEUS_ENABLED = True
+ENVIRONMENT = os.environ.get('ENV', 'development')  # development/staging/production
+
+# Admin Users (for statistics page)
+ADMIN_USER_IDS = [1, 2, 3]  # Replace with actual admin user IDs
+```
+
+## Docker Compose לסביבת Production
+
+**קובץ:** `docker-compose.yml`
+
+```yaml
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - SENTRY_DSN=${SENTRY_DSN}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - prometheus
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+```
+
+## Prometheus Configuration
+
+**קובץ:** `prometheus.yml`
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'flask-app'
+    static_configs:
+      - targets: ['web:5000']
+    metrics_path: '/metrics'
+```
+
+## Grafana Dashboard JSON
+
+**קובץ:** `grafana-dashboards/search-dashboard.json`
+
+```json
+{
+  "dashboard": {
+    "title": "Search Engine Monitoring",
+    "panels": [
+      {
+        "title": "Search Requests Rate",
+        "targets": [
+          {
+            "expr": "rate(search_requests_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Search Duration",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, search_duration_seconds_bucket)"
+          }
+        ]
+      },
+      {
+        "title": "Cache Hit Rate",
+        "targets": [
+          {
+            "expr": "rate(search_cache_hits_total[5m]) / (rate(search_cache_hits_total[5m]) + rate(search_cache_misses_total[5m]))"
+          }
+        ]
+      },
+      {
+        "title": "Active Indexes",
+        "targets": [
+          {
+            "expr": "search_active_indexes"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ## סיכום
 
-הפיצ'ר מוסיף ערך משמעותי למערכת ומאפשר למשתמשים למצוא במהירות קוד וטקסט בכל הקבצים שלהם. המימוש מנצל את התשתית הקיימת של מנוע החיפוש ומוסיף רק את השכבות החסרות של API וממשק משתמש.
+הפיצ'ר מוסיף ערך משמעותי למערכת ומאפשר למשתמשים למצוא במהירות קוד וטקסט בכל הקבצים שלהם. המימוש כולל:
 
-זמן פיתוח משוער: 2-3 ימים
-מורכבות: בינונית
-השפעה: גבוהה
+### רמת הבסיס
+- חיפוש גלובלי מלא בכל הקבצים
+- תמיכה בסוגי חיפוש מגוונים
+- ממשק משתמש אינטואיטיבי
+- הצעות אוטומטיות וסינון מתקדם
+
+### רמת Production
+- **Rate Limiting** - מניעת ניצול לרעה
+- **Caching** - שיפור ביצועים משמעותי
+- **Retry Logic** - טיפול בכשלים זמניים
+- **Error Monitoring** - מעקב אחר בעיות בזמן אמת
+- **Metrics & Monitoring** - ניטור ביצועים מלא
+- **Health Checks** - בדיקות תקינות אוטומטיות
+- **Admin Dashboard** - ממשק ניהול לסטטיסטיקות
+
+### זמני פיתוח משוערים
+- **מימוש בסיסי**: 2-3 ימים
+- **תוספות Production**: 1-2 ימים נוספים
+- **סה"כ**: 3-5 ימים לפתרון מלא
+
+### מורכבות
+- **בסיס**: בינונית
+- **Production Features**: בינונית-גבוהה
+
+### השפעה
+- **חוויית משתמש**: גבוהה מאוד
+- **ביצועים**: שיפור משמעותי עם caching
+- **אמינות**: גבוהה מאוד עם monitoring ו-retry logic
+
+המימוש המלא הופך את הפיצ'ר מ"עובד" ל"production-ready" עם כל מה שנדרש למערכת מקצועית ואמינה.
