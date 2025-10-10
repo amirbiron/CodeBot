@@ -64,46 +64,120 @@ webapp/
 ```html
 <!-- CodeMirror 6 - טעינה מותנית -->
 {% if use_codemirror %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/codemirror.min.css">
+<!-- CSS של CodeMirror -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@6/dist/codemirror.min.css">
+
+<!-- טעינת CodeMirror באמצעות ESM modules מ-CDN -->
 <script type="module">
+  // טעינת הרכיבים הבסיסיים של CodeMirror
   import { EditorState } from 'https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js';
-  import { EditorView } from 'https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/index.js';
-  import { basicSetup } from 'https://cdn.jsdelivr.net/npm/codemirror@6/dist/index.js';
-  // ... יתר ההגדרות
-  window.CodeMirror6 = { EditorState, EditorView, basicSetup };
+  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from 'https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/index.js';
+  import { defaultKeymap, history, historyKeymap } from 'https://cdn.jsdelivr.net/npm/@codemirror/commands@6/dist/index.js';
+  import { bracketMatching, foldGutter, foldKeymap } from 'https://cdn.jsdelivr.net/npm/@codemirror/language@6/dist/index.js';
+  import { searchKeymap, highlightSelectionMatches } from 'https://cdn.jsdelivr.net/npm/@codemirror/search@6/dist/index.js';
+  import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from 'https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/dist/index.js';
+  
+  // הגדרת basicSetup מותאמת אישית
+  const basicSetup = [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    highlightSpecialChars(),
+    history(),
+    foldGutter(),
+    drawSelection(),
+    dropCursor(),
+    EditorState.allowMultipleSelections.of(true),
+    bracketMatching(),
+    closeBrackets(),
+    autocompletion(),
+    rectangularSelection(),
+    crosshairCursor(),
+    highlightActiveLine(),
+    highlightSelectionMatches(),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...defaultKeymap,
+      ...searchKeymap,
+      ...historyKeymap,
+      ...foldKeymap,
+      ...completionKeymap
+    ])
+  ];
+  
+  // חשיפה גלובלית לשימוש בקוד
+  window.CodeMirror6 = { 
+    EditorState, 
+    EditorView, 
+    basicSetup,
+    keymap,
+    lineNumbers,
+    bracketMatching,
+    autocompletion
+  };
+</script>
+
+<!-- אופציונלי: Import Maps לתמיכה בדפדפנים מודרניים -->
+<script type="importmap">
+{
+  "imports": {
+    "@codemirror/": "https://cdn.jsdelivr.net/npm/@codemirror/",
+    "codemirror": "https://cdn.jsdelivr.net/npm/codemirror@6/dist/index.js"
+  }
+}
 </script>
 {% endif %}
 ```
 
-### 2. חבילות CodeMirror נדרשות
+### 2. אופציה חלופית - שימוש עם Bundler
+
+אם אתה מעדיף להשתמש ב-bundler (Webpack/Vite/Rollup) במקום CDN:
+
+```bash
+# התקנת החבילות הנדרשות
+npm install --save \
+  codemirror \
+  @codemirror/state \
+  @codemirror/view \
+  @codemirror/commands \
+  @codemirror/language \
+  @codemirror/search \
+  @codemirror/autocomplete \
+  @codemirror/lint \
+  @codemirror/theme-one-dark \
+  @codemirror/lang-python \
+  @codemirror/lang-javascript \
+  @codemirror/lang-html \
+  @codemirror/lang-css \
+  @codemirror/lang-markdown \
+  @codemirror/lang-sql \
+  @codemirror/lang-json
+```
 
 ```javascript
-// רשימת החבילות הנדרשות מ-npm/CDN:
-const requiredPackages = [
-  '@codemirror/state',           // ניהול מצב העורך
-  '@codemirror/view',            // תצוגת העורך
-  '@codemirror/commands',        // פקודות עורך
-  '@codemirror/language',        // תמיכת שפות
-  '@codemirror/search',          // חיפוש והחלפה
-  '@codemirror/autocomplete',   // השלמה אוטומטית
-  '@codemirror/lint',           // בדיקת שגיאות
-  'codemirror',                 // חבילת הבסיס
-  
-  // תמיכת שפות (לפי צורך):
-  '@codemirror/lang-python',
-  '@codemirror/lang-javascript',
-  '@codemirror/lang-html',
-  '@codemirror/lang-css',
-  '@codemirror/lang-markdown',
-  '@codemirror/lang-sql',
-  '@codemirror/lang-json',
-  '@codemirror/lang-xml',
-  '@codemirror/lang-cpp',
-  '@codemirror/lang-java',
-  '@codemirror/lang-rust',
-  '@codemirror/lang-php'
-];
+// editor-bundle.js - קובץ לבנייה עם bundler
+import { EditorState } from '@codemirror/state';
+import { EditorView, basicSetup } from 'codemirror';
+import { python } from '@codemirror/lang-python';
+import { javascript } from '@codemirror/lang-javascript';
+import { html } from '@codemirror/lang-html';
+import { oneDark } from '@codemirror/theme-one-dark';
+
+// ייצוא גלובלי
+window.CodeMirrorBundle = {
+  EditorState,
+  EditorView,
+  basicSetup,
+  languages: { python, javascript, html },
+  themes: { oneDark }
+};
 ```
+
+### 3. הערות חשובות לגבי טעינת מודולים
+
+⚠️ **חשוב**: הקוד במדריך זה מיועד לעבודה עם CDN ישירות בדפדפן. 
+- השימוש ב-URLs מלאים של CDN מבטיח שהמודולים ייטענו בצורה תקינה
+- אם אתה משתמש ב-bundler, החלף את ה-imports ל-bare specifiers רגילים
+- Import Maps נתמכים רק בדפדפנים מודרניים (Chrome 89+, Firefox 108+, Safari 16.4+)
 
 ---
 
@@ -332,38 +406,62 @@ class EditorManager {
     return 'text';
   }
   
-  // טעינת תמיכת שפה
+  // טעינת תמיכת שפה - עם CDN URLs מלאים
   async getLanguageSupport(lang) {
+    // מיפוי שפות ל-CDN URLs
     const langMap = {
-      'python': () => import('@codemirror/lang-python').then(m => m.python()),
-      'javascript': () => import('@codemirror/lang-javascript').then(m => m.javascript()),
-      'html': () => import('@codemirror/lang-html').then(m => m.html()),
-      'css': () => import('@codemirror/lang-css').then(m => m.css()),
-      'sql': () => import('@codemirror/lang-sql').then(m => m.sql()),
-      'json': () => import('@codemirror/lang-json').then(m => m.json()),
-      'markdown': () => import('@codemirror/lang-markdown').then(m => m.markdown()),
-      'xml': () => import('@codemirror/lang-xml').then(m => m.xml()),
-      'java': () => import('@codemirror/lang-java').then(m => m.java()),
-      'cpp': () => import('@codemirror/lang-cpp').then(m => m.cpp()),
-      'rust': () => import('@codemirror/lang-rust').then(m => m.rust()),
-      'php': () => import('@codemirror/lang-php').then(m => m.php())
+      'python': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js',
+      'javascript': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js',
+      'html': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js',
+      'css': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js',
+      'sql': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6/dist/index.js',
+      'json': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6/dist/index.js',
+      'markdown': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js',
+      'xml': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6/dist/index.js',
+      'java': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-java@6/dist/index.js',
+      'cpp': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-cpp@6/dist/index.js',
+      'rust': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-rust@6/dist/index.js',
+      'php': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-php@6/dist/index.js'
     };
     
     if (langMap[lang]) {
       try {
-        return await langMap[lang]();
+        // טעינת המודול מה-CDN
+        const module = await import(langMap[lang]);
+        
+        // קריאה לפונקציה המתאימה לשפה
+        switch(lang) {
+          case 'python': return module.python();
+          case 'javascript': return module.javascript();
+          case 'html': return module.html();
+          case 'css': return module.css();
+          case 'sql': return module.sql();
+          case 'json': return module.json();
+          case 'markdown': return module.markdown();
+          case 'xml': return module.xml();
+          case 'java': return module.java();
+          case 'cpp': return module.cpp();
+          case 'rust': return module.rust();
+          case 'php': return module.php();
+          default: return [];
+        }
       } catch (e) {
-        console.warn(`Language ${lang} not available, using default`);
+        console.warn(`Language ${lang} failed to load from CDN:`, e);
+        return [];
       }
     }
     return [];
   }
   
-  // קבלת ערכת נושא
+  // קבלת ערכת נושא - עם CDN URL מלא
   async getTheme(themeName) {
     if (themeName === 'dark') {
-      const { oneDark } = await import('@codemirror/theme-one-dark');
-      return oneDark;
+      try {
+        const module = await import('https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js');
+        return module.oneDark;
+      } catch (e) {
+        console.warn('Dark theme failed to load from CDN:', e);
+      }
     }
     return []; // ברירת מחדל - בהיר
   }
