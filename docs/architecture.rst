@@ -10,7 +10,7 @@
 תרשים רכיבים (תמציתי)
 ----------------------
 
-.. mermaid::
+.. code-block:: none
 
    graph TD
      A[Telegram Bot] --> B[Handlers]
@@ -38,7 +38,7 @@
 
 שמירת קובץ (תמצית):
 
-.. mermaid::
+.. code-block:: none
 
    sequenceDiagram
      participant U as User
