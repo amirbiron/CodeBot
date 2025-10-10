@@ -163,8 +163,8 @@
         const el = document.getElementById('uptimeVal');
         if (!el) return;
         try {
-            // אם הוזרק ערך מהשרת (side-render), השתמש בו קודם
-            {% if uptime and uptime.uptime_percentage %}
+            // אם הוזרק ערך מהשרת (SSR), השתמש בו קודם; תומך גם ב-0%
+            {% if uptime is defined and uptime is not none and uptime.uptime_percentage is not none %}
             el.textContent = '{{ '%.2f' % uptime.uptime_percentage }}%';
             return;
             {% endif %}
