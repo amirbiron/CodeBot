@@ -32,6 +32,12 @@
             סימניות בקובץ
         </h2>
         <div class="bookmarks-panel-actions">
+            <button 
+                id="toggleBtnVisibility"
+                title="הצג/הסתר כפתור סימנייה"
+                aria-label="הצג/הסתר כפתור סימנייה">
+                כפתור: מציג
+            </button>
             <div class="color-picker" title="צבע ברירת מחדל" aria-label="צבע ברירת מחדל" style="display:inline-flex;align-items:center;gap:6px;">
                 <span style="font-size:12px;opacity:0.85">צבע ברירת מחדל:</span>
                 <button class="color-swatch" data-default-color="yellow" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-yellow);"></button>
@@ -82,15 +88,14 @@
 <!-- Include JavaScript -->
 <script src="{{ url_for('static', filename='js/bookmarks.js') }}" defer></script>
 
-<!-- Help tip footer -->
-<p class="help-tip">📘 למידע נוסף – פתח את תפריט "הסבר" בבוט.</p>
+<!-- Help tip footer removed per issue comment request -->
 
 <!-- Inline styles for immediate rendering (optional) -->
 <style>
     /* Critical styles for immediate rendering */
     .bookmarks-toggle-btn {
         position: fixed;
-        top: 1.5rem;
+        top: 1.5rem; /* החזרה למעלה */
         right: 20px;
         z-index: 1000;
         background: white;

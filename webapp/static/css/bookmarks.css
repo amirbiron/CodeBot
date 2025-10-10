@@ -19,6 +19,25 @@
     --info-color: #17a2b8;
 }
 
+/* Line numbers base color */
+.highlighttable td.linenos,
+.highlighttable td.linenos pre,
+.highlighttable .linenos span,
+.linenodiv,
+.linenodiv pre,
+.linenodiv pre > *,
+.linenos,
+.linenos span,
+.linenos a {
+    color: #5C7FA3 !important;
+}
+
+/* Neutralize opacity reductions so שהצבע ייראה מדויק */
+.highlighttable td.linenos,
+.linenodiv {
+    opacity: 1 !important;
+}
+
 /* Indicators */
 .linenos span.bookmarked,
 .linenodiv a.bookmarked,
@@ -27,6 +46,12 @@
     background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
     color: #ff5a5a !important; /* ניראות גבוהה על רקע כהה */
     text-shadow: 0 0 2px rgba(0,0,0,0.6);
+    font-weight: bold;
+}
+
+/* Explicit style if a line number element also has a generic 'line-number' class */
+.line-number.bookmarked {
+    color: #ff5a5a !important;
     font-weight: bold;
 }
 
@@ -111,7 +136,7 @@
 /* Toggle Button */
 .bookmarks-toggle-btn {
     position: fixed;
-    top: 1.5rem; /* אל תסתיר את השורה הראשונה */
+    top: 1.5rem; /* החזרה למעלה */
     right: 20px;
     z-index: 1000;
     background: var(--panel-bg);
@@ -266,7 +291,7 @@
 /* Mobile */
 @media (max-width: 768px) {
     .bookmarks-panel { width: 100%; right: -100%; }
-    .bookmarks-toggle-btn { width: 45px; height: 45px; top: auto; bottom: 20px; }
+    .bookmarks-toggle-btn { width: 45px; height: 45px; top: 12px; bottom: auto; }
     .notification-container { left: 10px; right: 10px; }
     .notification { min-width: auto; width: 100%; }
 }
