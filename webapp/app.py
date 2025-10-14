@@ -14,6 +14,7 @@ from functools import wraps
 from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
+from werkzeug.http import http_date, parse_date
 from pymongo import MongoClient, DESCENDING
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
@@ -223,6 +224,58 @@ def ensure_recent_opens_indexes() -> None:
     except Exception:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
         pass
+
+
+# --- HTTP caching helpers (ETag / Last-Modified) ---
+def _safe_dt_from_doc(value) -> datetime:
+    """Normalize a datetime-like value from Mongo into tz-aware datetime (UTC)."""
+    try:
+        if isinstance(value, datetime):
+            dt = value
+        elif value is not None:
+            # ISO string or other repr
+            dt = datetime.fromisoformat(str(value))
+        else:
+            dt = datetime.now(timezone.utc)
+    except Exception:
+        dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _compute_file_etag(doc: Dict[str, Any]) -> str:
+    """Compute a weak ETag for a file document based on updated_at and raw content.
+
+    We intentionally include only fields that impact the rendered output to keep
+    the validator stable but sensitive to relevant changes.
+    """
+    try:
+        updated_at = doc.get('updated_at')
+        if isinstance(updated_at, datetime):
+            updated_str = updated_at.isoformat()
+        elif updated_at is not None:
+            updated_str = str(updated_at)
+        else:
+            updated_str = ''
+    except Exception:
+        updated_str = ''
+    raw_code = (doc.get('code') or '')
+    file_name = (doc.get('file_name') or '')
+    version = str(doc.get('version') or '')
+    # Hash a compact JSON string of identifying fields + content digest
+    try:
+        payload = json.dumps({
+            'u': updated_str,
+            'n': file_name,
+            'v': version,
+            'sha': hashlib.sha256(raw_code.encode('utf-8')).hexdigest(),
+        }, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        tag = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+        return f'W/"{tag}"'
+    except Exception:
+        # Fallback: time-based weak tag
+        return f'W/"{int(time.time())}"'
 
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
 
@@ -1396,6 +1449,27 @@ def view_file(file_id):
     
     if not file:
         abort(404)
+    # HTTP cache validators (ETag / Last-Modified)
+    etag = _compute_file_etag(file)
+    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_str = http_date(last_modified_dt)
+    inm = request.headers.get('If-None-Match')
+    if inm and inm == etag:
+        resp = Response(status=304)
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
+    ims = request.headers.get('If-Modified-Since')
+    if ims:
+        try:
+            ims_dt = parse_date(ims)
+        except Exception:
+            ims_dt = None
+        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
+            resp = Response(status=304)
+            resp.headers['ETag'] = etag
+            resp.headers['Last-Modified'] = last_modified_str
+            return resp
     
     # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי
     try:
@@ -1431,7 +1505,7 @@ def view_file(file_id):
     # הגבלת גודל תצוגה - 1MB
     MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
     if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
-        return render_template('view_file.html',
+        html = render_template('view_file.html',
                              user=session['user_data'],
                              file={
                                  'id': str(file['_id']),
@@ -1448,10 +1522,14 @@ def view_file(file_id):
                              },
                              highlighted_code='<div class="alert alert-info" style="text-align: center; padding: 3rem;"><i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>הקובץ גדול מדי לתצוגה (' + format_file_size(len(code.encode('utf-8'))) + ')<br><br>ניתן להוריד את הקובץ לצפייה מקומית</div>',
                              syntax_css='')
+        resp = Response(html, mimetype='text/html; charset=utf-8')
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
     
     # בדיקה אם הקובץ בינארי
     if is_binary_file(code, file.get('file_name', '')):
-        return render_template('view_file.html',
+        html = render_template('view_file.html',
                              user=session['user_data'],
                              file={
                                  'id': str(file['_id']),
@@ -1468,6 +1546,10 @@ def view_file(file_id):
                              },
                              highlighted_code='<div class="alert alert-warning" style="text-align: center; padding: 3rem;"><i class="fas fa-lock" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>קובץ בינארי - לא ניתן להציג את התוכן<br><br>ניתן להוריד את הקובץ בלבד</div>',
                              syntax_css='')
+        resp = Response(html, mimetype='text/html; charset=utf-8')
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
     
     try:
         lexer = get_lexer_by_name(language, stripall=True)
@@ -1503,12 +1585,16 @@ def view_file(file_id):
         'is_favorite': bool(file.get('is_favorite', False)),
     }
     
-    return render_template('view_file.html',
+    html = render_template('view_file.html',
                          user=session['user_data'],
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
                          raw_code=code)
+    resp = Response(html, mimetype='text/html; charset=utf-8')
+    resp.headers['ETag'] = etag
+    resp.headers['Last-Modified'] = last_modified_str
+    return resp
 
 @app.route('/edit/<file_id>', methods=['GET', 'POST'])
 @login_required
@@ -1915,6 +2001,28 @@ def md_preview(file_id):
         language = 'markdown'
     code = file.get('code') or ''
 
+    # --- HTTP cache validators (ETag / Last-Modified) ---
+    etag = _compute_file_etag(file)
+    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_str = http_date(last_modified_dt)
+    inm = request.headers.get('If-None-Match')
+    if inm and inm == etag:
+        resp = Response(status=304)
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
+    ims = request.headers.get('If-Modified-Since')
+    if ims:
+        try:
+            ims_dt = parse_date(ims)
+        except Exception:
+            ims_dt = None
+        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
+            resp = Response(status=304)
+            resp.headers['ETag'] = etag
+            resp.headers['Last-Modified'] = last_modified_str
+            return resp
+
     # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
     should_cache = getattr(cache, 'is_enabled', False)
     md_cache_key = None
@@ -1930,7 +2038,10 @@ def md_preview(file_id):
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:{_hash}"
             cached_html = cache.get(md_cache_key)
             if isinstance(cached_html, str) and cached_html:
-                return cached_html
+                resp = Response(cached_html, mimetype='text/html; charset=utf-8')
+                resp.headers['ETag'] = etag
+                resp.headers['Last-Modified'] = last_modified_str
+                return resp
         except Exception:
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:fallback"
 
@@ -1951,7 +2062,10 @@ def md_preview(file_id):
             cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
         except Exception:
             pass
-    return html
+    resp = Response(html, mimetype='text/html; charset=utf-8')
+    resp.headers['ETag'] = etag
+    resp.headers['Last-Modified'] = last_modified_str
+    return resp
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
