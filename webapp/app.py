@@ -35,6 +35,17 @@ if ROOT_DIR not in sys.path:
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
+# Cache (Redis) – שימוש במנהל הקאש המרכזי של הפרויקט
+try:
+    from cache_manager import cache  # noqa: E402
+except Exception:  # Fallback בטוח אם Redis לא זמין בזמן ריצה
+    class _NoCache:
+        is_enabled = False
+        def get(self, key):
+            return None
+        def set(self, key, value, expire_seconds=60):
+            return False
+    cache = _NoCache()  # type: ignore
 
 # יצירת האפליקציה
 app = Flask(__name__)
@@ -58,6 +69,18 @@ BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
+
+# --- Cache TTLs (seconds) for heavy endpoints/pages ---
+def _int_env(name: str, default: int, lo: int = 30, hi: int = 180) -> int:
+    try:
+        val = int(os.getenv(name, str(default)))
+        return max(lo, min(hi, val))
+    except Exception:
+        return default
+
+FILES_PAGE_CACHE_TTL = _int_env('FILES_PAGE_CACHE_TTL', 90, lo=30, hi=180)
+MD_PREVIEW_CACHE_TTL = _int_env('MD_PREVIEW_CACHE_TTL', 120, lo=60, hi=180)
+API_STATS_CACHE_TTL = _int_env('API_STATS_CACHE_TTL', 120, lo=60, hi=180)
 
 # --- External uptime monitoring (Option 2 from issue #730) ---
 # Provider options: 'betteruptime' (Better Stack), 'uptimerobot', 'statuscake', 'pingdom'
@@ -815,6 +838,8 @@ def files():
     """רשימת כל הקבצים של המשתמש"""
     db = get_db()
     user_id = session['user_id']
+    # --- Cache: בדיקת HTML שמור לפי משתמש ופרמטרים ---
+    should_cache = getattr(cache, 'is_enabled', False)
     
     # פרמטרים לחיפוש ומיון
     search_query = request.args.get('q', '')
@@ -824,6 +849,29 @@ def files():
     repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
     per_page = 20
+    # הכנת מפתח Cache ייחודי לפרמטרים
+    try:
+        _params = {
+            'q': search_query,
+            'lang': language_filter,
+            'category': category_filter,
+            'sort': sort_by,
+            'repo': repo_name,
+            'page': page,
+        }
+        _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
+        _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
+        files_cache_key = f"web:files:user:{user_id}:{_hash}"
+    except Exception:
+        files_cache_key = f"web:files:user:{user_id}:fallback"
+
+    if should_cache:
+        try:
+            cached_html = cache.get(files_cache_key)
+            if isinstance(cached_html, str) and cached_html:
+                return cached_html
+        except Exception:
+            pass
     # ברירת מחדל למיון בקטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון
     try:
         if (category_filter or '').strip().lower() == 'recent' and not (request.args.get('sort') or '').strip():
@@ -919,7 +967,7 @@ def files():
                     }
                 )
                 languages = sorted([lang for lang in languages if lang]) if languages else []
-                return render_template('files.html',
+                html = render_template('files.html',
                                      user=session['user_data'],
                                      files=[],
                                      repos=repos_list,
@@ -935,6 +983,12 @@ def files():
                                      has_prev=False,
                                      has_next=False,
                                      bot_username=BOT_USERNAME_CLEAN)
+                if should_cache:
+                    try:
+                        cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                    except Exception:
+                        pass
+                return html
         elif category_filter == 'zip':
             # הוסר מה‑UI; נשיב מיד לרשימת קבצים רגילה כדי למנוע שימוש ב‑Mongo לאחסון גיבויים
             return redirect(url_for('files'))
@@ -1056,7 +1110,7 @@ def files():
                 }
             )
             languages = sorted([lang for lang in languages if lang]) if languages else []
-            return render_template('files.html',
+            html = render_template('files.html',
                                  user=session['user_data'],
                                  files=[],
                                  total_count=0,
@@ -1070,6 +1124,12 @@ def files():
                                  has_prev=False,
                                  has_next=False,
                                  bot_username=BOT_USERNAME_CLEAN)
+            if should_cache:
+                try:
+                    cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                except Exception:
+                    pass
+            return html
 
         # מיפוי שם->זמן פתיחה אחרון ומערך שמות
         recent_map = {}
@@ -1297,7 +1357,7 @@ def files():
     # שמירה על הקשר ריפו שנבחר (אם קיים) כדי לא לשבור עימוד/מסננים
     selected_repo_value = repo_name if (category_filter == 'repo' and repo_name) else ''
 
-    return render_template('files.html',
+    html = render_template('files.html',
                          user=session['user_data'],
                          files=files_list,
                          total_count=total_count,
@@ -1312,6 +1372,12 @@ def files():
                          has_next=page < total_pages,
                          selected_repo=selected_repo_value,
                          bot_username=BOT_USERNAME_CLEAN)
+    if should_cache:
+        try:
+            cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+        except Exception:
+            pass
+    return html
 
 @app.route('/file/<file_id>')
 @login_required
@@ -1849,6 +1915,25 @@ def md_preview(file_id):
         language = 'markdown'
     code = file.get('code') or ''
 
+    # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
+    should_cache = getattr(cache, 'is_enabled', False)
+    md_cache_key = None
+    if should_cache:
+        try:
+            # בתצוגה זו התוכן מגיע כתוכן גולמי ומעובד בצד לקוח; ה-HTML תלוי רק בפרמטרים הללו
+            _params = {
+                'file_name': file_name,
+                'lang': 'markdown',
+            }
+            _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
+            _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
+            md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:{_hash}"
+            cached_html = cache.get(md_cache_key)
+            if isinstance(cached_html, str) and cached_html:
+                return cached_html
+        except Exception:
+            md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:fallback"
+
     # הצג תצוגת Markdown רק אם זה אכן Markdown
     is_md = language == 'markdown' or file_name.lower().endswith('.md')
     if not is_md:
@@ -1860,7 +1945,13 @@ def md_preview(file_id):
         'language': 'markdown',
     }
     # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
-    return render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
+    html = render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
+    if should_cache and md_cache_key:
+        try:
+            cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
+        except Exception:
+            pass
+    return html
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
@@ -2199,6 +2290,26 @@ def api_stats():
     """API לקבלת סטטיסטיקות"""
     db = get_db()
     user_id = session['user_id']
+
+    # --- Cache: JSON סטטיסטיקות לפי משתמש ופרמטרים ---
+    should_cache = getattr(cache, 'is_enabled', False)
+    try:
+        _params = {
+            # לעתיד: אם יתווספו פילטרים לסטטיסטיקות ב-query string
+        }
+        _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
+        _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:16]
+        stats_cache_key = f"api:stats:user:{user_id}:{_hash}"
+    except Exception:
+        stats_cache_key = f"api:stats:user:{user_id}:v1"
+
+    if should_cache:
+        try:
+            cached_json = cache.get(stats_cache_key)
+            if isinstance(cached_json, dict) and cached_json:
+                return jsonify(cached_json)
+        except Exception:
+            pass
     
     active_query = {
         'user_id': user_id,
@@ -2225,6 +2336,11 @@ def api_stats():
             'created_at': item.get('created_at', datetime.now()).isoformat()
         })
     
+    if should_cache:
+        try:
+            cache.set(stats_cache_key, stats, API_STATS_CACHE_TTL)
+        except Exception:
+            pass
     return jsonify(stats)
 
 @app.route('/settings')
