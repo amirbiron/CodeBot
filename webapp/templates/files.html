@@ -221,19 +221,26 @@
     {% endfor %}
 </div>
 
-{% if total_pages > 1 %}
 <div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
-    {% if has_prev %}
+    {% if total_pages > 1 and has_prev %}
     <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
         <i class="fas fa-chevron-right"></i>
         הקודם
     </a>
     {% endif %}
-    
-    <span>עמוד {{ page }} מתוך {{ total_pages }}</span>
-    
-    {% if has_next %}
+
+    {% if total_pages > 1 %}
+      <span>עמוד {{ page }} מתוך {{ total_pages }}</span>
+    {% endif %}
+
+    {% if next_cursor %}
+    <a href="?q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}&cursor={{ next_cursor }}#bottom"
+       class="btn btn-secondary btn-icon">
+        הבא
+        <i class="fas fa-chevron-left"></i>
+    </a>
+    {% elif total_pages > 1 and has_next %}
     <a href="?page={{ page + 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
         הבא
@@ -241,7 +248,6 @@
     </a>
     {% endif %}
 </div>
-{% endif %}
 
 {% else %}
 <div class="glass-card" style="text-align: center; padding: 4rem 2rem;">
