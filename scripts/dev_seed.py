@@ -8,16 +8,92 @@ Safety: Only runs against MongoDB pointed by env vars; refuses to run if not loc
 """
 import os
 import sys
+import socket
+import ipaddress
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pymongo import MongoClient
 
-ALLOWED_PREFIXES = ("mongodb://localhost", "mongodb://127.0.0.1", "mongodb+srv://localhost")
+def _split_hosts(hosts_str: str) -> list[str]:
+    """Split a MongoDB hosts string by commas, respecting IPv6 bracket notation.
+    Example: "localhost:27017,[::1]:27017,127.0.0.1" -> ["localhost:27017", "[::1]:27017", "127.0.0.1"]
+    """
+    parts: list[str] = []
+    buf: str = ""
+    in_brackets = False
+    for ch in hosts_str:
+        if ch == '[':
+            in_brackets = True
+        elif ch == ']':
+            in_brackets = False
+        if ch == ',' and not in_brackets:
+            if buf:
+                parts.append(buf)
+                buf = ""
+        else:
+            buf += ch
+    if buf:
+        parts.append(buf)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _host_from_token(token: str) -> str:
+    token = token.strip()
+    # IPv6 with brackets
+    if token.startswith('['):
+        end = token.find(']')
+        host = token[1:end] if end != -1 else token.strip('[]')
+        return host
+    # hostname or IPv4 (optionally with :port)
+    if ':' in token:
+        return token.split(':', 1)[0]
+    return token
+
+
+def _is_loopback_host(host: str) -> bool:
+    try:
+        # Exact localhost shortcut
+        if host == 'localhost':
+            return True
+        # Literal IP
+        try:
+            ip = ipaddress.ip_address(host)
+            return ip.is_loopback
+        except ValueError:
+            pass
+        # Resolve and ensure all addresses are loopback
+        infos = socket.getaddrinfo(host, None)
+        ips = {info[4][0] for info in infos if info and info[4]}
+        if not ips:
+            return False
+        return all(ipaddress.ip_address(ip).is_loopback for ip in ips)
+    except Exception:
+        return False
 
 
 def is_local_mongo(url: str) -> bool:
+    """Strictly allow only loopback MongoDB URIs.
+
+    Rules:
+    - mongodb:// may contain a comma-separated host list; ALL must resolve to loopback.
+    - mongodb+srv:// allowed only if the hostname resolves exclusively to loopback.
+    - Substring checks are NOT used.
+    """
     if not url:
         return False
-    return url.startswith(ALLOWED_PREFIXES) or "localhost" in url or "127.0.0.1" in url
+    p = urlparse(url)
+    if p.scheme not in ("mongodb", "mongodb+srv"):
+        return False
+    # Remove credentials from netloc
+    netloc = p.netloc.split('@', 1)[-1]
+    if p.scheme == 'mongodb':
+        hosts_tokens = _split_hosts(netloc)
+        hosts = [_host_from_token(t) for t in hosts_tokens]
+        return bool(hosts) and all(_is_loopback_host(h) for h in hosts)
+    else:  # mongodb+srv
+        # SRV records can point anywhere; require the visible hostname to be loopback-only
+        host = p.hostname or ""
+        return _is_loopback_host(host)
 
 
 def main():
