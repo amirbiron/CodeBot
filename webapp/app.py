@@ -14,6 +14,8 @@ from functools import wraps
 from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
+from werkzeug.http import http_date, parse_date
+from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
@@ -26,6 +28,7 @@ import sys
 from pathlib import Path
 import secrets
 import threading
+import base64
 
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
@@ -51,6 +54,11 @@ except Exception:  # Fallback בטוח אם Redis לא זמין בזמן ריצ�
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.permanent_session_lifetime = timedelta(days=30)  # סשן נשמר ל-30 יום
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000  # שנה לסטטיקה
+app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
+app.config['COMPRESS_LEVEL'] = 6
+app.config['COMPRESS_BR_LEVEL'] = 5
+Compress(app)
 
 # --- Bookmarks API blueprint ---
 try:
@@ -69,6 +77,7 @@ BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
+FA_SRI_HASH = (os.getenv('FA_SRI_HASH') or '').strip()
 
 # --- Cache TTLs (seconds) for heavy endpoints/pages ---
 def _int_env(name: str, default: int, lo: int = 30, hi: int = 180) -> int:
@@ -160,6 +169,14 @@ def inject_globals():
         pass
     if theme not in {'classic','ocean','forest'}:
         theme = 'classic'
+    # SRI map (optional): only set if provided via env to avoid mismatches
+    sri_map = {}
+    try:
+        if FA_SRI_HASH:
+            sri_map['fa'] = FA_SRI_HASH
+    except Exception:
+        sri_map = {}
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -169,6 +186,8 @@ def inject_globals():
         'uptime_status_url': UPTIME_STATUS_URL,
         'uptime_widget_script_url': UPTIME_WIDGET_SCRIPT_URL,
         'uptime_widget_id': UPTIME_WIDGET_ID,
+        # SRI hashes for CDN assets (optional; provided via env)
+        'cdn_sri': sri_map if sri_map else None,
     }
 
  
@@ -191,9 +210,13 @@ def get_db():
             # בדיקת חיבור
             client.server_info()
             db = client[DATABASE_NAME]
-            # קריאה חד-פעמית להבטחת אינדקסים באוסף recent_opens
+            # קריאה חד-פעמית להבטחת אינדקסים באוספים
             try:
                 ensure_recent_opens_indexes()
+            except Exception:
+                pass
+            try:
+                ensure_code_snippets_indexes()
             except Exception:
                 pass
         except Exception as e:
@@ -224,7 +247,171 @@ def ensure_recent_opens_indexes() -> None:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
         pass
 
+
+# --- HTTP caching helpers (ETag / Last-Modified) ---
+def _safe_dt_from_doc(value) -> datetime:
+    """Normalize a datetime-like value from Mongo into tz-aware datetime (UTC)."""
+    try:
+        if isinstance(value, datetime):
+            dt = value
+        elif value is not None:
+            # ISO string or other repr
+            dt = datetime.fromisoformat(str(value))
+        else:
+            dt = datetime.now(timezone.utc)
+    except Exception:
+        dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _compute_file_etag(doc: Dict[str, Any]) -> str:
+    """Compute a weak ETag for a file document based on updated_at and raw content.
+
+    We intentionally include only fields that impact the rendered output to keep
+    the validator stable but sensitive to relevant changes.
+    """
+    try:
+        updated_at = doc.get('updated_at')
+        if isinstance(updated_at, datetime):
+            updated_str = updated_at.isoformat()
+        elif updated_at is not None:
+            updated_str = str(updated_at)
+        else:
+            updated_str = ''
+    except Exception:
+        updated_str = ''
+    raw_code = (doc.get('code') or '')
+    file_name = (doc.get('file_name') or '')
+    version = str(doc.get('version') or '')
+    # Hash a compact JSON string of identifying fields + content digest
+    try:
+        payload = json.dumps({
+            'u': updated_str,
+            'n': file_name,
+            'v': version,
+            'sha': hashlib.sha256(raw_code.encode('utf-8')).hexdigest(),
+        }, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        tag = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+        return f'W/"{tag}"'
+    except Exception:
+        # Fallback: time-based weak tag
+        return f'W/"{int(time.time())}"'
+
+
+# --- Ensure indexes for code_snippets once per process ---
+_code_snippets_indexes_ready = False
+
+def ensure_code_snippets_indexes() -> None:
+    """יוצר אינדקסים קריטיים עבור אוסף code_snippets פעם אחת בתהליך.
+
+    אינדקסים:
+    - (user_id, created_at)
+    - (user_id, programming_language)
+    - (user_id, tags)
+    - (user_id, is_favorite)
+    - Text index על (file_name, description, tags) – אם אין כבר.
+    """
+    global _code_snippets_indexes_ready
+    if _code_snippets_indexes_ready:
+        return
+    try:
+        _db = get_db()
+        coll = _db.code_snippets
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            # זוגות פשוטים
+            try:
+                coll.create_index([('user_id', ASCENDING), ('created_at', DESCENDING)], name='user_created_at', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('programming_language', ASCENDING)], name='user_lang', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('tags', ASCENDING)], name='user_tags', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('is_favorite', ASCENDING)], name='user_favorite', background=True)
+            except Exception:
+                pass
+
+            # Text index – רק אם לא קיים כבר אינדקס מסוג text
+            try:
+                has_text = False
+                try:
+                    for ix in coll.list_indexes():
+                        for k, spec in ix.to_dict().get('key', {}).items():
+                            if str(spec).lower() == 'text':
+                                has_text = True
+                                break
+                        if has_text:
+                            break
+                except Exception:
+                    # Fallback ל-index_information()
+                    try:
+                        for _name, info in (coll.index_information() or {}).items():
+                            key = info.get('key') or []
+                            for pair in key:
+                                if isinstance(pair, (list, tuple)) and len(pair) >= 2 and str(pair[1]).lower() == 'text':
+                                    has_text = True
+                                    break
+                            if has_text:
+                                break
+                    except Exception:
+                        has_text = False
+                if not has_text:
+                    coll.create_index([
+                        ('file_name', 'text'),
+                        ('description', 'text'),
+                        ('tags', 'text'),
+                    ], name='text_file_desc_tags', background=True)
+            except Exception:
+                pass
+        except Exception:
+            # אם pymongo לא נטען/סביבת Docs – לא נכשיל
+            pass
+        _code_snippets_indexes_ready = True
+    except Exception:
+        # אין להפיל את האפליקציה במקרה של בעיית DB בתחילת חיים
+        pass
+
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
+
+
+# --- Cursor encoding helpers for pagination ---
+def _encode_cursor(created_at: datetime, oid: ObjectId) -> str:
+    try:
+        dt = created_at if isinstance(created_at, datetime) else _safe_dt_from_doc(created_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ts = int(dt.timestamp())
+    except Exception:
+        ts = int(time.time())
+    try:
+        raw = json.dumps({'t': ts, 'id': str(oid)}, separators=(',', ':'), sort_keys=True).encode('utf-8')
+        return base64.urlsafe_b64encode(raw).rstrip(b'=').decode('ascii')
+    except Exception:
+        return ''
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime | None, ObjectId | None]:
+    if not cursor:
+        return (None, None)
+    try:
+        padding = '=' * (-len(cursor) % 4)
+        data = base64.urlsafe_b64decode((cursor + padding).encode('ascii'))
+        obj = json.loads(data.decode('utf-8'))
+        ts = int(obj.get('t'))
+        oid_str = str(obj.get('id') or '')
+        last_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        last_oid = ObjectId(oid_str) if oid_str else None
+        return (last_dt, last_oid)
+    except Exception:
+        return (None, None)
 
 # --- Simple in-process cache for external uptime calls ---
 _uptime_cache_lock = threading.Lock()
@@ -848,6 +1035,7 @@ def files():
     sort_by = request.args.get('sort', 'created_at')
     repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
+    cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
     # הכנת מפתח Cache ייחודי לפרמטרים
     try:
@@ -858,6 +1046,7 @@ def files():
             'sort': sort_by,
             'repo': repo_name,
             'page': page,
+            'cursor': (cursor_token[:32] if cursor_token else ''),
         }
         _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
         _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
@@ -1262,7 +1451,8 @@ def files():
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
-        pipeline = [
+        # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
+        base_pipeline = [
             {'$match': query},
             {'$addFields': {
                 'code_size': {
@@ -1280,11 +1470,53 @@ def files():
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$sort': {sort_field_local: sort_dir}},
-            {'$skip': (page - 1) * per_page},
-            {'$limit': per_page},
         ]
-        files_cursor = db.code_snippets.aggregate(pipeline)
+        next_cursor_token = None
+        use_cursor = (sort_field_local == 'created_at')
+        if use_cursor:
+            last_dt, last_oid = _decode_cursor(cursor_token)
+            pipeline = list(base_pipeline)
+            if last_dt is not None and last_oid is not None:
+                if sort_dir == -1:
+                    # דפדוף קדימה (חדש->ישן): הביא ישנים יותר מ-anchor
+                    pipeline.append({'$match': {
+                        '$or': [
+                            {'created_at': {'$lt': last_dt}},
+                            {'$and': [
+                                {'created_at': {'$eq': last_dt}},
+                                {'_id': {'$lt': last_oid}},
+                            ]}
+                        ]
+                    }})
+                else:
+                    # דפדוף קדימה (ישן->חדש)
+                    pipeline.append({'$match': {
+                        '$or': [
+                            {'created_at': {'$gt': last_dt}},
+                            {'$and': [
+                                {'created_at': {'$eq': last_dt}},
+                                {'_id': {'$gt': last_oid}},
+                            ]}
+                        ]
+                    }})
+            # מיון יציב + חיתוך ל-page+1 כדי לזהות אם יש עוד
+            pipeline.append({'$sort': {'created_at': sort_dir, '_id': sort_dir}})
+            pipeline.append({'$limit': per_page + 1})
+            docs = list(db.code_snippets.aggregate(pipeline))
+            if len(docs) > per_page:
+                anchor = docs[per_page - 1]
+                try:
+                    next_cursor_token = _encode_cursor(anchor.get('created_at') or datetime.now(timezone.utc), anchor.get('_id'))
+                except Exception:
+                    next_cursor_token = None
+                docs = docs[:per_page]
+            files_cursor = docs
+        else:
+            pipeline = list(base_pipeline)
+            pipeline.append({'$sort': {sort_field_local: sort_dir}})
+            pipeline.append({'$skip': (page - 1) * per_page})
+            pipeline.append({'$limit': per_page})
+            files_cursor = db.code_snippets.aggregate(pipeline)
     elif category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     elif category_filter == 'other':
@@ -1370,6 +1602,7 @@ def files():
                          total_pages=total_pages,
                          has_prev=page > 1,
                          has_next=page < total_pages,
+                         next_cursor=(next_cursor_token if 'next_cursor_token' in locals() else None),
                          selected_repo=selected_repo_value,
                          bot_username=BOT_USERNAME_CLEAN)
     if should_cache:
@@ -1396,8 +1629,7 @@ def view_file(file_id):
     
     if not file:
         abort(404)
-    
-    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי
+    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
     try:
         ensure_recent_opens_indexes()
         coll = db.recent_opens
@@ -1417,6 +1649,28 @@ def view_file(file_id):
     except Exception:
         # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
         pass
+    # HTTP cache validators (ETag / Last-Modified)
+    etag = _compute_file_etag(file)
+    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_str = http_date(last_modified_dt)
+    inm = request.headers.get('If-None-Match')
+    if inm and inm == etag:
+        resp = Response(status=304)
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
+    ims = request.headers.get('If-Modified-Since')
+    if ims:
+        try:
+            ims_dt = parse_date(ims)
+        except Exception:
+            ims_dt = None
+        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
+            resp = Response(status=304)
+            resp.headers['ETag'] = etag
+            resp.headers['Last-Modified'] = last_modified_str
+            return resp
+
 
     # הדגשת syntax
     code = file.get('code', '')
@@ -1431,7 +1685,7 @@ def view_file(file_id):
     # הגבלת גודל תצוגה - 1MB
     MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
     if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
-        return render_template('view_file.html',
+        html = render_template('view_file.html',
                              user=session['user_data'],
                              file={
                                  'id': str(file['_id']),
@@ -1448,10 +1702,14 @@ def view_file(file_id):
                              },
                              highlighted_code='<div class="alert alert-info" style="text-align: center; padding: 3rem;"><i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>הקובץ גדול מדי לתצוגה (' + format_file_size(len(code.encode('utf-8'))) + ')<br><br>ניתן להוריד את הקובץ לצפייה מקומית</div>',
                              syntax_css='')
+        resp = Response(html, mimetype='text/html; charset=utf-8')
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
     
     # בדיקה אם הקובץ בינארי
     if is_binary_file(code, file.get('file_name', '')):
-        return render_template('view_file.html',
+        html = render_template('view_file.html',
                              user=session['user_data'],
                              file={
                                  'id': str(file['_id']),
@@ -1468,6 +1726,10 @@ def view_file(file_id):
                              },
                              highlighted_code='<div class="alert alert-warning" style="text-align: center; padding: 3rem;"><i class="fas fa-lock" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>קובץ בינארי - לא ניתן להציג את התוכן<br><br>ניתן להוריד את הקובץ בלבד</div>',
                              syntax_css='')
+        resp = Response(html, mimetype='text/html; charset=utf-8')
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
     
     try:
         lexer = get_lexer_by_name(language, stripall=True)
@@ -1503,12 +1765,16 @@ def view_file(file_id):
         'is_favorite': bool(file.get('is_favorite', False)),
     }
     
-    return render_template('view_file.html',
+    html = render_template('view_file.html',
                          user=session['user_data'],
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
                          raw_code=code)
+    resp = Response(html, mimetype='text/html; charset=utf-8')
+    resp.headers['ETag'] = etag
+    resp.headers['Last-Modified'] = last_modified_str
+    return resp
 
 @app.route('/edit/<file_id>', methods=['GET', 'POST'])
 @login_required
@@ -1915,6 +2181,28 @@ def md_preview(file_id):
         language = 'markdown'
     code = file.get('code') or ''
 
+    # --- HTTP cache validators (ETag / Last-Modified) ---
+    etag = _compute_file_etag(file)
+    last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
+    last_modified_str = http_date(last_modified_dt)
+    inm = request.headers.get('If-None-Match')
+    if inm and inm == etag:
+        resp = Response(status=304)
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        return resp
+    ims = request.headers.get('If-Modified-Since')
+    if ims:
+        try:
+            ims_dt = parse_date(ims)
+        except Exception:
+            ims_dt = None
+        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
+            resp = Response(status=304)
+            resp.headers['ETag'] = etag
+            resp.headers['Last-Modified'] = last_modified_str
+            return resp
+
     # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
     should_cache = getattr(cache, 'is_enabled', False)
     md_cache_key = None
@@ -1930,7 +2218,10 @@ def md_preview(file_id):
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:{_hash}"
             cached_html = cache.get(md_cache_key)
             if isinstance(cached_html, str) and cached_html:
-                return cached_html
+                resp = Response(cached_html, mimetype='text/html; charset=utf-8')
+                resp.headers['ETag'] = etag
+                resp.headers['Last-Modified'] = last_modified_str
+                return resp
         except Exception:
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:fallback"
 
@@ -1951,7 +2242,10 @@ def md_preview(file_id):
             cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
         except Exception:
             pass
-    return html
+    resp = Response(html, mimetype='text/html; charset=utf-8')
+    resp.headers['ETag'] = etag
+    resp.headers['Last-Modified'] = last_modified_str
+    return resp
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required

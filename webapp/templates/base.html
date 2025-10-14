@@ -11,7 +11,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          {% if cdn_sri and cdn_sri.fa %}integrity="{{ cdn_sri.fa }}" crossorigin="anonymous" referrerpolicy="no-referrer"{% endif %} />
     <meta id="uiFont" data-scale="{{ '%.2f' % ui_font_scale }}">
     
     <style>

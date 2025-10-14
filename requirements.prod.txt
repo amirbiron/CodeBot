@@ -80,7 +80,7 @@ pydantic-settings==2.1.0
 
 # HTML/Text Processing
 beautifulsoup4==4.12.2
-markdown==3.5.1
+markdown==3.9
 html2text==2020.1.16
 
 # Version Control Integration
