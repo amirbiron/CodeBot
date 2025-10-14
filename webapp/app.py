@@ -192,9 +192,13 @@ def get_db():
             # בדיקת חיבור
             client.server_info()
             db = client[DATABASE_NAME]
-            # קריאה חד-פעמית להבטחת אינדקסים באוסף recent_opens
+            # קריאה חד-פעמית להבטחת אינדקסים באוספים
             try:
                 ensure_recent_opens_indexes()
+            except Exception:
+                pass
+            try:
+                ensure_code_snippets_indexes()
             except Exception:
                 pass
         except Exception as e:
@@ -276,6 +280,86 @@ def _compute_file_etag(doc: Dict[str, Any]) -> str:
     except Exception:
         # Fallback: time-based weak tag
         return f'W/"{int(time.time())}"'
+
+
+# --- Ensure indexes for code_snippets once per process ---
+_code_snippets_indexes_ready = False
+
+def ensure_code_snippets_indexes() -> None:
+    """יוצר אינדקסים קריטיים עבור אוסף code_snippets פעם אחת בתהליך.
+
+    אינדקסים:
+    - (user_id, created_at)
+    - (user_id, programming_language)
+    - (user_id, tags)
+    - (user_id, is_favorite)
+    - Text index על (file_name, description, tags) – אם אין כבר.
+    """
+    global _code_snippets_indexes_ready
+    if _code_snippets_indexes_ready:
+        return
+    try:
+        _db = get_db()
+        coll = _db.code_snippets
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            # זוגות פשוטים
+            try:
+                coll.create_index([('user_id', ASCENDING), ('created_at', DESCENDING)], name='user_created_at', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('programming_language', ASCENDING)], name='user_lang', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('tags', ASCENDING)], name='user_tags', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('is_favorite', ASCENDING)], name='user_favorite', background=True)
+            except Exception:
+                pass
+
+            # Text index – רק אם לא קיים כבר אינדקס מסוג text
+            try:
+                has_text = False
+                try:
+                    for ix in coll.list_indexes():
+                        for k, spec in ix.to_dict().get('key', {}).items():
+                            if str(spec).lower() == 'text':
+                                has_text = True
+                                break
+                        if has_text:
+                            break
+                except Exception:
+                    # Fallback ל-index_information()
+                    try:
+                        for _name, info in (coll.index_information() or {}).items():
+                            key = info.get('key') or []
+                            for pair in key:
+                                if isinstance(pair, (list, tuple)) and len(pair) >= 2 and str(pair[1]).lower() == 'text':
+                                    has_text = True
+                                    break
+                            if has_text:
+                                break
+                    except Exception:
+                        has_text = False
+                if not has_text:
+                    coll.create_index([
+                        ('file_name', 'text'),
+                        ('description', 'text'),
+                        ('tags', 'text'),
+                    ], name='text_file_desc_tags', background=True)
+            except Exception:
+                pass
+        except Exception:
+            # אם pymongo לא נטען/סביבת Docs – לא נכשיל
+            pass
+        _code_snippets_indexes_ready = True
+    except Exception:
+        # אין להפיל את האפליקציה במקרה של בעיית DB בתחילת חיים
+        pass
 
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
 
