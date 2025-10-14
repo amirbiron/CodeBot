@@ -645,6 +645,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/me:
+    get:
+      summary: Auth status and basic user info
+      responses:
+        '200':
+          description: Auth status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  authenticated: { type: boolean }
+                  user:
+                    type: object
+                    nullable: true
+                    properties:
+                      user_id: { type: integer }
+                      username: { type: string, nullable: true }
+                      first_name: { type: string, nullable: true }
+                      last_name: { type: string, nullable: true }
+                  ui_prefs:
+                    type: object
+                    properties:
+                      font_scale: { type: number, nullable: true }
+                      theme: { type: string, nullable: true }
+
   /health:
     get:
       summary: Health check
