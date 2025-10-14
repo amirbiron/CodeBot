@@ -1,0 +1,68 @@
+{
+  "info": {
+    "_postman_id": "8d7c7d8a-7c0f-4f2b-9a72-0f2cbe3cfd01",
+    "name": "Code Keeper WebApp API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:5000" },
+    { "key": "session_cookie", "value": "<paste-session-cookie>" },
+    { "key": "file_id", "value": "<replace-with-objectid>" },
+    { "key": "line_number", "value": "42" }
+  ],
+  "item": [
+    {
+      "name": "Bookmarks",
+      "item": [
+        {
+          "name": "Toggle bookmark",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key":"Content-Type","value":"application/json"},
+              {"key":"Cookie","value":"session={{session_cookie}}"}
+            ],
+            "url": "{{base_url}}/api/bookmarks/{{file_id}}/toggle",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"line_number\": {{line_number}},\n  \"note\": \"בדיקה\",\n  \"color\": \"yellow\"\n}"
+            }
+          }
+        },
+        { "name": "Get file bookmarks", "request": { "method": "GET", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/{{file_id}}?include_invalid=false" } },
+        { "name": "User bookmarks (grouped)", "request": { "method": "GET", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/all?limit=100&skip=0" } },
+        { "name": "Update note", "request": { "method": "PUT", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/{{file_id}}/{{line_number}}/note", "body": {"mode":"raw","raw":"{\n  \"note\": \"עודכן\"\n}"} } },
+        { "name": "Update color", "request": { "method": "PUT", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/{{file_id}}/{{line_number}}/color", "body": {"mode":"raw","raw":"{\n  \"color\": \"green\"\n}"} } },
+        { "name": "Delete bookmark", "request": { "method": "DELETE", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/{{file_id}}/{{line_number}}" } },
+        { "name": "Clear file bookmarks", "request": { "method": "DELETE", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/{{file_id}}/clear" } },
+        { "name": "Sync check", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/{{file_id}}/sync", "body": {"mode":"raw","raw":"{\n  \"content\": \"...file contents...\"\n}"} } },
+        { "name": "Bookmark stats", "request": { "method": "GET", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/stats" } },
+        { "name": "Export bookmarks", "request": { "method": "GET", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/export" } },
+        { "name": "Get bookmark prefs", "request": { "method": "GET", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/prefs" } },
+        { "name": "Set bookmark prefs", "request": { "method": "PUT", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/bookmarks/prefs", "body": {"mode":"raw","raw":"{\n  \"default_color\": \"yellow\"\n}"} } }
+      ]
+    },
+    {
+      "name": "Core API",
+      "item": [
+        { "name": "Create share", "request": { "method": "POST", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/share/{{file_id}}" } },
+        { "name": "Toggle favorite", "request": { "method": "POST", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/favorite/toggle/{{file_id}}" } },
+        { "name": "Stats", "request": { "method": "GET", "header": [{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/stats" } },
+        { "name": "Persistent login on", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/persistent_login", "body": {"mode":"raw","raw":"{\n  \"enable\": true\n}"} } },
+        { "name": "Persistent login off", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/persistent_login", "body": {"mode":"raw","raw":"{\n  \"enable\": false\n}"} } },
+        { "name": "Save UI prefs", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"},{"key":"Cookie","value":"session={{session_cookie}}"}], "url": "{{base_url}}/api/ui_prefs", "body": {"mode":"raw","raw":"{\n  \"font_scale\": 1.0,\n  \"theme\": \"classic\"\n}"} } },
+        { "name": "Public stats", "request": { "method": "GET", "url": "{{base_url}}/api/public_stats" } },
+        { "name": "Uptime", "request": { "method": "GET", "url": "{{base_url}}/api/uptime" } },
+        { "name": "Health", "request": { "method": "GET", "url": "{{base_url}}/health" } }
+      ]
+    },
+    {
+      "name": "Docs",
+      "item": [
+        { "name": "OpenAPI spec (yaml)", "request": { "method": "GET", "url": "{{base_url}}/openapi.yaml" } },
+        { "name": "Swagger UI", "request": { "method": "GET", "url": "{{base_url}}/docs" } },
+        { "name": "ReDoc", "request": { "method": "GET", "url": "{{base_url}}/redoc" } }
+      ]
+    }
+  ]
+}

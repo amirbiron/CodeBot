@@ -2307,7 +2307,17 @@ def api_stats():
         try:
             cached_json = cache.get(stats_cache_key)
             if isinstance(cached_json, dict) and cached_json:
-                return jsonify(cached_json)
+                # ETag בסיסי לפי hash של גוף ה‑JSON השמור בקאש
+                try:
+                    etag = 'W/"' + hashlib.sha256(json.dumps(cached_json, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()[:16] + '"'
+                    inm = request.headers.get('If-None-Match')
+                    if inm and inm == etag:
+                        return Response(status=304)
+                    resp = jsonify(cached_json)
+                    resp.headers['ETag'] = etag
+                    return resp
+                except Exception:
+                    return jsonify(cached_json)
         except Exception:
             pass
     
@@ -2341,7 +2351,17 @@ def api_stats():
             cache.set(stats_cache_key, stats, API_STATS_CACHE_TTL)
         except Exception:
             pass
-    return jsonify(stats)
+    # הוספת ETag לתגובה גם כאשר לא שוחזר מהקאש
+    try:
+        etag = 'W/"' + hashlib.sha256(json.dumps(stats, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()[:16] + '"'
+        inm = request.headers.get('If-None-Match')
+        if inm and inm == etag:
+            return Response(status=304)
+        resp = jsonify(stats)
+        resp.headers['ETag'] = etag
+        return resp
+    except Exception:
+        return jsonify(stats)
 
 @app.route('/settings')
 @login_required
@@ -2559,6 +2579,46 @@ def api_public_stats():
             "total_snippets": 0,
         }), 200
 
+# --- Auth status & user info ---
+@app.route('/api/me')
+def api_me():
+    """סטטוס התחברות ופרטי משתמש בסיסיים לצורך סוכנים/קליינט.
+
+    לא זורק 401 כדי לאפשר בדיקה פשוטה; מחזיר ok=false אם לא מחובר.
+    """
+    try:
+        is_auth = 'user_id' in session
+        if not is_auth:
+            return jsonify({
+                'ok': False,
+                'authenticated': False
+            })
+        user_data = session.get('user_data') or {}
+        # שליפת העדפות בסיסיות מה‑DB (best-effort, ללא כשל)
+        prefs = {}
+        try:
+            _db = get_db()
+            u = _db.users.find_one({'user_id': session['user_id']}) or {}
+            prefs = (u.get('ui_prefs') or {})
+        except Exception:
+            prefs = {}
+        return jsonify({
+            'ok': True,
+            'authenticated': True,
+            'user': {
+                'user_id': session['user_id'],
+                'username': user_data.get('username'),
+                'first_name': user_data.get('first_name'),
+                'last_name': user_data.get('last_name'),
+            },
+            'ui_prefs': {
+                'font_scale': prefs.get('font_scale'),
+                'theme': prefs.get('theme')
+            }
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 # --- External uptime public endpoint ---
 @app.route('/api/uptime')
 def api_uptime():
@@ -2663,6 +2723,62 @@ def handle_exception(e):
     import traceback
     traceback.print_exc()
     return render_template('500.html'), 500
+
+# --- OpenAPI/Swagger/Redoc documentation endpoints ---
+OPENAPI_SPEC_PATH = Path(ROOT_DIR) / 'docs' / 'openapi.yaml'
+
+@app.route('/openapi.yaml')
+def openapi_yaml():
+    try:
+        return send_file(OPENAPI_SPEC_PATH, mimetype='application/yaml')
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/docs')
+def swagger_docs():
+    html = """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <style>body { margin:0; } #swagger-ui { max-width: 100%; }</style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({ url: '/openapi.yaml', dom_id: '#swagger-ui' });
+      };
+    </script>
+  </body>
+  <script>/* Avoid CSP issues in simple dev setup */</script>
+  </html>
+"""
+    return Response(html, mimetype='text/html')
+
+@app.route('/redoc')
+def redoc_docs():
+    html = """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>ReDoc</title>
+    <style>body { margin:0; padding: 0; }</style>
+    <script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"></script>
+  </head>
+  <body>
+    <redoc spec-url='/openapi.yaml'></redoc>
+    <script>
+      try { Redoc.init('/openapi.yaml'); } catch (e) {}
+    </script>
+  </body>
+</html>
+"""
+    return Response(html, mimetype='text/html')
 
 # בדיקת קונפיגורציה בהפעלה
 def check_configuration():
