@@ -1622,6 +1622,26 @@ def view_file(file_id):
     
     if not file:
         abort(404)
+    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
+    try:
+        ensure_recent_opens_indexes()
+        coll = db.recent_opens
+        now = datetime.now(timezone.utc)
+        coll.update_one(
+            {'user_id': user_id, 'file_name': file.get('file_name')},
+            {'$set': {
+                'user_id': user_id,
+                'file_name': file.get('file_name'),
+                'last_opened_at': now,
+                'last_opened_file_id': file.get('_id'),
+                'language': (file.get('programming_language') or 'text'),
+                'updated_at': now,
+            }, '$setOnInsert': {'created_at': now}},
+            upsert=True
+        )
+    except Exception:
+        # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
+        pass
     # HTTP cache validators (ETag / Last-Modified)
     etag = _compute_file_etag(file)
     last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
@@ -1643,27 +1663,7 @@ def view_file(file_id):
             resp.headers['ETag'] = etag
             resp.headers['Last-Modified'] = last_modified_str
             return resp
-    
-    # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי
-    try:
-        ensure_recent_opens_indexes()
-        coll = db.recent_opens
-        now = datetime.now(timezone.utc)
-        coll.update_one(
-            {'user_id': user_id, 'file_name': file.get('file_name')},
-            {'$set': {
-                'user_id': user_id,
-                'file_name': file.get('file_name'),
-                'last_opened_at': now,
-                'last_opened_file_id': file.get('_id'),
-                'language': (file.get('programming_language') or 'text'),
-                'updated_at': now,
-            }, '$setOnInsert': {'created_at': now}},
-            upsert=True
-        )
-    except Exception:
-        # אין לכשיל את הדף אם אין DB או אם יש כשל אינדקס/עדכון
-        pass
+
 
     # הדגשת syntax
     code = file.get('code', '')
