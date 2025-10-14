@@ -15,6 +15,7 @@ from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
 from werkzeug.http import http_date, parse_date
+from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
@@ -27,6 +28,7 @@ import sys
 from pathlib import Path
 import secrets
 import threading
+import base64
 
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
@@ -52,6 +54,11 @@ except Exception:  # Fallback בטוח אם Redis לא זמין בזמן ריצ�
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.permanent_session_lifetime = timedelta(days=30)  # סשן נשמר ל-30 יום
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000  # שנה לסטטיקה
+app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
+app.config['COMPRESS_LEVEL'] = 6
+app.config['COMPRESS_BR_LEVEL'] = 5
+Compress(app)
 
 # --- Bookmarks API blueprint ---
 try:
@@ -170,6 +177,10 @@ def inject_globals():
         'uptime_status_url': UPTIME_STATUS_URL,
         'uptime_widget_script_url': UPTIME_WIDGET_SCRIPT_URL,
         'uptime_widget_id': UPTIME_WIDGET_ID,
+        # SRI hashes for CDN assets (optional; can be extended)
+        'cdn_sri': {
+            'fa': 'sha512-p/wcQmJ9uO1F5o7v6Qw/5r3S0Qh1q7f4eQy2f2Ui4e6pV2T1d8s1YqQ4M3qZbZl3cQq8q6Z6S7Wv1lZr0XQK1g=='
+        }
     }
 
  
@@ -362,6 +373,38 @@ def ensure_code_snippets_indexes() -> None:
         pass
 
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
+
+
+# --- Cursor encoding helpers for pagination ---
+def _encode_cursor(created_at: datetime, oid: ObjectId) -> str:
+    try:
+        dt = created_at if isinstance(created_at, datetime) else _safe_dt_from_doc(created_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ts = int(dt.timestamp())
+    except Exception:
+        ts = int(time.time())
+    try:
+        raw = json.dumps({'t': ts, 'id': str(oid)}, separators=(',', ':'), sort_keys=True).encode('utf-8')
+        return base64.urlsafe_b64encode(raw).rstrip(b'=').decode('ascii')
+    except Exception:
+        return ''
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime | None, ObjectId | None]:
+    if not cursor:
+        return (None, None)
+    try:
+        padding = '=' * (-len(cursor) % 4)
+        data = base64.urlsafe_b64decode((cursor + padding).encode('ascii'))
+        obj = json.loads(data.decode('utf-8'))
+        ts = int(obj.get('t'))
+        oid_str = str(obj.get('id') or '')
+        last_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        last_oid = ObjectId(oid_str) if oid_str else None
+        return (last_dt, last_oid)
+    except Exception:
+        return (None, None)
 
 # --- Simple in-process cache for external uptime calls ---
 _uptime_cache_lock = threading.Lock()
@@ -985,6 +1028,7 @@ def files():
     sort_by = request.args.get('sort', 'created_at')
     repo_name = request.args.get('repo', '').strip()
     page = int(request.args.get('page', 1))
+    cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
     # הכנת מפתח Cache ייחודי לפרמטרים
     try:
@@ -995,6 +1039,7 @@ def files():
             'sort': sort_by,
             'repo': repo_name,
             'page': page,
+            'cursor': (cursor_token[:32] if cursor_token else ''),
         }
         _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
         _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:24]
@@ -1399,7 +1444,8 @@ def files():
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
-        pipeline = [
+        # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
+        base_pipeline = [
             {'$match': query},
             {'$addFields': {
                 'code_size': {
@@ -1417,11 +1463,53 @@ def files():
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
-            {'$sort': {sort_field_local: sort_dir}},
-            {'$skip': (page - 1) * per_page},
-            {'$limit': per_page},
         ]
-        files_cursor = db.code_snippets.aggregate(pipeline)
+        next_cursor_token = None
+        use_cursor = (sort_field_local == 'created_at')
+        if use_cursor:
+            last_dt, last_oid = _decode_cursor(cursor_token)
+            pipeline = list(base_pipeline)
+            if last_dt is not None and last_oid is not None:
+                if sort_dir == -1:
+                    # דפדוף קדימה (חדש->ישן): הביא ישנים יותר מ-anchor
+                    pipeline.append({'$match': {
+                        '$or': [
+                            {'created_at': {'$lt': last_dt}},
+                            {'$and': [
+                                {'created_at': {'$eq': last_dt}},
+                                {'_id': {'$lt': last_oid}},
+                            ]}
+                        ]
+                    }})
+                else:
+                    # דפדוף קדימה (ישן->חדש)
+                    pipeline.append({'$match': {
+                        '$or': [
+                            {'created_at': {'$gt': last_dt}},
+                            {'$and': [
+                                {'created_at': {'$eq': last_dt}},
+                                {'_id': {'$gt': last_oid}},
+                            ]}
+                        ]
+                    }})
+            # מיון יציב + חיתוך ל-page+1 כדי לזהות אם יש עוד
+            pipeline.append({'$sort': {'created_at': sort_dir, '_id': sort_dir}})
+            pipeline.append({'$limit': per_page + 1})
+            docs = list(db.code_snippets.aggregate(pipeline))
+            if len(docs) > per_page:
+                anchor = docs[per_page - 1]
+                try:
+                    next_cursor_token = _encode_cursor(anchor.get('created_at') or datetime.now(timezone.utc), anchor.get('_id'))
+                except Exception:
+                    next_cursor_token = None
+                docs = docs[:per_page]
+            files_cursor = docs
+        else:
+            pipeline = list(base_pipeline)
+            pipeline.append({'$sort': {sort_field_local: sort_dir}})
+            pipeline.append({'$skip': (page - 1) * per_page})
+            pipeline.append({'$limit': per_page})
+            files_cursor = db.code_snippets.aggregate(pipeline)
     elif category_filter not in ('large', 'other'):
         files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
     elif category_filter == 'other':
@@ -1507,6 +1595,7 @@ def files():
                          total_pages=total_pages,
                          has_prev=page > 1,
                          has_next=page < total_pages,
+                         next_cursor=(next_cursor_token if 'next_cursor_token' in locals() else None),
                          selected_repo=selected_repo_value,
                          bot_username=BOT_USERNAME_CLEAN)
     if should_cache:
