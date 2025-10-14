@@ -2664,6 +2664,62 @@ def handle_exception(e):
     traceback.print_exc()
     return render_template('500.html'), 500
 
+# --- OpenAPI/Swagger/Redoc documentation endpoints ---
+OPENAPI_SPEC_PATH = Path(ROOT_DIR) / 'docs' / 'openapi.yaml'
+
+@app.route('/openapi.yaml')
+def openapi_yaml():
+    try:
+        return send_file(OPENAPI_SPEC_PATH, mimetype='application/yaml')
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/docs')
+def swagger_docs():
+    html = """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <style>body { margin:0; } #swagger-ui { max-width: 100%; }</style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({ url: '/openapi.yaml', dom_id: '#swagger-ui' });
+      };
+    </script>
+  </body>
+  <script>/* Avoid CSP issues in simple dev setup */</script>
+  </html>
+"""
+    return Response(html, mimetype='text/html')
+
+@app.route('/redoc')
+def redoc_docs():
+    html = """
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>ReDoc</title>
+    <style>body { margin:0; padding: 0; }</style>
+    <script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"></script>
+  </head>
+  <body>
+    <redoc spec-url='/openapi.yaml'></redoc>
+    <script>
+      try { Redoc.init('/openapi.yaml'); } catch (e) {}
+    </script>
+  </body>
+</html>
+"""
+    return Response(html, mimetype='text/html')
+
 # בדיקת קונפיגורציה בהפעלה
 def check_configuration():
     """בדיקת משתני סביבה נדרשים"""
