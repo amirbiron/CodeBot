@@ -77,6 +77,7 @@ BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
 WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
+FA_SRI_HASH = (os.getenv('FA_SRI_HASH') or '').strip()
 
 # --- Cache TTLs (seconds) for heavy endpoints/pages ---
 def _int_env(name: str, default: int, lo: int = 30, hi: int = 180) -> int:
@@ -168,6 +169,14 @@ def inject_globals():
         pass
     if theme not in {'classic','ocean','forest'}:
         theme = 'classic'
+    # SRI map (optional): only set if provided via env to avoid mismatches
+    sri_map = {}
+    try:
+        if FA_SRI_HASH:
+            sri_map['fa'] = FA_SRI_HASH
+    except Exception:
+        sri_map = {}
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -177,10 +186,8 @@ def inject_globals():
         'uptime_status_url': UPTIME_STATUS_URL,
         'uptime_widget_script_url': UPTIME_WIDGET_SCRIPT_URL,
         'uptime_widget_id': UPTIME_WIDGET_ID,
-        # SRI hashes for CDN assets (optional; can be extended)
-        'cdn_sri': {
-            'fa': 'sha512-p/wcQmJ9uO1F5o7v6Qw/5r3S0Qh1q7f4eQy2f2Ui4e6pV2T1d8s1YqQ4M3qZbZl3cQq8q6Z6S7Wv1lZr0XQK1g=='
-        }
+        # SRI hashes for CDN assets (optional; provided via env)
+        'cdn_sri': sri_map if sri_map else None,
     }
 
  
