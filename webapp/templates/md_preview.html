@@ -64,9 +64,10 @@
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 16px;               /* נגישות טובה יותר */
   line-height: 1.5;              /* רווח אנכי טוב */
-  white-space: pre-wrap !important;  /* עטיפת שורות ארוכות */
-  word-break: break-word !important;
-  overflow-wrap: anywhere !important;
+  /* גלילה אופקית במקום עטיפה – כדי לא לחתוך קוד ארוך */
+  white-space: pre !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
 }
 #md-content .md-highlight {
   background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
@@ -107,11 +108,26 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+/* מרווח נעים בין פסקאות */
+#md-content p { margin: 0.75rem 0; }
+/* ריווח ברור סביב כותרות משנה כדי למנוע הדבקה לטקסט שלפניהן/אחריהן */
+#md-content h2, #md-content h3, #md-content h4 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.75rem;
+}
 /* ברשימות ממוספרות/תבליטים ב-RTL המספר/סמל יישב בתוך הבלוק, לא מחוצה לו */
 #md-content ol, #md-content ul {
-  list-style-position: inside;
-  padding-inline-end: 0.5rem; /* מרווח קל מימין שלא יבלע את הספרות */
+  /* הצגת התבליט/מספור מחוץ לבלוק כדי ליצור הזחה טבעית */
+  list-style-position: outside;
+  /* ריווח תחתון כדי שלא יידבקו לכותרת/פסקה הבאה */
+  margin-block: 0 1rem;
+  /* הזחה בצד ההתחלה (RTL: ימין) */
+  padding-inline-start: 1.25rem;
 }
+/* רווח עדין בין פריטי רשימה */
+#md-content li { margin: 0.25rem 0; }
+/* רשימות מקוננות – מעט רווח מעל/מתחת */
+#md-content li > ul, #md-content li > ol { margin-block: 0.25rem 0.5rem; }
 #md-content .code-block { position: relative; margin: 1rem 0; }
 #md-content .code-block pre {
   margin: 0;
@@ -686,7 +702,7 @@ async function copyLinkMd(){
 
 async function shareToTelegramMd(){
   const url = await ensurePublicLinkMd();
-  const text = `צפה במסמך Markdown ב-Code Keeper:\n${url}`;
+  const text = `צפה במסמך Markdown ב-Code Keeper:`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
   try { window.open(telegramUrl, '_blank'); } catch(_) { window.location.href = telegramUrl; }
 }

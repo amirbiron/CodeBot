@@ -15,6 +15,7 @@ import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
+import requests
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
@@ -26,6 +27,7 @@ from telegram import (
     Update,
 )
 from telegram.error import BadRequest
+import secrets
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -51,7 +53,12 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
 IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
 IMPORT_MAX_FILES = 2000  # הגבלה סבירה למספר קבצים
-IMPORT_SKIP_DIRS = {".git", ".github", "__pycache__", "node_modules", "dist", "build"}
+# הרחבת רשימת תיקיות כבדות לדילוג בכל עומק עץ – משפר סריקה/קריאה לאחר חליצה
+IMPORT_SKIP_DIRS = {
+    ".git", ".github", "__pycache__", "node_modules", "dist", "build",
+    "_build", "_static", "_images",  # תבניות שנפוצות תחת docs/
+    ".venv", "venv", ".tox"
+}
 
 # מגבלות עזר לשליפת תאריכי ענפים למיון
 MAX_BRANCH_DATE_FETCH = 120  # אם יש יותר מזה — נוותר על מיון לפי תאריך (למעט ברירת המחדל)
@@ -81,12 +88,17 @@ def _safe_rmtree_tmp(target_path: str) -> None:
 
 
 def safe_html_escape(text):
-    """Escape text for Telegram HTML; preserves \n/\r/\t and keeps existing HTML entities."""
+    """Escape text for Telegram HTML; preserves \n/\r/\t and keeps existing HTML entities.
+
+    מרחיב ניקוי תווים בלתי נראים: ZWSP/ZWNJ/ZWJ, BOM/ZWNBSP, ותווי כיווניות LRM/RLM/LRE/RLE/PDF/LRO/RLO/LRI/RLI/FSI/PDI.
+    """
     if text is None:
         return ""
     s = escape(str(text))
-    # נקה תווים בלתי נראים
-    s = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", s)
+    # נקה תווים בלתי נראים (Zero-width) + BOM
+    s = re.sub(r"[\u200b\u200c\u200d\u2060\ufeff]", "", s)
+    # נקה סימוני כיווניות (Cf) נפוצים שגורמים לבלבול בהצגה
+    s = re.sub(r"[\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069]", "", s)
     # נקה תווי בקרה אך השאר \n, \r, \t
     s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", s)
     return s
@@ -427,7 +439,7 @@ class GitHubMenuHandler:
                 # אם YAML – נסה צביעה ישירה, אחרת כללי
                 if lower_path.endswith('.yml') or lower_path.endswith('.yaml'):
                     try:
-                        highlighted_html = code_processor.highlight_code(chunk, 'yaml', 'html')
+                        highlighted_html = code_processor.highlight_code(chunk, 'yaml')
                         body = highlighted_html or f"<pre>{safe_html_escape(chunk)}</pre>"
                     except Exception:
                         body = f"<pre>{safe_html_escape(chunk)}</pre>"
@@ -439,7 +451,7 @@ class GitHubMenuHandler:
                     else:
                         # נסה היילייט; אם יוצרת בלגן, fallback ל-pre
                         try:
-                            highlighted_html = code_processor.highlight_code(chunk, lang, 'html')
+                            highlighted_html = code_processor.highlight_code(chunk, lang)
                             if not highlighted_html or '\n' not in chunk:
                                 body = f"<pre>{safe_html_escape(chunk)}</pre>"
                             else:
@@ -566,8 +578,7 @@ class GitHubMenuHandler:
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
-        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת עד דקה.")
-        import requests
+        await query.edit_message_text("⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת 1–8 דקות")
         import zipfile as _zip
         tmp_dir = None
         zip_path = None
@@ -1282,6 +1293,11 @@ class GitHubMenuHandler:
             context.user_data["pending_saved_file_id"] = file_id
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_branch":
+            # מענה מיידי כדי לשחרר את ה-UI לפני טעינת רשימת ענפים
+            try:
+                await query.answer("טוען ענפים…", show_alert=False)
+            except Exception:
+                pass
             await self.show_upload_branch_menu(update, context)
         elif query.data.startswith("upload_branches_page_"):
             try:
@@ -1290,11 +1306,19 @@ class GitHubMenuHandler:
                 p = 0
             context.user_data["upload_branches_page"] = max(0, p)
             await self.show_upload_branch_menu(update, context)
-        elif query.data.startswith("upload_select_branch:"):
-            br = query.data.split(":", 1)[1]
-            context.user_data["upload_target_branch"] = br
-            await self.show_pre_upload_check(update, context)
+        elif query.data.startswith("upload_select_branch_tok:"):
+            tok = query.data.split(":", 1)[1]
+            br = (context.user_data.get("upload_branch_tokens") or {}).get(tok)
+            if not br:
+                await query.answer("⚠️ לא נמצא ענף לבחירה", show_alert=True)
+            else:
+                context.user_data["upload_target_branch"] = br
+                await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_folder":
+            try:
+                await query.answer("טוען תיקיות…", show_alert=False)
+            except Exception:
+                pass
             await self.show_upload_folder_menu(update, context)
         elif query.data.startswith("upload_select_folder:"):
             # בחירת תיקייה מתוך דפדפן הריפו
@@ -1310,12 +1334,52 @@ class GitHubMenuHandler:
             context.user_data["upload_target_folder"] = (session.get("selected_folder") or "")
             await self.show_pre_upload_check(update, context)
         elif query.data == "upload_folder_custom":
+            try:
+                await query.answer("הקלד/י נתיב יעד…", show_alert=False)
+            except Exception:
+                pass
             await self.ask_upload_folder(update, context)
         elif query.data == "upload_folder_create":
-            if hasattr(self, "create_upload_folder"):
-                await self.create_upload_folder(update, context)
-            else:
-                await query.answer("אין פעולה זמינה ליצירת תיקייה", show_alert=True)
+            # פתח זרימת יצירת תיקייה (תואם למסלול בהמשך עבור create_folder)
+            context.user_data["waiting_for_new_folder_path"] = True
+            # חזרה למסך הבדיקות לאחר היצירה
+            context.user_data["return_to_pre_upload"] = True
+            keyboard = [[
+                InlineKeyboardButton("🔙 חזור", callback_data="create_folder_back"),
+                InlineKeyboardButton("❌ ביטול", callback_data="create_folder_cancel")
+            ]]
+            # שחרר את ה‑UI מיד כדי למנוע תחושת תקיעה
+            try:
+                await query.answer("הקלד/י נתיב תיקייה…", show_alert=False)
+            except Exception:
+                pass
+            # נסה לערוך את ההודעה, ובמקרה של "message is not modified" עדכן רק את המקלדת, או שלח הודעה חדשה
+            try:
+                await query.edit_message_text(
+                    "➕ יצירת תיקייה חדשה\n\n"
+                    "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                    "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except BadRequest as br:
+                if "message is not modified" in str(br).lower():
+                    try:
+                        from utils import TelegramUtils as _TU
+                        await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                    except Exception:
+                        # כגיבוי, שלח הודעה חדשה
+                        try:
+                            await query.message.reply_text(
+                                "➕ יצירת תיקייה חדשה\n\n"
+                                "✏️ כתוב נתיב תיקייה חדשה (לדוגמה: src/new/section).\n"
+                                "ניצור קובץ ‎.gitkeep‎ בתוך התיקייה כדי ש‑Git ישמור אותה.",
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception:
+                            pass
+                else:
+                    raise
+            return REPO_SELECT
         elif query.data == "confirm_saved_upload":
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:
@@ -1649,6 +1713,11 @@ class GitHubMenuHandler:
             context.user_data["browse_page"] = 0
             context.user_data["multi_mode"] = False
             context.user_data["multi_selection"] = []
+            # מענה מיידי כדי למנוע תחושת תקיעה
+            try:
+                await query.answer("טוען דפדפן תיקיות…", show_alert=False)
+            except Exception:
+                pass
             await self.show_repo_browser(update, context)
 
         elif query.data.startswith("folder_"):
@@ -2007,7 +2076,6 @@ class GitHubMenuHandler:
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
                     try:
-                        import requests
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
@@ -2068,7 +2136,7 @@ class GitHubMenuHandler:
                                 summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                                 try:
                                     from database import db as _db
-                                    existing_note = _db.get_backup_note(user_id, backup_id) or ""
+                                    existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
                                 except Exception:
                                     existing_note = ""
                                 note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -2207,7 +2275,7 @@ class GitHubMenuHandler:
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     try:
                         from database import db as _db
-                        existing_note = _db.get_backup_note(user_id, backup_id) or ""
+                        existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
                     except Exception:
                         existing_note = ""
                     note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -2649,7 +2717,7 @@ class GitHubMenuHandler:
                         pass
 
                 progress_task = asyncio.create_task(_progress_updater())
-                import tempfile, requests, zipfile
+                import tempfile, zipfile
                 token_opt = self.get_user_token(user_id)
                 g = Github(login_or_token=(token_opt or ""))
                 repo_full = session.get("selected_repo")
@@ -3076,7 +3144,7 @@ class GitHubMenuHandler:
         query = update.callback_query
         try:
             files = db.get_user_files(user_id, limit=1000)
-            repo_to_count = {}
+            repo_to_count: dict[str, int] = {}
             for f in files:
                 for t in f.get('tags', []) or []:
                     if isinstance(t, str) and t.startswith('repo:'):
@@ -5465,8 +5533,19 @@ class GitHubMenuHandler:
         start = page * page_size
         end = start + page_size
         keyboard = []
+        # מיפוי ענפים ל-token קצר כדי למנוע חיתוך/שגיאות באורך callback
+        branch_tokens = context.user_data.get("upload_branch_tokens") or {}
         for br in branches[start:end]:
-            keyboard.append([InlineKeyboardButton(f"🌿 {br.name}", callback_data=f"upload_select_branch:{br.name}")])
+            br_name = str(getattr(br, "name", "") or "")
+            # הפק token קצר ודטרמיניסטי-מספיק לשימוש זמני בתפריט
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            tok = tok[:24]
+            branch_tokens[tok] = br_name
+            keyboard.append([InlineKeyboardButton(f"🌿 {br_name}", callback_data=f"upload_select_branch_tok:{tok}")])
+        context.user_data["upload_branch_tokens"] = branch_tokens
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"upload_branches_page_{page-1}"))
@@ -5476,7 +5555,18 @@ class GitHubMenuHandler:
         if nav:
             keyboard.append(nav)
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")])
-        await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        # עריכת ההודעה עם טיפול ב"message is not modified" – במקרה כזה ננסה לעדכן רק את המקלדת
+        try:
+            await query.edit_message_text("בחר ענף יעד להעלאה:", reply_markup=InlineKeyboardMarkup(keyboard))
+        except BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    pass
+            else:
+                raise
 
     async def show_upload_folder_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -5491,7 +5581,17 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("➕ צור תיקייה חדשה", callback_data="upload_folder_create")],
             [InlineKeyboardButton("🔙 חזור", callback_data="refresh_saved_checks")],
         ]
-        await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        try:
+            await query.edit_message_text("בחר תיקיית יעד:", reply_markup=InlineKeyboardMarkup(kb))
+        except BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(kb))
+                except Exception:
+                    pass
+            else:
+                raise
 
     async def ask_upload_folder(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query

@@ -28,6 +28,9 @@ class BotConfig:
     MAX_CODE_SIZE: int = 100000  # מקסימום 100KB לקטע קוד
     MAX_FILES_PER_USER: int = 1000
     SUPPORTED_LANGUAGES: list = None
+
+    # סל מיחזור: כמה ימים פריט נשמר לפני מחיקה אוטומטית
+    RECYCLE_TTL_DAYS: int = 7
     
     # כתובת בסיס ציבורית להצגת קישורים פנימיים (לשירות web)
     PUBLIC_BASE_URL: Optional[str] = None
@@ -37,7 +40,10 @@ class BotConfig:
     # מצב תחזוקה/דיפלוי
     MAINTENANCE_MODE: bool = False
     MAINTENANCE_MESSAGE: str = "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"
-    MAINTENANCE_AUTO_WARMUP_SECS: int = 180
+    MAINTENANCE_AUTO_WARMUP_SECS: int = 30
+
+    # Rate limiting
+    RATE_LIMIT_PER_MINUTE: int = 30
     
     # הגדרות syntax highlighting
     HIGHLIGHT_THEME: str = "github-dark"
@@ -103,9 +109,11 @@ def load_config() -> BotConfig:
         NORMALIZE_CODE_ON_SAVE=os.getenv('NORMALIZE_CODE_ON_SAVE', 'true').lower() == 'true',
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
-        MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '180')),
+        MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '30')),
+        RATE_LIMIT_PER_MINUTE=int(os.getenv('RATE_LIMIT_PER_MINUTE', '30') or '30'),
         PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
         WEBAPP_URL=os.getenv('WEBAPP_URL'),
+        RECYCLE_TTL_DAYS=int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'),
     )
 
 # יצירת אינסטנס גלובלי של הקונפיגורציה

@@ -22,7 +22,19 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-import telegram.error
+
+# Optional telegram import with safe fallback for web-only environments
+try:
+    import telegram  # type: ignore
+except Exception:  # pragma: no cover - executed only when telegram is missing
+    import types as _types
+
+    class _BadRequest(Exception):
+        pass
+
+    telegram = _types.SimpleNamespace(  # type: ignore[assignment]
+        error=_types.SimpleNamespace(BadRequest=_BadRequest)
+    )
 
 try:
     import aiofiles  # type: ignore
@@ -403,6 +415,24 @@ class TelegramUtils:
             chat_id=update.effective_chat.id,
             action=ChatAction.UPLOAD_DOCUMENT
         )
+
+    @staticmethod
+    async def safe_answer(query, text: Optional[str] = None, show_alert: bool = False, cache_time: Optional[int] = None) -> None:
+        """מענה בטוח ל-CallbackQuery: מתעלם משגיאות 'Query is too old'/'query_id_invalid'."""
+        try:
+            kwargs = {}
+            if text is not None:
+                kwargs["text"] = text
+            if show_alert:
+                kwargs["show_alert"] = True
+            if cache_time is not None:
+                kwargs["cache_time"] = int(cache_time)
+            await query.answer(**kwargs)
+        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            if "query is too old" in msg or "query_id_invalid" in msg or "message to edit not found" in msg:
+                return
+            raise
     
     @staticmethod
     def get_user_mention(user: User) -> str:
@@ -444,8 +474,16 @@ class TelegramUtils:
                 await query.edit_message_text(text=text, reply_markup=reply_markup)
             else:
                 await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        except telegram.error.BadRequest as e:
-            if "message is not modified" in str(e).lower():
+        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
+            if "not modified" in msg:
+                return
+            raise
+        except Exception as e:
+            # רשת/ספריות שונות עלולות להשליך מחלקה אחרת אך עם אותו מסר
+            msg = str(e).lower()
+            if "not modified" in msg:
                 return
             raise
 
@@ -454,10 +492,124 @@ class TelegramUtils:
         """עריכת מקלדת הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
         try:
             await query.edit_message_reply_markup(reply_markup=reply_markup)
-        except telegram.error.BadRequest as e:
-            if "message is not modified" in str(e).lower():
+        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+            msg = str(e).lower()
+            if "not modified" in msg:
                 return
             raise
+        except Exception as e:
+            msg = str(e).lower()
+            if "not modified" in msg:
+                return
+            raise
+
+    @staticmethod
+    def extract_message_text_preserve_markdown(message: "Message", *, reconstruct_from_entities: bool = True) -> str:
+        """
+        שחזור טקסט ההודעה תוך ניסיון להחזיר את מה שהמשתמש התכוון מבחינת תווי Markdown.
+
+        עקרונות:
+
+        - ברירת מחדל: נשתמש ב-``text``/``caption`` (התוכן הגולמי כפי שנשלח לשרת לאחר עיבוד Markdown).
+          זאת כדי לא לשמור מחרוזת "מרונדרת" (למשל ``*_name_*``), שאינה משקפת קלט משתמש.
+
+        - במידה ו-``reconstruct_from_entities=True`` ויש ישויות עיצוב (``bold``/``italic``), ננסה לשחזר
+          תווי Markdown שהיוו כנראה את מקור העיצוב ע"י הוספת תחיליות/סיומות סביב הטקסט שסומן.
+          מיפוי פשוט: ``bold`` → ``"__"``, ``italic`` → ``"_"``. שאר ישויות נשמרות כפי שהן.
+
+        - אם יש כיתוב (caption), נשתמש במקבילות ``caption_entities``.
+        """
+        # 1) תוכן בסיסי
+        try:
+            base = str(getattr(message, "text", "") or getattr(message, "caption", "") or "")
+        except Exception:
+            base = ""
+
+        if not reconstruct_from_entities or not base:
+            return base
+
+        # 2) שחזור סימונים על בסיס entities (אם קיימים)
+        try:
+            entities = getattr(message, "entities", None)
+            if base and not entities:
+                entities = getattr(message, "caption_entities", None)
+        except Exception:
+            entities = None
+
+        try:
+            if not entities:
+                return base
+
+            length = len(base)
+            opens = {i: [] for i in range(length + 1)}
+            closes = {i: [] for i in range(length + 1)}
+
+            # רישום ישויות בסיסי
+            ent_ranges: List[Tuple[str, int, int]] = []
+            for ent in entities or []:
+                try:
+                    etype = getattr(ent, "type", "") or ""
+                    offset = int(getattr(ent, "offset", 0) or 0)
+                    ent_len = int(getattr(ent, "length", 0) or 0)
+                    # חשב טווח מקורי
+                    start_raw = offset
+                    end_raw = offset + ent_len
+                    # קלמפינג ראשוני
+                    start = max(0, min(length, start_raw))
+                    end = max(0, min(length, end_raw))
+                    # אם offset שלילי גרם לכך ש-end==start, הרחב לפי האורך המבוקש
+                    if start_raw < 0 and ent_len > 0 and end <= start:
+                        end = min(length, start + ent_len)
+                except Exception:
+                    continue
+
+                # התעלם מ-entities ריקים/מחוץ לתחום לאחר קלמפינג
+                if end <= start:
+                    continue
+
+                ent_ranges.append((etype, start, end))
+
+            # זיהוי חפיפה מלאה בין bold ו-italic על אותו טווח
+            bold_set = {(s, e) for t, s, e in ent_ranges if t == "bold"}
+            italic_set = {(s, e) for t, s, e in ent_ranges if t == "italic"}
+            both_set = bold_set.intersection(italic_set)
+
+            for etype, start, end in ent_ranges:
+                if (start, end) in both_set:
+                    # פתיחה/סגירה משולשת פעם אחת בלבד
+                    if opens[start][-1:] != ["___"]:
+                        opens[start].append("___")
+                    if closes[end][:1] != ["___"]:
+                        closes[end].insert(0, "___")
+                    continue
+
+                if etype == "bold":
+                    opens[start].append("__")
+                    closes[end].insert(0, "__")
+                elif etype == "italic":
+                    opens[start].append("_")
+                    closes[end].insert(0, "_")
+                else:
+                    # ישויות אחרות אינן משוחזרות כסימני Markdown
+                    continue
+
+            out_parts = []
+            for i, ch in enumerate(base):
+                # הוסף סגירות שמסתיימות לפני התו
+                if closes.get(i):
+                    out_parts.extend(closes[i])
+                # הוסף פתיחות שמתחילות לפני התו
+                if opens.get(i):
+                    out_parts.extend(opens[i])
+                out_parts.append(ch)
+
+            # סגירות בסוף הטקסט
+            if closes.get(length):
+                out_parts.extend(closes[length])
+
+            return "".join(out_parts)
+        except Exception:
+            return base
 
 class CallbackQueryGuard:
     """Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
@@ -1105,10 +1257,13 @@ def normalize_code(text: str,
                    strip_bom: bool = True,
                    normalize_newlines: bool = True,
                    replace_nbsp: bool = True,
+                   replace_all_space_separators: bool = True,
                    remove_zero_width: bool = True,
                    remove_directional_marks: bool = True,
                    trim_trailing_whitespace: bool = True,
-                   remove_other_format_chars: bool = False) -> str:
+                   remove_other_format_chars: bool = True,
+                   remove_escaped_format_escapes: bool = True,
+                   remove_variation_selectors: bool = False) -> str:
     """נרמול קוד לפני שמירה.
 
     פעולות עיקריות:
@@ -1126,6 +1281,61 @@ def normalize_code(text: str,
 
         out = text
 
+        # Handle sequences like "\u200B" that represent hidden/format chars literally
+        # We do NOT decode arbitrary escapes; only strip escapes that would decode to Cf/hidden sets
+        if remove_escaped_format_escapes and ("\\u" in out or "\\U" in out):
+            try:
+                import re as _re
+                # Known hidden/format codepoints we target explicitly
+                known_hex4 = {
+                    "200B", "200C", "200D", "2060", "FEFF",  # zero-width set
+                    "200E", "200F", "202A", "202B", "202C", "202D", "202E",  # directional
+                    "2066", "2067", "2068", "2069",  # directional isolates
+                }
+
+                def _strip_if_hidden(m: 're.Match[str]') -> str:
+                    hexcode = m.group(1).upper()
+                    # Quick allowlist: only remove if in known set or Unicode category Cf
+                    if hexcode in known_hex4:
+                        return ""
+                    try:
+                        ch = chr(int(hexcode, 16))
+                        cat = unicodedata.category(ch)
+                        if cat == 'Cf':
+                            return ""
+                        # Remove Unicode Variation Selectors (U+FE00..U+FE0F)
+                        if remove_variation_selectors:
+                            v = int(hexcode, 16)
+                            if 0xFE00 <= v <= 0xFE0F:
+                                return ""
+                    except Exception:
+                        pass
+                    return m.group(0)  # keep original escape
+
+                # Replace \uXXXX sequences
+                out = _re.sub(r"\\u([0-9a-fA-F]{4})", _strip_if_hidden, out)
+
+                # Replace \UXXXXXXXX sequences (rare for these marks, but safe)
+                def _strip_if_hidden_u8(m: 're.Match[str]') -> str:
+                    hexcode = m.group(1).upper()
+                    try:
+                        ch = chr(int(hexcode, 16))
+                        if unicodedata.category(ch) == 'Cf':
+                            return ""
+                        # Remove Ideographic Variation Selectors (U+E0100..U+E01EF)
+                        if remove_variation_selectors:
+                            v = int(hexcode, 16)
+                            if 0xE0100 <= v <= 0xE01EF:
+                                return ""
+                    except Exception:
+                        pass
+                    return m.group(0)
+
+                out = _re.sub(r"\\U([0-9a-fA-F]{8})", _strip_if_hidden_u8, out)
+            except Exception:
+                # Best-effort: ignore on failure
+                pass
+
         # Strip BOM at start
         if strip_bom and out.startswith("\ufeff"):
             out = out.lstrip("\ufeff")
@@ -1137,6 +1347,14 @@ def normalize_code(text: str,
         # Replace non-breaking spaces with regular space
         if replace_nbsp:
             out = out.replace("\u00A0", " ").replace("\u202F", " ")
+
+        # Replace all Unicode space separators (Zs) with regular ASCII space
+        if replace_all_space_separators:
+            try:
+                out = "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in out)
+            except Exception:
+                # If classification fails, skip Zs replacement and keep current text
+                pass
 
         # Remove zero-width and directional formatting characters
         if remove_zero_width or remove_directional_marks:
@@ -1170,6 +1388,12 @@ def normalize_code(text: str,
                     return False
                 if remove_directional_marks and ch in directional:
                     return False
+                # Remove Variation Selectors if requested
+                if remove_variation_selectors:
+                    cp = ord(ch)
+                    # VS1..VS16 (U+FE00..U+FE0F) and Ideographic VS (U+E0100..U+E01EF)
+                    if (0xFE00 <= cp <= 0xFE0F) or (0xE0100 <= cp <= 0xE01EF):
+                        return False
                 # Drop other control chars (Cc), keep others
                 cat = unicodedata.category(ch)
                 if cat == 'Cc' and ch not in ("\t", "\n", "\r"):

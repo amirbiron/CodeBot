@@ -1,0 +1,88 @@
+{
+  "url": "https://api.github.com/gists/b25cae6b3f413f0385396dca8b9a0378",
+  "forks_url": "https://api.github.com/gists/b25cae6b3f413f0385396dca8b9a0378/forks",
+  "commits_url": "https://api.github.com/gists/b25cae6b3f413f0385396dca8b9a0378/commits",
+  "id": "b25cae6b3f413f0385396dca8b9a0378",
+  "node_id": "G_kwDODNevjNoAIGIyNWNhZTZiM2Y0MTNmMDM4NTM5NmRjYThiOWEwMzc4",
+  "git_pull_url": "https://gist.github.com/b25cae6b3f413f0385396dca8b9a0378.git",
+  "git_push_url": "https://gist.github.com/b25cae6b3f413f0385396dca8b9a0378.git",
+  "html_url": "https://gist.github.com/amirbiron/b25cae6b3f413f0385396dca8b9a0378",
+  "files": {
+    "5.css": {
+      "filename": "5.css",
+      "type": "text/css",
+      "language": "CSS",
+      "raw_url": "https://gist.githubusercontent.com/amirbiron/b25cae6b3f413f0385396dca8b9a0378/raw/b4a23c722f6c30c00eac980dcbef83718d7eb646/5.css",
+      "size": 9690,
+      "truncated": false,
+      "content": "/**\n * Bookmarks System Styles\n * עיצוב מערכת הסימניות\n */\n\n:root {\n    --bookmark-yellow: #ffd700;\n    --bookmark-red: #ff6b6b;\n    --bookmark-green: #51cf66;\n    --bookmark-blue: #4dabf7;\n    --bookmark-purple: #9775fa;\n    --bookmark-orange: #ffa94d;\n    --panel-bg: #ffffff;\n    --panel-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);\n    --hover-bg: #f8f9fa;\n    --border-color: #dee2e6;\n    --text-primary: #212529;\n    --text-secondary: #6c757d;\n    --success-color: #28a745;\n    --error-color: #dc3545;\n    --warning-color: #ffc107;\n    --info-color: #17a2b8;\n}\n\n/* Dark theme support */\n@media (prefers-color-scheme: dark) {\n    :root {\n        --panel-bg: #2d3436;\n        --hover-bg: #34495e;\n        --border-color: #4a5568;\n        --text-primary: #ecf0f1;\n        --text-secondary: #95a5a6;\n    }\n}\n\n/* ==================== Bookmark Indicators ==================== */\n\n.linenos span.bookmarked,\n.linenodiv a.bookmarked {\n    position: relative;\n    background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);\n    font-weight: bold;\n}\n\n.bookmark-icon {\n    position: absolute;\n    right: -20px;\n    font-size: 12px;\n    animation: fadeIn 0.3s ease;\n}\n\n.linenos span.loading,\n.linenodiv a.loading {\n    opacity: 0.5;\n    cursor: wait;\n}\n\n.linenos span:hover,\n.linenodiv a:hover {\n    cursor: pointer;\n    background-color: rgba(255, 215, 0, 0.1);\n    transition: background-color 0.2s ease;\n}\n\n/* Line highlighting */\n.line-highlighted {\n    background-color: rgba(255, 215, 0, 0.3) !important;\n    animation: pulse 2s ease;\n}\n\n@keyframes pulse {\n    0%, 100% { background-color: rgba(255, 215, 0, 0.3); }\n    50% { background-color: rgba(255, 215, 0, 0.5); }\n}\n\n/* ==================== Toggle Button ==================== */\n\n.bookmarks-toggle-btn {\n    position: fixed;\n    top: 100px;\n    right: 20px;\n    z-index: 1000;\n    background: var(--panel-bg);\n    border: 2px solid var(--bookmark-yellow);\n    border-radius: 50%;\n    width: 50px;\n    height: 50px;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    cursor: pointer;\n    box-shadow: var(--panel-shadow);\n    transition: all 0.3s ease;\n}\n\n.bookmarks-toggle-btn:hover {\n    transform: scale(1.1);\n    box-shadow: 0 6px 25px rgba(255, 215, 0, 0.4);\n}\n\n.bookmarks-toggle-btn:active {\n    transform: scale(0.95);\n}\n\n.bookmark-count {\n    position: absolute;\n    top: -5px;\n    right: -5px;\n    background: var(--error-color);\n    color: white;\n    border-radius: 50%;\n    width: 20px;\n    height: 20px;\n    font-size: 11px;\n    font-weight: bold;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    animation: fadeIn 0.3s ease;\n}\n\n/* ==================== Bookmarks Panel ==================== */\n\n.bookmarks-panel {\n    position: fixed;\n    top: 0;\n    right: -400px;\n    width: 400px;\n    height: 100vh;\n    background: var(--panel-bg);\n    box-shadow: var(--panel-shadow);\n    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);\n    z-index: 999;\n    display: flex;\n    flex-direction: column;\n}\n\n.bookmarks-panel.open {\n    right: 0;\n}\n\n.bookmarks-panel-header {\n    padding: 20px;\n    border-bottom: 1px solid var(--border-color);\n    background: linear-gradient(135deg, var(--bookmark-yellow), var(--bookmark-orange));\n    color: var(--text-primary);\n}\n\n.bookmarks-panel-header h2 {\n    margin: 0;\n    font-size: 20px;\n    font-weight: bold;\n    display: flex;\n    align-items: center;\n    gap: 10px;\n}\n\n.bookmarks-panel-actions {\n    display: flex;\n    gap: 10px;\n    margin-top: 10px;\n}\n\n.bookmarks-panel-actions button {\n    padding: 5px 10px;\n    border: none;\n    border-radius: 4px;\n    background: rgba(255, 255, 255, 0.9);\n    color: var(--text-primary);\n    cursor: pointer;\n    font-size: 12px;\n    transition: all 0.2s ease;\n}\n\n.bookmarks-panel-actions button:hover {\n    background: white;\n    transform: translateY(-1px);\n    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);\n}\n\n/* ==================== Bookmarks List ==================== */\n\n.bookmarks-list {\n    flex: 1;\n    overflow-y: auto;\n    padding: 10px;\n}\n\n.bookmark-item {\n    background: var(--panel-bg);\n    border: 1px solid var(--border-color);\n    border-radius: 8px;\n    padding: 12px;\n    margin-bottom: 10px;\n    cursor: pointer;\n    transition: all 0.2s ease;\n    display: flex;\n    justify-content: space-between;\n    align-items: start;\n}\n\n.bookmark-item:hover {\n    background: var(--hover-bg);\n    transform: translateX(-5px);\n    box-shadow: 0 2px 10px rgba(255, 215, 0, 0.2);\n}\n\n.bookmark-content {\n    flex: 1;\n    display: flex;\n    flex-direction: column;\n    gap: 5px;\n}\n\n.bookmark-item .line-number {\n    font-weight: bold;\n    color: var(--bookmark-yellow);\n    font-size: 12px;\n}\n\n.bookmark-item .line-preview {\n    color: var(--text-primary);\n    font-family: 'Courier New', monospace;\n    font-size: 13px;\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.bookmark-item .bookmark-note {\n    color: var(--text-secondary);\n    font-size: 12px;\n    font-style: italic;\n    margin-top: 5px;\n    padding: 5px;\n    background: rgba(255, 215, 0, 0.1);\n    border-radius: 4px;\n}\n\n.bookmark-actions {\n    display: flex;\n    gap: 5px;\n    opacity: 0;\n    transition: opacity 0.2s ease;\n}\n\n.bookmark-item:hover .bookmark-actions {\n    opacity: 1;\n}\n\n.bookmark-actions button {\n    background: transparent;\n    border: none;\n    cursor: pointer;\n    font-size: 16px;\n    padding: 2px;\n    transition: transform 0.2s ease;\n}\n\n.bookmark-actions button:hover {\n    transform: scale(1.2);\n}\n\n/* ==================== Empty State ==================== */\n\n.empty-state {\n    text-align: center;\n    padding: 40px 20px;\n    color: var(--text-secondary);\n}\n\n.empty-state p:first-child {\n    font-size: 16px;\n    font-weight: bold;\n    margin-bottom: 10px;\n}\n\n.empty-state p:last-child {\n    font-size: 14px;\n}\n\n/* ==================== Notifications ==================== */\n\n.notification-container {\n    position: fixed;\n    top: 20px;\n    right: 20px;\n    z-index: 10000;\n    display: flex;\n    flex-direction: column;\n    gap: 10px;\n}\n\n.notification {\n    background: white;\n    border-radius: 8px;\n    padding: 12px 20px;\n    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);\n    display: flex;\n    align-items: center;\n    gap: 10px;\n    min-width: 250px;\n    transform: translateX(400px);\n    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);\n}\n\n.notification.show {\n    transform: translateX(0);\n}\n\n.notification-icon {\n    font-size: 18px;\n    font-weight: bold;\n}\n\n.notification-message {\n    flex: 1;\n    font-size: 14px;\n}\n\n.notification-success {\n    border-left: 4px solid var(--success-color);\n}\n\n.notification-success .notification-icon {\n    color: var(--success-color);\n}\n\n.notification-error {\n    border-left: 4px solid var(--error-color);\n}\n\n.notification-error .notification-icon {\n    color: var(--error-color);\n}\n\n.notification-warning {\n    border-left: 4px solid var(--warning-color);\n}\n\n.notification-warning .notification-icon {\n    color: var(--warning-color);\n}\n\n.notification-info {\n    border-left: 4px solid var(--info-color);\n}\n\n.notification-info .notification-icon {\n    color: var(--info-color);\n}\n\n/* ==================== Tooltip ==================== */\n\n.bookmark-tooltip {\n    position: absolute;\n    background: rgba(0, 0, 0, 0.8);\n    color: white;\n    padding: 5px 10px;\n    border-radius: 4px;\n    font-size: 12px;\n    z-index: 10000;\n    display: none;\n    max-width: 300px;\n    word-wrap: break-word;\n}\n\n/* ==================== Accessibility ==================== */\n\n.sr-only {\n    position: absolute;\n    width: 1px;\n    height: 1px;\n    padding: 0;\n    margin: -1px;\n    overflow: hidden;\n    clip: rect(0, 0, 0, 0);\n    white-space: nowrap;\n    border-width: 0;\n}\n\n/* Focus indicators */\n.bookmarks-toggle-btn:focus,\n.bookmark-item:focus,\n.bookmark-actions button:focus {\n    outline: 3px solid var(--bookmark-blue);\n    outline-offset: 2px;\n}\n\n/* High contrast mode support */\n@media (prefers-contrast: high) {\n    .bookmark-item {\n        border: 2px solid currentColor;\n    }\n    \n    .bookmarks-toggle-btn {\n        border-width: 3px;\n    }\n}\n\n/* Reduced motion support */\n@media (prefers-reduced-motion: reduce) {\n    * {\n        animation-duration: 0.01ms !important;\n        transition-duration: 0.01ms !important;\n    }\n}\n\n/* ==================== Mobile Responsive ==================== */\n\n@media (max-width: 768px) {\n    .bookmarks-panel {\n        width: 100%;\n        right: -100%;\n    }\n    \n    .bookmarks-toggle-btn {\n        width: 45px;\n        height: 45px;\n        top: auto;\n        bottom: 20px;\n    }\n    \n    .notification-container {\n        left: 10px;\n        right: 10px;\n    }\n    \n    .notification {\n        min-width: auto;\n        width: 100%;\n    }\n}\n\n@media (max-width: 480px) {\n    .bookmarks-panel-header h2 {\n        font-size: 18px;\n    }\n    \n    .bookmark-item {\n        padding: 10px;\n    }\n    \n    .bookmark-item .line-preview {\n        font-size: 12px;\n    }\n}\n\n/* ==================== Animations ==================== */\n\n@keyframes fadeIn {\n    from {\n        opacity: 0;\n        transform: scale(0.8);\n    }\n    to {\n        opacity: 1;\n        transform: scale(1);\n    }\n}\n\n@keyframes slideInRight {\n    from {\n        transform: translateX(100%);\n    }\n    to {\n        transform: translateX(0);\n    }\n}\n\n/* ==================== Print Styles ==================== */\n\n@media print {\n    .bookmarks-toggle-btn,\n    .bookmarks-panel,\n    .notification-container,\n    .bookmark-tooltip {\n        display: none !important;\n    }\n    \n    .bookmarked {\n        background: none !important;\n        border-left: 3px solid black !important;\n    }\n}",
+      "encoding": "utf-8"
+    }
+  },
+  "public": true,
+  "created_at": "2025-10-09T14:00:52Z",
+  "updated_at": "2025-10-09T14:00:52Z",
+  "description": "webapp/static/css/bookmarks.css",
+  "comments": 0,
+  "user": null,
+  "comments_enabled": true,
+  "comments_url": "https://api.github.com/gists/b25cae6b3f413f0385396dca8b9a0378/comments",
+  "owner": {
+    "login": "amirbiron",
+    "id": 215461772,
+    "node_id": "U_kgDODNevjA",
+    "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/amirbiron",
+    "html_url": "https://github.com/amirbiron",
+    "followers_url": "https://api.github.com/users/amirbiron/followers",
+    "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+    "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+    "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+    "repos_url": "https://api.github.com/users/amirbiron/repos",
+    "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "forks": [
+
+  ],
+  "history": [
+    {
+      "user": {
+        "login": "amirbiron",
+        "id": 215461772,
+        "node_id": "U_kgDODNevjA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/amirbiron",
+        "html_url": "https://github.com/amirbiron",
+        "followers_url": "https://api.github.com/users/amirbiron/followers",
+        "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+        "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+        "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+        "repos_url": "https://api.github.com/users/amirbiron/repos",
+        "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "version": "5320bc801a85a410378f093eae65b354340880a3",
+      "committed_at": "2025-10-09T14:00:51Z",
+      "change_status": {
+        "total": 485,
+        "additions": 485,
+        "deletions": 0
+      },
+      "url": "https://api.github.com/gists/b25cae6b3f413f0385396dca8b9a0378/5320bc801a85a410378f093eae65b354340880a3"
+    }
+  ],
+  "truncated": false
+}

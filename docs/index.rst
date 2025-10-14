@@ -10,20 +10,55 @@ Code Keeper Bot - תיעוד API
 
 .. toctree::
    :maxdepth: 2
-   :caption: תוכן עניינים:
+   :caption: למפתחים ולסוכני AI:
+
+   quickstart-ai
+   quickstart
+   ai-guidelines
+   architecture
+   contributing
+
+.. toctree::
+   :maxdepth: 2
+   :caption: מדריכים בסיסיים:
 
    installation
    configuration
+   environment-variables
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference:
+
    api/index
    modules/index
    handlers/index
    services/index
    database/index
+   database-schema
+
+.. toctree::
+   :maxdepth: 2
+   :caption: עזרה ודוגמאות:
+
    examples
+   testing
+   ci-cd
+   conversation-handlers
+   troubleshooting
+   development
+   integrations
+   security
    user/share_code
    user/github_browse
    user/download_repo
+
+.. toctree::
+   :maxdepth: 2
+   :caption: WebApp:
+
    webapp/overview
+   webapp/api-reference
 
 סקירה כללית
 ------------

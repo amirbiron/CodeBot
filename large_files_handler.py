@@ -16,7 +16,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from database import LargeFile, db
-from utils import detect_language_from_filename, get_language_emoji
+from utils import detect_language_from_filename, get_language_emoji, TextUtils
 
 logger = logging.getLogger(__name__)
 
@@ -208,22 +208,24 @@ class LargeFilesHandler:
         
         # בדיקה אם הקובץ קטן מספיק להצגה בצ'אט
         if len(content) <= self.preview_max_chars:
-            # הצגה ישירה בצ'אט
-            # עטיפת תוכן בבלוק קוד; נבריח backticks בתוך התוכן כדי לא לשבור Markdown
+            # הצגה ישירה עם Markdown ובלוק קוד; נבריח backticks כדי למנוע שבירה
             safe_content = str(content).replace('```', '\\`\\`\\`')
             formatted_content = f"```{language}\n{safe_content}\n```"
-            
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+            # בריחת שם הקובץ ל-Markdown כדי למנוע BadRequest על _ [] וכד'.
+            try:
+                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
+            except Exception:
+                safe_file_name = str(file_name).replace('`', '\\`')
+            # נסה Markdown; אם נכשל, שלח ללא parse_mode
             try:
                 await query.edit_message_text(
-                    f"📄 **{file_name}**\n\n{formatted_content}",
+                    f"📄 **{safe_file_name}**\n\n{formatted_content}",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
-            except Exception as e:
-                # אם יש בעיה עם Markdown, ננסה בלי
+            except Exception:
                 await query.edit_message_text(
                     f"📄 {file_name}\n\n{content}",
                     reply_markup=reply_markup
@@ -231,20 +233,22 @@ class LargeFilesHandler:
         else:
             # הקובץ גדול מדי - נציג תצוגה מקדימה ונשלח כקובץ
             preview = content[:self.preview_max_chars] + "\n\n... [המשך הקובץ נשלח כקובץ מצורף]"
-            safe_preview = str(preview).replace('```', '\\`\\`\\`')
-            formatted_preview = f"```{language}\n{safe_preview}\n```"
-            
             keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # שליחת תצוגה מקדימה
+            # שליחת תצוגה מקדימה עם Markdown ובלוק קוד; נבריח backticks
+            safe_preview = str(preview).replace('```', '\\`\\`\\`')
+            formatted_preview = f"```{language}\n{safe_preview}\n```"
+            try:
+                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
+            except Exception:
+                safe_file_name = str(file_name).replace('`', '\\`')
             try:
                 await query.edit_message_text(
-                    f"📄 **{file_name}** (תצוגה מקדימה)\n\n{formatted_preview}",
+                    f"📄 **{safe_file_name}** (תצוגה מקדימה)\n\n{formatted_preview}",
                     reply_markup=reply_markup,
                     parse_mode='Markdown'
                 )
-            except:
+            except Exception:
                 await query.edit_message_text(
                     f"📄 {file_name} (תצוגה מקדימה)\n\n{preview}",
                     reply_markup=reply_markup
@@ -308,7 +312,7 @@ class LargeFilesHandler:
         
         keyboard = [
             [
-                InlineKeyboardButton("✅ כן, מחק", callback_data=f"lf_confirm_delete_{file_index}"),
+                InlineKeyboardButton("✅ כן, העבר לסל מיחזור", callback_data=f"lf_confirm_delete_{file_index}"),
                 InlineKeyboardButton("❌ ביטול", callback_data=f"large_file_{file_index}")
             ]
         ]
@@ -317,9 +321,9 @@ class LargeFilesHandler:
         
         await query.edit_message_text(
             f"⚠️ **אזהרה**\n\n"
-            f"האם אתה בטוח שברצונך למחוק את הקובץ:\n"
+            f"האם להעביר את הקובץ לסל המיחזור:\n"
             f"📄 `{file_name}`?\n\n"
-            f"⚡ הפעולה לא ניתנת לביטול!",
+            f"♻️ ניתן לשחזר מתוך סל המיחזור עד פקיעת התוקף",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -357,8 +361,9 @@ class LargeFilesHandler:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await query.edit_message_text(
-                f"✅ **הקובץ נמחק בהצלחה!**\n\n"
-                f"📄 קובץ שנמחק: `{file_name}`",
+                f"✅ **הקובץ הועבר לסל המיחזור!**\n\n"
+                f"📄 קובץ: `{file_name}`\n"
+                f"♻️ ניתן לשחזר אותו מתפריט '🗑️ סל מיחזור' עד למחיקה אוטומטית",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )

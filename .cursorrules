@@ -1,5 +1,7 @@
 # Android & AI Style Rules
 
+> מתי להשתמש: בכל שינוי/PR – כללי סגנון ותשובות. ראו גם: Commit/PR.
+
 ## כללי כתיבה
 
 - תחשוב ותענה תמיד בעברית
@@ -10,6 +12,8 @@
 ---
 
 # הימנעות ממחיקות קבצים בטסטים ובסקריפטים
+
+> מתי להשתמש: טסטים/סקריפטים שנוגעים לקבצים/ניקוי. ראו גם: CI / Required Checks, מעטפת Bash למחיקה בטוחה.
 
 ## 1. עבדו רק על תיקיות זמניות
 
@@ -32,7 +36,7 @@
 - אל תמחקו נתיבים מסוכנים: '/', '.', ספריית הפרויקט
 
 ## דוגמת Python למחיקה בטוחה
-
+```python
 from pathlib import Path
 import shutil
 
@@ -42,6 +46,7 @@ def safe_rmtree(path: Path, allow_under: Path) -> None:
     if not str(p).startswith(str(base)) or p in (Path('/'), base.parent, Path.cwd()):
         raise RuntimeError(f"Refusing to delete unsafe path: {p}")
     shutil.rmtree(p)
+```
 ## 5. הימנעו משינוי cwd
 
 - אם חייבים, שמרו/שחזרו cwd, והשתמשו בנתיבים מוחלטים למחיקה
@@ -63,7 +68,9 @@ def safe_rmtree(path: Path, allow_under: Path) -> None:
 
 ## בדיקת קוד לאיתור מחיקות לא בטוחות
 
+```bash
 rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
+```
 ## שחזור לאחר מחיקה בטעות
 
 - אל תבצעו merge/PR כדי לא לדרוס היסטוריה
@@ -74,10 +81,14 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 # קישור לתיעוד והקשר
 
+> מתי להשתמש: בכל PR/מסמך – מדיניות וקישורים רלוונטיים.
+
 - קראו והסתמכו על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
 - קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד.
 
 # כללי שימוש ב-AI/CodeBot
+
+> מתי להשתמש: בכל שימוש ב‑AI/אוטומציה בקוד וב‑PRים.
 
 - כל שינוי שמוצע ע״י AI עובר code review אנושי לפני merge.
 - אין להזין סודות, מפתחות או PII לפרומפטים או קבצי הקשר.
@@ -85,6 +96,8 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - תעדו ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו.
 
 # Android/Kotlin/Compose
+
+> מתי להשתמש: בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים. ראו גם: CI / Required Checks.
 
 - Kotlin: העדיפו val על var, אי-שינוי, data/sealed classes, Null-safety ברורה.
 - Concurrency: Coroutines עם Structured Concurrency, שימוש ב-viewModelScope/CoroutineScope נכון.
@@ -94,22 +107,43 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 # Commit/PR
 
+> מתי להשתמש: כשכותבים קומיטים או פותחים Pull Request. ראו גם: CI / Required Checks, קישור לתיעוד והקשר.
+- שמות ענפים: fix/..., chore/..., feat/...
 - Conventional Commits (feat/fix/chore/docs/refactor/test/build).
+- תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
+- יש למלא PR לפי התבנית שב-`.github/pull_request_template.md` (כולל Docs Preview, בדיקות, צ'קליסט ו-Rollback).
+- בתיאור ה‑PR יש לציין מפורשות האם עיינתם ב־[CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/).
 - לפני merge: תיאור ברור, תוכנית בדיקות, סיכוני Rollback, עדכון docs.
 - UI: צרפו צילום/וידאו תוצאות אם רלוונטי.
 
-# CI Gates
+הערה: טבלת דוגמאות ל־Conventional Commits והצ'קליסט לפני merge נשמרים בתבנית ה‑PR (`.github/pull_request_template.md`).
+
+
+
+# CI / Required Checks
+
+> מתי להשתמש: לפני merge ובבדיקת סטטוסי CI. ראו גם: הימנעות ממחיקות קבצים בטסטים ובסקריפטים.
 
 - חובת מעבר: ./gradlew test detekt ktlintCheck ירוק.
 - אין להריץ git clean/reset על ה-workspace; עבודה רק על תיקיות זמניות.
 - טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט.
+- ה‑PR חייב להציג בדיוק את הסטטוסים הבאים:
+  - "🔍 Code Quality & Security"
+  - "🧪 Unit Tests (3.11)"
+  - "🧪 Unit Tests (3.12)"
+- אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
+- לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
 
 # סודות ולוגים
+
+> מתי להשתמש: בעת לוגים/קונפיג/אינטגרציות – מניעת דליפת מידע רגיש.
 
 - אין לשמור סודות בקוד או בלוגים; שימוש ב-ENV/Secret Manager.
 - אל תרשמו PII; בצעו השחרה (redaction) לערכים רגישים בלוגים.
 
 # מעטפת Bash למחיקה בטוחה
+
+> מתי להשתמש: כשכותבים סקריפטי Bash שמבצעים מחיקות/ניקוי.
 
 ```bash
 set -euo pipefail
@@ -127,53 +161,49 @@ safe_rmrf() {
 ```
 
 # Sphinx/RTD (תיעוד)
+
+> מתי להשתמש: בעת בנייה/עדכון תיעוד Sphinx/RTD.
 - אין להריץ קוד בטופ־לבל בזמן build (importים חייבים להיות בטוחים).
 - RTD נחשב נכשל על אזהרות (fail_on_warning: true) – לשמור 0 warnings.
 - להשתמש ב-:noindex: בעמודי סקירה חופפים: api, database, handlers, services, configuration.
 - להגדיר autodoc_mock_imports: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations.
 - docs/examples.rst מוחרג עד שהעמוד יתווסף ל-toctree (ואז להסיר מה-exclude).
 
-# CI / Required Checks
-- ה־PR חייב להציג בדיוק את הסטטוסים הבאים:
-  - "🔍 Code Quality & Security"
-  - "🧪 Unit Tests (3.11)"
-  - "🧪 Unit Tests (3.12)"
-- אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
-- לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
+ 
 
 # Telegram Bot – מניעת "Message is not modified"
+
+> מתי להשתמש: בפיתוח/תחזוקת בוט Telegram בעת עריכת הודעות.
 - כשנערכת רק המקלדת: להשתמש ב-safe_edit_message_reply_markup (אותו טיפול חריגים).
 - תמיד לקרוא query.answer() לפני עריכה.
 - לעטוף edit_message_text / edit_message_reply_markup ב-wrapper שמתעלם מהשגיאה הזו בלבד:
 - לא משתיקים BadRequest אחרים; רק המקרה "message is not modified" נבלם.
+```python
+import telegram.error
 
-    ```python
-    import telegram.error
-
-    async def safe_edit(query, text, reply_markup=None, parse_mode=None):
-        try:
-            await query.edit_message_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-        except telegram.error.BadRequest as e:
-            if "message is not modified" in str(e).lower():
-                return
-            raise
-    ```
+async def safe_edit(query, text, reply_markup=None, parse_mode=None):
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except telegram.error.BadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return
+        raise
+```
 
 # GitHub – "📥 הורד קובץ מריפו"
+
+> מתי להשתמש: בפלואו הורדת קבצים מהריפו – התנהגות UI בטוחה.
 - בכניסה לפלואו: browse_action=download, לאפס multi_mode/safe_delete.
 - במצב הורדה לא מציגים כפתורי מחיקה או מצב מחיקה.
 - חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש).
 
-# PR/תיעוד שינויים
-- שמות ענפים: fix/..., chore/..., feat/...
-- תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
- - יש למלא PR לפי התבנית שב-`.github/pull_request_template.md` (כולל Docs Preview, בדיקות, צ'קליסט ו-Rollback).
- 
 # Gists/קישורים חיצוניים בהנחיות משתמש
+
+> מתי להשתמש: כשהמשתמש מצרף Gist/קישור בבקשה הנדסית.
 - בכל פעם שהמשתמש מצרף Gist/קישור קוד: לעיין בתוכן לפני מימוש.
 - יש ליישם בהתאם לרוח ההצעה; מותר לסטות בפרטים אם יש שיקולי אבטחה/פשטות, אבל לציין זאת.
 - אם יש פער: להציע התאמה או לשאול במידת הצורך.

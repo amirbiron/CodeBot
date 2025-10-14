@@ -25,14 +25,23 @@ from config import config
 from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
 from activity_reporter import create_reporter
+import json
 
 logger = logging.getLogger(__name__)
 
-reporter = create_reporter(
-    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-    service_id="srv-d29d72adbo4c73bcuep0",
-    service_name="CodeBot"
-)
+import os as _os
+_DISABLE_REPORTER = bool(int((_os.getenv("DISABLE_ACTIVITY_REPORTER", "0") or "0").strip() or 0))
+if _DISABLE_REPORTER:
+    class _NoopReporter:
+        def report_activity(self, user_id):
+            return None
+    reporter = _NoopReporter()
+else:
+    reporter = create_reporter(
+        mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+        service_id="srv-d29d72adbo4c73bcuep0",
+        service_name="CodeBot"
+    )
 
 class AdvancedBotHandlers:
     """פקודות מתקדמות של הבוט"""
@@ -50,6 +59,10 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("delete", self.delete_command))
         # self.application.add_handler(CommandHandler("rename", self.rename_command))
         # self.application.add_handler(CommandHandler("copy", self.copy_command))
+        # מועדפים
+        self.application.add_handler(CommandHandler("favorite", self.favorite_command))
+        self.application.add_handler(CommandHandler("fav", self.favorite_command))  # קיצור דרך
+        self.application.add_handler(CommandHandler("favorites", self.favorites_command))
         
         # פקודות גרסאות
         self.application.add_handler(CommandHandler("versions", self.versions_command))
@@ -73,16 +86,37 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         self.application.add_handler(CommandHandler("info", self.info_command))
         self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        # חיפוש
+        self.application.add_handler(CommandHandler("search", self.search_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        # Handler ממוקד עם קדימות גבוהה לכפתורי /share
+        # חשוב: הוספה בקבוצה מאוחרת, כדי לתת עדיפות ל-handlers ספציפיים (למשל מועדפים)
         try:
-            share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
-            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern), group=-5)
-        except Exception:
-            pass
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query), group=5)
+        except TypeError:
+            # סביבת בדיקות עם add_handler ללא פרמטר group
+            self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+        # Handler מוקדם וממוקד לטוגל מועדפים כדי להבטיח קליטה מיידית
+        toggle_pattern = r'^(fav_toggle_id:|fav_toggle_tok:)'
+        toggle_handler = CallbackQueryHandler(self.handle_callback_query, pattern=toggle_pattern)
+        try:
+            self.application.add_handler(toggle_handler, group=-5)
+        except TypeError:
+            self.application.add_handler(toggle_handler)
+        except Exception as e:
+            logger.error(f"Failed to register favorites toggle CallbackQueryHandler: {e}")
+        # Handler ממוקד עם קדימות גבוהה לכפתורי /share
+        share_pattern = r'^(share_gist_|share_pastebin_|share_internal_|share_gist_multi:|share_internal_multi:|cancel_share)'
+        share_handler = CallbackQueryHandler(self.handle_callback_query, pattern=share_pattern)
+        try:
+            self.application.add_handler(share_handler, group=-5)
+        except TypeError:
+            # סביבת בדיקות/סטאב שבה add_handler לא תומך בפרמטר group
+            self.application.add_handler(share_handler)
+        except Exception as e:
+            # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
+            logger.error(f"Failed to register share CallbackQueryHandler: {e}")
     
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
@@ -110,10 +144,9 @@ class AdvancedBotHandlers:
         # קבל את הקוד המקורי (הפונקציה highlight_code תחזיר אותו כפי שהוא)
         original_code = code_processor.highlight_code(
             file_data['code'],
-            file_data['programming_language'],
-            'html'
+            file_data['programming_language']
         )
-
+        
         # בצע הימלטות לתוכן הקוד כדי למנוע שגיאות
         escaped_code = html.escape(original_code)
 
@@ -126,6 +159,41 @@ class AdvancedBotHandlers:
         
         # --- מבנה הכפתורים החדש והנקי ---
         file_id = str(file_data.get('_id', file_name))
+        # כפתור מועדפים בהתאם למצב הנוכחי
+        try:
+            is_fav_now = bool(db.is_favorite(user_id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        # הקפדה על מגבלת 64 בתים ב-callback_data + הימנעות מתווים בעייתיים
+        # העדפה ל-ID אם קיים; אחרת טוקן קצר עם מיפוי ב-user_data
+        has_id = True
+        try:
+            _raw_id = file_data.get('_id')
+            if _raw_id is None:
+                has_id = False
+            else:
+                file_id_str = str(_raw_id)
+        except Exception:
+            has_id = False
+            file_id_str = ""
+        if has_id and (len("fav_toggle_id:") + len(file_id_str)) <= 60:
+            fav_cb = f"fav_toggle_id:{file_id_str}"
+        else:
+            try:
+                token = secrets.token_urlsafe(6)
+            except Exception:
+                token = "t"  # fallback קצר
+            # קיצור טוקן לשימוש ב-callback_data ושמירת המיפוי תחת המפתח המקוצר
+            short_tok = (token[:24] if isinstance(token, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+
         buttons = [
             [
                 InlineKeyboardButton("🗑️ מחיקה", callback_data=f"delete_{file_id}"),
@@ -137,12 +205,153 @@ class AdvancedBotHandlers:
             ],
             [
                 InlineKeyboardButton("🌐 שיתוף", callback_data=f"share_{file_id}")
+            ],
+            [
+                InlineKeyboardButton(fav_text, callback_data=fav_cb)
             ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
         # ---------------------------------
         
         await update.message.reply_text(response_text, parse_mode='HTML', reply_markup=reply_markup)
+
+    async def favorite_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """הוספה/הסרה של קובץ מהמועדפים: /favorite <file_name>"""
+        reporter.report_activity(update.effective_user.id)
+        user_id = update.effective_user.id
+        if not context.args:
+            await update.message.reply_text(
+                "🔖 <b>הוספה/הסרה ממועדפים</b>\n\n"
+                "שימוש: <code>/favorite &lt;file_name&gt;</code>\n\n"
+                "דוגמה:\n"
+                "<code>/favorite config.py</code>\n\n"
+                "או שלח <code>/favorites</code> לצפייה בכל המועדפים",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        file_name = " ".join(context.args)
+        snippet = db.get_latest_version(user_id, file_name)
+        if not snippet:
+            await update.message.reply_text(
+                f"❌ הקובץ <code>{html.escape(file_name)}</code> לא נמצא.\n"
+                "שלח <code>/list</code> לרשימת הקבצים שלך.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        new_state = db.toggle_favorite(user_id, file_name)
+        # אם המתודה מחזירה None, זו שגיאה
+        if new_state is None:
+            await update.message.reply_text("❌ שגיאה בעדכון מועדפים. נסה שוב מאוחר יותר.")
+            return
+        language = snippet.get('programming_language', '') or ''
+        emoji = ''
+        try:
+            from utils import get_language_emoji
+            emoji = get_language_emoji(language)
+        except Exception:
+            emoji = ''
+        if new_state:
+            msg = (
+                f"⭐ <b>נוסף למועדפים!</b>\n\n"
+                f"📁 קובץ: <code>{html.escape(file_name)}</code>\n"
+                f"{emoji} שפה: {html.escape(language or 'לא ידוע')}\n\n"
+                f"💡 גש במהירות עם <code>/favorites</code>"
+            )
+        else:
+            msg = (
+                f"💔 <b>הוסר מהמועדפים</b>\n\n"
+                f"📁 קובץ: <code>{html.escape(file_name)}</code>\n\n"
+                f"ניתן להוסיף שוב מאוחר יותר."
+            )
+        # כפתורים מהירים
+        keyboard = [
+            [
+                InlineKeyboardButton("📋 הצג קובץ", callback_data=f"view_direct_{file_name}"),
+                InlineKeyboardButton("⭐ כל המועדפים", callback_data="favorites_list"),
+            ]
+        ]
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
+
+    async def favorites_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """רשימת המועדפים של המשתמש: /favorites"""
+        reporter.report_activity(update.effective_user.id)
+        user_id = update.effective_user.id
+        favorites = db.get_favorites(user_id, limit=50)
+        if not favorites:
+            await update.message.reply_text(
+                "💭 אין לך מועדפים כרגע.\n"
+                "✨ הוסף מועדף ראשון עם <code>/favorite &lt;שם&gt;</code>",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        lines = ["⭐ <b>המועדפים שלך</b>"]
+        from utils import TimeUtils, get_language_emoji
+        for idx, fav in enumerate(favorites[:10], 1):
+            fname = fav.get('file_name', '')
+            lang = fav.get('programming_language', '')
+            rel = ''
+            try:
+                fa = fav.get('favorited_at') or fav.get('updated_at') or fav.get('created_at')
+                if fa:
+                    rel = TimeUtils.format_relative_time(fa)
+            except Exception:
+                rel = ''
+            emoji = get_language_emoji(lang)
+            line = f"{idx}. {emoji} <code>{html.escape(str(fname))}</code>"
+            if rel:
+                line += f" • {rel}"
+            lines.append(line)
+        if len(favorites) > 10:
+            lines.append(f"\n➕ ועוד {len(favorites) - 10} קבצים...")
+        message = "\n".join(lines)
+        # כפתורי קיצור לקבצים (עד 5 ראשונים)
+        buttons: list[list[InlineKeyboardButton]] = []
+        for fav in favorites[:5]:
+            fname = fav.get('file_name', '')
+            try:
+                latest = db.get_latest_version(user_id, fname) or {}
+                fid = str(latest.get('_id') or '')
+            except Exception:
+                fid = ''
+            if fid:
+                cb = f"view_direct_id:{fid}"
+            else:
+                safe_name = (fname[:45] + '...') if len(fname) > 48 else fname
+                cb = f"view_direct_{safe_name}"
+            buttons.append([InlineKeyboardButton(f"📄 {fname[:20]}", callback_data=cb)])
+        # פעולות כלליות
+        actions_row = [
+            InlineKeyboardButton("📥 ייצוא JSON", callback_data="export_favorites"),
+            InlineKeyboardButton("📊 סטטיסטיקה", callback_data="favorites_stats"),
+        ]
+        if buttons:
+            buttons.append(actions_row)
+        else:
+            buttons = [actions_row]
+        # שליחת הודעה ארוכה בצורה בטוחה (פיצול למספר הודעות אם צריך)
+        await self._send_long_message(
+            update.message,
+            message,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+        # אם יש יותר מ-10 מועדפים, שלח את השאר כהודעות נוספות — מפוצלות בבטחה
+        if len(favorites) > 10:
+            rest_lines: List[str] = []
+            from utils import get_language_emoji as _gle
+            for idx, fav in enumerate(favorites[10:], 11):
+                fname = fav.get('file_name', '')
+                lang = fav.get('programming_language', '')
+                rest_lines.append(f"{idx}. {_gle(lang)} <code>{html.escape(str(fname))}</code>")
+            rest_text = "\n".join(rest_lines)
+            if rest_text:
+                await self._send_long_message(
+                    update.message,
+                    rest_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None,
+                )
     
     async def edit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """עריכת קטע קוד קיים"""
@@ -650,7 +859,7 @@ class AdvancedBotHandlers:
             return
         
         # איסוף כל התגיות
-        all_tags = {}
+        all_tags: dict[str, int] = {}
         for file_data in files:
             for tag in file_data.get('tags', []):
                 if tag in all_tags:
@@ -758,6 +967,45 @@ class AdvancedBotHandlers:
             f"🏷️ <b>תגיות:</b> {tags_str}"
         )
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+
+    async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """חיפוש קטעי קוד לפי טקסט/שפה/תגיות — מימוש מינימלי ובטוח לסוגים"""
+        reporter.report_activity(update.effective_user.id)
+        # קלט בטוח — לא מניחים כלום על context.args
+        args = list(context.args or [])
+        if not args:
+            await update.message.reply_text(
+                "🔍 שימוש: /search <query>\n\n"
+                "דוגמאות:\n"
+                "• /search python — סינון לפי שפה\n"
+                "• /search #utils — לפי תגית\n"
+                "• /search api — חיפוש חופשי בשם/בתוכן",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+        # פענוח מינימלי של פרמטרים ללא תלות במסד/שירותים
+        query_tokens = []
+        tags = []
+        languages = []
+        for token in args:
+            t = str(token or "").strip()
+            if not t:
+                continue
+            if t.startswith('#') and len(t) > 1:
+                tags.append(t[1:])
+            elif t.lower() in {"python","javascript","typescript","java","html","css","json","yaml","markdown","bash","text"}:
+                languages.append(t.lower())
+            else:
+                query_tokens.append(t)
+        # תשובה מינימלית; ההיגיון המלא של חיפוש נמצא ב-main/handlers אחרים
+        msg = ["🔍 חיפוש התחלתי (תצוגת הדגמה):\n"]
+        if languages:
+            msg.append(f"• שפות: {', '.join(languages)}")
+        if tags:
+            msg.append(f"• תגיות: {', '.join('#'+x for x in tags)}")
+        if query_tokens:
+            msg.append(f"• טקסט: {' '.join(query_tokens)}")
+        await update.message.reply_text("\n".join(msg) or "🔍 חיפוש", parse_mode=ParseMode.MARKDOWN)
 
     def _is_admin(self, user_id: int) -> bool:
         """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS"""
@@ -869,7 +1117,11 @@ class AdvancedBotHandlers:
         await query.answer()
         
         data = query.data
-        user_id = query.from_user.id
+        try:
+            user_obj = getattr(query, 'from_user', None) or getattr(update, 'effective_user', None)
+            user_id = int(getattr(user_obj, 'id', 0) or 0)
+        except Exception:
+            user_id = 0
         
         try:
             if data.startswith("confirm_delete_"):
@@ -928,6 +1180,142 @@ class AdvancedBotHandlers:
                 await self._send_file_download(query, user_id, file_name)
             
             # ועוד callback handlers...
+
+            # --- Favorites callbacks ---
+            elif data == "favorites_list":
+                favs = db.get_favorites(user_id, limit=50)
+                if not favs:
+                    await query.edit_message_text("💭 אין לך מועדפים כרגע.")
+                    return
+                from utils import get_language_emoji
+                lines = ["⭐ <b>המועדפים שלך</b>\n"]
+                for idx, fav in enumerate(favs[:10], 1):
+                    fname = fav.get('file_name', '')
+                    lang = fav.get('programming_language', '')
+                    lines.append(f"{idx}. {get_language_emoji(lang)} <code>{html.escape(str(fname))}</code>")
+                if len(favs) > 10:
+                    lines.append(f"\n➕ ועוד {len(favs) - 10} קבצים...")
+                await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+            elif data == "export_favorites":
+                favs = db.get_favorites(user_id, limit=200)
+                export_data = {
+                    "exported_at": datetime.now(timezone.utc).isoformat(),
+                    "user_id": user_id,
+                    "total_favorites": len(favs),
+                    "favorites": favs,
+                }
+                raw = json.dumps(export_data, ensure_ascii=False, indent=2)
+                bio = io.BytesIO(raw.encode('utf-8'))
+                bio.name = "favorites.json"
+                # שליחה עם BytesIO כפרמטר ראשון כדי לאפשר לטסטים לחלץ את התוכן
+                await query.message.reply_document(bio, filename="favorites.json", caption="📥 ייצוא מועדפים (JSON)")
+                await query.edit_message_text("✅ קובץ ייצוא נשלח")
+
+            elif data == "favorites_stats":
+                favs = db.get_favorites(user_id, limit=500)
+                if not favs:
+                    await query.edit_message_text("💭 אין סטטיסטיקות - אין מועדפים")
+                    return
+                langs: Dict[str, int] = {}
+                all_tags: List[str] = []
+                for f in favs:
+                    lang = (f.get('programming_language') or 'unknown')
+                    langs[lang] = langs.get(lang, 0) + 1
+                    try:
+                        for t in (f.get('tags') or []):
+                            if isinstance(t, str):
+                                all_tags.append(t)
+                    except Exception:
+                        pass
+                popular_lang = max(langs.items(), key=lambda x: x[1]) if langs else ("אין", 0)
+                from collections import Counter
+                top_tags = Counter(all_tags).most_common(3)
+                text = (
+                    "📊 <b>סטטיסטיקות מועדפים</b>\n\n"
+                    f"⭐ סך המועדפים: {len(favs)}\n\n"
+                    f"🔤 שפה פופולרית:\n   {popular_lang[0]} ({popular_lang[1]})\n"
+                )
+                if top_tags:
+                    text += "\n🏷️ תגיות פופולריות:\n" + "\n".join([f"   #{t} ({c})" for t, c in top_tags])
+                await query.edit_message_text(text, parse_mode=ParseMode.HTML)
+
+            elif data.startswith("fav_toggle_id:"):
+                fid = data.split(":", 1)[1]
+                try:
+                    doc = db.get_file_by_id(fid)
+                except Exception:
+                    doc = None
+                if not doc:
+                    await query.answer("⚠️ הקובץ לא נמצא", show_alert=False)
+                    return
+                fname = doc.get('file_name')
+                state = db.toggle_favorite(user_id, fname)
+                await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                # אם אנחנו במסך בקרה/פעולות, הצג הודעת סטטוס מעל הכפתורים ושמור את המקלדת
+                try:
+                    # שלוף פרטים להצגה
+                    latest = db.get_latest_version(user_id, fname) or {}
+                    lang = latest.get('programming_language') or 'text'
+                    note = latest.get('description') or '—'
+                    notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
+                    from html import escape as _e
+                    new_text = (
+                        f"{notice}\n\n"
+                        f"📄 קובץ: <code>{_e(str(fname))}</code>\n"
+                        f"🧠 שפה: {_e(str(lang))}\n"
+                        f"📝 הערה: {_e(str(note))}\n\n"
+                        f"🎮 בחר פעולה מתקדמת:"
+                    )
+                    # בנה מקלדת מעודכנת עם תווית כפתור מועדפים הנכונה
+                    try:
+                        is_fav_now = bool(db.is_favorite(user_id, fname))
+                    except Exception:
+                        is_fav_now = state
+                    fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+                    # נעדיף שימוש ב-id אם זמין
+                    fav_cb = f"fav_toggle_id:{fid}" if fid else f"fav_toggle_tok:{fname}"
+                    from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+                    updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
+                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
+                except Exception:
+                    pass
+
+            elif data.startswith("fav_toggle_tok:"):
+                token = data.split(":", 1)[1]
+                try:
+                    fname = (context.user_data.get('fav_tokens') or {}).get(token)
+                except Exception:
+                    fname = None
+                if not fname:
+                    await query.answer("⚠️ לא נמצא קובץ לפעולה", show_alert=True)
+                    return
+                state = db.toggle_favorite(user_id, fname)
+                await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                try:
+                    latest = db.get_latest_version(user_id, fname) or {}
+                    lang = latest.get('programming_language') or 'text'
+                    note = latest.get('description') or '—'
+                    notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
+                    from html import escape as _e
+                    new_text = (
+                        f"{notice}\n\n"
+                        f"📄 קובץ: <code>{_e(str(fname))}</code>\n"
+                        f"🧠 שפה: {_e(str(lang))}\n"
+                        f"📝 הערה: {_e(str(note))}\n\n"
+                        f"🎮 בחר פעולה מתקדמת:"
+                    )
+                    try:
+                        is_fav_now = bool(db.is_favorite(user_id, fname))
+                    except Exception:
+                        is_fav_now = state
+                    fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+                    fav_cb = f"fav_toggle_tok:{token}"
+                    from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+                    updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
+                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.error(f"שגיאה ב-callback: {e}")
@@ -944,8 +1332,7 @@ class AdvancedBotHandlers:
         # יצירת קוד מודגש
         highlighted = code_processor.highlight_code(
             file_data['code'], 
-            file_data['programming_language'], 
-            'html'
+            file_data['programming_language']
         )
         
         # שליחה כקובץ HTML אם הקוד ארוך
@@ -978,6 +1365,39 @@ class AdvancedBotHandlers:
                 f"```{file_data['programming_language']}\n{file_data['code']}\n```",
                 parse_mode=ParseMode.MARKDOWN
             )
+
+    async def _send_long_message(self, msg_target, text: str, parse_mode: Optional[str] = None, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+        """שליחת טקסט ארוך במספר הודעות, מפוצל לפי אורך בטוח לטלגרם.
+
+        מגבלת אורך הודעת טלגרם היא סביב 4096 תווים. נשתמש במרווח בטחון.
+        """
+        try:
+            MAX_LEN = 3500
+            remaining = text or ""
+            if len(remaining) <= MAX_LEN:
+                await msg_target.reply_text(remaining, parse_mode=parse_mode, reply_markup=reply_markup)
+                return
+            # פיצול לפי שורות כדי לשמור על פירוק טבעי
+            lines = (remaining.split("\n") if remaining else [])
+            buf: list[str] = []
+            curr = 0
+            for line in lines:
+                # +1 עבור ה"\n" שיתווסף בהמשך
+                line_len = len(line) + (1 if buf else 0)
+                if curr + line_len > MAX_LEN:
+                    chunk = "\n".join(buf)
+                    await msg_target.reply_text(chunk, parse_mode=parse_mode)
+                    buf = [line]
+                    curr = len(line)
+                else:
+                    buf.append(line)
+                    curr += line_len
+            if buf:
+                chunk = "\n".join(buf)
+                await msg_target.reply_text(chunk, parse_mode=parse_mode, reply_markup=reply_markup)
+        except Exception:
+            # במקרה חריג, שלח את הכל בהודעה אחת (עלול לחרוג אם ארוך מדי)
+            await msg_target.reply_text(text or "", parse_mode=parse_mode, reply_markup=reply_markup)
     
     async def _share_to_gist(self, query, user_id: int, file_name: str):
         """שיתוף ב-GitHub Gist"""

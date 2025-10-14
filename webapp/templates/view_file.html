@@ -300,6 +300,10 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
     
     <div class="file-actions">
+        <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}" aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
+            <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
+            <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
+        </button>
         <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon">
             <i class="fas fa-edit"></i>
             ערוך
@@ -370,6 +374,9 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>
     {% endif %}
 </div>
+
+{# Bookmarks snippet: כפתור ופאנל סימניות #}
+{% include 'bookmarks_snippet.html' %}
 
 <div class="glass-card" style="margin-top: 2rem;">
     <h2 class="section-title">
@@ -489,9 +496,46 @@ async function shareToTelegram() {
     var metaDiv = document.getElementById('fileMeta');
     const fileName = metaDiv ? metaDiv.getAttribute('data-file-name') : '';
     const url = await ensurePublicLink();
-    const text = `בדוק את הקובץ ${fileName} ב-Code Keeper:\n${url}`;
+    const text = `בדוק את הקובץ ${fileName} ב-Code Keeper:`;
     const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
     window.open(telegramUrl, '_blank');
+}
+
+async function toggleFavorite(){
+    try {
+        const resp = await fetch(`/api/favorite/toggle/{{ file.id }}`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || 'שגיאה בעדכון מועדפים');
+        const state = !!data.state;
+        const btn = document.getElementById('favoriteBtn');
+        const icon = document.getElementById('favoriteIcon');
+        const label = document.getElementById('favoriteLabel');
+        if (btn) {
+            btn.setAttribute('aria-pressed', state ? 'true' : 'false');
+            const tt = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
+            btn.setAttribute('title', tt);
+            btn.setAttribute('aria-label', tt);
+        }
+        if (icon) icon.textContent = state ? '💔' : '⭐';
+        if (label) label.textContent = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
+        showToast(state ? '⭐ הקובץ נוסף למועדפים' : '💔 הקובץ הוסר מהמועדפים', state ? 'success' : 'info');
+    } catch (e) {
+        console.error('favorite toggle failed', e);
+        showToast('שגיאה בעדכון מועדפים', 'error');
+    }
+}
+
+function showToast(message, type){
+    try {
+        if (window.bookmarkManager && window.bookmarkManager.ui) {
+            // השתמש במנגנון ההתראות הקיים
+            if (type === 'error') window.bookmarkManager.ui.showError(message);
+            else window.bookmarkManager.ui.showNotification(message, type || 'info');
+            return;
+        }
+    } catch(_) {}
+    // נפילה לאחור: alert קצר
+    try { alert(message); } catch(_) {}
 }
 
 // הוספת קיצורי מקלדת

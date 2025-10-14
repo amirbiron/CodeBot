@@ -16,8 +16,27 @@ import re
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional
+import secrets
 from html import escape as html_escape
-from utils import TelegramUtils
+from utils import TelegramUtils, TextUtils
+
+
+async def _edit_message_text_unified(query, text: str, *, reply_markup=None, parse_mode=None):
+    """Edit message text using query.edit_message_text when available, otherwise fallback to TelegramUtils.safe_edit_message_text.
+
+    This keeps tests that stub only one path working and unifies behavior.
+    """
+    try:
+        if hasattr(query, 'edit_message_text') and callable(getattr(query, 'edit_message_text')):
+            return await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            return await TelegramUtils.safe_edit_message_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        # last resort — try the other path once
+        try:
+            return await TelegramUtils.safe_edit_message_text(query, text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            return await query.edit_message_text(text)
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -71,6 +90,20 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
+        # קבע כפתור חזרה בהתאם למקור (מועדפים/רגיל/אחר)
+        last_page = context.user_data.get('files_last_page')
+        origin = context.user_data.get('files_origin') or {}
+        if origin.get('type') == 'by_repo' and origin.get('tag'):
+            back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+        elif origin.get('type') == 'regular':
+            back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+        else:
+            back_cb = f"back_after_view:{file_name}"
+
+        # הערה: לוגיקת ה־back כבר חושבה למעלה – אין לשכפל כדי לא לדרוס ערך
+
         keyboard = [
             [
                 InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
@@ -94,16 +127,56 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ]
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
+        # קביעה אחידה של יעד כפתור "חזרה" לפי מקור הרשימה
         if origin.get('type') == 'by_repo' and origin.get('tag'):
             back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
+            # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
             back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
+        if note:
+            try:
+                safe_note_md = TextUtils.escape_markdown(note, version=1)
+            except Exception:
+                safe_note_md = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
+            note_line = f"\n📝 הערה: {safe_note_md}\n\n"
+        else:
+            note_line = "\n📝 הערה: —\n\n"
+        # הוסף כפתור מועדפים גם במסך "מרכז בקרה מתקדם"
+        try:
+            from database import db as _db
+            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        try:
+            raw_id = str(file_data.get('_id') or '')
+        except Exception:
+            raw_id = ''
+        if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
+            fav_cb = f"fav_toggle_id:{raw_id}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        # הוסף שורת מועדפים לפני כפתור החזרה
+        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
+
         await TelegramUtils.safe_edit_message_text(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -134,16 +207,36 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
+
+        # טעינת קוד עצלה: אם ברשימות שמרנו רק מטא־דאטה ללא code, שלוף גרסה אחרונה מה-DB
+        if not code:
+            try:
+                from database import db
+                user_id = update.effective_user.id
+                latest_doc = db.get_latest_version(user_id, file_name)
+                if latest_doc:
+                    code = latest_doc.get('code', '') or ''
+                    language = latest_doc.get('programming_language', language) or language
+                    version = latest_doc.get('version', version) or version
+                    # עדכן cache לזיהוי חזרה/המשך "הצג עוד"
+                    files_cache[str(file_index)] = dict(file_data, code=code, programming_language=language, version=version)
+                    context.user_data['files_cache'] = files_cache
+            except Exception:
+                pass
         max_length = 3500
         code_preview = code[:max_length]
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
+        # קביעה אחידה של יעד כפתור "חזרה" לפי מקור הרשימה
         if origin.get('type') == 'by_repo' and origin.get('tag'):
             back_cb = f"by_repo:{origin.get('tag')}"
+        elif origin.get('type') == 'favorites':
+            back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
         elif origin.get('type') == 'regular':
             back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
         else:
-            back_cb = f"files_page_{last_page}" if last_page else f"file_{file_index}"
+            # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
+            back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_{file_index}"),
@@ -159,6 +252,35 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
+        try:
+            from database import db as _db
+            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
+        try:
+            raw_id = str(file_data.get('_id') or '')
+        except Exception:
+            raw_id = ''
+        if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
+            fav_cb = f"fav_toggle_id:{raw_id}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        # הוסף את כפתור המועדפים לפני כפתור החזרה
+        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
         # הוספת כפתור "הצג עוד" אם יש עוד תוכן
         if len(code) > max_length:
             next_chunk = code[max_length:max_length + max_length]
@@ -262,7 +384,11 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text("❌ שגיאה בעדכון ההערה")
         return ConversationHandler.END
 
-    new_code = update.message.text
+    # שחזור טקסט עם סימוני Markdown שנבלעו ע"י לקוח טלגרם
+    try:
+        new_code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
+    except Exception:
+        new_code = update.message.text
     editing_large_file = context.user_data.get('editing_large_file')
     if editing_large_file:
         try:
@@ -621,15 +747,15 @@ async def handle_delete_confirmation(update, context: ContextTypes.DEFAULT_TYPE)
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ')
         keyboard = [[
-            InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_del_{file_index}"),
+            InlineKeyboardButton("✅ כן, העבר לסל מיחזור", callback_data=f"confirm_del_{file_index}"),
             InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}"),
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"⚠️ *אישור מחיקה*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
-            f"🗑️ האם אתה בטוח שברצונך למחוק את הקובץ?\n"
-            f"⚠️ **פעולה זו לא ניתנת לביטול!**",
+            f"🗑️ האם להעביר את הקובץ לסל המיחזור?\n"
+            f"♻️ ניתן לשחזר מתוך סל המיחזור עד פקיעת התוקף",
             reply_markup=reply_markup,
             parse_mode='Markdown',
         )
@@ -657,9 +783,9 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             keyboard = [[InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
-                f"✅ *הקובץ נמחק בהצלחה!*\n\n"
-                f"📄 **קובץ שנמחק:** `{file_name}`\n"
-                f"🗑️ **הקובץ הוסר לחלוטין מהמערכת**",
+                f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
+                f"📄 **קובץ:** `{file_name}`\n"
+                f"♻️ ניתן לשחזר אותו מתפריט '🗑️ סל מיחזור' עד למחיקה אוטומטית",
                 reply_markup=reply_markup,
                 parse_mode='Markdown',
             )
@@ -744,7 +870,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                         '_id': lf.get('_id')
                     }
                 else:
-                    await query.edit_message_text("⚠️ הקובץ לא נמצא")
+                    await _edit_message_text_unified(query, "⚠️ הקובץ לא נמצא")
                     return ConversationHandler.END
             else:
                 file_name = doc.get('file_name') or 'file'
@@ -769,7 +895,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                     '_id': lf.get('_id')
                 }
             else:
-                await query.edit_message_text("⚠️ הקובץ נעלם מהמערכת החכמה")
+                await _edit_message_text_unified(query, "⚠️ הקובץ נעלם מהמערכת החכמה")
                 return ConversationHandler.END
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
@@ -781,6 +907,21 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             fid = str(file_data.get('_id') or '')
         except Exception:
             fid = ''
+
+        # יעד כפתור "חזרה" לפי מקור הרשימה אם קיים; אחרת חזרה אחרי תצוגה ישירה
+        try:
+            last_page = context.user_data.get('files_last_page')
+            origin = context.user_data.get('files_origin') or {}
+            if origin.get('type') == 'by_repo' and origin.get('tag'):
+                back_cb = f"by_repo:{origin.get('tag')}"
+            elif origin.get('type') == 'favorites':
+                back_cb = f"favorites_page_{last_page}" if last_page else "show_favorites"
+            elif origin.get('type') == 'regular':
+                back_cb = f"files_page_{last_page}" if last_page else "show_regular_files"
+            else:
+                back_cb = f"back_after_view:{file_name}"
+        except Exception:
+            back_cb = f"back_after_view:{file_name}"
         keyboard = [
             [
                 InlineKeyboardButton("✏️ ערוך קוד", callback_data=f"edit_code_direct_{file_name}"),
@@ -797,8 +938,33 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             [
                 InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
             ],
-            [InlineKeyboardButton("🔙 חזרה", callback_data=f"back_after_view:{file_name}")],
+            [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
+        try:
+            from database import db as _db
+            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
+        # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
+        if fid and (len("fav_toggle_id:") + len(fid)) <= 60:
+            fav_cb = f"fav_toggle_id:{fid}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            try:
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[short_tok] = file_name
+                context.user_data['fav_tokens'] = tokens_map
+            except Exception:
+                pass
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        # הוסף את כפתור המועדפים לפני כפתור החזרה
+        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
         # הוספת כפתור "הצג עוד" אם יש עוד תוכן (פעם אחת בלבד)
         if len(code) > max_length:
             next_chunk = code[max_length:max_length + max_length]
@@ -808,32 +974,46 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
+        note_line_html = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
         large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         large_note_html = "\n<i>זה קובץ גדול</i>\n\n" if is_large_file else ""
-        # Markdown מוצג ב-HTML כדי למנוע שבירת ``` פנימיים
+        if note:
+            try:
+                note_line_md = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n"
+            except Exception:
+                fallback = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
+                note_line_md = f"\n📝 הערה: {fallback}\n\n"
+        else:
+            note_line_md = "\n📝 הערה: —\n\n"
+        # Markdown מוצג ב-HTML רק עבור קבצי Markdown; לשאר נשתמש ב-Markdown עם בלוק קוד
         if (language or '').lower() == 'markdown':
             safe_code = html_escape(code_preview)
             header_html = (
-                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line}"
+                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line_html}"
             )
-            await TelegramUtils.safe_edit_message_text(
+            await _edit_message_text_unified(
                 query,
                 f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
                 reply_markup=reply_markup,
                 parse_mode='HTML',
             )
         else:
-            await TelegramUtils.safe_edit_message_text(
+            # בריחת שם קובץ ל-Markdown ומניעת שבירת בלוק קוד ע"י backticks
+            try:
+                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
+            except Exception:
+                safe_file_name = str(file_name).replace('`', '\\`')
+            safe_code_md = str(code_preview).replace('```', '\\`\\`\\`')
+            await _edit_message_text_unified(
                 query,
-                f"📄 *{file_name}* ({language}) - גרסה {version}{note_line}{large_note_md}"
-                f"```{language}\n{code_preview}\n```",
+                f"📄 *{safe_file_name}* ({language}) - גרסה {version}{note_line_md}{large_note_md}"
+                f"```{language}\n{safe_code_md}\n```",
                 reply_markup=reply_markup,
                 parse_mode='Markdown',
             )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
-        await query.edit_message_text("❌ שגיאה בהצגת הקוד המתקדם")
+        await _edit_message_text_unified(query, "❌ שגיאה בהצגת הקוד המתקדם")
     return ConversationHandler.END
 
 

@@ -114,11 +114,9 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
         # Minimal fallback: normalize only
         return True, normalize_code(code), ""
     ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
-    # Ensure normalization on the cleaned result (idempotent)
-    try:
-        cleaned = normalize_code(cleaned)
-    except Exception:
-        pass
+    # לאחר שהוולידטור מריץ sanitize + normalize (עם טיפול מיוחד ל-Markdown),
+    # אין לבצע נרמול חוזר שעלול לקצץ רווחי סוף שורה במסמכי Markdown.
+    # אם בפועל נדרש נרמול נוסף בעתיד, יש להעביר דגלים תואמים לסוג הקובץ.
     return ok, cleaned, msg
 
 

@@ -4,6 +4,8 @@
 נקודת הכניסה הראשית לבוט
 """
 
+from __future__ import annotations
+
 # הגדרות מתקדמות
 import os
 import logging
@@ -15,24 +17,24 @@ import signal
 import sys
 import time
 try:
-    import pymongo  # type: ignore
+    import pymongo
     _HAS_PYMONGO = True
 except Exception:
-    pymongo = None  # type: ignore
+    pymongo = None  # fallback ללא type: ignore
     _HAS_PYMONGO = False
 from datetime import datetime, timezone, timedelta
 import atexit
 try:
-    import pymongo.errors  # type: ignore
-    from pymongo.errors import DuplicateKeyError  # type: ignore
+    import pymongo.errors
+    from pymongo.errors import DuplicateKeyError
 except Exception:
     class _DummyErr(Exception):
         pass
     class _DummyErrors:
         InvalidOperation = _DummyErr
         OperationFailure = _DummyErr
-    DuplicateKeyError = _DummyErr  # type: ignore
-    pymongo = type("_PM", (), {"errors": _DummyErrors})()  # type: ignore
+    DuplicateKeyError = _DummyErr
+    pymongo = type("_PM", (), {"errors": _DummyErrors})()
 import os
 
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeChat
@@ -42,6 +44,7 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           PicklePersistence, InlineQueryHandler, ApplicationHandlerStop)
 
 from config import config
+from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
@@ -91,6 +94,20 @@ except Exception:
     pass
 
 logger = logging.getLogger(__name__)
+def _register_catch_all_callback(application, callback_fn) -> None:
+    """רישום CallbackQueryHandler כללי בקבוצה מאוחרת, עם fallback כשה-API לא תומך ב-group.
+
+    נועד להימנע מכשלי טסטים/סטאבים (TypeError על group), ובו בזמן לשמר קדימויות בפרודקשן.
+    """
+    handler = CallbackQueryHandler(callback_fn)
+    try:
+        application.add_handler(handler, group=5)
+    except TypeError:
+        # סביבת טסט/סטאב ללא תמיכה בפרמטר group
+        application.add_handler(handler)
+    except Exception as e:
+        # דווח חריגה כדי שלא נבלע שגיאות רישום שקטות
+        logger.error(f"Failed to register catch-all CallbackQueryHandler: {e}")
 
 # הודעת התחלה מרשימה
 logger.info("🚀 מפעיל בוט קוד מתקדם - גרסה פרו!")
@@ -130,6 +147,88 @@ async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     except Exception:
         pass
 
+# ===== Admin: /recycle_backfill =====
+async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ממלא deleted_at ו-deleted_expires_at לרשומות מחוקות רכות וחושב TTL.
+
+    שימוש: /recycle_backfill [X]
+    X = ימים לתוקף סל (ברירת מחדל מהקונפיג RECYCLE_TTL_DAYS)
+    הפקודה זמינה למנהלים בלבד.
+    """
+    try:
+        user_id = update.effective_user.id if update and update.effective_user else 0
+        admin_ids = get_admin_ids()
+        if not admin_ids or user_id not in admin_ids:
+            try:
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+            except Exception:
+                pass
+            return
+
+        # קביעת TTL בימים
+        try:
+            ttl_days = int(context.args[0]) if context.args else int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+        except Exception:
+            ttl_days = int(getattr(config, 'RECYCLE_TTL_DAYS', 7) or 7)
+        ttl_days = max(1, ttl_days)
+
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(days=ttl_days)
+
+        # ודא אינדקסי TTL ואח"כ Backfill בשתי הקולקציות
+        from database import db as _db
+        results = []
+        for coll_name, friendly in (("collection", "קבצים רגילים"), ("large_files_collection", "קבצים גדולים")):
+            coll = getattr(_db, coll_name, None)
+            # חשוב: אל תשתמשו ב-truthiness על קולקציה של PyMongo
+            if coll is None:
+                results.append((friendly, 0, 0, "collection-missing"))
+                continue
+            # ensure TTL index idempotently
+            try:
+                coll.create_index("deleted_expires_at", expireAfterSeconds=0, name="deleted_ttl")
+            except Exception:
+                # לא קריטי; נמשיך
+                pass
+
+            modified_deleted_at = 0
+            modified_deleted_exp = 0
+            # backfill deleted_at where missing
+            try:
+                if hasattr(coll, 'update_many'):
+                    r1 = coll.update_many({"is_active": False, "deleted_at": {"$exists": False}}, {"$set": {"deleted_at": now}})
+                    modified_deleted_at = int(getattr(r1, 'modified_count', 0) or 0)
+            except Exception:
+                pass
+            # backfill deleted_expires_at where missing
+            try:
+                if hasattr(coll, 'update_many'):
+                    r2 = coll.update_many({"is_active": False, "deleted_expires_at": {"$exists": False}}, {"$set": {"deleted_expires_at": expires}})
+                    modified_deleted_exp = int(getattr(r2, 'modified_count', 0) or 0)
+            except Exception:
+                pass
+
+            results.append((friendly, modified_deleted_at, modified_deleted_exp, ""))
+
+        # דו"ח
+        lines = [
+            f"🧹 Backfill סל מיחזור (TTL={ttl_days} ימים)",
+        ]
+        for friendly, c_at, c_exp, err in results:
+            if err:
+                lines.append(f"• {friendly}: דילוג ({err})")
+            else:
+                lines.append(f"• {friendly}: deleted_at={c_at}, deleted_expires_at={c_exp}")
+        try:
+            await update.message.reply_text("\n".join(lines))
+        except Exception:
+            pass
+    except Exception as e:
+        try:
+            await update.message.reply_text(f"❌ שגיאה ב-backfill: {html_escape(str(e))}")
+        except Exception:
+            pass
+
 async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     רישום פעילות משתמש במערכת.
@@ -141,74 +240,110 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Note:
         פונקציה זו נקראת אוטומטית עבור כל פעולה של משתמש
     """
-    if update.effective_user:
-        user_stats.log_user(
-            update.effective_user.id,
-            update.effective_user.username
-        )
-        # הודעות ציון דרך לפי מספר פעולות (50/100/200/500/1000) — פעם אחת לכל יעד
+    if not update.effective_user:
+        return
+
+    # דגימה להפחתת עומס: רק ~25% מהאירועים יעדכנו מיידית את ה-DB
+    try:
+        import random as _rnd
+        sampled = (_rnd.random() < 0.25)
+    except Exception:
+        sampled = True
+
+    # רישום בסיסי לגמרי מחוץ ל-try כדי לא לחסום את הפלואו
+    try:
+        # כדי לשמר ספי milestones, אם דוגמים — נכפיל את המשקל בהתאם להסתברות הדגימה
+        if sampled:
+            # p=0.25 -> weight=4; אם משתנה — נשאב מהקונפיג בעתיד
+            weight = 4
+            try:
+                user_stats.log_user(update.effective_user.id, update.effective_user.username, weight=weight)
+            except TypeError:
+                # תאימות לאחור לטסטים/סביבה ישנה ללא פרמטר weight
+                user_stats.log_user(update.effective_user.id, update.effective_user.username)
+    except Exception:
+        pass
+
+    # milestones — להרצה אסינכרונית כך שלא תחסום את ההודעה למשתמש
+    async def _milestones_job(user_id: int, username: str | None):
         try:
-            user_id = update.effective_user.id
-            users_collection = db.db.users if getattr(db, 'db', None) else None
-            if users_collection is not None:
-                doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
-                total_actions = int(doc.get("total_actions") or 0)
-                already_sent = set(doc.get("milestones_sent") or [])
-                milestones = [50, 100, 200, 500, 1000]
-                # בחר את היעד הגבוה ביותר שהושג ושעדיין לא נשלח
-                pending = [m for m in milestones if m <= total_actions and m not in already_sent]
-                if pending:
-                    milestone = max(pending)
-                    # עדכון אטומי: הוסף milestone אם עדיין לא קיים; שלח הודעה רק אם נוסף כעת
-                    res = users_collection.update_one(
-                        {"user_id": user_id, "milestones_sent": {"$ne": milestone}},
-                        {"$addToSet": {"milestones_sent": milestone}, "$set": {"updated_at": datetime.now(timezone.utc)}}
-                    )
-                    if getattr(res, 'modified_count', 0) > 0:
-                        messages = {
-                            50: (
-                                "וואו! אתה בין המשתמשים המובילים בבוט 🔥\n"
-                                "הנוכחות שלך עושה לנו שמח 😊\n"
-                                "יש לך רעיונות או דברים שהיית רוצה לראות כאן?\n"
-                                "מוזמן לכתוב ל־@moominAmir"
-                            ),
-                            100: (
-                                "💯 פעולות!\n"
-                                "כנראה שאתה כבר יודע את הבוט יותר טוב ממני 😂\n"
-                                "יאללה, אולי נעשה לך תעודת משתמש ותיק? 🏆"
-                            ),
-                            200: (
-                                "וואו! 200 פעולות! 🚀\n"
-                                "אתה לגמרי בין המשתמשים הכי פעילים.\n"
-                                "יש פיצ'ר שהיית רוצה לראות בהמשך?\n"
-                                "ספר לנו ב־@moominAmir"
-                            ),
-                            500: (
-                                "500 פעולות! 🔥\n"
-                                "מגיע לך תודה ענקית על התמיכה! 🩵"
-                            ),
-                            1000: (
-                                "הגעת ל־1000 פעולות! 🎉\n"
-                                "אתה אגדה חיה של הבוט הזה 🙌\n"
-                                "תודה שאתה איתנו לאורך הדרך 💙\n"
-                                "הצעות לשיפור יתקבלו בברכה ❣️\n"
-                                "@moominAmir"
-                            ),
-                        }
-                        try:
-                            await context.bot.send_message(chat_id=user_id, text=messages.get(milestone, ""))
-                        except Exception:
-                            pass
-                        # Admin alert for major milestones
-                        try:
-                            if milestone in {200, 500, 1000}:
-                                uname = (update.effective_user.username or f"User_{user_id}")
-                                display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
-                                await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
-                        except Exception:
-                            pass
+            # טעינה דינמית של מודול ה-DB כדי לעבוד היטב עם monkeypatch בטסטים
+            from database import db as _db
+            users_collection = _db.db.users if getattr(_db, 'db', None) else None
+            if users_collection is None:
+                return
+            doc = users_collection.find_one({"user_id": user_id}, {"total_actions": 1, "milestones_sent": 1}) or {}
+            total_actions = int(doc.get("total_actions") or 0)
+            already_sent = set(doc.get("milestones_sent") or [])
+            milestones = [50, 100, 200, 500, 1000]
+            pending = [m for m in milestones if m <= total_actions and m not in already_sent]
+            if not pending:
+                return
+            milestone = max(pending)
+            # התראת אדמין מוקדמת (לצורך ניטור), בנוסף להתראה אחרי עדכון DB
+            if milestone >= 500:
+                uname = (username or f"User_{user_id}")
+                display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                # קריאה ישירה ללא עטיפת try כדי שלא נבלע בשוגג; ה-wrapper החיצוני יתפוס חריגות
+                await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
+            res = users_collection.update_one(
+                {"user_id": user_id, "milestones_sent": {"$ne": milestone}},
+                {"$addToSet": {"milestones_sent": milestone}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+            )
+            if getattr(res, 'modified_count', 0) > 0:
+                messages = {
+                    50: (
+                        "וואו! אתה בין המשתמשים המובילים בבוט 🔥\n"
+                        "הנוכחות שלך עושה לנו שמח 😊\n"
+                        "יש לך רעיונות או דברים שהיית רוצה לראות כאן?\n"
+                        "מוזמן לכתוב ל־@moominAmir"
+                    ),
+                    100: (
+                        "💯 פעולות!\n"
+                        "כנראה שאתה כבר יודע את הבוט יותר טוב ממני 😂\n"
+                        "יאללה, אולי נעשה לך תעודת משתמש ותיק? 🏆"
+                    ),
+                    200: (
+                        "וואו! 200 פעולות! 🚀\n"
+                        "אתה לגמרי בין המשתמשים הכי פעילים.\n"
+                        "יש פיצ'ר שהיית רוצה לראות בהמשך?\n"
+                        "ספר לנו ב־@moominAmir"
+                    ),
+                    500: (
+                        "500 פעולות! 🔥\n"
+                        "מגיע לך תודה ענקית על התמיכה! 🩵"
+                    ),
+                    1000: (
+                        "הגעת ל־1000 פעולות! 🎉\n"
+                        "אתה אגדה חיה של הבוט הזה 🙌\n"
+                        "תודה שאתה איתנו לאורך הדרך 💙\n"
+                        "הצעות לשיפור יתקבלו בברכה ❣️\n"
+                        "@moominAmir"
+                    ),
+                }
+                try:
+                    await context.bot.send_message(chat_id=user_id, text=messages.get(milestone, ""))
+                except Exception:
+                    pass
+            # התראה לאדמין למילסטונים משמעותיים (500+) — גם אם כבר סומן, לא מסוכן לשלוח פעם נוספת
+            if milestone >= 500:
+                uname = (username or f"User_{user_id}")
+                display = f"@{uname}" if uname and not str(uname).startswith('@') else str(uname)
+                await notify_admins(context, f"📢 משתמש {display} הגיע ל־{milestone} פעולות בבוט")
         except Exception:
             pass
+
+    try:
+        jq = getattr(context, "job_queue", None) or getattr(context.application, "job_queue", None)
+        if jq is not None:
+            # הרצה מיידית ברקע ללא חסימה
+            jq.run_once(lambda _ctx: context.application.create_task(_milestones_job(update.effective_user.id, update.effective_user.username)), when=0)
+        else:
+            # fallback: יצירת משימה אסינכרונית ישירות
+            import asyncio as _aio
+            _aio.create_task(_milestones_job(update.effective_user.id, update.effective_user.username))
+    except Exception:
+        pass
 
 # =============================================================================
 # MONGODB LOCK MANAGEMENT (FINAL, NO-GUESSING VERSION)
@@ -436,13 +571,48 @@ class CodeKeeperBot:
                 self.application = _MiniApp()
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
+        # רישום קטגוריית "⭐ מועדפים" לתפריט "📚 הקבצים"
+        try:
+            from conversation_handlers import setup_favorites_category_handlers as _setup_fav
+            _setup_fav(self.application)
+        except Exception:
+            pass
+        # Rate limiter instance (לאחר בניית האפליקציה)
+        try:
+            self._rate_limiter = RateLimiter(max_per_minute=int(getattr(config, 'RATE_LIMIT_PER_MINUTE', 30) or 30))
+        except Exception:
+            self._rate_limiter = RateLimiter(max_per_minute=30)
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
         # Maintenance gate: if enabled, short-circuit most interactions
         if config.MAINTENANCE_MODE:
+            # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
+            # ההודעה תיכבה אוטומטית לאחר ה-warmup.
+            try:
+                self._maintenance_active_until_ts = time.time() + max(1, int(getattr(config, 'MAINTENANCE_AUTO_WARMUP_SECS', 30)))
+            except Exception:
+                self._maintenance_active_until_ts = time.time() + 30
+
             async def maintenance_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                # אם חלון ה-warmup הסתיים, אל תשלח הודעת תחזוקה
+                try:
+                    raw_active_until = getattr(self, "_maintenance_active_until_ts", None)
+                except Exception:
+                    raw_active_until = None
+                # פרשנות:
+                # None => תחזוקה פעילה (אין TTL)
+                # 0 או ערך שלילי => תחזוקה מנוטרלת
+                # > 0 => תחזוקה פעילה עד timestamp זה
+                try:
+                    active_until = float(raw_active_until) if raw_active_until is not None else None
+                except Exception:
+                    active_until = None
+                now = time.time()
+                is_active = True if active_until is None else (active_until > 0 and now < active_until)
+                if not is_active:
+                    return ConversationHandler.END
                 try:
                     await (update.callback_query.edit_message_text if getattr(update, 'callback_query', None) else update.message.reply_text)(
                         config.MAINTENANCE_MESSAGE
@@ -467,6 +637,11 @@ class CodeKeeperBot:
                             app.remove_handler(self._maintenance_message_handler, group=-100)
                         if getattr(self, "_maintenance_callback_handler", None) is not None:
                             app.remove_handler(self._maintenance_callback_handler, group=-100)
+                        # נטרל מיידית את החלון הפעיל כדי למנוע שליחת הודעות תחזוקה מיותרות
+                        try:
+                            self._maintenance_active_until_ts = 0
+                        except Exception:
+                            pass
                         logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
                     except Exception:
                         pass
@@ -478,6 +653,39 @@ class CodeKeeperBot:
         # ספור את ה-handlers
         handler_count = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers לפני: {handler_count}")
+
+        # --- Rate limiting gate (גבוה עדיפות, לפני שאר ה-handlers) ---
+        async def _rate_limit_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                user = (getattr(update, 'effective_user', None) or getattr(getattr(update, 'callback_query', None), 'from_user', None))
+                user_id = int(getattr(user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if user_id:
+                try:
+                    allowed = await self._rate_limiter.check_rate_limit(user_id)
+                except Exception:
+                    allowed = True
+                if not allowed:
+                    # חסימה שקטה+הודעה קצרה
+                    try:
+                        cq = getattr(update, 'callback_query', None)
+                        if cq is not None:
+                            await cq.answer("יותר מדי בקשות, נסה שוב עוד רגע", show_alert=False, cache_time=1)
+                        else:
+                            msg = getattr(update, 'message', None)
+                            if msg is not None:
+                                await msg.reply_text("⚠️ יותר מדי בקשות, נסה שוב בעוד מספר שניות")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+        # הוסף כשכבת סינון מוקדמת עבור הודעות ולחיצות
+        try:
+            self.application.add_handler(MessageHandler(filters.ALL, _rate_limit_gate), group=-90)
+            self.application.add_handler(CallbackQueryHandler(_rate_limit_gate), group=-90)
+        except Exception:
+            pass
 
         # Add conversation handler
         conversation_handler = get_save_conversation_handler(db)
@@ -514,7 +722,7 @@ class CodeKeeperBot:
         # הוסף את ה-callbacks של GitHub - חשוב! לפני ה-handler הגלובלי
         self.application.add_handler(
                         CallbackQueryHandler(github_handler.handle_menu_callback, 
-                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_repo|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|view_more|view_back|browse_select_view:.*|browse_ref_menu|browse_refs_branches_page_.*|browse_refs_tags_page_.*|browse_select_ref:.*|browse_search|browse_search_page:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|choose_upload_folder|upload_select_folder:.*|upload_folder_root|upload_folder_current|upload_folder_custom|upload_folder_create|create_folder|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_backup_db_list|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu|github_create_repo_from_zip|github_new_repo_name|github_set_new_repo_visibility:.*|upload_paste_code|cancel_paste_flow|gh_upload_zip_browse:.*|gh_upload_zip_page:.*|gh_upload_zip_select:.*|gh_upload_zip_select_idx:.*|backup_add_note:.*|github_import_repo|import_repo_branches_page_.*|import_repo_select_branch:.*|import_repo_start|import_repo_cancel)')
+                               pattern=r'^(select_repo|upload_file|upload_saved|show_current|set_token|set_folder|close_menu|folder_|repo_|repos_page_|upload_saved_|back_to_menu|repo_manual|noop|analyze_repo|analyze_current_repo|analyze_other_repo|show_suggestions|show_full_analysis|download_analysis_json|back_to_analysis|back_to_analysis_menu|back_to_summary|choose_my_repo|enter_repo_url|suggestion_\d+|github_menu|logout_github|delete_file_menu|delete_repo_menu|confirm_delete_repo|confirm_delete_repo_step1|confirm_delete_file|danger_delete_menu|download_file_menu|browse_repo|browse_open:.*|browse_select_download:.*|browse_select_delete:.*|browse_page:.*|download_zip:.*|multi_toggle|multi_execute|multi_clear|safe_toggle|browse_toggle_select:.*|inline_download_file:.*|view_more|view_back|browse_select_view:.*|browse_ref_menu|browse_refs_branches_page_.*|browse_refs_tags_page_.*|browse_select_ref:.*|browse_search|browse_search_page:.*|notifications_menu|notifications_toggle|notifications_toggle_pr|notifications_toggle_issues|notifications_interval_.*|notifications_check_now|share_folder_link:.*|share_selected_links|pr_menu|create_pr_menu|branches_page_.*|pr_select_head:.*|confirm_create_pr|merge_pr_menu|prs_page_.*|merge_pr:.*|confirm_merge_pr|validate_repo|git_checkpoint|git_checkpoint_doc:.*|git_checkpoint_doc_skip|restore_checkpoint_menu|restore_tags_page_.*|restore_select_tag:.*|restore_branch_from_tag:.*|restore_revert_pr_from_tag:.*|open_pr_from_branch:.*|choose_upload_branch|upload_branches_page_.*|upload_select_branch:.*|upload_select_branch_tok:.*|choose_upload_folder|upload_select_folder:.*|upload_folder_root|upload_folder_current|upload_folder_custom|upload_folder_create|create_folder|confirm_saved_upload|refresh_saved_checks|github_backup_menu|github_backup_help|github_backup_db_list|github_restore_zip_to_repo|github_restore_zip_setpurge:.*|github_restore_zip_list|github_restore_zip_from_backup:.*|github_repo_restore_backup_setpurge:.*|gh_upload_cat:.*|gh_upload_repo:.*|gh_upload_large:.*|backup_menu|github_create_repo_from_zip|github_new_repo_name|github_set_new_repo_visibility:.*|upload_paste_code|cancel_paste_flow|gh_upload_zip_browse:.*|gh_upload_zip_page:.*|gh_upload_zip_select:.*|gh_upload_zip_select_idx:.*|backup_add_note:.*|github_import_repo|import_repo_branches_page_.*|import_repo_select_branch:.*|import_repo_start|import_repo_cancel)')
             )
 
         # הוסף את ה-callbacks של Google Drive
@@ -588,6 +796,11 @@ class CodeKeeperBot:
                 except Exception as e:
                     await update.message.reply_text(f"❌ שגיאה בשמירת ההערה: {e}")
                 return True
+            # קלט נתיב יעד ידני לסביבת העלאה (upload_folder_custom)
+            if context.user_data.get('waiting_for_upload_folder'):
+                # ניתוב טקסט למטפל טקסטים של GitHub (סמנטי ונקי)
+                return await github_handler.handle_text_input(update, context)
+
             if context.user_data.get('waiting_for_repo_url') or \
                context.user_data.get('waiting_for_delete_file_path') or \
                context.user_data.get('waiting_for_download_file_path') or \
@@ -695,10 +908,19 @@ class CodeKeeperBot:
         # הוספת פקודות batch (עיבוד מרובה קבצים) לאחר ה-guard כך שלא יעקוף אותו
         setup_batch_handlers(self.application)
 
+        # הוספת Refactoring handlers (אם זמינים)
+        try:
+            from refactor_handlers import setup_refactor_handlers as _setup_rf
+            if callable(_setup_rf):
+                _setup_rf(self.application)
+                logger.info("✅ RefactorHandlers הוגדרו (פקודת /refactor זמינה)")
+        except Exception as e:
+            logger.warning(f"⚠️ דילוג על RefactorHandlers: {e}")
+
         # --- רק אחרי כל ה-handlers הספציפיים, הוסף את ה-handler הגלובלי ---
+        # חשוב: הוספה בקבוצה מאוחרת כדי שלא תתפוס לפני handlers ייעודיים (למשל מועדפים)
         from conversation_handlers import handle_callback_query
-        self.application.add_handler(CallbackQueryHandler(handle_callback_query))
-        logger.info("CallbackQueryHandler גלובלי נוסף")
+        _register_catch_all_callback(self.application, handle_callback_query)
 
         # ספור סופי
         final_handler_count = len(self.application.handlers)
@@ -709,6 +931,8 @@ class CodeKeeperBot:
             logger.info(f"Handler {i}: {type(handler).__name__}")
 
         # --- שלב 2: רישום שאר הפקודות ---
+        # פקודת מנהלים: recycle_backfill
+        self.application.add_handler(CommandHandler("recycle_backfill", recycle_backfill_command))
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
@@ -1827,8 +2051,8 @@ class CodeKeeperBot:
             results = db.search_code(
                 user_id,
                 query=name_filter if name_filter else "",
-                programming_language=lang_filter,
-                tags=[tag_filter] if tag_filter else None,
+                programming_language=(lang_filter or ""),
+                tags=([tag_filter] if tag_filter else []),
                 limit=10000,
             ) or []
             # סינון לפי שם קובץ אם יש name_filter
@@ -2307,7 +2531,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         key = prefs.get("schedule")
                         if key in sched_keys:
                             # Ensure a repeating job exists and is aligned to the next planned time
-                            await drive_handler._ensure_schedule_job(context, uid, key)  # type: ignore[attr-defined]
+                            # _ensure_schedule_job מיועד ב-drive_handler; אם לא קיים, נתעלם בשקט
+                            try:
+                                await drive_handler._ensure_schedule_job(context, uid, key)
+                            except AttributeError:
+                                pass
                     except Exception:
                         continue
             except Exception:

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath('..'))
 # Ensure safe environment defaults for docs builds (RTD / local)
 os.environ.setdefault('DISABLE_DB', 'true')
 os.environ.setdefault('SPHINX_MOCK_IMPORTS', 'true')
+os.environ.setdefault('SPHINX_FAIL_ON_WARNING', 'true')
 os.environ.setdefault('BOT_TOKEN', 'dummy_bot_token_for_docs')
 os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
 
@@ -34,6 +35,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx_autodoc_typehints',
     'sphinx_rtd_theme',
+    'sphinxcontrib.mermaid',
 ]
 
 # Napoleon settings for Google and NumPy style docstrings
@@ -67,7 +69,7 @@ autodoc_mock_imports = [
     'fuzzywuzzy', 'python_levenshtein', 'Levenshtein',
     'redis', 'aioredis', 'celery', 'psutil', 'sentry_sdk',
     # Web frameworks and servers (not needed for docs)
-    'flask', 'uvicorn', 'gunicorn', 'telegram', 'telegram.ext',
+    'flask', 'uvicorn', 'gunicorn', 'telegram', 'telegram.ext', 'telegram.constants', 'telegram.error',
     # Google APIs
     'google', 'googleapiclient', 'googleapiclient.discovery', 'google.oauth2',
     # GitHub API
@@ -83,7 +85,13 @@ todo_include_todos = True
 templates_path = ['_templates']
 
 # List of patterns to exclude
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'api/get-pip.rst']
+exclude_patterns = [
+    '_build',
+    'Thumbs.db',
+    '.DS_Store',
+    'api/get-pip.rst',
+    '_templates/**',  # exclude RST templates not in toctree
+]
 
 # The language for content
 # שפת תוכן ברירת מחדל. RTD לעיתים מגדיר EN מחוץ ל-conf; לא נכשל אם יש שונות.

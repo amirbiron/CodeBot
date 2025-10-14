@@ -10,6 +10,10 @@ jobs:
   build-docs:
     name: Build Sphinx Docs
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,6 +28,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt || true
           pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints
+          # Install doc-specific requirements (includes sphinxcontrib-mermaid)
+          pip install -r docs/requirements.txt || true
 
       - name: Build documentation
         env:
@@ -43,20 +49,17 @@ jobs:
           path: docs/_build/html
 
       - name: Comment PR with RTD Preview link
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
-            // If this repo is connected to RTD, the preview URL usually follows:
-            // https://<project>.readthedocs.io/en/${context.payload.pull_request.head.ref}/
-            // Replace <project> below if different
             const project = process.env.RTD_PROJECT || 'code-keeper-bot';
             const branch = context.payload.pull_request.head.ref;
             const rtdUrl = `https://${project}.readthedocs.io/en/${branch}/`;
 
             const body = `## 📖 Documentation Preview (Read the Docs)\n\n- 🔗 ${rtdUrl}\n\n> אם ה‑URL לא פעיל, ודא ש‑RTD מחובר לריפו וש"Build pull requests" מופעל.`;
 
-            // Upsert comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

@@ -20,9 +20,9 @@ from file_manager import backup_manager
 from activity_reporter import create_reporter
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
-from typing import List, Optional
+from typing import List, Optional, Dict, cast
 from html import escape as html_escape
-from utils import TelegramUtils
+from utils import TelegramUtils, TextUtils
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
@@ -263,7 +263,7 @@ HELP_PAGES = [
         "📦 <b>קבצי ZIP</b> — גיבויים/ארכיונים\n\n"
         "<b>לכל קובץ יש תפריט עם:</b>\n"
         "👁️ הצג | ✏️ ערוך | 📝 שנה שם\n"
-        "📚 היסטוריה | 📥 הורד | 🗑️ מחק\n\n"
+        "📚 היסטוריה | 📥 הורד | 🗑️ העבר לסל\n\n"
         "<b>טיפ:</b> יש עימוד (10 לעמוד) וגם 'הצג עוד/פחות' בתצוגת קוד"
     ),
     (
@@ -328,6 +328,27 @@ HELP_PAGES = [
         "3. זהו! כל הקבצים שלכם זמינים\n\n"
         "🔗 כתובת: code-keeper-webapp.onrender.com"
     ),
+    (
+        "🚀 <b>חדש ב-WebApp: מערכת סימניות חכמות</b>\n\n"
+        "🏷 סימון שורות בקוד + הוספת הערות אישיות.\n\n"
+        "<b>איך זה עובד?</b>\n"
+        "• לחיצה על מספר שורה → מוסיפה סימנייה אדומה קטנה\n"
+        "• לחיצה חוזרת → מסירה אותה\n"
+        "• לחיצה על אייקון 🔖 בצד ימין → מציגה את כל הסימניות + ההערות שלך\n\n"
+        "<b>קיצורי מקלדת</b>\n"
+        "• Ctrl / Cmd + B – הוסף/הסר סימנייה\n"
+        "• Ctrl / Cmd + Shift + B – פתח/סגור פאנל סימניות\n"
+        "• Escape – סגור את הפאנל\n\n"
+        "<b>פעולות עכבר</b>\n"
+        "• לחיצה על מספר שורה – הוסף/הסר סימנייה\n"
+        "• Shift + Click – הוסף או ערוך הערה\n"
+        "• Ctrl / Cmd + Click – מחק סימנייה\n\n"
+        "<b>מגבלות</b>\n"
+        "• עד 50 סימניות לקובץ\n"
+        "• עד 500 למשתמש\n"
+        "• עד 500 תווים לכל הערה\n\n"
+        "🌐 מופיע אוטומטית בעמוד צפייה בקובץ (view_file.html) ודורש משתמש מחובר."
+    ),
 ]
 
 async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
@@ -348,6 +369,18 @@ async def show_help_page(update: Update, context: ContextTypes.DEFAULT_TYPE, pag
     else:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     return ConversationHandler.END
+
+# --- רישום handlers לקטגוריית מועדפים ---
+def setup_favorites_category_handlers(application):
+    # הוספה בקבוצת עדיפות גבוהה לפני ה-catch-all הכללי, עם fallback כאשר group לא נתמך
+    try:
+        application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'), group=-5)
+    except TypeError:
+        application.add_handler(CallbackQueryHandler(show_favorites_callback, pattern=r'^show_favorites$'))
+    try:
+        application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'), group=-5)
+    except TypeError:
+        application.add_handler(CallbackQueryHandler(show_favorites_page_callback, pattern=r'^favorites_page_\d+$'))
 
 # --- Redirect file view/edit handlers to split module implementations ---
 from handlers.file_view import (
@@ -407,19 +440,21 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """מציג תפריט קבוצות לפי תגיות ריפו ומאפשר בחירה."""
     from database import db
     user_id = update.effective_user.id
-    files = db.get_user_files(user_id, limit=500)
-    # ריכוז תגיות ריפו
-    repo_to_count = {}
-    for f in files:
-        for t in f.get('tags', []) or []:
-            if t.startswith('repo:'):
-                repo_to_count[t] = repo_to_count.get(t, 0) + 1
-    if not repo_to_count:
+    # שימוש באגרגציה מהירה ב-DB כדי לקבל תגיות ריפו עם ספירה
+    tags_with_counts = db.get_repo_tags_with_counts(user_id, max_tags=20)
+    if not tags_with_counts:
         await update.message.reply_text("ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
     # בניית מקלדת
     keyboard = []
-    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+    for row in tags_with_counts:
+        try:
+            tag = row.get("tag") if isinstance(row, dict) else None
+            cnt = int(row.get("count") or 0) if isinstance(row, dict) else 0
+        except Exception:
+            tag, cnt = None, 0
+        if not tag:
+            continue
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await update.message.reply_text(
@@ -434,17 +469,20 @@ async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    files = db.get_user_files(user_id, limit=500)
-    repo_to_count = {}
-    for f in files:
-        for t in f.get('tags', []) or []:
-            if t.startswith('repo:'):
-                repo_to_count[t] = repo_to_count.get(t, 0) + 1
-    if not repo_to_count:
+    # שימוש באגרגציה מהירה ב-DB כדי לקבל תגיות ריפו עם ספירה
+    tags_with_counts = db.get_repo_tags_with_counts(user_id, max_tags=20)
+    if not tags_with_counts:
         await TelegramUtils.safe_edit_message_text(query, "ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
     keyboard = []
-    for tag, cnt in sorted(repo_to_count.items(), key=lambda x: x[0])[:20]:
+    for row in tags_with_counts:
+        try:
+            tag = row.get("tag") if isinstance(row, dict) else None
+            cnt = int(row.get("count") or 0) if isinstance(row, dict) else 0
+        except Exception:
+            tag, cnt = None, 0
+        if not tag:
+            continue
         keyboard.append([InlineKeyboardButton(f"{tag} ({cnt})", callback_data=f"by_repo:{tag}")])
     keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
     await TelegramUtils.safe_edit_message_text(
@@ -467,13 +505,6 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         pass
     
     try:
-        # סנן קבצים השייכים לקטגוריות אחרות:
-        # - קבצים גדולים אינם מוחזרים כאן ממילא
-        # - קבצי ZIP אינם חלק ממסד הקבצים
-        # - קבצים עם תגית repo: יוצגו תחת "לפי ריפו" ולכן יוחרגו כאן
-        all_files = db.get_user_files(user_id, limit=10000)
-        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
-        
         # מסך בחירה: כפתורי ניווט ראשיים
         keyboard = [
             [InlineKeyboardButton("🔎 חפש קובץ", callback_data="search_files")],
@@ -481,6 +512,8 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
+            [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -541,6 +574,8 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("📦 קבצי ZIP", callback_data="backup_list")],
             [InlineKeyboardButton("📂 קבצים גדולים", callback_data="show_large_files")],
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
+            [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
+            [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
@@ -568,9 +603,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     from database import db
     
     try:
-        all_files = db.get_user_files(user_id, limit=10000)
-        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
-        
+        # עימוד אמיתי בצד ה-DB + ללא החזרת תוכן קוד
+        files, total_files = db.get_regular_files_paginated(user_id, page=1, per_page=FILES_PAGE_SIZE)
         if not files:
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
@@ -585,35 +619,40 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
             )
         else:
             # עימוד והצגת דף ראשון
-            total_files = len(files)
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             page = 1
             context.user_data['files_last_page'] = page
             context.user_data['files_origin'] = { 'type': 'regular' }
             # אתחול מצב מחיקה מרובה
-            context.user_data['rf_all_files'] = files
             context.user_data['rf_multi_delete'] = False
             context.user_data['rf_selected_ids'] = []
-            start_index = (page - 1) * FILES_PAGE_SIZE
-            end_index = min(start_index + FILES_PAGE_SIZE, total_files)
 
             keyboard = []
             context.user_data['files_cache'] = {}
-            for i in range(start_index, end_index):
-                file = files[i]
+            start_index = 0
+            for offset, file in enumerate(files):
+                i = start_index + offset
                 file_name = file.get('file_name', 'קובץ ללא שם')
                 language = file.get('programming_language', 'text')
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
-                button_text = f"{emoji} {file_name}"
+                # ⭐ חיווי מועדף — רק אם השם לא ארוך מדי כדי לא לפגוע בקריאות
+                try:
+                    from database import db as _db
+                    is_fav = bool(_db.is_favorite(user_id, file_name))
+                except Exception:
+                    is_fav = False
+                star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
+                button_text = f"{star}{emoji} {file_name}"
+                # כפתור כניסה בלבד (ללא כפתור מועדפים ברשימה)
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
             pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
             if pagination_row:
                 keyboard.append(pagination_row)
 
-            # כפתור מחיקה מרובה
-            keyboard.append([InlineKeyboardButton("🗑️ מחיקה מרובה", callback_data="rf_multi_start")])
+            # כפתור העברה מרובה לסל
+            keyboard.append([InlineKeyboardButton("🗑️ העברה מרובה לסל", callback_data="rf_multi_start")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -641,6 +680,140 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     
     return ConversationHandler.END
 
+async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """הצגת מועדפים (רשימת קבצים מסומנים is_favorite=True) עם עימוד קל בצד הבוט.
+    משתמש ב-db.get_favorites ומחלק לעמודים בגודל FILES_PAGE_SIZE.
+    """
+    query = update.callback_query
+    try:
+        await query.answer("טוען מועדפים…", show_alert=False)
+    except Exception:
+        pass
+    user_id = update.effective_user.id
+    from database import db
+    try:
+        favs = db.get_favorites(user_id, limit=1000) or []
+        if not favs:
+            await query.edit_message_text(
+                "💭 אין לך מועדפים כרגע.\nהוסף בעזרת /favorite &lt;שם&gt; או דרך כפתור ⭐ במסכי הקובץ",
+                parse_mode=ParseMode.HTML
+            )
+            keyboard = [[InlineKeyboardButton("🔙 חזור", callback_data="files")]]
+            await query.message.reply_text("🎮 בחר פעולה:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return ConversationHandler.END
+        # עמוד ראשון
+        page = 1
+        total_files = len(favs)
+        total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE
+        context.user_data['files_last_page'] = page
+        context.user_data['files_origin'] = { 'type': 'favorites' }
+        context.user_data['files_cache'] = {}
+        start = 0
+        end = min(FILES_PAGE_SIZE, total_files)
+        keyboard = []
+        for i, file in enumerate(favs[start:end], start):
+            context.user_data['files_cache'][str(i)] = file
+            name = file.get('file_name', 'file')
+            lang = file.get('programming_language', 'text')
+            emoji = get_file_emoji(lang)
+            # כפתור כניסה + כפתור מועדפים ישיר
+            try:
+                fid = str(file.get('_id') or '')
+            except Exception:
+                fid = ''
+            if fid:
+                fav_cb = f"fav_toggle_id:{fid}"
+            else:
+                fav_cb = f"fav_toggle_tok:{i}"
+                tokens_map = context.user_data.get('fav_tokens') or {}
+                tokens_map[str(i)] = name
+                context.user_data['fav_tokens'] = tokens_map
+            # קבע תווית מדויקת לפי המסד (בטוח יותר מהשדה במסמך שמוחזר מהרשימה)
+            try:
+                from database import db as _db
+                is_fav = bool(_db.is_favorite(user_id, name))
+            except Exception:
+                is_fav = True  # בהקשר 'מועדפים' נניח שזה מועדף
+            fav_label = "💔 הסר ממועדפים" if is_fav else "⭐ הוסף למועדפים"
+            keyboard.append([
+                InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}"),
+                InlineKeyboardButton(fav_label, callback_data=fav_cb)
+            ])
+        from handlers.pagination import build_pagination_row
+        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
+        if pagination_row:
+            keyboard.append(pagination_row)
+        # כפתור חזרה לתת־תפריט הקבצים
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        header = (
+            f"⭐ <b>המועדפים שלך</b> — סה״כ: {total_files}\n"
+            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            "✨ לחץ על קובץ להצגה מלאה:"
+        )
+        try:
+            await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        except telegram.error.BadRequest as br:
+            if "message is not modified" in str(br).lower():
+                try:
+                    from utils import TelegramUtils as _TU
+                    await _TU.safe_edit_message_reply_markup(query, reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    pass
+            else:
+                raise
+    except Exception as e:
+        logger.error(f"Error in show_favorites_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת מועדפים")
+    return ConversationHandler.END
+
+async def show_favorites_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    from database import db
+    try:
+        favs = db.get_favorites(user_id, limit=1000) or []
+        total_files = len(favs)
+        if total_files == 0:
+            await query.edit_message_text("💭 אין מועדפים להצגה")
+            await query.message.reply_text("🎮 בחר פעולה:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="files")]]))
+            return ConversationHandler.END
+        data = query.data
+        try:
+            page = int(str(data).split("_")[-1])
+        except Exception:
+            page = int(context.user_data.get('files_last_page') or 1)
+        page = max(1, page)
+        total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE
+        page = min(page, total_pages)
+        context.user_data['files_last_page'] = page
+        context.user_data['files_origin'] = { 'type': 'favorites' }
+        context.user_data['files_cache'] = {}
+        start = (page - 1) * FILES_PAGE_SIZE
+        end = min(start + FILES_PAGE_SIZE, total_files)
+        keyboard = []
+        for i, file in enumerate(favs[start:end], start):
+            context.user_data['files_cache'][str(i)] = file
+            name = file.get('file_name', 'file')
+            lang = file.get('programming_language', 'text')
+            emoji = get_file_emoji(lang)
+            keyboard.append([InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}")])
+        from handlers.pagination import build_pagination_row
+        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "favorites_page_")
+        if pagination_row:
+            keyboard.append(pagination_row)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        header = (
+            f"⭐ <b>המועדפים שלך</b> — סה״כ: {total_files}\n"
+            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            "✨ לחץ על קובץ להצגה מלאה:"
+        )
+        await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Error in show_favorites_page_callback: {e}")
+        await query.edit_message_text("❌ שגיאה בטעינת עמוד מועדפים")
+    return ConversationHandler.END
+
 async def show_regular_files_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מעבר בין עמודים בתצוגת 'הקבצים השמורים שלך'"""
     query = update.callback_query
@@ -648,10 +821,15 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     user_id = update.effective_user.id
     from database import db
     try:
-        # קרא את כל הקבצים כדי לחשב עימוד, אך הצג רק "שאר הקבצים"
-        all_files = db.get_user_files(user_id, limit=10000)
-        files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
-        if not files:
+        # שלוף דף ספציפי מה-DB ללא תוכן קוד (ה-DB כבר מהדק עמוד חוקי במידת הצורך)
+        data = query.data
+        try:
+            requested_page = int(data.split("_")[-1])
+        except Exception:
+            requested_page = context.user_data.get('files_last_page') or 1
+        requested_page = max(1, requested_page)
+        files, total_files = db.get_regular_files_paginated(user_id, page=requested_page, per_page=FILES_PAGE_SIZE)
+        if total_files == 0:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
@@ -661,32 +839,20 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
             await query.message.reply_text("🎮 בחר פעולה:", reply_markup=reply_markup)
             return ConversationHandler.END
 
-        # ניתוח מספר העמוד המבוקש
-        data = query.data
-        try:
-            page = int(data.split("_")[-1])
-        except Exception:
-            page = context.user_data.get('files_last_page') or 1
-        context.user_data['files_last_page'] = page
-        context.user_data['files_origin'] = { 'type': 'regular' }
-        if page < 1:
-            page = 1
-
-        total_files = len(files)
+        # חישוב מספר העמודים והידוק 'page_used' לעמוד חוקי, תואם לפריטים שחזרו מה-DB
         total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
-        if page > total_pages:
-            page = total_pages
-
-        start_index = (page - 1) * FILES_PAGE_SIZE
-        end_index = min(start_index + FILES_PAGE_SIZE, total_files)
+        page_used = min(max(1, requested_page), total_pages)
+        context.user_data['files_last_page'] = page_used
+        context.user_data['files_origin'] = { 'type': 'regular' }
 
         # בנה מקלדת לדף המבוקש
         keyboard = []
         multi_on = bool(context.user_data.get('rf_multi_delete'))
         selected_ids = set(context.user_data.get('rf_selected_ids') or [])
         context.user_data['files_cache'] = {}
-        for i in range(start_index, end_index):
-            file = files[i]
+        start_index = (page_used - 1) * FILES_PAGE_SIZE
+        for offset, file in enumerate(files):
+            i = start_index + offset
             file_name = file.get('file_name', 'קובץ ללא שם')
             language = file.get('programming_language', 'text')
             emoji = get_file_emoji(language)
@@ -694,31 +860,37 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
                 file_id = str(file.get('_id') or '')
                 checked = "☑️" if file_id in selected_ids else "⬜️"
                 button_text = f"{checked} {file_name}"
-                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page}:{file_id}")])
+                keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page_used}:{file_id}")])
             else:
                 context.user_data['files_cache'][str(i)] = file
-                button_text = f"{emoji} {file_name}"
+                try:
+                    from database import db as _db
+                    is_fav = bool(_db.is_favorite(user_id, file_name))
+                except Exception:
+                    is_fav = False
+                star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
+                button_text = f"{star}{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
 
-        pagination_row = build_pagination_row(page, total_files, FILES_PAGE_SIZE, "files_page_")
+        pagination_row = build_pagination_row(page_used, total_files, FILES_PAGE_SIZE, "files_page_")
         if pagination_row:
             keyboard.append(pagination_row)
 
         if multi_on:
             count_sel = len(selected_ids)
-            # כפתורי מחיקה/ביטול במצב מחיקה מרובה
-            keyboard.append([InlineKeyboardButton(f"🗑️ מחק נבחרים ({count_sel})", callback_data="rf_delete_confirm")])
-            keyboard.append([InlineKeyboardButton("❌ בטל מחיקה מרובה", callback_data="rf_multi_cancel")])
+            # כפתורי העברה/ביטול במצב מחיקה מרובה
+            keyboard.append([InlineKeyboardButton(f"🗑️ העבר נבחרים לסל ({count_sel})", callback_data="rf_delete_confirm")])
+            keyboard.append([InlineKeyboardButton("❌ בטל העברה מרובה", callback_data="rf_multi_cancel")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         else:
-            # כפתור מחיקה מרובה במצב רגיל
-            keyboard.append([InlineKeyboardButton("🗑️ מחיקה מרובה", callback_data="rf_multi_start")])
+            # כפתור העברה מרובה לסל במצב רגיל
+            keyboard.append([InlineKeyboardButton("🗑️ העברה מרובה לסל", callback_data="rf_multi_start")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         header_text = (
             f"📚 <b>הקבצים השמורים שלך</b> — סה״כ: {total_files}\n"
-            f"📄 עמוד {page} מתוך {total_pages}\n\n"
+            f"📄 עמוד {page_used} מתוך {total_pages}\n\n"
             "✨ לחץ על קובץ לחוויה מלאה של עריכה וניהול:"
         )
 
@@ -750,6 +922,100 @@ from handlers.save_flow import get_note as get_note
 
 from handlers.save_flow import save_file_final as save_file_final
 
+# --- Recycle bin paging constants ---
+RECYCLE_PAGE_SIZE = 10
+
+async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
+    try:
+        user_id = update.effective_user.id
+        data = query.data or "recycle_page_1"
+        try:
+            page = int(str(data).split("_")[-1]) if str(data).startswith("recycle_page_") else 1
+        except Exception:
+            page = 1
+        from database import db
+        page = max(1, page)
+        items, total = db._get_repo().list_deleted_files(user_id, page=page, per_page=RECYCLE_PAGE_SIZE)
+        total_pages = (total + RECYCLE_PAGE_SIZE - 1) // RECYCLE_PAGE_SIZE if total > 0 else 1
+        keyboard = []
+        for it in items:
+            fid = str(it.get('_id') or '')
+            name = it.get('file_name', 'file')
+            keyboard.append([
+                InlineKeyboardButton(f"♻️ שחזר: {name}", callback_data=f"recycle_restore:{fid}"),
+                InlineKeyboardButton("🧨 מחיקה סופית", callback_data=f"recycle_purge:{fid}")
+            ])
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"recycle_page_{page-1}"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("➡️ הבא", callback_data=f"recycle_page_{page+1}"))
+        if nav:
+            keyboard.append(nav)
+        keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="files")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        header = (
+            f"🗑️ <b>סל מיחזור</b> — {total} פריטים\n"
+            f"📄 עמוד {page} מתוך {total_pages}"
+        )
+        await TelegramUtils.safe_edit_message_text(query, header, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"show_recycle_bin failed: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בטעינת סל המיחזור")
+    return ConversationHandler.END
+
+async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
+    try:
+        user_id = update.effective_user.id
+        fid = (query.data or '').split(':', 1)[-1]
+        if not fid:
+            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            return ConversationHandler.END
+        from database import db
+        ok = db._get_repo().restore_file_by_id(user_id, fid)
+        if ok:
+            await TelegramUtils.safe_answer(query, "♻️ שוחזר", show_alert=False)
+        else:
+            await TelegramUtils.safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
+        return await show_recycle_bin(update, context)
+    except Exception as e:
+        logger.error(f"recycle_restore failed: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בשחזור")
+    return ConversationHandler.END
+
+async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    try:
+        await TelegramUtils.safe_answer(query)
+    except Exception:
+        pass
+    try:
+        user_id = update.effective_user.id
+        fid = (query.data or '').split(':', 1)[-1]
+        if not fid:
+            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            return ConversationHandler.END
+        from database import db
+        ok = db._get_repo().purge_file_by_id(user_id, fid)
+        if ok:
+            await TelegramUtils.safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
+        else:
+            await TelegramUtils.safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
+        return await show_recycle_bin(update, context)
+    except Exception as e:
+        logger.error(f"recycle_purge failed: {e}")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה במחיקה סופית")
+    return ConversationHandler.END
 async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE, service: str, file_id: str) -> int:
     """שיתוף קובץ יחיד לפי ObjectId בשירות מבוקש (gist/pastebin)."""
     query = update.callback_query
@@ -886,7 +1152,14 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         # הוסף הצגת הערה אם קיימת
         note = file_data.get('description') or ''
-        note_line = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
+        if note:
+            try:
+                safe_note_md = TextUtils.escape_markdown(note, version=1)
+            except Exception:
+                safe_note_md = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
+            note_line = f"\n📝 הערה: {safe_note_md}\n\n"
+        else:
+            note_line = "\n📝 הערה: —\n\n"
         await TelegramUtils.safe_edit_message_text(
             query,
             f"🎯 *מרכז בקרה מתקדם*\n\n"
@@ -995,7 +1268,11 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text("❌ שגיאה בעדכון ההערה")
         return ConversationHandler.END
 
-    new_code = update.message.text
+    # שחזור טקסט עם סימוני Markdown שנבלעו (לדוגמה __main__)
+    try:
+        new_code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
+    except Exception:
+        new_code = update.message.text
     
     # בדיקה אם מדובר בעריכת קובץ גדול
     editing_large_file = context.user_data.get('editing_large_file')
@@ -1217,10 +1494,14 @@ async def handle_edit_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         current_note = file_data.get('description', '') or '—'
         # הגדר דגל כדי ש-receive_new_code יעדכן הערה
         context.user_data['editing_note_file'] = file_name
+        try:
+            safe_current_note = TextUtils.escape_markdown(current_note, version=1)
+        except Exception:
+            safe_current_note = str(current_note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
         await query.edit_message_text(
             f"📝 *עריכת הערה לקובץ*\n\n"
             f"📄 **שם:** `{file_name}`\n"
-            f"🔎 **הערה נוכחית:** {html_escape(current_note)}\n\n"
+            f"🔎 **הערה נוכחית:** {safe_current_note}\n\n"
             f"✏️ שלח/י הערה חדשה (או 'מחק' כדי להסיר)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזרה", callback_data=f"file_{file_index}")]]),
             parse_mode='Markdown'
@@ -1469,17 +1750,21 @@ async def handle_delete_confirmation(update: Update, context: ContextTypes.DEFAU
         
         keyboard = [
             [
-                InlineKeyboardButton("✅ כן, מחק", callback_data=f"confirm_del_{file_index}"),
+                InlineKeyboardButton("✅ כן, העבר לסל", callback_data=f"confirm_del_{file_index}"),
                 InlineKeyboardButton("❌ לא, בטל", callback_data=f"file_{file_index}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        try:
+            _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+            _ttl_days = max(1, int(_ttl_raw))
+        except Exception:
+            _ttl_days = 7
         await query.edit_message_text(
-            f"⚠️ *אישור מחיקה*\n\n"
+            f"⚠️ *אישור העברה לסל*\n\n"
             f"📄 **קובץ:** `{file_name}`\n\n"
-            f"🗑️ האם אתה בטוח שברצונך למחוק את הקובץ?\n"
-            f"⚠️ **פעולה זו לא ניתנת לביטול!**",
+            f"🗑️ הקובץ יועבר לסל המיחזור. ניתן לשחזר עד {_ttl_days} ימים לפני מחיקה אוטומטית.",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -1516,10 +1801,15 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             await query.edit_message_text(
-                f"✅ *הקובץ נמחק בהצלחה!*\n\n"
-                f"📄 **קובץ שנמחק:** `{file_name}`\n"
-                f"🗑️ **הקובץ הוסר לחלוטין מהמערכת**",
+                f"✅ *הקובץ הועבר לסל המיחזור!*\n\n"
+                f"📄 **קובץ:** `{file_name}`\n"
+                f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים.",
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
@@ -2018,6 +2308,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return await handle_file_info(update, context)
         elif data == "files" or data == "refresh_files":
             return await show_all_files_callback(update, context)
+        elif data == "recycle_bin":
+            return await show_recycle_bin(update, context)
+        elif data.startswith("recycle_page_"):
+            return await show_recycle_bin(update, context)
+        elif data.startswith("recycle_restore:"):
+            return await recycle_restore(update, context)
+        elif data.startswith("recycle_purge:"):
+            return await recycle_purge(update, context)
         elif data == "by_repo_menu":
             return await show_by_repo_menu_callback(update, context)
         elif data == "add_code_regular":
@@ -2065,16 +2363,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "rf_delete_confirm":
             # הודעת אימות ראשונה למחיקה מרובה
             user_id = update.effective_user.id
-            selected = list(context.user_data.get('rf_selected_ids') or [])
-            count_sel = len(selected)
+            selected_ids: List[str] = list(context.user_data.get('rf_selected_ids') or [])
+            count_sel = len(selected_ids)
             if count_sel == 0:
                 await query.answer("לא נבחרו קבצים", show_alert=True)
                 return ConversationHandler.END
             last_page = context.user_data.get('files_last_page') or 1
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             warn = (
-                f"⚠️ עומד/ת למחוק <b>{count_sel}</b> קבצים שנבחרו.\n"
-                "המחיקה היא מקומית במסד של הבוט בלבד — אין שום פעולה מול GitHub,\n"
-                "ולא נמחקים קבצי ZIP/גדולים.\n\n"
+                f"⚠️ עומד/ת להעביר <b>{count_sel}</b> קבצים לסל המיחזור.\n"
+                f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n\n"
                 "אם זה בטעות, חזור/י אחורה."
             )
             kb = [
@@ -2085,14 +2388,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data == "rf_delete_double_confirm":
             # אישור שני
             last_page = context.user_data.get('files_last_page') or 1
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             text2 = (
-                "🧨 אישור סופי למחיקה\n"
-                "הקבצים הנבחרים יימחקו מהמסד של הבוט בלבד.\n"
+                "🧨 אישור סופי להעברה לסל\n"
+                f"הקבצים יועברו לסל המיחזור ויישארו לשחזור עד {_ttl_days} ימים.\n"
                 "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
-                "הפעולה בלתי הפיכה."
             )
             kb = [
-                [InlineKeyboardButton("🧨 כן, מחק", callback_data="rf_delete_do")],
+                [InlineKeyboardButton("🧨 כן, העבר לסל", callback_data="rf_delete_do")],
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"files_page_{last_page}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
@@ -2100,34 +2407,37 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # מחיקה בפועל לפי מזהי קבצים
             from database import db
             user_id = update.effective_user.id
-            selected = list(context.user_data.get('rf_selected_ids') or [])
+            selected_ids: List[str] = list(context.user_data.get('rf_selected_ids') or [])
             deleted = 0
-            for fid in selected:
+            for fid in selected_ids:
                 try:
                     res = db.delete_file_by_id(fid)
                     if res:
                         deleted += 1
                 except Exception:
                     continue
-            # רענון רשימת הקבצים ושחזור מצב רגיל
+            # רענון רשימת הקבצים ושחזור מצב רגיל (דף עדכני) ישירות מה-DB
             try:
-                all_files = db.get_user_files(user_id, limit=10000)
-                files = [f for f in all_files if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
+                last_page = context.user_data.get('files_last_page') or 1
+                files, total_files = db.get_regular_files_paginated(user_id, page=last_page, per_page=FILES_PAGE_SIZE)
             except Exception:
-                files = []
-            context.user_data['rf_all_files'] = files
+                files, total_files = [], 0
             context.user_data['rf_selected_ids'] = []
             context.user_data['rf_multi_delete'] = False
             # עדכן עמוד אחרון בהתאם לסה"כ אחרי מחיקה
-            total_files = len(files)
             total_pages = (total_files + FILES_PAGE_SIZE - 1) // FILES_PAGE_SIZE if total_files > 0 else 1
             last_page = context.user_data.get('files_last_page') or 1
             if last_page > total_pages:
                 last_page = total_pages or 1
             context.user_data['files_last_page'] = last_page
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             msg = (
-                f"✅ נמחקו {deleted} קבצים מהמסד של הבוט בלבד.\n"
-                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+                f"✅ הועברו לסל {deleted} קבצים.\n"
+                f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
             )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לשאר הקבצים", callback_data=f"files_page_{last_page}")],
@@ -2401,8 +2711,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             pagination_row = build_pagination_row(1, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
             if pagination_row:
                 keyboard.append(pagination_row)
-            # פעולת מחיקה לריפו הנוכחי
-            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
+            # פעולת העברה לריפו הנוכחי לסל המיחזור
+            keyboard.append([InlineKeyboardButton("🗑️ העבר את כל הריפו לסל", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             await query.edit_message_text(
@@ -2430,13 +2740,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             tag = data.split(":", 1)[1]
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            files = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             warn_text = (
-                f"⚠️ עומד/ת למחוק <b>{total}</b> קבצים תחת התגית <code>{tag}</code>\n"
-                "פעולה זו תסמן את הקבצים כלא־פעילים במסד של הבוט בלבד, \n"
-                "ולא תמחוק דבר ב‑GitHub. \n"
-                "לא תימחק פיזית גם אף קובץ ZIP/גדול.\n\n"
+                f"⚠️ עומד/ת להעביר <b>{total}</b> קבצים של <code>{tag}</code> לסל המיחזור.\n"
+                f"הקבצים יהיו ניתנים לשחזור עד {_ttl_days} ימים, ולאחר מכן יימחקו אוטומטית.\n"
+                "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n\n"
                 "אם זה בטעות, חזור/י אחורה."
             )
             kb = [
@@ -2447,14 +2761,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("byrepo_delete_double_confirm:"):
             # שלב אישור שני
             tag = data.split(":", 1)[1]
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             text2 = (
-                "🧨 אישור סופי למחיקה\n"
-                f"כל הקבצים תחת <code>{tag}</code> יוגדרו כלא־פעילים במסד של הבוט בלבד.\n"
+                "🧨 אישור סופי להעברה לסל\n"
+                f"כל הקבצים תחת <code>{tag}</code> יועברו לסל המיחזור ויישארו לשחזור עד {_ttl_days} ימים.\n"
                 "אין שום פעולה מול GitHub, ולא נמחקים קבצי ZIP/גדולים.\n"
-                "הפעולה בלתי הפיכה."
             )
             kb = [
-                [InlineKeyboardButton("🧨 כן, מחק", callback_data=f"byrepo_delete_do:{tag}")],
+                [InlineKeyboardButton("🧨 כן, העבר לסל", callback_data=f"byrepo_delete_do:{tag}")],
                 [InlineKeyboardButton("🔙 בטל", callback_data=f"by_repo:{tag}")],
             ]
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
@@ -2491,7 +2809,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             pagination_row = build_pagination_row(page, total, FILES_PAGE_SIZE, f"by_repo_page:{tag}:")
             if pagination_row:
                 keyboard.append(pagination_row)
-            keyboard.append([InlineKeyboardButton("🗑️ מחק את כל הריפו", callback_data=f"byrepo_delete_confirm:{tag}")])
+            keyboard.append([InlineKeyboardButton("🗑️ העבר את כל הריפו לסל", callback_data=f"byrepo_delete_confirm:{tag}")])
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="back_to_repo_menu")])
             keyboard.append([InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")])
             try:
@@ -2517,8 +2835,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             results = db.search_code(
                 update.effective_user.id,
                 query=name_filter,
-                programming_language=lang,
-                tags=[tag] if tag else None,
+                programming_language=(lang or ""),
+                tags=([tag] if tag else []),
                 limit=10000,
             ) or []
             # סינון נוסף לפי שם אם צריך
@@ -2563,7 +2881,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             tag = data.split(":", 1)[1]
             from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag], limit=10000) or []
+            files = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
             deleted = 0
             # הודעת התקדמות ראשונית + אימוג׳י קבוע
@@ -2615,9 +2933,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         last_edit_ts = now_ts or last_edit_ts
                     except Exception:
                         pass
+            try:
+                _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
+                _ttl_days = max(1, int(_ttl_raw))
+            except Exception:
+                _ttl_days = 7
             msg = (
-                f"✅ נמחקו {deleted} קבצים תחת <code>{tag}</code> מהמסד של הבוט בלבד.\n"
-                "ℹ️ אין שינוי בריפו ב‑GitHub ולא נמחקו קבצי ZIP/גדולים."
+                f"✅ הועברו לסל {deleted} קבצים תחת <code>{tag}</code>.\n"
+                f"♻️ ניתן לשחזר מסל המיחזור עד {_ttl_days} ימים."
             )
             kb = [
                 [InlineKeyboardButton("🔙 חזור לתפריט ריפו", callback_data="by_repo_menu")],
@@ -2953,7 +3276,7 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     user_id = update.effective_user.id
     files = db.get_user_files(user_id, limit=1000)
-    repo_to_count = {}
+    repo_to_count: Dict[str, int] = {}
     for f in files:
         for t in f.get('tags', []) or []:
             if t.startswith('repo:'):
@@ -2990,22 +3313,22 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         if t == 'repo':
             tag = target.get('tag')
-            files_docs = db.search_code(user_id, query="", tags=[tag], limit=2000)
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            files_docs = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'zips':
             # הצג את כל הקבצים הרגילים
             files_docs = db.get_user_files(user_id, limit=1000)
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'large':
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
-            items = [f.get('file_name') for f in large_files if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in large_files if f.get('file_name')]
         elif t == 'other':
             files_docs = db.get_user_files(user_id, limit=1000)
             files_docs = [f for f in files_docs if not any((tg or '').startswith('repo:') for tg in (f.get('tags') or []))]
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         else:
             files_docs = db.get_user_files(user_id, limit=1000)
-            items = [f.get('file_name') for f in files_docs if f.get('file_name')]
+            items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
 
         if not items:
             await query.edit_message_text("❌ לא נמצאו קבצים לקטגוריה שנבחרה")
@@ -3080,7 +3403,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
         lines = [f"📦 קבצי ZIP שמורים — סה""כ: {total}\n📄 עמוד {page} מתוך {total_pages}\n"]
         keyboard = []
         # חישוב גרסאות vN לפי ריפו
-        repo_to_sorted = {}
+        repo_to_sorted: Dict[str, list] = {}
         id_to_version = {}
         try:
             from datetime import datetime as _dt
@@ -3184,7 +3507,7 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
             t = target.get('type')
             if t == 'repo':
                 tag = target.get('tag')
-                items = db.search_code(user_id, query="", tags=[tag], limit=2000)
+                items = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
                 files = [f.get('file_name') for f in items if f.get('file_name')]
             elif t == 'zips':
                 # ZIPs אינם קבצי קוד; כבר בשלב הבחירה הוצגו הקבצים הרגילים

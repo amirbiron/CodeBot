@@ -7,23 +7,27 @@
 
 <!-- כפתורי קטגוריות -->
 <div class="categories-section" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
-    <a href="/files" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files#results" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-th"></i>
         כל הקבצים
     </a>
-    <a href="/files?category=recent" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=recent#results" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-history"></i>
         נפתחו לאחרונה
     </a>
-    <a href="/files?category=repo" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=repo#results" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fab fa-github"></i>
         לפי ריפו
     </a>
-    <a href="/files?category=large" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=favorites#results" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+        <i class="fas fa-star"></i>
+        מועדפים
+    </a>
+    <a href="/files?category=large#results" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-weight-hanging"></i>
         קבצים גדולים
     </a>
-    <a href="/files?category=other" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=other#results" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-folder"></i>
         שאר קבצים
     </a>
@@ -88,8 +92,8 @@
             {% if selected_repo %}
             | ריפו: {{ selected_repo }}
             {% endif %}
-            {% elif category_filter == 'zip' %}
-            | קטגוריה: קבצי ZIP (גיבויים שמורים בבוט)
+            {% elif category_filter == 'favorites' %}
+            | קטגוריה: מועדפים
             {% elif category_filter == 'large' %}
             | קטגוריה: קבצים גדולים (מעל 100KB)
             {% elif category_filter == 'recent' %}
@@ -112,6 +116,9 @@
         </div>
     </div>
 </div>
+
+<!-- Anchor for auto-scroll to results -->
+<div id="results"></div>
 
 {% if repos %}
 <div class="glass-card">
@@ -214,27 +221,33 @@
     {% endfor %}
 </div>
 
-{% if total_pages > 1 %}
 <div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
-    {% if has_prev %}
-    <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}" 
+    {% if total_pages > 1 and has_prev %}
+    <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
         <i class="fas fa-chevron-right"></i>
         הקודם
     </a>
     {% endif %}
-    
-    <span>עמוד {{ page }} מתוך {{ total_pages }}</span>
-    
-    {% if has_next %}
-    <a href="?page={{ page + 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}" 
+
+    {% if total_pages > 1 %}
+      <span>עמוד {{ page }} מתוך {{ total_pages }}</span>
+    {% endif %}
+
+    {% if next_cursor %}
+    <a href="?q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}&cursor={{ next_cursor }}#bottom"
+       class="btn btn-secondary btn-icon">
+        הבא
+        <i class="fas fa-chevron-left"></i>
+    </a>
+    {% elif total_pages > 1 and has_next %}
+    <a href="?page={{ page + 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
         הבא
         <i class="fas fa-chevron-left"></i>
     </a>
     {% endif %}
 </div>
-{% endif %}
 
 {% else %}
 <div class="glass-card" style="text-align: center; padding: 4rem 2rem;">
@@ -321,4 +334,5 @@
     }
 }
 </style>
+<div id="bottom"></div>
 {% endblock %}

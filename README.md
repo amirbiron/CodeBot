@@ -3,7 +3,8 @@
 בוט טלגרם חכם ומתקדם לשמירה, ניהול ושיתוף קטעי קוד בצורה מסודרת ונוחה.
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org)
-[![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://core.telegram.org/bots)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)](https://t.me/my_code_keeper_bot)
+[![WebApp](https://img.shields.io/badge/WebApp-Visit-blueviolet.svg)](https://code-keeper-webapp.onrender.com)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Database-green.svg)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/Docs-Website-blueviolet.svg)](https://amirbiron.github.io/CodeBot/)
@@ -16,24 +17,34 @@
 [![Performance Tests](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml/badge.svg)](https://github.com/amirbiron/CodeBot/actions/workflows/performance-tests.yml)
 
 [![Coverage](https://img.shields.io/codecov/c/github/amirbiron/CodeBot?branch=main)](https://app.codecov.io/gh/amirbiron/CodeBot/branch/main)
-[![Requirements Status](https://requires.io/github/amirbiron/CodeBot/requirements.svg?branch=main)](https://requires.io/github/amirbiron/CodeBot/requirements/?branch=main)
 
 ## 📋 תוכן עניינים
 
-- [✨ פיצ'רים עיקריים](#-פיצרים-עיקריים)
-- [🔧 דרישות מערכת](#-דרישות-מערכת)
-- [📦 התקנה](#-התקנה)
-- [⚙️ הגדרה](#️-הגדרה)
-- [🚀 הפעלה](#-הפעלה)
-- [📚 שימוש](#-שימוש)
-- [📖 פקודות זמינות](#-פקודות-זמינות)
-- [📖 תיעוד API](#-תיעוד-api)
-- [🔍 דוגמאות שימוש](#-דוגמאות-שימוש)
-- [🛠️ פתרון בעיות](#️-פתרון-בעיות)
-- [📈 ביצועים](#-ביצועים)
-- [🤝 תרומה](#-תרומה)
-- [📄 רישיון](#-רישיון)
-- [🔁 עדכוני תלויות ומיזוג אוטומטי](docs/auto-updates-and-auto-merge.md)
+- התחלה מהירה
+  - [✨ פיצ'רים עיקריים](#-פיצרים-עיקריים)
+  - [🔧 דרישות מערכת](#-דרישות-מערכת)
+  - [📦 התקנה](#-התקנה)
+  - [⚙️ הגדרה](#️-הגדרה)
+  - [🚀 הפעלה](#-איפה-להפעיל)
+- שימוש
+  - [📚 שימוש בסיסי](#-שימוש)
+  - [📖 פקודות זמינות](#-פקודות-זמינות)
+  - [🔍 דוגמאות שימוש](#-דוגמאות-שימוש)
+  - [🧹 ניקוי קוד אוטומטי](#-ניקוי-קוד-אוטומטי)
+  - [🏷️ נקודת שמירה בגיט](#-נקודת-שמירה-בגיט-git-checkpoint)
+- מתקדם
+  - [📖 תיעוד API](#-תיעוד-api)
+  - [🛠️ פתרון בעיות](#️-פתרון-בעיות)
+  - [📈 ביצועים](#-ביצועים)
+  - [🔁 עדכוני תלויות ומיזוג אוטומטי](#-עדכוני-תלויות-ומיזוג-אוטומטי)
+- תרומה וקהילה
+  - [🤝 תרומה](#-תרומה)
+  - [📞 תמיכה](#-תמיכה)
+  - [📋 מצב הפרויקט](#-מצב-הפרויקט)
+- משפטי
+  - [🔒 אבטחה](#-אבטחה)
+  - [📊 אנליטיקה](#-אנליטיקה)
+  - [📄 רישיון](#-רישיון)
 
 ## ✨ פיצ'רים עיקריים
 
@@ -180,13 +191,7 @@ MONGODB_URL=mongodb://localhost:27017/code_keeper_bot
 3. קבל API Key
 4. הוסף ל-.env: `PASTEBIN_API_KEY=your_key`
 
-### 🔁 עדכוני תלויות ומיזוג אוטומטי
-- Dependabot יוצר PRs לעדכוני pip אחת לשבוע.
-- ה-CI מוסיף בדיקה בשם "✅ Branch Protection Gate" כדי לסמן בכלל ההגנה של `main`.
-- כדי לאפשר Auto‑merge לעדכוני patch: אפשר "Allow auto‑merge" והוסף Secret בשם `DEPENDABOT_AUTOMERGE` עם הערך `true`.
-- כדי להימנע מפריסה בזמן עבודה: השאר PR כ‑Draft או כבה זמנית Auto Deploy ב‑Render לפני מיזוג ל‑`main`.
-
-[מדריך מלא: עדכוני תלויות ומיזוג אוטומטי](docs/auto-updates-and-auto-merge.md)
+ 
 
 ## 🎯 איפה להפעיל?
 
@@ -251,15 +256,14 @@ Render הוא הפלטפורמה הטובה ביותר לפריסת הבוט:
 #### שלב 2: פריסה לRender
 1. הרשם ל-[Render.com](https://render.com)
 2. התחבר עם GitHub account
-3. לחץ על **"New Web Service"**
+3. לחץ על **"Background Worker"**
 4. בחר את ה-repository שלך
 5. מלא את ההגדרות:
    ```
    Name: code-keeper-bot
    Region: US East (Ohio) 
    Branch: main
-   Build Command: pip install -r requirements.txt
-   Start Command: python main.py
+   Dockerfile Path: ./Dockerfile
    ```
 
 #### שלב 3: הגדרת משתני סביבה
@@ -331,31 +335,6 @@ docker run -d --env-file .env code-keeper-bot
 
 ## 📚 שימוש
 
-## 🧹 ניקוי קוד אוטומטי
-
-הבוט מנקה תווים נסתרים ומנרמל את הקוד אוטומטית לפני שמירה, כדי למנוע דלטות מבלבלות ותקלות הדבקה.
-
-- **מה מנורמל**:
-  - הסרת BOM בתחילת הקובץ
-  - המרת שורות ל-LF (CRLF/CR → LF)
-  - החלפת NBSP/NNBSP לרווח רגיל
-  - הסרת תווי רוחב‑אפס (ZWSP/ZWNJ/ZWJ) וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)
-  - הסרת תווי בקרה לא מודפסים (Cc) מלבד טאב/שורה חדשה
-  - הסרת רווחים בסוף שורות
-
-- **היכן חל**: כל מסלולי השמירה (`save_code_snippet`, `save_file`, `save_large_file`).
-
-- **ברירת מחדל**: פעיל.
-
-- **כיבוי/הפעלה**: באמצעות משתנה סביבה `NORMALIZE_CODE_ON_SAVE`.
-
-```env
-# .env
-NORMALIZE_CODE_ON_SAVE=false  # לכיבוי (ברירת מחדל: true)
-```
-
-הניקוי אינו משנה לוגיקת קוד, אך עשוי להשפיע על דיפים (הסרת רווחי סוף שורה/תווים נסתרים).
-
 ### התחלת עבודה
 1. שלח `/start` לבוט
 2. קבל הודעת ברוכים הבאים
@@ -386,111 +365,6 @@ if __name__ == "__main__":
 /search #api            # חיפוש לפי תגית
 /search function        # חיפוש חופשי
 ```
-
-### 🏷️ נקודת שמירה בגיט (Git Checkpoint)
-- **מה זה עושה?** לחיצה על הכפתור "נקודת שמירה בגיט" יוצרת תגית (tag) קלת-משקל על ה-HEAD של ברירת המחדל בריפו הנבחר, בשם בפורמט `checkpoint-YYYYMMDD-HHMMSS`.
-- אם יצירת תגית נחסמת (למשל עקב הגנות), המערכת תיצור אוטומטית ענף (branch) בשם דומה כגיבוי.
-- ניתן לשנות את הקידומת (`checkpoint`) באמצעות משתנה הסביבה `GIT_CHECKPOINT_PREFIX`.
-
-#### איך לחזור לנקודת שמירה
-בחר אחת מהאפשרויות:
-- **ב-Git מקומי (tag):**
-  1. משיכת תגיות האחרונות:
-     ```bash
-     git fetch --tags
-     ```
-  2. מעבר לנקודת שמירה כ-tag (קריאה בלבד):
-     ```bash
-     git checkout tags/checkpoint-YYYYMMDD-HHMMSS
-     ```
-  3. ליצירת ענף מהנקודה:
-     ```bash
-     git checkout -b restore-from-checkpoint
-     ```
-
-- **ב-Git מקומי (fallback לענף):**
-  אם נוצר ענף במקום תגית, ניתן לעבור אליו ישירות:
-  ```bash
-  git fetch origin
-  git checkout checkpoint-YYYYMMDD-HHMMSS
-  ```
-  אם השם כולל קידומת מותאמת, החלף את `checkpoint` בקידומת שהגדרת.
-
-- **שחזור מלא של ברירת המחדל ל-tag (פעולה מסוכנת):**
-  אם ברצונך להעביר את ענף ברירת המחדל אחורה ל-tag (מוחק היסטוריה קדימה):
-  ```bash
-  # ודא שיש לך הרשאות דחיפה
-  git checkout main  # או שם ברירת המחדל
-  git reset --hard tags/checkpoint-YYYYMMDD-HHMMSS
-  git push --force-with-lease origin HEAD
-  ```
-  מומלץ לבצע זאת רק אם אתה מבין את ההשלכות על שותפים אחרים.
-
-- **ב-GitHub UI:**
-  - עבור ל-"Tags" בריפו, מצא את `checkpoint-...`, ולחץ "Create release" או צור branch מה-tag דרך הכפתור המתאים.
-  - אם נוצר ענף כגיבוי, עבור ללשונית "Branches" ותוכל ליצור ממנו PR או לשנותו כנדרש.
-
-> הערות:
-> - יצירת נקודת שמירה יוצרת רפרנס (ref) לסנאפשוט של ה-commit הנוכחי (tag או branch), לא קובץ חדש.
-> - לשינוי הקידומת לשם נקודת שמירה, הגדר משתנה סביבה למשל: `GIT_CHECKPOINT_PREFIX=snap`.
-
-## 📖 תיעוד API
-
-### 📚 תיעוד מקיף ומפורט
-
-הפרויקט כולל תיעוד API מלא שנוצר עם Sphinx, המספק:
-
-- **תיעוד אוטומטי** - נוצר מ-docstrings בקוד
-- **דוגמאות קוד** - דוגמאות מעשיות לכל פונקציה
-- **API Reference** - תיעוד מפורט של כל המודולים
-- **מדריכי שימוש** - הסברים מפורטים על השימוש
-
-### 🛠️ בניית התיעוד
-
-```bash
-# התקנת תלויות תיעוד
-pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints sphinxcontrib-napoleon
-
-# בניית התיעוד
-./build_docs.sh
-
-# או ידנית:
-cd docs
-make html
-```
-
-התיעוד יהיה זמין ב: `docs/_build/html/index.html`
-
-### 📂 מבנה התיעוד
-
-```
-docs/
-├── index.rst           # דף הבית
-├── installation.rst    # מדריך התקנה
-├── configuration.rst   # הגדרות תצורה
-├── examples.rst        # דוגמאות שימוש
-├── api/               # תיעוד API
-├── modules/           # תיעוד מודולים
-├── handlers/          # תיעוד handlers
-├── services/          # תיעוד services
-└── database/          # תיעוד מסד נתונים
-```
-
-### 🌐 תיעוד אונליין
-
-התיעוד זמין גם באופן מקוון:
-- [Read the Docs](https://code-keeper-bot.readthedocs.io) (בקרוב)
-- [GitHub Pages](https://yourusername.github.io/code-keeper-bot) (בקרוב)
-
-### ✏️ תרומה לתיעוד
-
-לשיפור התיעוד:
-1. הוסף docstrings למודולים חדשים
-2. עדכן דוגמאות קוד
-3. תקן שגיאות כתיב
-4. הוסף הסברים נוספים
-
-ראה [docs/README.md](docs/README.md) למידע נוסף.
 
 ## 📖 פקודות זמינות
 
@@ -629,6 +503,140 @@ def scrape_website(url):
    🔗 קישור: https://gist.github.com/user/abc123
 ```
 
+## 🏷️ נקודת שמירה בגיט (Git Checkpoint)
+- **מה זה עושה?** לחיצה על הכפתור "נקודת שמירה בגיט" יוצרת תגית (tag) קלת-משקל על ה-HEAD של ברירת המחדל בריפו הנבחר, בשם בפורמט `checkpoint-YYYYMMDD-HHMMSS`.
+- אם יצירת תגית נחסמת (למשל עקב הגנות), המערכת תיצור אוטומטית ענף (branch) בשם דומה כגיבוי.
+- ניתן לשנות את הקידומת (`checkpoint`) באמצעות משתנה הסביבה `GIT_CHECKPOINT_PREFIX`.
+
+#### איך לחזור לנקודת שמירה
+בחר אחת מהאפשרויות:
+- **ב-Git מקומי (tag):**
+  1. משיכת תגיות האחרונות:
+     ```bash
+     git fetch --tags
+     ```
+  2. מעבר לנקודת שמירה כ-tag (קריאה בלבד):
+     ```bash
+     git checkout tags/checkpoint-YYYYMMDD-HHMMSS
+     ```
+  3. ליצירת ענף מהנקודה:
+     ```bash
+     git checkout -b restore-from-checkpoint
+     ```
+
+- **ב-Git מקומי (fallback לענף):**
+  אם נוצר ענף במקום תגית, ניתן לעבור אליו ישירות:
+  ```bash
+  git fetch origin
+  git checkout checkpoint-YYYYMMDD-HHMMSS
+  ```
+  אם השם כולל קידומת מותאמת, החלף את `checkpoint` בקידומת שהגדרת.
+
+- **שחזור מלא של ברירת המחדל ל-tag (פעולה מסוכנת):**
+  אם ברצונך להעביר את ענף ברירת המחדל אחורה ל-tag (מוחק היסטוריה קדימה):
+  ```bash
+  # ודא שיש לך הרשאות דחיפה
+  git checkout main  # או שם ברירת המחדל
+  git reset --hard tags/checkpoint-YYYYMMDD-HHMMSS
+  git push --force-with-lease origin HEAD
+  ```
+  מומלץ לבצע זאת רק אם אתה מבין את ההשלכות על שותפים אחרים.
+
+- **ב-GitHub UI:**
+  - עבור ל-"Tags" בריפו, מצא את `checkpoint-...`, ולחץ "Create release" או צור branch מה-tag דרך הכפתור המתאים.
+  - אם נוצר ענף כגיבוי, עבור ללשונית "Branches" ותוכל ליצור ממנו PR או לשנותו כנדרש.
+
+> הערות:
+> - יצירת נקודת שמירה יוצרת רפרנס (ref) לסנאפשוט של ה-commit הנוכחי (tag או branch), לא קובץ חדש.
+> - לשינוי הקידומת לשם נקודת שמירה, הגדר משתנה סביבה למשל: `GIT_CHECKPOINT_PREFIX=snap`.
+
+## 🧹 ניקוי קוד אוטומטי
+
+הבוט מנקה תווים נסתרים ומנרמל את הקוד אוטומטית לפני שמירה, כדי למנוע דלטות מבלבלות ותקלות הדבקה.
+
+- **מה מנורמל**:
+  - הסרת BOM בתחילת הקובץ
+  - המרת שורות ל-LF (CRLF/CR → LF)
+  - החלפת NBSP/NNBSP לרווח רגיל
+  - הסרת תווי רוחב‑אפס (ZWSP/ZWNJ/ZWJ) וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)
+  - הסרת תווי בקרה לא מודפסים (Cc) מלבד טאב/שורה חדשה
+  - הסרת רווחים בסוף שורות
+
+- **היכן חל**: כל מסלולי השמירה (`save_code_snippet`, `save_file`, `save_large_file`).
+
+- **ברירת מחדל**: פעיל.
+
+- **כיבוי/הפעלה**: באמצעות משתנה סביבה `NORMALIZE_CODE_ON_SAVE`.
+
+```env
+# .env
+NORMALIZE_CODE_ON_SAVE=false  # לכיבוי (ברירת מחדל: true)
+```
+
+הניקוי אינו משנה לוגיקת קוד, אך עשוי להשפיע על דיפים (הסרת רווחי סוף שורה/תווים נסתרים).
+
+## 📖 תיעוד API
+
+### 📚 תיעוד מקיף ומפורט
+
+הפרויקט כולל תיעוד API מלא שנוצר עם Sphinx, המספק:
+
+- **תיעוד אוטומטי** - נוצר מ-docstrings בקוד
+- **דוגמאות קוד** - דוגמאות מעשיות לכל פונקציה
+- **API Reference** - תיעוד מפורט של כל המודולים
+- **מדריכי שימוש** - הסברים מפורטים על השימוש
+
+### 🛠️ בניית התיעוד
+
+```bash
+# התקנת תלויות תיעוד
+pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints sphinxcontrib-napoleon
+
+# בניית התיעוד
+./build_docs.sh
+
+# או ידנית:
+cd docs
+make html
+```
+
+התיעוד יהיה זמין ב: `docs/_build/html/index.html`
+
+### 📂 מבנה התיעוד
+
+```
+docs/
+├── index.rst           # דף הבית
+├── installation.rst    # מדריך התקנה
+├── configuration.rst   # הגדרות תצורה
+├── examples.rst        # דוגמאות שימוש
+├── api/               # תיעוד API
+├── modules/           # תיעוד מודולים
+├── handlers/          # תיעוד handlers
+├── services/          # תיעוד services
+└── database/          # תיעוד מסד נתונים
+```
+
+### 🌐 תיעוד אונליין
+
+התיעוד זמין גם באופן מקוון:
+- [Read the Docs](https://codebot.readthedocs.io/en/latest/)
+- [GitHub Pages](https://amirbiron.github.io/CodeBot/)
+
+### ✏️ תרומה לתיעוד
+
+לשיפור התיעוד:
+1. הוסף docstrings למודולים חדשים
+2. עדכן דוגמאות קוד
+3. תקן שגיאות כתיב
+4. הוסף הסברים נוספים
+
+ראה [docs/README.md](docs/README.md) למידע נוסף.
+
+<!-- duplicated block ends here: removing duplicate below -->
+
+<!-- removed duplicate examples block (second occurrence) -->
+
 ## 🛠️ פתרון בעיות
 
 ### בעיות נפוצות
@@ -749,6 +757,14 @@ print('זיכרון:', get_memory_usage())
 "
 ```
 
+### 🔁 עדכוני תלויות ומיזוג אוטומטי
+- Dependabot יוצר PRs לעדכוני pip אחת לשבוע.
+- ה-CI מוסיף בדיקה בשם "✅ Branch Protection Gate" כדי לסמן בכלל ההגנה של `main`.
+- כדי לאפשר Auto‑merge לעדכוני patch: אפשר "Allow auto‑merge" והוסף Secret בשם `DEPENDABOT_AUTOMERGE` עם הערך `true`.
+- כדי להימנע מפריסה בזמן עבודה: השאר PR כ‑Draft או כבה זמנית Auto Deploy ב‑Render לפני מיזוג ל‑`main`.
+
+[מדריך מלא: עדכוני תלויות ומיזוג אוטומטי](docs/auto-updates-and-auto-merge.md)
+
 ## 🤝 תרומה
 
 מוזמנים לתרום לפרויקט! 
@@ -783,8 +799,7 @@ print('זיכרון:', get_memory_usage())
 - **Telegram**: [@moominAmir](https://t.me/moominAmir)
 
 ### קהילה
-- [Telegram Group](https://t.me/code_keeper_bot_community)
-- [Discord Server](https://discord.gg/your_invite)
+- [Telegram Group](https://t.me/+nh9skKRgTEVkZmJk)
 
 ## 📋 מצב הפרויקט
 

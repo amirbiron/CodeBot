@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Cleanup tool to normalize repo:* tags on code_snippets documents.
+Cleanup tool to normalize repo:* tags on code_snippets documents and backfill
+favorites fields for legacy documents.
 
 - Keeps only the latest repo:* tag per document (preserving non-repo tags)
 - Optionally clear all repo:* tags for specific filenames (e.g., index.html)
+- Backfills missing fields: is_favorite=False, favorited_at=None for documents
+  without these fields
 
 Usage:
   python scripts/cleanup_repo_tags.py --user-id 123456 --apply
@@ -84,7 +87,20 @@ def main() -> int:
             if args.apply:
                 coll.update_one({'_id': doc['_id']}, {'$set': {'tags': new_tags, 'updated_at': datetime.now(timezone.utc)}})
 
-    print(f"Scanned: {total} docs; Changed: {changed}; Index cleared: {index_cleared}; Apply: {args.apply}")
+    # Backfill favorites fields (optional global, not only user-specific)
+    try:
+        if args.apply:
+            res = coll.update_many(
+                {"is_favorite": {"$exists": False}},
+                {"$set": {"is_favorite": False, "favorited_at": None}},
+            )
+            backfilled = getattr(res, 'modified_count', 0)
+        else:
+            backfilled = coll.count_documents({"is_favorite": {"$exists": False}})
+    except Exception:
+        backfilled = 0
+
+    print(f"Scanned: {total} docs; Changed: {changed}; Index cleared: {index_cleared}; Favorites backfilled: {backfilled}; Apply: {args.apply}")
     return 0
 
 

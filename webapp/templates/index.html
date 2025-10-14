@@ -86,8 +86,15 @@
                     <div style="opacity: 0.8;">שפות נתמכות</div>
                 </div>
                 <div>
-                    <div style="font-size: 2rem; font-weight: bold;">99.9%</div>
-                    <div style="opacity: 0.8;">זמינות</div>
+                    <div id="uptimeVal" style="font-size: 2rem; font-weight: bold;">
+                        <span class="loading" aria-label="loading"></span>
+                    </div>
+                <div style="opacity: 0.8;">זמינות</div>
+                    {% if uptime_status_url %}
+                    <div style="margin-top: .25rem;">
+                        <a href="{{ uptime_status_url }}" target="_blank" rel="noopener" class="badge">דף סטטוס</a>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             
@@ -152,10 +159,46 @@
         }
     }
 
+    async function loadUptime() {
+        const el = document.getElementById('uptimeVal');
+        if (!el) return;
+        try {
+            // אם הוזרק ערך מהשרת (SSR), השתמש בו קודם; תומך גם ב-0%
+            {% if uptime is defined and uptime is not none and uptime.uptime_percentage is not none %}
+            el.textContent = (function(v){
+                try {
+                    const n = Number(v);
+                    if (!isFinite(n)) return '—';
+                    const whole = Math.round(n);
+                    if (Math.abs(n - whole) < 0.005) return whole + '%';
+                    const fixed = (Math.abs(n) >= 10) ? n.toFixed(1) : n.toFixed(2);
+                    return String(parseFloat(fixed)) + '%';
+                } catch(_) { return '—'; }
+            })({{ '%.4f' % uptime.uptime_percentage }});
+            return;
+            {% endif %}
+            const res = await fetch('/api/uptime', { credentials: 'same-origin' });
+            const data = await res.json();
+            if (!data || data.ok === false || data.uptime_percentage == null) throw new Error('bad uptime');
+            (function(){
+                const n = Number(data.uptime_percentage);
+                if (!isFinite(n)) { el.textContent = '—'; return; }
+                const whole = Math.round(n);
+                if (Math.abs(n - whole) < 0.005) { el.textContent = whole + '%'; return; }
+                const fixed = (Math.abs(n) >= 10) ? n.toFixed(1) : n.toFixed(2);
+                el.textContent = String(parseFloat(fixed)) + '%';
+            })();
+        } catch (e) {
+            el.textContent = '—';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         loadPublicStats();
-        // רענון כל דקה קלה
+        loadUptime();
+        // רענון כל חצי דקה
         setInterval(loadPublicStats, 30000);
+        setInterval(loadUptime, 60000);
     });
 </script>
 {% endblock %}

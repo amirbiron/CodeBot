@@ -3,6 +3,7 @@ import os
 from types import SimpleNamespace
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional as _Optional  # for type hints below without shadowing
 try:
     from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
     _PYMONGO_AVAILABLE = True
@@ -140,6 +141,8 @@ class DatabaseManager:
             IndexModel([("tags", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING), ("version", DESCENDING)]),
+            # אינדקס למועדפים: שליפה מהירה לפי משתמש ומועדפים, מיון לפי תאריך הוספה
+            IndexModel([("user_id", ASCENDING), ("is_favorite", ASCENDING), ("favorited_at", DESCENDING)], name="user_favorites_idx"),
             # אינדקס משופר לתמיכה במיון file_name, version לאחר match על user_id,is_active
             IndexModel([
                 ("user_id", ASCENDING),
@@ -173,6 +176,7 @@ class DatabaseManager:
                 ("created_at", DESCENDING),
             ], name="lang_tags_date_idx"),
             IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], name="full_text_search_idx"),
+            IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
         ]
 
         large_files_indexes = [
@@ -203,6 +207,7 @@ class DatabaseManager:
                 ("tags", ASCENDING),
                 ("file_size", DESCENDING),
             ], name="user_tags_size_idx"),
+            IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
         ]
 
         # backup_ratings indexes
@@ -354,13 +359,21 @@ class DatabaseManager:
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
         return self._get_repo().get_user_files_by_repo(user_id, repo_tag, page, per_page)
 
+    # רשימת "שאר הקבצים" בעימוד אמיתי מה-DB (ללא repo:*)
+    def get_regular_files_paginated(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
+        return self._get_repo().get_regular_files_paginated(user_id, page, per_page)
+
+    # Repo tags helpers
+    def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict]:
+        return self._get_repo().get_repo_tags_with_counts(user_id, max_tags)
+
     def delete_file(self, user_id: int, file_name: str) -> bool:
         return self._get_repo().delete_file(user_id, file_name)
 
     def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
         return self._get_repo().soft_delete_files_by_names(user_id, file_names)
 
-    def delete_file_by_id(self, file_id: str) -> int:
+    def delete_file_by_id(self, file_id: str) -> bool:
         return self._get_repo().delete_file_by_id(file_id)
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
@@ -371,6 +384,19 @@ class DatabaseManager:
 
     def rename_file(self, user_id: int, old_name: str, new_name: str) -> bool:
         return self._get_repo().rename_file(user_id, old_name, new_name)
+
+    # Favorites API wrappers
+    def toggle_favorite(self, user_id: int, file_name: str) -> _Optional[bool]:
+        return self._get_repo().toggle_favorite(user_id, file_name)
+
+    def get_favorites(self, user_id: int, language: _Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
+        return self._get_repo().get_favorites(user_id, language=language, sort_by=sort_by, limit=limit)
+
+    def get_favorites_count(self, user_id: int) -> int:
+        return self._get_repo().get_favorites_count(user_id)
+
+    def is_favorite(self, user_id: int, file_name: str) -> bool:
+        return self._get_repo().is_favorite(user_id, file_name)
 
     # Large files API
     def save_large_file(self, large_file) -> bool:

@@ -11,7 +11,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <!-- Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          {% if cdn_sri and cdn_sri.fa %}integrity="{{ cdn_sri.fa }}" crossorigin="anonymous" referrerpolicy="no-referrer"{% endif %} />
     <meta id="uiFont" data-scale="{{ '%.2f' % ui_font_scale }}">
     
     <style>
@@ -444,6 +446,9 @@
                 </button>
                 
                 <ul class="nav-menu" id="navMenu">
+                    {% if uptime_status_url %}
+                        <li><a href="{{ uptime_status_url }}" target="_blank" class="nav-link"><i class="fas fa-signal"></i> סטטוס</a></li>
+                    {% endif %}
                     {% if session.user_id %}
                         <li><a href="/dashboard" class="nav-link"><i class="fas fa-chart-line"></i> דשבורד</a></li>
                         <li><a href="/files" class="nav-link"><i class="fas fa-folder"></i> הקבצים שלי</a></li>
@@ -506,6 +511,9 @@
         
     </script>
     
+    {% if uptime_widget_id and uptime_widget_script_url %}
+    <script src="{{ uptime_widget_script_url }}" data-id="{{ uptime_widget_id }}" async></script>
+    {% endif %}
     {% block extra_js %}{% endblock %}
 </body>
 </html>

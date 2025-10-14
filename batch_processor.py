@@ -457,5 +457,19 @@ class BatchProcessor:
             logger.error(f"שגיאה בפורמט סיכום job: {e}")
             return "❌ שגיאה בהצגת סיכום"
 
+    def cancel_job(self, job_id: str) -> bool:
+        """ביטול עבודה פעילה (best-effort). מסמן כ"failed" ומסיים."""
+        try:
+            job = self.active_jobs.get(job_id)
+            if not job:
+                return False
+            # סימון ככשלון ובקשה לעצירה לוגית
+            job.status = "failed"
+            job.error_message = "canceled by user"
+            job.end_time = time.time()
+            return True
+        except Exception:
+            return False
+
 # יצירת instance גלובלי
 batch_processor = BatchProcessor()

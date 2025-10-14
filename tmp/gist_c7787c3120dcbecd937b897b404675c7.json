@@ -1,0 +1,88 @@
+{
+  "url": "https://api.github.com/gists/c7787c3120dcbecd937b897b404675c7",
+  "forks_url": "https://api.github.com/gists/c7787c3120dcbecd937b897b404675c7/forks",
+  "commits_url": "https://api.github.com/gists/c7787c3120dcbecd937b897b404675c7/commits",
+  "id": "c7787c3120dcbecd937b897b404675c7",
+  "node_id": "G_kwDODNevjNoAIGM3Nzg3YzMxMjBkY2JlY2Q5MzdiODk3YjQwNDY3NWM3",
+  "git_pull_url": "https://gist.github.com/c7787c3120dcbecd937b897b404675c7.git",
+  "git_push_url": "https://gist.github.com/c7787c3120dcbecd937b897b404675c7.git",
+  "html_url": "https://gist.github.com/amirbiron/c7787c3120dcbecd937b897b404675c7",
+  "files": {
+    "7.py": {
+      "filename": "7.py",
+      "type": "application/x-python",
+      "language": "Python",
+      "raw_url": "https://gist.githubusercontent.com/amirbiron/c7787c3120dcbecd937b897b404675c7/raw/2ed1f2684231276ab52b235bc9001c1bc1d6d873/7.py",
+      "size": 8209,
+      "truncated": false,
+      "content": "#!/usr/bin/env python3\n\"\"\"\nSetup script for Bookmarks feature\nהתקנה והגדרת מערכת הסימניות\n\"\"\"\n\nimport sys\nimport os\nfrom pathlib import Path\nimport logging\nfrom datetime import datetime\n\n# Add project root to path\nsys.path.insert(0, str(Path(__file__).parent))\n\nlogging.basicConfig(\n    level=logging.INFO,\n    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'\n)\nlogger = logging.getLogger(__name__)\n\n\ndef check_mongodb_connection():\n    \"\"\"בדיקת חיבור ל-MongoDB\"\"\"\n    try:\n        from pymongo import MongoClient\n        from config import MONGO_URI, MONGO_DB_NAME\n        \n        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)\n        client.server_info()  # Force connection\n        db = client[MONGO_DB_NAME]\n        \n        logger.info(\"✅ MongoDB connection successful\")\n        return db\n    except Exception as e:\n        logger.error(f\"❌ MongoDB connection failed: {e}\")\n        return None\n\n\ndef setup_bookmarks_collection(db):\n    \"\"\"יצירת collection וindexes לסימניות\"\"\"\n    try:\n        # יצירת collections\n        if 'file_bookmarks' not in db.list_collection_names():\n            db.create_collection('file_bookmarks')\n            logger.info(\"✅ Created file_bookmarks collection\")\n        else:\n            logger.info(\"ℹ️ file_bookmarks collection already exists\")\n        \n        if 'bookmark_events' not in db.list_collection_names():\n            db.create_collection('bookmark_events')\n            logger.info(\"✅ Created bookmark_events collection\")\n        else:\n            logger.info(\"ℹ️ bookmark_events collection already exists\")\n        \n        # יצירת indexes\n        from database.bookmarks_manager import BookmarksManager\n        bm_manager = BookmarksManager(db)\n        logger.info(\"✅ Bookmarks indexes created\")\n        \n        return True\n        \n    except Exception as e:\n        logger.error(f\"❌ Error setting up collections: {e}\")\n        return False\n\n\ndef update_webapp_routes():\n    \"\"\"הוספת routes לאפליקציה\"\"\"\n    webapp_file = Path(__file__).parent / 'webapp' / 'app.py'\n    \n    if not webapp_file.exists():\n        logger.warning(\"⚠️ webapp/app.py not found - please add routes manually\")\n        print(\"\"\"\nPlease add the following to your webapp/app.py file:\n\nfrom webapp.bookmarks_api import bookmarks_bp\n\n# Register bookmarks blueprint\napp.register_blueprint(bookmarks_bp)\n\n# Add to your get_database_connection function:\ndef get_database_connection():\n    from pymongo import MongoClient\n    from config import MONGO_URI, MONGO_DB_NAME\n    client = MongoClient(MONGO_URI)\n    return client[MONGO_DB_NAME]\n        \"\"\")\n        return False\n    \n    logger.info(\"✅ Please add bookmarks blueprint to webapp/app.py manually\")\n    return True\n\n\ndef update_view_file_template():\n    \"\"\"עדכון template של view_file\"\"\"\n    template_path = Path(__file__).parent / 'webapp' / 'templates' / 'view_file.html'\n    \n    if not template_path.exists():\n        logger.warning(\"⚠️ view_file.html not found - please add snippet manually\")\n        print(\"\"\"\nPlease add the following to your view_file.html template:\n\n{% include 'bookmarks_snippet.html' %}\n\nAdd it before the closing </body> tag.\n        \"\"\")\n        return False\n    \n    logger.info(\"✅ Please add bookmarks snippet to view_file.html manually\")\n    return True\n\n\ndef create_test_data(db):\n    \"\"\"יצירת נתוני בדיקה\"\"\"\n    try:\n        from database.bookmarks_manager import BookmarksManager\n        from bson import ObjectId\n        \n        bm_manager = BookmarksManager(db)\n        \n        # יצירת סימניות לדוגמה\n        test_user_id = 123456789\n        test_file_id = str(ObjectId())\n        \n        result1 = bm_manager.toggle_bookmark(\n            user_id=test_user_id,\n            file_id=test_file_id,\n            file_name=\"test_file.py\",\n            file_path=\"/test/test_file.py\",\n            line_number=42,\n            line_text=\"def test_function():\",\n            note=\"פונקציית בדיקה חשובה\"\n        )\n        \n        result2 = bm_manager.toggle_bookmark(\n            user_id=test_user_id,\n            file_id=test_file_id,\n            file_name=\"test_file.py\",\n            file_path=\"/test/test_file.py\",\n            line_number=100,\n            line_text=\"return result\",\n            note=\"החזרת תוצאה\"\n        )\n        \n        if result1['ok'] and result2['ok']:\n            logger.info(\"✅ Test bookmarks created successfully\")\n            logger.info(f\"   Test user ID: {test_user_id}\")\n            logger.info(f\"   Test file ID: {test_file_id}\")\n            return True\n        else:\n            logger.error(\"❌ Failed to create test bookmarks\")\n            return False\n            \n    except Exception as e:\n        logger.error(f\"❌ Error creating test data: {e}\")\n        return False\n\n\ndef verify_installation():\n    \"\"\"בדיקת התקנה מלאה\"\"\"\n    checks = {\n        'MongoDB Connection': False,\n        'Collections Created': False,\n        'Indexes Created': False,\n        'API Module': False,\n        'Frontend Files': False,\n    }\n    \n    # בדיקת MongoDB\n    db = check_mongodb_connection()\n    if db:\n        checks['MongoDB Connection'] = True\n        \n        # בדיקת collections\n        if 'file_bookmarks' in db.list_collection_names():\n            checks['Collections Created'] = True\n            \n            # בדיקת indexes\n            indexes = db.file_bookmarks.list_indexes()\n            if len(list(indexes)) > 1:  # More than just _id index\n                checks['Indexes Created'] = True\n    \n    # בדיקת קבצי API\n    api_file = Path(__file__).parent / 'webapp' / 'bookmarks_api.py'\n    if api_file.exists():\n        checks['API Module'] = True\n    \n    # בדיקת קבצי frontend\n    js_file = Path(__file__).parent / 'webapp' / 'static' / 'js' / 'bookmarks.js'\n    css_file = Path(__file__).parent / 'webapp' / 'static' / 'css' / 'bookmarks.css'\n    if js_file.exists() and css_file.exists():\n        checks['Frontend Files'] = True\n    \n    # הצגת תוצאות\n    print(\"\\n\" + \"=\"*50)\n    print(\"📋 Installation Verification:\")\n    print(\"=\"*50)\n    \n    all_ok = True\n    for check, status in checks.items():\n        icon = \"✅\" if status else \"❌\"\n        print(f\"{icon} {check}: {'OK' if status else 'FAILED'}\")\n        if not status:\n            all_ok = False\n    \n    print(\"=\"*50)\n    \n    if all_ok:\n        print(\"🎉 Installation completed successfully!\")\n    else:\n        print(\"⚠️ Some checks failed. Please review the logs above.\")\n    \n    return all_ok\n\n\ndef main():\n    \"\"\"Main setup function\"\"\"\n    print(\"=\"*50)\n    print(\"🔖 Bookmarks System Setup\")\n    print(\"=\"*50)\n    print()\n    \n    # Step 1: Check MongoDB\n    print(\"Step 1: Checking MongoDB connection...\")\n    db = check_mongodb_connection()\n    if not db:\n        print(\"❌ Cannot continue without MongoDB connection\")\n        return 1\n    \n    # Step 2: Setup collections\n    print(\"\\nStep 2: Setting up collections and indexes...\")\n    if not setup_bookmarks_collection(db):\n        print(\"❌ Failed to setup collections\")\n        return 1\n    \n    # Step 3: Create test data\n    print(\"\\nStep 3: Creating test data...\")\n    create_test = input(\"Create test bookmarks? (y/n): \").lower() == 'y'\n    if create_test:\n        create_test_data(db)\n    \n    # Step 4: Manual steps\n    print(\"\\nStep 4: Manual integration steps:\")\n    print(\"-\"*40)\n    update_webapp_routes()\n    update_view_file_template()\n    \n    # Step 5: Verify\n    print(\"\\nStep 5: Verifying installation...\")\n    if verify_installation():\n        print(\"\\n✅ Setup completed successfully!\")\n        print(\"\\n📝 Next steps:\")\n        print(\"1. Add bookmarks blueprint to webapp/app.py\")\n        print(\"2. Add bookmarks snippet to view_file.html\")\n        print(\"3. Restart the Flask application\")\n        print(\"4. Test the bookmarks feature in the browser\")\n        return 0\n    else:\n        print(\"\\n⚠️ Setup completed with warnings. Please check the failed items.\")\n        return 1\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+      "encoding": "utf-8"
+    }
+  },
+  "public": true,
+  "created_at": "2025-10-09T14:06:45Z",
+  "updated_at": "2025-10-09T14:06:45Z",
+  "description": "setup_bookmarks.py",
+  "comments": 0,
+  "user": null,
+  "comments_enabled": true,
+  "comments_url": "https://api.github.com/gists/c7787c3120dcbecd937b897b404675c7/comments",
+  "owner": {
+    "login": "amirbiron",
+    "id": 215461772,
+    "node_id": "U_kgDODNevjA",
+    "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/amirbiron",
+    "html_url": "https://github.com/amirbiron",
+    "followers_url": "https://api.github.com/users/amirbiron/followers",
+    "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+    "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+    "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+    "repos_url": "https://api.github.com/users/amirbiron/repos",
+    "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "forks": [
+
+  ],
+  "history": [
+    {
+      "user": {
+        "login": "amirbiron",
+        "id": 215461772,
+        "node_id": "U_kgDODNevjA",
+        "avatar_url": "https://avatars.githubusercontent.com/u/215461772?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/amirbiron",
+        "html_url": "https://github.com/amirbiron",
+        "followers_url": "https://api.github.com/users/amirbiron/followers",
+        "following_url": "https://api.github.com/users/amirbiron/following{/other_user}",
+        "gists_url": "https://api.github.com/users/amirbiron/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/amirbiron/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/amirbiron/subscriptions",
+        "organizations_url": "https://api.github.com/users/amirbiron/orgs",
+        "repos_url": "https://api.github.com/users/amirbiron/repos",
+        "events_url": "https://api.github.com/users/amirbiron/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/amirbiron/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "version": "72917452071499c789aab334c83c003bdbea4f0a",
+      "committed_at": "2025-10-09T14:06:45Z",
+      "change_status": {
+        "total": 265,
+        "additions": 265,
+        "deletions": 0
+      },
+      "url": "https://api.github.com/gists/c7787c3120dcbecd937b897b404675c7/72917452071499c789aab334c83c003bdbea4f0a"
+    }
+  ],
+  "truncated": false
+}

@@ -1,0 +1,154 @@
+<!-- 
+    Bookmarks System HTML Snippet
+    להוספה בקובץ view_file.html או בכל עמוד שמציג קוד
+-->
+
+<!-- Hidden file ID for JavaScript -->
+<input type="hidden" id="fileId" value="{{ file.id }}">
+
+<!-- Bookmarks Toggle Button -->
+<button 
+    id="toggleBookmarksBtn" 
+    class="bookmarks-toggle-btn"
+    aria-label="פתח פאנל סימניות"
+    aria-expanded="false"
+    aria-controls="bookmarksPanel"
+    title="סימניות">
+    <span aria-hidden="true">🔖</span>
+    <span id="bookmarkCount" class="bookmark-count" style="display: none;">0</span>
+</button>
+
+<!-- Bookmarks Panel -->
+<aside 
+    id="bookmarksPanel" 
+    class="bookmarks-panel"
+    role="complementary"
+    aria-label="פאנל סימניות">
+    
+    <!-- Panel Header -->
+    <div class="bookmarks-panel-header">
+        <h2>
+            <span aria-hidden="true">🔖</span>
+            סימניות בקובץ
+            <button id="bookmarksInfoBtn" type="button" title="הסבר על הסימניות" aria-label="הסבר על הסימניות" style="margin-inline-start:8px;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:8px;cursor:pointer;font-size:.9rem;padding:.25rem .5rem;box-shadow:0 1px 2px rgba(0,0,0,.05);">הסבר ℹ️</button>
+        </h2>
+        <div class="bookmarks-panel-actions">
+            <div class="color-picker" title="צבע ברירת מחדל" aria-label="צבע ברירת מחדל" style="display:inline-flex;align-items:center;gap:6px;">
+                <span style="font-size:12px;opacity:0.85">צבע ברירת מחדל:</span>
+                <button class="color-swatch" data-default-color="yellow" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-yellow);"></button>
+                <button class="color-swatch" data-default-color="red" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-red);"></button>
+                <button class="color-swatch" data-default-color="green" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-green);"></button>
+                <button class="color-swatch" data-default-color="blue" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-blue);"></button>
+                <button class="color-swatch" data-default-color="purple" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-purple);"></button>
+                <button class="color-swatch" data-default-color="orange" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-orange);"></button>
+                <button class="color-swatch" data-default-color="pink" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-pink);"></button>
+            </div>
+            <button 
+                id="exportBookmarks"
+                title="ייצא סימניות"
+                aria-label="ייצא סימניות לקובץ JSON">
+                <span aria-hidden="true">💾</span>
+                ייצא
+            </button>
+            <button 
+                id="clearAllBookmarks"
+                title="מחק הכל"
+                aria-label="מחק את כל הסימניות">
+                <span aria-hidden="true">🗑️</span>
+                נקה הכל
+            </button>
+            
+            <button 
+                id="closePanel"
+                onclick="document.getElementById('bookmarksPanel').classList.remove('open')"
+                title="סגור"
+                aria-label="סגור פאנל סימניות">
+                <span aria-hidden="true">✕</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Bookmarks List -->
+    <div class="bookmarks-list" role="list">
+        <!-- Bookmarks will be dynamically inserted here -->
+        <div class="empty-state">
+            <p>אין עדיין סימניות בקובץ זה</p>
+            <p>לחץ על מספר שורה כדי להוסיף סימנייה</p>
+        </div>
+    </div>
+</aside>
+
+<!-- Info Modal -->
+<dialog id="bookmarksInfoModal" style="max-width:720px;border:none;border-radius:12px;box-shadow:0 12px 48px rgba(0,0,0,.3);padding:0;">
+  <div style="padding:16px 20px;display:flex;gap:12px;align-items:flex-start;border-bottom:1px solid rgba(0,0,0,.08);">
+    <div style="font-size:1.25rem">ℹ️</div>
+    <div style="font-weight:600;">איך משתמשים בסימניות</div>
+    <button type="button" id="bookmarksInfoClose" style="margin-inline-start:auto;background:transparent;border:none;font-size:1.25rem;cursor:pointer;">✕</button>
+  </div>
+  <div style="padding:18px 22px;">
+    <div style="font-size:0.95rem;line-height:1.6;">
+      <p><b>🏷️ איך משתמשים בסימניות:</b></p>
+      <ul style="margin:0 1.25rem; padding:0; list-style: none;">
+        <li>• הקש על מספר שורה כדי להוסיף סימנייה.</li>
+        <li>• לחץ שוב כדי להסיר.</li>
+        <li>ניתן לבחור צבע שונה למיון נוח.</li>
+        <li>• לחץ ממושך על הכפתור הצף להקטנתו.</li>
+      </ul>
+      <p style="margin-top:0.75rem;">💡 הסימניות נשמרות אוטומטית לכל קובץ.</p>
+      <p>⚙️ אפשר להסתיר את כפתור הסימניות דרך ההגדרות של ה‑WebApp.</p>
+      <p>ℹ️ למידע מלא והסברים נוספים – השתמש בכפתור „הסבר על הבוט" בתוך הבוט עצמו.</p>
+    </div>
+  </div>
+</dialog>
+
+<!-- Include Styles -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/bookmarks.css') }}">
+
+<!-- Include JavaScript -->
+<script src="{{ url_for('static', filename='js/bookmarks.js') }}" defer></script>
+
+<!-- Help tip footer removed per issue comment request -->
+
+<!-- Inline styles for immediate rendering (optional) -->
+<style>
+    /* Critical styles for immediate rendering */
+    .bookmarks-toggle-btn {
+        position: fixed;
+        top: 1.5rem; /* החזרה למעלה */
+        right: 20px;
+        z-index: 1000;
+        background: white;
+        border: 2px solid #ffd700;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+    
+    .bookmarks-panel {
+        position: fixed;
+        top: 0;
+        right: -400px;
+        width: 400px;
+        height: 100vh;
+        background: white;
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+        transition: right 0.3s ease;
+        z-index: 999;
+    }
+    
+    .bookmarks-panel.open {
+        right: 0;
+    }
+    /* מצב מסך מלא – הכפתור מוצג ומוקטן כברירת מחדל */
+    #codeCard:fullscreen ~ #toggleBookmarksBtn,
+    :fullscreen #toggleBookmarksBtn {
+        display: flex !important;
+        transform: scale(0.5) !important;
+        opacity: 0.5 !important;
+    }
+</style>
