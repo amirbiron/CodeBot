@@ -260,9 +260,15 @@ input.md-task-checkbox {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #md-content > * {
-    animation: none;
-  }
+  /* נטרל אנימציות לכל ילד ישיר */
+  #md-content > * { animation: none; }
+  /* נטרל גם לכללים הספציפיים יותר כדי לא לעקוף את ההעדפה */
+  #md-content pre,
+  #md-content blockquote,
+  #md-content table { animation: none; }
+  /* צמצם גם מעברים לקישורים ואפקט ה-::after שלהם */
+  #md-content a,
+  #md-content a::after { transition: none; }
 }
 
 /* עיצוב משופר לקישורים */
