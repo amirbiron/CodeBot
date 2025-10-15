@@ -13,6 +13,8 @@ import logging
 import os
 import uuid
 from typing import Any, Dict
+import random
+import hashlib
 
 import structlog
 
@@ -65,6 +67,58 @@ def _choose_renderer():
     return structlog.processors.JSONRenderer()
 
 
+def _maybe_sample_info(logger, method, event_dict: Dict[str, Any]):
+    """Drop a fraction of info-level logs based on sampling.
+
+    - Controlled via env LOG_INFO_SAMPLE_RATE (float 0..1, default 1.0)
+    - Always keep warn/error (sampling applies to info only)
+    - Always keep events in allowlist (comma-separated names in LOG_INFO_SAMPLE_ALLOWLIST)
+    - Sampling decision is stable per-request by hashing request_id when present
+    """
+    try:
+        level = (event_dict.get("level") or "").lower()
+        if level != "info":
+            return event_dict
+
+        # Allowlist of events that should never be sampled
+        raw_allow = (os.getenv("LOG_INFO_SAMPLE_ALLOWLIST") or "").strip()
+        allowlist = {x.strip() for x in raw_allow.split(",") if x.strip()} or {
+            # sensible defaults
+            "business_metric",
+            "performance",
+            "github_sync",
+        }
+        ev = str(event_dict.get("event") or "")
+        if ev in allowlist:
+            return event_dict
+
+        try:
+            rate = float(os.getenv("LOG_INFO_SAMPLE_RATE", "1.0"))
+        except Exception:
+            rate = 1.0
+        if rate >= 0.999:  # keep all
+            return event_dict
+        if rate <= 0.0:
+            raise structlog.DropEvent
+
+        # Stable per-request sampling using request_id when present
+        req_id = str(event_dict.get("request_id") or "")
+        if req_id:
+            digest = hashlib.sha1(req_id.encode("utf-8")).digest()
+            # Convert first 4 bytes to number in [0,1)
+            val = int.from_bytes(digest[:4], "big") / float(2**32)
+        else:
+            val = random.random()
+        if val <= rate:
+            return event_dict
+        raise structlog.DropEvent
+    except structlog.DropEvent:
+        raise
+    except Exception:
+        # Fail-open on sampling errors
+        return event_dict
+
+
 def setup_structlog_logging(min_level: str | int = "INFO") -> None:
     level = logging.getLevelName(min_level) if isinstance(min_level, str) else int(min_level)
 
@@ -80,6 +134,7 @@ def setup_structlog_logging(min_level: str | int = "INFO") -> None:
             _redact_sensitive,
             _add_schema_version,
             structlog.processors.add_log_level,
+            _maybe_sample_info,
             structlog.processors.TimeStamper(fmt="iso"),
             _choose_renderer(),
         ],
