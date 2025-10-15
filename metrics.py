@@ -38,10 +38,14 @@ def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):
     finally:
         if operation_latency_seconds is not None:
             try:
+                # בחר רק לייבלים שמוגדרים במטריקה ואל תאפשר דריסה של 'operation'
+                allowed = set(getattr(operation_latency_seconds, "_labelnames", []) or [])
+                target = {"operation": operation}
                 if labels:
-                    operation_latency_seconds.labels(operation=operation, **labels).observe(time.time() - start)
-                else:
-                    operation_latency_seconds.labels(operation=operation).observe(time.time() - start)
+                    for k, v in labels.items():
+                        if k in allowed and k != "operation":
+                            target[k] = v
+                operation_latency_seconds.labels(**target).observe(time.time() - start)
             except Exception:
                 # avoid breaking app on label mistakes
                 pass
