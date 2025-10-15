@@ -37,6 +37,11 @@ from repo_analyzer import RepoAnalyzer
 from config import config
 from file_manager import backup_manager
 from utils import TelegramUtils
+try:
+    from metrics import track_github_sync  # type: ignore
+except Exception:  # pragma: no cover
+    def track_github_sync(*a, **k):  # type: ignore
+        return None
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -692,6 +697,10 @@ class GitHubMenuHandler:
                             skipped += 1
                     except Exception:
                         skipped += 1
+            try:
+                track_github_sync(user_id=user_id, files_count=saved + updated, success=True)
+            except Exception:
+                pass
             await query.edit_message_text(
                 f"✅ ייבוא הושלם: {saved} חדשים, {updated} עודכנו, {skipped} דילוגים.\n"
                 f"🔖 תיוג: <code>{repo_tag}</code> (ו-<code>{source_tag}</code>)\n\n"

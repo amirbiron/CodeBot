@@ -51,7 +51,7 @@ from observability import (
     generate_request_id,
     emit_event,
 )
-from metrics import telegram_updates_total
+from metrics import telegram_updates_total, track_file_saved, track_search_performed
 from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
@@ -1254,6 +1254,12 @@ class CodeKeeperBot:
             )
             return
         
+        # Business metric: search performed (avoid logging raw query)
+        try:
+            track_search_performed(user_id=user_id, query=' '.join(context.args), results_count=len(results))
+        except Exception:
+            pass
+
         # הצגת תוצאות
         safe_query = html_escape(' '.join(context.args))
         response = f"🔍 **תוצאות חיפוש עבור:** <code>{safe_query}</code>\n\n"
@@ -2249,6 +2255,11 @@ class CodeKeeperBot:
         
         # שמירה במסד הנתונים
         if db.save_code_snippet(snippet):
+            try:
+                # Business metric: file saved
+                track_file_saved(user_id=saving_data['user_id'], language=detected_language, size_bytes=len(code))
+            except Exception:
+                pass
             await update.message.reply_text(
                 f"✅ נשמר בהצלחה!\n\n"
                 f"📁 **{saving_data['file_name']}**\n"

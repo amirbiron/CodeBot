@@ -7,6 +7,13 @@ import time
 from contextlib import contextmanager
 from typing import Dict, Optional
 
+# Structured event emission (no dependency loop back to metrics)
+try:
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover - observability not always available in tests
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 except Exception:  # pragma: no cover - prometheus optional in some envs
@@ -28,6 +35,13 @@ telegram_updates_total = Counter(
     ["type", "status"],
 ) if Counter else None
 active_indexes = Gauge("active_indexes", "Active DB indexes") if Gauge else None
+
+# Optional business events counter for high-level analytics
+business_events_total = Counter(
+    "business_events_total",
+    "Count of business-domain events",
+    ["metric"],
+) if Counter else None
 
 
 @contextmanager
@@ -57,3 +71,56 @@ def metrics_endpoint_bytes() -> bytes:
 
 def metrics_content_type() -> str:
     return CONTENT_TYPE_LATEST
+
+
+# --- Business metrics helpers (logged via structlog + optional counter) ---
+def track_file_saved(user_id: int, language: str, size_bytes: int) -> None:
+    """Record a file_saved business event.
+
+    Uses structured log for rich context and a lightweight Prometheus counter for volume.
+    """
+    try:
+        emit_event(
+            "business_metric",
+            metric="file_saved",
+            user_id=int(user_id),
+            language=str(language),
+            size_bytes=int(size_bytes),
+        )
+        if business_events_total is not None:
+            business_events_total.labels(metric="file_saved").inc()
+    except Exception:
+        # Never break business flow on metrics/logging issues
+        pass
+
+
+def track_search_performed(user_id: int, query: str, results_count: int) -> None:
+    """Record a search event without logging raw query (privacy by default)."""
+    try:
+        emit_event(
+            "business_metric",
+            metric="search",
+            user_id=int(user_id),
+            query_length=len(str(query or "")),
+            results_count=int(results_count),
+        )
+        if business_events_total is not None:
+            business_events_total.labels(metric="search").inc()
+    except Exception:
+        pass
+
+
+def track_github_sync(user_id: int, files_count: int, success: bool) -> None:
+    """Record a github_sync event (aggregate outcome only)."""
+    try:
+        emit_event(
+            "business_metric",
+            metric="github_sync",
+            user_id=int(user_id),
+            files_count=int(files_count),
+            success=bool(success),
+        )
+        if business_events_total is not None:
+            business_events_total.labels(metric="github_sync").inc()
+    except Exception:
+        pass
