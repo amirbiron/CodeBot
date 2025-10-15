@@ -220,7 +220,8 @@ async def test_show_command_renders_html_and_escapes_code_and_buttons_id(monkeyp
     rm = kwargs.get('reply_markup')
     assert rm is not None
     buttons = getattr(rm, 'inline_keyboard', [])
-    assert buttons and isinstance(buttons, list)
+    # telegram InlineKeyboardMarkup.inline_keyboard יכול להיות list או tuple
+    assert buttons and isinstance(buttons, (list, tuple))
     fav_btn = buttons[-1][0]
     assert getattr(fav_btn, 'text', '').startswith('⭐')
     assert getattr(fav_btn, 'callback_data', '').startswith('fav_toggle_id:')
