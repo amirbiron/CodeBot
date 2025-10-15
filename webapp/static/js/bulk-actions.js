@@ -294,11 +294,71 @@ class BulkActions {
         return new Promise((resolve) => {
             const dialog = document.createElement('div');
             dialog.className = 'modal-overlay';
+            
+            // פונקציות מקומיות - לא על window!
+            const cleanup = () => {
+                // הסר event listeners
+                if (input) {
+                    input.removeEventListener('keyup', handleKeyup);
+                }
+                dialog.removeEventListener('click', handleOverlayClick);
+                
+                // הסר את הדיאלוג מה-DOM
+                if (dialog.parentNode) {
+                    dialog.parentNode.removeChild(dialog);
+                }
+            };
+            
+            const addSuggestedTag = (tag) => {
+                const input = dialog.querySelector('#tagInput');
+                if (!input) return;
+                
+                const currentTags = input.value.split(',').map(t => t.trim()).filter(t => t);
+                if (!currentTags.includes(tag)) {
+                    if (input.value && !input.value.endsWith(',')) {
+                        input.value += ', ';
+                    }
+                    input.value += tag;
+                    input.focus();
+                }
+            };
+            
+            const confirmTags = () => {
+                const input = dialog.querySelector('#tagInput');
+                const tags = input ? input.value
+                    .split(',')
+                    .map(t => t.trim())
+                    .filter(t => t.length > 0) : [];
+                cleanup();
+                resolve(tags);
+            };
+            
+            const cancelTags = () => {
+                cleanup();
+                resolve(null);
+            };
+            
+            // Event handlers
+            const handleKeyup = (e) => {
+                if (e.key === 'Enter') {
+                    confirmTags();
+                } else if (e.key === 'Escape') {
+                    cancelTags();
+                }
+            };
+            
+            const handleOverlayClick = (e) => {
+                if (e.target === dialog) {
+                    cancelTags();
+                }
+            };
+            
+            // בניית ה-HTML
             dialog.innerHTML = `
                 <div class="modal-content">
                     <div class="modal-header">
                         <h3><i class="fas fa-tags"></i> הוסף תגיות</h3>
-                        <button class="modal-close" onclick="window.cancelTags()">
+                        <button class="modal-close" data-action="cancel">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
@@ -313,74 +373,54 @@ class BulkActions {
                         
                         <div class="tag-suggestions">
                             <span class="suggestion-label">הצעות:</span>
-                            <button class="tag-suggestion" onclick="window.addSuggestedTag('important')">important</button>
-                            <button class="tag-suggestion" onclick="window.addSuggestedTag('todo')">todo</button>
-                            <button class="tag-suggestion" onclick="window.addSuggestedTag('refactor')">refactor</button>
-                            <button class="tag-suggestion" onclick="window.addSuggestedTag('test')">test</button>
-                            <button class="tag-suggestion" onclick="window.addSuggestedTag('docs')">docs</button>
+                            <button class="tag-suggestion" data-tag="important">important</button>
+                            <button class="tag-suggestion" data-tag="todo">todo</button>
+                            <button class="tag-suggestion" data-tag="refactor">refactor</button>
+                            <button class="tag-suggestion" data-tag="test">test</button>
+                            <button class="tag-suggestion" data-tag="docs">docs</button>
                         </div>
                     </div>
                     
                     <div class="modal-footer">
-                        <button class="btn btn-primary" onclick="window.confirmTags()">
+                        <button class="btn btn-primary" data-action="confirm">
                             <i class="fas fa-check"></i> אישור
                         </button>
-                        <button class="btn btn-secondary" onclick="window.cancelTags()">
+                        <button class="btn btn-secondary" data-action="cancel">
                             <i class="fas fa-times"></i> ביטול
                         </button>
                     </div>
                 </div>
             `;
             
-            // פונקציות עזר
-            window.addSuggestedTag = (tag) => {
-                const input = document.getElementById('tagInput');
-                const currentTags = input.value.split(',').map(t => t.trim()).filter(t => t);
-                if (!currentTags.includes(tag)) {
-                    if (input.value && !input.value.endsWith(',')) {
-                        input.value += ', ';
+            // חיבור event delegation לכפתורים
+            dialog.addEventListener('click', (e) => {
+                const action = e.target.closest('[data-action]');
+                if (action) {
+                    const actionType = action.dataset.action;
+                    if (actionType === 'confirm') {
+                        confirmTags();
+                    } else if (actionType === 'cancel') {
+                        cancelTags();
                     }
-                    input.value += tag;
-                    input.focus();
                 }
-            };
-            
-            window.confirmTags = () => {
-                const input = document.getElementById('tagInput');
-                const tags = input.value
-                    .split(',')
-                    .map(t => t.trim())
-                    .filter(t => t.length > 0);
-                document.body.removeChild(dialog);
-                resolve(tags);
-            };
-            
-            window.cancelTags = () => {
-                document.body.removeChild(dialog);
-                resolve(null);
-            };
+                
+                const tagBtn = e.target.closest('[data-tag]');
+                if (tagBtn) {
+                    addSuggestedTag(tagBtn.dataset.tag);
+                }
+            });
             
             document.body.appendChild(dialog);
             
-            // פוקוס ו-event listeners
-            const input = document.getElementById('tagInput');
-            input.focus();
+            // קבלת reference ל-input
+            const input = dialog.querySelector('#tagInput');
+            if (input) {
+                input.focus();
+                input.addEventListener('keyup', handleKeyup);
+            }
             
-            // Enter לאישור, Escape לביטול
-            input.addEventListener('keyup', (e) => {
-                if (e.key === 'Enter') {
-                    window.confirmTags();
-                } else if (e.key === 'Escape') {
-                    window.cancelTags();
-                }
-            });
-            
-            // סגירה בלחיצה מחוץ למודל
-            dialog.addEventListener('click', (e) => {
-                if (e.target === dialog) {
-                    window.cancelTags();
-                }
-            });
+            // סגירה בלחיצה על הרקע
+            dialog.addEventListener('click', handleOverlayClick);
         });
     }
     
