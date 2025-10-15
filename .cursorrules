@@ -85,6 +85,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 - קראו והסתמכו על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
 - קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד.
+- בסיום משימה: הציעו למשתמש האם להוסיף עמודים חדשים לאתר התיעוד.
 
 # כללי שימוש ב-AI/CodeBot
 
