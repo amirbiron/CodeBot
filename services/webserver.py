@@ -7,11 +7,6 @@ try:
 except Exception:  # pragma: no cover
     metrics_endpoint_bytes = lambda: b""  # type: ignore
     metrics_content_type = lambda: "text/plain; charset=utf-8"  # type: ignore
-try:
-    from metrics import metrics_endpoint_bytes, metrics_content_type
-except Exception:  # pragma: no cover
-    metrics_endpoint_bytes = lambda: b""  # type: ignore
-    metrics_content_type = lambda: "text/plain; charset=utf-8"  # type: ignore
 from html import escape as html_escape
 
 from integrations import code_sharing
@@ -24,14 +19,6 @@ def create_app() -> web.Application:
 
     async def health(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
-
-    async def metrics_view(request: web.Request) -> web.Response:
-        try:
-            payload = metrics_endpoint_bytes()
-            return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
-        except Exception as e:
-            logger.error(f"metrics_view error: {e}")
-            return web.Response(status=500, text="metrics error")
 
     async def metrics_view(request: web.Request) -> web.Response:
         try:
@@ -80,7 +67,6 @@ def create_app() -> web.Application:
         return web.Response(text=html, content_type="text/html")
 
     app.router.add_get("/health", health)
-    app.router.add_get("/metrics", metrics_view)
     app.router.add_get("/metrics", metrics_view)
     app.router.add_get("/share/{share_id}", share_view)
 
