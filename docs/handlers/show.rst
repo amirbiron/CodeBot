@@ -10,8 +10,8 @@ Show Command
   - שורות כפתורים לדוגמה: מחיקה, עריכה, עריכת הערה, הורדה, שיתוף, ומועדפים.
   - כפתור מועדפים: הטקסט משתנה לפי מצב (⭐ הוסף / 💔 הסר).
   - מגבלת 64 bytes ל-`callback_data`: כולל הקידומת.
-    - העדפה להשתמש ב-`_id` כאשר `(len('fav_toggle_id:') + len(id)) <= 60`.
-    - אחרת: שימוש בטוקן קצר `token_urlsafe(6)` חתוך לכ~24 תווים, ושמירת המיפוי תחת `context.user_data['fav_tokens'][short_tok] = file_name`.
+  - העדפה להשתמש ב-`_id` כאשר `(len('fav_toggle_id:') + len(id)) <= 60`.
+  - אחרת: שימוש בטוקן קצר `token_urlsafe(6)` חתוך לכ~24 תווים, ושמירת המיפוי תחת `context.user_data['fav_tokens'][short_tok] = file_name`.
 
 דוגמת תגובת HTML
 -----------------
