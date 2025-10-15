@@ -114,7 +114,7 @@ def test_manage_mongo_lock_reacquired_emits(monkeypatch):
 
     class _Coll:
         def insert_one(self, *a, **k):
-            raise mod.DuplicateKeyError()
+            raise mod.DuplicateKeyError("duplicate key error")
         def find_one(self, *a, **k):
             # not expired if expires in future; to trigger takeover need expired
             return {"expires_at": datetime.now(timezone.utc) - timedelta(minutes=10)}
