@@ -26,6 +26,12 @@ def create_app() -> web.Application:
             return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
+            try:
+                # lazy import to avoid hard dep at import time
+                from observability import emit_event  # type: ignore
+                emit_event("metrics_view_error", severity="error", error=str(e))
+            except Exception:
+                pass
             return web.Response(status=500, text="metrics error")
 
     async def share_view(request: web.Request) -> web.Response:

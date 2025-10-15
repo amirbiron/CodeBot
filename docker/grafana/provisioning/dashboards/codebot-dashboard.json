@@ -1,0 +1,34 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Errors/min",
+      "targets": [{"expr": "rate(errors_total[1m])"}],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Operation latency P95",
+      "targets": [{"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket[5m]))"}],
+      "gridPos": {"h": 8, "w": 12, "x": 6, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Telegram updates (received)",
+      "targets": [{"expr": "rate(telegram_updates_total{status=\"received\"}[1m])"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+    }
+  ],
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["codebot"],
+  "templating": {"list": []},
+  "timezone": "browser",
+  "title": "CodeBot Overview",
+  "version": 1
+}
