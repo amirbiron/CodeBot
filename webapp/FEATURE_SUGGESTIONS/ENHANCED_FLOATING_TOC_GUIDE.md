@@ -605,8 +605,7 @@
       });
       tocState.clickHandlers = [];
       
-      // ניקוי keyboard listeners
-      document.removeEventListener('keydown', handleKeyboard);
+      // ניקוי keyboard listeners מתבצע דרך tocState.clickHandlers
       
       console.debug('TOC: ניקוי הושלם');
     } catch (e) {
@@ -1120,13 +1119,9 @@
     };
     
     document.addEventListener('keydown', keyboardHandler);
+    // שמירת ה-handler לניקוי מאוחר יותר
     tocState.clickHandlers.push({ element: document, event: 'keydown', handler: keyboardHandler });
   }
-  
-  // מחוץ לפונקציה הראשית כדי שיהיה נגיש
-  const handleKeyboard = (e) => {
-    // קיצורי מקלדת
-  };
   
   // === מעבר למצב מינימלי ===
   function toggleMinimize() {
@@ -1285,12 +1280,18 @@ CONFIG.CHECK_INTERVAL = 200;
 ✅ **כל הפיצ'רים מהגרסה הקודמת**
 ✅ **Intersection Observer** לביצועים מעולים
 ✅ **Virtual Scrolling** למסמכים ענקיים
-✅ **חיפוש מובנה** עם הדגשות
+✅ **חיפוש מובנה** עם הדגשות - **מאובטח נגד XSS ו-ReDoS**
 ✅ **קיצורי מקלדת** לנוחות
 ✅ **אינדיקטור התקדמות** ויזואלי
 ✅ **Dark Mode** אוטומטי
-✅ **אבטחה משופרת** עם סניטציה מלאה
-✅ **ניקוי זיכרון** מקיף
+✅ **אבטחה משופרת** - סניטציה מלאה, מניעת XSS/ReDoS
+✅ **ניקוי זיכרון** מקיף - ללא memory leaks
+
+### 🔒 תיקוני אבטחה אחרונים (גרסה 2.1):
+- **תוקנה פרצת XSS** - הוסרה השימוש ב-innerHTML, שימוש ב-DOM API בטוח בלבד
+- **תוקנה פרצת ReDoS** - הוספת escape לתווים מיוחדים ב-RegExp
+- **תוקן באג בניקוי** - הוסרה הפניה לפונקציה שלא קיימת
+- **הוסרו קודים מתים** - ניקוי קוד מיותר
 
 **זמן הטמעה משוער**: 30-45 דקות
 **רמת מורכבות**: מתקדם
