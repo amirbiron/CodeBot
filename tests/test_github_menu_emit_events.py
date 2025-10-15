@@ -96,5 +96,5 @@ async def test_import_repo_error_emits(monkeypatch):
     except Exception:
         pass
 
-    # We accept either error emitted or early return in some environments
-    assert any(e[0] in {"github_import_repo_error"} for e in captured["events"]) or True
+    # Verify the error event was emitted
+    assert any(e[0] == "github_import_repo_error" for e in captured["events"]) 

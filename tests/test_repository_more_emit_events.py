@@ -161,7 +161,8 @@ def test_many_repository_errors_emit_events(monkeypatch):
     r = _repo_with_collections(coll=_ListBoom(), lcoll=_ListBoom())
     files, total = r.list_deleted_files(1)
     assert files == [] and total == 0
-    assert any(e[0] == "list_deleted_files failed" or e[0] == "db_list_deleted_files_error" for e in cap["events"]) or True
+    # Verify the structured event is emitted on failure
+    assert any(e[0] == "db_list_deleted_files_error" for e in cap["events"]) 
 
     # 20) restore_file_by_id error
     class _UpdBoom2:
