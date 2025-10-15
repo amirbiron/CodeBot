@@ -748,10 +748,48 @@ self.onmessage = function(e) {
 
 ### הגנה מפני XSS ו-injection attacks
 
+```python
+# צד השרת - app.py או middleware נפרד
+from flask import make_response
+
+@app.after_request
+def set_security_headers(response):
+    """הגדרת CSP Headers בצד השרת - החלק הקריטי לאבטחה!"""
+    
+    # CSP חייב להיות מוגדר בצד השרת, לא בצד הלקוח
+    csp_policy = "; ".join([
+        "default-src 'self'",
+        "script-src 'self' https://cdn.jsdelivr.net 'sha256-...'",  # הוסף hashes ספציפיים
+        "style-src 'self' https://cdn.jsdelivr.net",
+        "connect-src 'self'",
+        "img-src 'self' data: https:",
+        "font-src 'self' https://fonts.gstatic.com",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "upgrade-insecure-requests"
+    ])
+    
+    response.headers['Content-Security-Policy'] = csp_policy
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    
+    return response
+
+# אלטרנטיבה: הגדרה ב-nginx/Apache
+# /etc/nginx/sites-available/your-site
+# add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net;" always;
+```
+
 ```javascript
-// security-manager.js
+// security-manager.js - צד הלקוח (רק לסניטציה ובדיקות, לא ל-CSP!)
 export class SecurityManager {
   constructor() {
+    // CSP חייב להיות מוגדר בצד השרת!
+    // כאן רק מגדירים את המדיניות לצורך תיעוד/בדיקה
     this.cspPolicy = this.generateCSP();
     this.sanitizer = this.createSanitizer();
   }
@@ -780,15 +818,12 @@ export class SecurityManager {
     };
   }
   
-  applyCSP() {
-    const policy = Object.entries(this.cspPolicy)
+  // CSP חייב להיות מוגדר בצד השרת, לא בצד הלקוח!
+  getCSPPolicy() {
+    // מחזיר את המדיניות לשימוש בצד השרת
+    return Object.entries(this.cspPolicy)
       .map(([key, values]) => `${key} ${values.join(' ')}`)
       .join('; ');
-    
-    const meta = document.createElement('meta');
-    meta.httpEquiv = 'Content-Security-Policy';
-    meta.content = policy;
-    document.head.appendChild(meta);
   }
   
   createSanitizer() {
