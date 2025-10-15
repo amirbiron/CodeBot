@@ -58,17 +58,49 @@ class CommandHandler:
     def __init__(self, *a, **k):
         pass
 
+class MessageHandler:
+    def __init__(self, *a, **k):
+        pass
+
+class InlineQueryHandler:
+    def __init__(self, *a, **k):
+        pass
+
+class PicklePersistence:
+    def __init__(self, *a, **k):
+        pass
+
 class ContextTypes:
     DEFAULT_TYPE = object
+
+class Application:  # placeholder to satisfy imports; tests monkeypatch runtime behavior
+    pass
 
 class ApplicationHandlerStop(Exception):
     pass
 
+# Minimal filters namespace used by code; values aren't exercised in tests
+filters = types.SimpleNamespace(
+    TEXT=object(),
+    COMMAND=object(),
+)
+
 te.CallbackQueryHandler = CallbackQueryHandler
 te.CommandHandler = CommandHandler
+te.MessageHandler = MessageHandler
+te.InlineQueryHandler = InlineQueryHandler
+te.PicklePersistence = PicklePersistence
 te.ContextTypes = ContextTypes
+te.Application = Application
 te.ApplicationHandlerStop = ApplicationHandlerStop
+te.filters = filters
 sys.modules['telegram.ext'] = te
+
+# Provide internal submodule for compatibility with imports like
+# `from telegram.ext._application import ApplicationHandlerStop`
+te_app = types.ModuleType('telegram.ext._application')
+te_app.ApplicationHandlerStop = ApplicationHandlerStop
+sys.modules['telegram.ext._application'] = te_app
 
 # --- telegram.error module stub ---
 terr = types.ModuleType('telegram.error')
