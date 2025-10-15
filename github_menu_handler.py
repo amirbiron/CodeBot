@@ -612,9 +612,22 @@ class GitHubMenuHandler:
         user_id = query.from_user.id
         token = self.get_user_token(user_id)
         if not token:
+            try:
+                emit_event("github_import_repo_error", severity="error", error="missing_token", repo=repo_full, branch=branch)
+            except Exception:
+                pass
             await query.edit_message_text("❌ חסר טוקן GitHub")
             return
-        g = Github(token)
+        # יצירת לקוח GitHub
+        try:
+            g = Github(token)
+        except Exception as e:
+            try:
+                emit_event("github_import_repo_error", severity="error", error=str(e), repo=repo_full, branch=branch)
+            except Exception:
+                pass
+            await query.edit_message_text(f"❌ שגיאה בהכנת חיבור ל‑GitHub: {e}")
+            return
         try:
             repo = g.get_repo(repo_full)
         except Exception as e:
