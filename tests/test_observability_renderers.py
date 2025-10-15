@@ -13,7 +13,8 @@ def test_choose_renderer_console_when_debug_true(monkeypatch):
     obs.setup_structlog_logging("INFO")
     # Ensure structlog is configured (smoke)
     logger = structlog.get_logger()
-    logger.info("probe", event="probe_event")
+    # אל תעבירו גם מחרוזת וגם event=... כדי לא ליצור כפילות ב-structlog
+    logger.info("probe_event")
 
 
 def test_choose_renderer_json_default(monkeypatch):
@@ -21,7 +22,7 @@ def test_choose_renderer_json_default(monkeypatch):
     monkeypatch.delenv("LOG_FORMAT", raising=False)
     obs.setup_structlog_logging("INFO")
     logger = structlog.get_logger()
-    logger.info("probe", event="probe_event")
+    logger.info("probe_event")
 
 
 def test_add_otel_ids_safe_without_otel(monkeypatch):
