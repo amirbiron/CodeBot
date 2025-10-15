@@ -29,10 +29,13 @@
   - תמיכה רספונסיבית מלאה
 
 ### Backend (Python)
-שלושה endpoints חדשים שיש להוסיף ל-**`webapp/app.py`**:
-- **`/api/files/bulk-favorite`** - הוספה/הסרה קבוצתית ממועדפים
+שישה endpoints חדשים שיש להוסיף ל-**`webapp/app.py`**:
+- **`/api/files/bulk-favorite`** - הוספה קבוצתית למועדפים
+- **`/api/files/bulk-unfavorite`** - הסרה קבוצתית ממועדפים
 - **`/api/files/bulk-tag`** - הוספת תגיות לקבצים מרובים
+- **`/api/files/bulk-delete`** - מחיקה קבוצתית של קבצים
 - **`/api/files/create-zip`** - יצירת קובץ ZIP עם הקבצים הנבחרים
+- **`/api/files/create-share-link`** - יצירת קישור שיתוף לקבצים נבחרים
 
 ## 🎯 יעדים
 - **הוספת checkboxes** לכל כרטיס קובץ
@@ -624,6 +627,44 @@ def bulk_add_to_favorites():
         app.logger.error(f"Error in bulk favorite: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/files/bulk-unfavorite', methods=['POST'])
+@login_required
+def bulk_remove_from_favorites():
+    """הסר קבצים מרובים ממועדפים"""
+    try:
+        data = request.json
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        
+        db = get_db()
+        user_id = session['user_id']
+        
+        # המר string IDs ל-ObjectIds
+        object_ids = [ObjectId(fid) for fid in file_ids]
+        
+        # הסר מהמועדפים
+        result = db.code_snippets.update_many(
+            {
+                '_id': {'$in': object_ids},
+                'user_id': user_id
+            },
+            {
+                '$pull': {'tags': 'favorite'},
+                '$set': {'is_favorite': False}
+            }
+        )
+        
+        return jsonify({
+            'success': True,
+            'updated': result.modified_count
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error removing from favorites: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/files/bulk-tag', methods=['POST'])
 @login_required
 def bulk_add_tags():
@@ -659,6 +700,38 @@ def bulk_add_tags():
         
     except Exception as e:
         app.logger.error(f"Error in bulk tag: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/bulk-delete', methods=['POST'])
+@login_required
+def bulk_delete_files():
+    """מחיקה קבוצתית של קבצים"""
+    try:
+        data = request.json
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        
+        db = get_db()
+        user_id = session['user_id']
+        
+        # המר string IDs ל-ObjectIds
+        object_ids = [ObjectId(fid) for fid in file_ids]
+        
+        # מחק את הקבצים (רק של המשתמש הנוכחי)
+        result = db.code_snippets.delete_many({
+            '_id': {'$in': object_ids},
+            'user_id': user_id
+        })
+        
+        return jsonify({
+            'success': True,
+            'deleted': result.deleted_count
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error in bulk delete: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/files/create-zip', methods=['POST'])
@@ -711,6 +784,66 @@ def create_zip_file():
         
     except Exception as e:
         app.logger.error(f"Error creating ZIP: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/create-share-link', methods=['POST'])
+@login_required
+def create_share_link():
+    """יצירת קישור שיתוף לקבצים נבחרים"""
+    try:
+        import secrets
+        from datetime import datetime, timedelta
+        
+        data = request.json
+        file_ids = data.get('file_ids', [])
+        
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        
+        db = get_db()
+        user_id = session['user_id']
+        
+        # המר string IDs ל-ObjectIds
+        object_ids = [ObjectId(fid) for fid in file_ids]
+        
+        # וודא שהקבצים שייכים למשתמש
+        files_count = db.code_snippets.count_documents({
+            '_id': {'$in': object_ids},
+            'user_id': user_id
+        })
+        
+        if files_count != len(file_ids):
+            return jsonify({'success': False, 'error': 'Some files not found'}), 404
+        
+        # יצירת token ייחודי לשיתוף
+        share_token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(days=7)  # תוקף ל-7 ימים
+        
+        # שמירת השיתוף במסד הנתונים
+        share_doc = {
+            'token': share_token,
+            'file_ids': object_ids,
+            'user_id': user_id,
+            'created_at': datetime.utcnow(),
+            'expires_at': expires_at,
+            'view_count': 0
+        }
+        
+        db.share_links.insert_one(share_doc)
+        
+        # יצירת URL לשיתוף
+        base_url = os.getenv('WEBAPP_URL', request.host_url.rstrip('/'))
+        share_url = f"{base_url}/shared/{share_token}"
+        
+        return jsonify({
+            'success': True,
+            'share_url': share_url,
+            'expires_at': expires_at.isoformat(),
+            'token': share_token
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error creating share link: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 ```
 
