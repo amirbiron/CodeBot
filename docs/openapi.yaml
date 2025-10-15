@@ -617,6 +617,60 @@ paths:
                 $ref: '#/components/schemas/UiPrefsResponse'
         '401': { description: Unauthorized }
 
+  /api/files:
+    get:
+      summary: List files with filtering, search and cursor-based pagination
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Free text search
+        - in: query
+          name: lang
+          schema: { type: string }
+          description: Programming language filter
+        - in: query
+          name: category
+          schema: { type: string }
+          description: Logical category/tag
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [created_at_desc, created_at_asc]
+            default: created_at_desc
+          description: Sort order
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Cursor token for pagination (see docs)
+        - in: query
+          name: repo
+          schema: { type: string }
+          description: Optional repository/source filter
+      responses:
+        '200':
+          description: Files page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, example: 507f1f77bcf86cd799439011 }
+                        file_name: { type: string, example: example.py }
+                        language: { type: string, example: python }
+                        created_at: { type: string, format: date-time }
+                  next_cursor: { type: string, nullable: true, example: eyJ0IjoxNjk3MzA0MDAwLCJpZCI6IjUwN2YxZjc3YmNmODZjZDc5OTQzOTAxMSJ9 }
+        '401': { description: Unauthorized }
+
   /api/public_stats:
     get:
       summary: Public global statistics (no auth)

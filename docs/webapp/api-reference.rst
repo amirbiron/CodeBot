@@ -45,9 +45,9 @@ Endpoints
      - HTML
    * - ``/files``
      - GET
-     - רשימת קבצים (סינון וחיפוש)
+     - רשימת קבצים (סינון, חיפוש ודפדוף)
      - ✅
-     - Query: ``?search=...&lang=...``
+     - Query: ``?q=...&lang=...&category=...&sort=created_at_desc&cursor=...&repo=...``
      - HTML
    * - ``/file/<id>``
      - GET
@@ -136,3 +136,66 @@ Errors
 
 - :doc:`overview`
 - :doc:`/architecture`
+
+מסנן ושדות קלט ל-``/files``
+----------------------------
+
+טבלת פרמטרים
+^^^^^^^^^^^^^
+
+.. list-table:: ``/files`` parameters
+   :header-rows: 1
+
+   * - פרמטר
+     - סוג
+     - ברירת מחדל
+     - תיאור
+   * - ``q``
+     - string
+     - -
+     - מחרוזת חיפוש (טקסט חופשי)
+   * - ``lang``
+     - string
+     - -
+     - סינון לפי שפת תכנות (``python``, ``js`` וכו')
+   * - ``category``
+     - string
+     - -
+     - קטגוריית קובץ/תיוג לוגי
+   * - ``sort``
+     - string
+     - ``created_at_desc``
+     - סדר מיון (``created_at_desc``/``created_at_asc``)
+   * - ``cursor``
+     - string
+     - -
+     - קורסור לדפדוף מבוסס זמן+``_id`` (ראו :doc:`/database/cursor-pagination`)
+   * - ``repo``
+     - string
+     - -
+     - סינון לפי ריפו/מקור אם רלוונטי
+
+דוגמאות בקשה
+^^^^^^^^^^^^^
+
+.. code-block:: sh
+
+   # חיפוש בסיסי
+   curl -isS "https://<host>/files?q=pagination&lang=python"
+
+   # דף שני עם קורסור
+   curl -isS "https://<host>/files?cursor=<TOKEN>"
+
+דוגמאות תגובה
+^^^^^^^^^^^^^^
+
+.. code-block:: html
+
+   <!-- HTML מקוצר לצורך דוגמה -->
+   <div class="files-list">
+     <div class="file">
+       <a href="/file/507f1f77bcf86cd799439011">example.py</a>
+       <span class="lang">python</span>
+       <time datetime="2025-10-10T10:30:00Z">2025-10-10</time>
+     </div>
+   </div>

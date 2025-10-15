@@ -2,7 +2,7 @@ Troubleshooting Guide
 =====================
 
 שגיאות נפוצות
--------------
+--------------
 
 ``ModuleNotFoundError: No module named 'telegram'``
   - התקן תלויות: ``pip install -r requirements.txt``
@@ -17,6 +17,28 @@ Troubleshooting Guide
 
 ``Message is not modified``
   - עטוף עריכה ב‑wrapper שמתעלם משגיאה זו בלבד
+
+``ETag לא מתעדכן / תמיד 200``
+  - ודא שה‑``ETag`` מחושב על גרסת התוכן בלבד (לא על שדות משתנים)
+  - צירוף ``ETag`` ו‑``Last-Modified`` גם בתשובת ``200`` וגם ב‑``304``
+  - ראו :doc:`/webapp/caching`
+
+``Timezone naive/aware גורם להשוואות שגויות``
+  - ודא ש‑``created_at`` ו‑``updated_at`` הם timezone-aware ב‑UTC
+  - השוו שניות שלמות (ללא microseconds) מול ``If-Modified-Since``
+
+``שאילתא איטית / COLLSCAN``
+  - חסר אינדקס מתאים. בדוק :doc:`/database/indexing` והוסף אינדקס מרוכב
+  - אמת ב‑``explain('executionStats')`` שהשלב הוא ``IXSCAN`` ולא ``COLLSCAN``
+
+``דפדוף מדלג/כפול פריטים``
+  - ודא מיון יציב לפי ``created_at`` ו‑``_id`` יחד
+  - השתמשו בתבנית הקורסור מ‑:doc:`/database/cursor-pagination`
+
+``SRI mismatch בטעינת משאב מ‑CDN``
+  - חשבו hash מחדש עם ``openssl dgst -sha384 -binary | base64``
+  - עדכנו את ערך ``integrity=...`` וודאו ``crossorigin="anonymous"``
+  - ראו :doc:`/webapp/static-checklist`
 
 דיבוג מהיר
 ----------
