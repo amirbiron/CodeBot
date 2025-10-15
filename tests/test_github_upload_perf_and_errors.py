@@ -71,6 +71,8 @@ async def test_perf_wrapper_on_saved_upload(monkeypatch):
     # stub database.db and bson.ObjectId so imports inside function succeed
     class _DB:
         collection = types.SimpleNamespace(find_one=lambda *a, **k: {"file_name": "a.py", "content": "x"})
+        def get_github_token(self, user_id):
+            return "t"
     import database as _database
     monkeypatch.setattr(_database, 'db', _DB(), raising=False)
     bson_mod = _types.ModuleType('bson')
