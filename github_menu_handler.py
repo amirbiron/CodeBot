@@ -3354,7 +3354,10 @@ class GitHubMenuHandler:
                 return
 
             await update.callback_query.edit_message_text("⏳ מעלה קובץ ל-GitHub...")
-            emit_event("github_upload_start", user_id=int(user_id), file_id=str(file_id))
+            try:
+                emit_event("github_upload_start", user_id=int(user_id), file_id=str(file_id))
+            except Exception:
+                pass
 
             # לוג פרטי הקובץ
             logger.info(f"📄 מעלה קובץ שמור: {file_data['file_name']}")
@@ -3388,7 +3391,10 @@ class GitHubMenuHandler:
             g = Github(token_opt) if token_opt else Github(None)
 
             # בדוק rate limit לפני הבקשה
-            emit_event("github_rate_limit_check", severity="info")
+            try:
+                emit_event("github_rate_limit_check", severity="info")
+            except Exception:
+                pass
             logger.info(f"[GitHub API] Checking rate limit before uploading file")
             rate = g.get_rate_limit()
             logger.info(
