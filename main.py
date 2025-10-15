@@ -391,11 +391,11 @@ def get_lock_collection():
         # Use the already-selected database from DatabaseManager
         selected_db = db.db
         if selected_db is None:
-        logger.critical("DatabaseManager.db is not initialized!")
-        try:
-            emit_event("db_lock_db_missing", severity="critical", event="db_lock_db_missing")
-        except Exception:
-            pass
+            logger.critical("DatabaseManager.db is not initialized!")
+            try:
+                emit_event("db_lock_db_missing", severity="critical", event="db_lock_db_missing")
+            except Exception:
+                pass
             sys.exit(1)
         # Optional: small debug to help diagnose DB mismatches
         try:
