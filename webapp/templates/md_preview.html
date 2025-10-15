@@ -727,68 +727,6 @@ input.md-task-checkbox {
 {% endblock %}
 
 {% block content %}
-<!-- תוכן עניינים צף מתקדם עם כל הפיצ'רים -->
-<div id="mdToc" class="md-toc" style="display:none;" 
-     role="navigation" 
-     aria-label="תוכן עניינים של המסמך">
-  
-  <!-- כותרת עם אינדיקטור התקדמות -->
-  <div class="md-toc-header">
-    <div class="md-toc-title-wrapper">
-      <h3 id="toc-heading">
-        <i class="fas fa-list" aria-hidden="true"></i>
-        תוכן עניינים
-      </h3>
-      <div class="md-toc-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-        <div class="md-toc-progress-bar" id="tocProgressBar"></div>
-      </div>
-    </div>
-    <div class="md-toc-controls">
-      <button id="mdTocSearch" 
-              class="md-toc-search-btn" 
-              aria-label="חפש בכותרות"
-              title="חיפוש (Ctrl+F)">
-        <i class="fas fa-search" aria-hidden="true"></i>
-      </button>
-      <button id="mdTocToggle" 
-              class="md-toc-toggle" 
-              aria-controls="mdTocNav" 
-              aria-expanded="true"
-              aria-labelledby="toc-heading"
-              title="כווץ או הרחב (Ctrl+T)">
-        <i class="fas fa-chevron-up" aria-hidden="true"></i>
-      </button>
-    </div>
-  </div>
-  
-  <!-- תיבת חיפוש (מוסתרת בהתחלה) -->
-  <div class="md-toc-search-container" id="tocSearchContainer" style="display:none;">
-    <input type="search" 
-           id="tocSearchInput"
-           class="md-toc-search-input"
-           placeholder="חפש בכותרות..." 
-           aria-label="חיפוש בתוכן העניינים">
-    <span class="md-toc-search-results" id="tocSearchResults"></span>
-  </div>
-  
-  <!-- אזור הניווט עם Virtual Scrolling -->
-  <nav id="mdTocNav" 
-       class="md-toc-nav" 
-       aria-labelledby="toc-heading"
-       role="list">
-    <!-- כאן יוכנסו הכותרות דינמית -->
-  </nav>
-  
-  <!-- כפתור מצב מינימלי -->
-  <button id="mdTocMini" 
-          class="md-toc-mini-btn" 
-          style="display:none;"
-          aria-label="הצג תוכן עניינים"
-          title="הצג תוכן עניינים (Ctrl+T)">
-    <i class="fas fa-bars"></i>
-  </button>
-</div>
-
 <div id="md-root">
   <div class="file-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
     <div style="display:flex;align-items:center;gap:.75rem;min-width:0;">
@@ -823,6 +761,68 @@ input.md-task-checkbox {
       <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">✕</button>
     </div>
     <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
+  </div>
+
+  <!-- תוכן עניינים צף מתקדם עם כל הפיצ'רים (ממוקם אחרי #mdCard כדי שכללי CSS של fullscreen יעבדו) -->
+  <div id="mdToc" class="md-toc" style="display:none;" 
+       role="navigation" 
+       aria-label="תוכן עניינים של המסמך">
+    
+    <!-- כותרת עם אינדיקטור התקדמות -->
+    <div class="md-toc-header">
+      <div class="md-toc-title-wrapper">
+        <h3 id="toc-heading">
+          <i class="fas fa-list" aria-hidden="true"></i>
+          תוכן עניינים
+        </h3>
+        <div class="md-toc-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+          <div class="md-toc-progress-bar" id="tocProgressBar"></div>
+        </div>
+      </div>
+      <div class="md-toc-controls">
+        <button id="mdTocSearch" 
+                class="md-toc-search-btn" 
+                aria-label="חפש בכותרות"
+                title="חיפוש (Ctrl+F)">
+          <i class="fas fa-search" aria-hidden="true"></i>
+        </button>
+        <button id="mdTocToggle" 
+                class="md-toc-toggle" 
+                aria-controls="mdTocNav" 
+                aria-expanded="true"
+                aria-labelledby="toc-heading"
+                title="כווץ או הרחב (Ctrl+T)">
+          <i class="fas fa-chevron-up" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+    
+    <!-- תיבת חיפוש (מוסתרת בהתחלה) -->
+    <div class="md-toc-search-container" id="tocSearchContainer" style="display:none;">
+      <input type="search" 
+             id="tocSearchInput"
+             class="md-toc-search-input"
+             placeholder="חפש בכותרות..." 
+             aria-label="חיפוש בתוכן העניינים">
+      <span class="md-toc-search-results" id="tocSearchResults"></span>
+    </div>
+    
+    <!-- אזור הניווט עם Virtual Scrolling -->
+    <nav id="mdTocNav" 
+         class="md-toc-nav" 
+         aria-labelledby="toc-heading"
+         role="list">
+      <!-- כאן יוכנסו הכותרות דינמית -->
+    </nav>
+    
+    <!-- כפתור מצב מינימלי -->
+    <button id="mdTocMini" 
+            class="md-toc-mini-btn" 
+            style="display:none;"
+            aria-label="הצג תוכן עניינים"
+            title="הצג תוכן עניינים (Ctrl+T)">
+      <i class="fas fa-bars"></i>
+    </button>
   </div>
   {% if not is_public %}
   <div class="glass-card" style="margin-top: 1rem;">
