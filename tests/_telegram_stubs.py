@@ -73,17 +73,51 @@ class PicklePersistence:
 class ContextTypes:
     DEFAULT_TYPE = object
 
+class Defaults:
+    def __init__(self, *a, **k):
+        pass
+
 class Application:  # placeholder to satisfy imports; tests monkeypatch runtime behavior
     pass
 
 class ApplicationHandlerStop(Exception):
     pass
 
+class ConversationHandler:
+    # Sentinel used across code/tests to signal conversation end
+    END = object()
+
+    def __init__(self, *args, **kwargs):
+        # Keep minimal shape; real behavior is monkeypatched in tests where needed
+        self.args = args
+        self.kwargs = kwargs
+
 # Minimal filters namespace used by code; values aren't exercised in tests
-filters = types.SimpleNamespace(
-    TEXT=object(),
-    COMMAND=object(),
-)
+class _FiltersNS:
+    class _All:
+        def __and__(self, other):
+            return self
+        def __invert__(self):
+            return self
+
+    class _Regex:
+        def __init__(self, pattern):
+            self.pattern = pattern
+
+    class _DocumentNS:
+        ALL = object()
+
+    TEXT = object()
+    COMMAND = object()
+    ALL = _All()
+
+    @staticmethod
+    def Regex(pattern):
+        return _FiltersNS._Regex(pattern)
+
+    Document = _DocumentNS()
+
+filters = _FiltersNS()
 
 te.CallbackQueryHandler = CallbackQueryHandler
 te.CommandHandler = CommandHandler
@@ -91,8 +125,10 @@ te.MessageHandler = MessageHandler
 te.InlineQueryHandler = InlineQueryHandler
 te.PicklePersistence = PicklePersistence
 te.ContextTypes = ContextTypes
+te.Defaults = Defaults
 te.Application = Application
 te.ApplicationHandlerStop = ApplicationHandlerStop
+te.ConversationHandler = ConversationHandler
 te.filters = filters
 sys.modules['telegram.ext'] = te
 
