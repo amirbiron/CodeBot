@@ -474,6 +474,23 @@ class BulkActions {
         }, duration);
     }
     
+    async deleteSelected() {
+        const count = window.multiSelect?.getSelectedCount?.() || 0;
+        if (count === 0) {
+            this.showNotification('לא נבחרו קבצים', 'warning');
+            return;
+        }
+        // אישור משתמש
+        const confirmed = window.confirm(`האם להעביר ${count} קבצים לסל המחזור?`);
+        if (!confirmed) return;
+        this.showProcessing(`מוחק ${count} קבצים...`);
+        try {
+            await window.multiSelect.deleteSelected(30);
+        } finally {
+            this.hideProcessing();
+        }
+    }
+    
     async shareFiles() {
         const fileIds = window.multiSelect.getSelectedFiles().map(f => f.id);
         

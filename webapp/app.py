@@ -2578,6 +2578,290 @@ def api_toggle_favorite(file_id):
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+@app.route('/api/files/bulk-favorite', methods=['POST'])
+@login_required
+def api_files_bulk_favorite():
+    """הוספת is_favorite=True לקבוצת קבצים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$set': {
+                'is_favorite': True,
+                'favorited_at': now,
+                'updated_at': now,
+            }
+        })
+        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/bulk-unfavorite', methods=['POST'])
+@login_required
+def api_files_bulk_unfavorite():
+    """ביטול is_favorite לקבוצת קבצים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$set': {
+                'is_favorite': False,
+                'favorited_at': None,
+                'updated_at': now,
+            }
+        })
+        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/bulk-tag', methods=['POST'])
+@login_required
+def api_files_bulk_tag():
+    """הוספת תגיות לקבוצת קבצים של המשתמש ללא כפילויות."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        tags = list(data.get('tags') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+        # נרמול תגיות – מחרוזות לא ריקות בלבד
+        safe_tags = []
+        for t in tags:
+            try:
+                s = str(t).strip()
+            except Exception:
+                s = ''
+            if s:
+                safe_tags.append(s)
+        # הסר כפילויות תוך שמירה על סדר יחסי
+        seen = set()
+        norm_tags = [x for x in safe_tags if not (x in seen or seen.add(x))]
+        if not norm_tags:
+            return jsonify({'success': False, 'error': 'No tags provided'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$addToSet': {'tags': {'$each': norm_tags}},
+            '$set': {'updated_at': now}
+        })
+        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/create-zip', methods=['POST'])
+@login_required
+def api_files_create_zip():
+    """יצירת קובץ ZIP עם קבצים נבחרים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+
+        # שליפת הקבצים השייכים למשתמש בלבד
+        cursor = db.code_snippets.find({
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        })
+
+        from io import BytesIO
+        import zipfile
+
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for doc in cursor:
+                filename = (doc.get('file_name') or f"file_{str(doc.get('_id'))}.txt").strip() or f"file_{str(doc.get('_id'))}.txt"
+                # ודא שם ייחודי אם יש כפילויות
+                try:
+                    # מניעת שמות תיקיה מסוכנים
+                    filename = filename.replace('..', '_').replace('/', '_').replace('\\', '_')
+                except Exception:
+                    filename = f"file_{str(doc.get('_id'))}.txt"
+                content = doc.get('code')
+                if not isinstance(content, str):
+                    content = ''
+                zf.writestr(filename, content)
+
+        zip_buffer.seek(0)
+        ts = int(time.time())
+        return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name=f'code_files_{ts}.zip')
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/create-share-link', methods=['POST'])
+@login_required
+def api_files_create_share_link():
+    """יוצר קישור שיתוף ציבורי לקבצים נבחרים ומחזיר URL."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+
+        # אימות שהקבצים שייכים למשתמש
+        owned_count = db.code_snippets.count_documents({
+            '_id': {'$in': object_ids},
+            'user_id': user_id
+        })
+        if owned_count != len(object_ids):
+            return jsonify({'success': False, 'error': 'Some files not found'}), 404
+
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+
+        db.share_links.insert_one({
+            'token': token,
+            'file_ids': object_ids,
+            'user_id': user_id,
+            'created_at': now,
+            'expires_at': expires_at,
+            'view_count': 0,
+        })
+
+        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
+        share_url = f"{base_url}/shared/{token}"
+        return jsonify({'success': True, 'share_url': share_url, 'expires_at': expires_at.isoformat(), 'token': token})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/bulk-delete', methods=['POST'])
+@login_required
+def api_files_bulk_delete():
+    """מחיקה רכה (soft delete) לקבוצת קבצים – מסמן is_active=False עם תוקף שחזור.
+
+    קלט JSON:
+    - file_ids: List[str]
+    - ttl_days: Optional[int] – טווח 1..30, ברירת מחדל 30
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        ttl_days = int(data.get('ttl_days') or 30)
+        if not (1 <= ttl_days <= 30):
+            ttl_days = 30
+
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=ttl_days)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$set': {
+                'is_active': False,
+                'deleted_at': now,
+                'deleted_expires_at': expires_at,
+                'updated_at': now,
+            }
+        })
+        return jsonify({'success': True, 'deleted': int(getattr(res, 'modified_count', 0)), 'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/stats')
 @login_required
 def api_stats():
@@ -2999,6 +3283,89 @@ def public_share(share_id):
         'version': 1,
     }
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
+
+# --- Public multiple-files share route (tokens created via /api/files/create-share-link) ---
+@app.route('/shared/<token>')
+def public_shared_files(token: str):
+    """עמוד שיתוף ציבורי לקבצים מרובים לפי token מ-collection share_links.
+
+    תומך בהצגת רשימה עם קישורי הורדה/צפייה לכל קובץ. אם פג תוקף, מחזיר 404.
+    """
+    try:
+        db = get_db()
+        doc = db.share_links.find_one({'token': token})
+    except Exception:
+        doc = None
+    if not doc:
+        return render_template('404.html'), 404
+
+    # תוקף
+    exp = doc.get('expires_at')
+    try:
+        now = datetime.now(timezone.utc)
+        if isinstance(exp, datetime):
+            expired = exp <= now
+        else:
+            expired = True
+    except Exception:
+        expired = True
+    if expired:
+        return render_template('404.html'), 404
+
+    # שליפת קבצים
+    file_ids = [oid for oid in (doc.get('file_ids') or []) if isinstance(oid, ObjectId)]
+    if not file_ids:
+        return render_template('404.html'), 404
+    try:
+        cursor = db.code_snippets.find({'_id': {'$in': file_ids}})
+        files = list(cursor)
+    except Exception:
+        files = []
+    if not files:
+        return render_template('404.html'), 404
+
+    # בניית רשימת פריטים לתצוגה
+    view_items = []
+    for f in files:
+        code = f.get('code', '')
+        language = (f.get('programming_language') or 'text').lower()
+        file_name = (f.get('file_name') or 'snippet.txt')
+        size = len((code or '').encode('utf-8'))
+        lines = len((code or '').split('\n'))
+        view_items.append({
+            'id': str(f.get('_id')),
+            'file_name': file_name,
+            'language': language,
+            'icon': get_language_icon(language),
+            'size': format_file_size(size),
+            'lines': lines,
+            'code': code,
+        })
+
+    # תבנית בסיסית של רשימת קבצים ששותפו
+    # שימוש ב-template קיים אם יש – אחרת נציג רשימה פשוטה דרך view_file עבור פריט בודד אינו מתאים כאן
+    # לכן נשתמש ב-html פשוט בתוך אותו טמפלט בסיס
+    html = [
+        '<div class="glass-card">',
+        '<h2 class="section-title"><i class="fas fa-share-alt"></i> קבצים משותפים</h2>',
+        '<div style="display:grid;gap:1rem">'
+    ]
+    for item in view_items:
+        html.append(
+            f"<div class='glass-card' style='padding:1rem'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+            f"<div style='display:flex;gap:.75rem;align-items:center'><span style='font-size:1.5rem'>{item['icon']}</span><strong>{item['file_name']}</strong><span class='badge'>{item['language']}</span><span class='badge'>{item['lines']} שורות</span></div>"
+            f"<div style='display:flex;gap:.5rem'>"
+            f"<a class='btn btn-secondary btn-icon' href='/download/{item['id']}'><i class='fas fa-download'></i> הורד</a>"
+            f"<a class='btn btn-secondary btn-icon' href='/file/{item['id']}'><i class='fas fa-eye'></i> צפה</a>"
+            f"</div>"
+            f"</div>"
+            f"</div>"
+        )
+    html.append('</div></div>')
+
+    return render_template('base.html')\
+        .replace('{% block content %}{% endblock %}', ''.join(html))
 
 # Error handlers
 @app.errorhandler(404)
