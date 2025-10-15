@@ -183,8 +183,9 @@ class MultiSelectManager {
     }
     
     // פונקציה אופציונלית למחיקה קבוצתית
-    // כדי להפעיל: הסר את ההערה מה-Delete key handler למעלה
+    // כדי להפעיל: הסר את ההערה מכל הפונקציה ומה-Delete key handler למעלה
     // והוסף את ה-endpoint /api/files/bulk-delete בbackend
+    /*
     deleteSelected() {
         // עם Map, מחלצים את ה-IDs מה-values
         const fileIds = Array.from(this.selectedFiles.values()).map(f => f.id);
@@ -230,6 +231,7 @@ class MultiSelectManager {
             window.bulkActions?.hideProcessing();
         });
     }
+    */
     
     persistSelection() {
         // שמור בחירה ב-sessionStorage לשמירה בין עמודים
