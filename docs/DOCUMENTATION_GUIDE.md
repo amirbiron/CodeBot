@@ -4,6 +4,10 @@
 
 מדריך זה מכיל את כל ההמלצות וההגדרות לניהול התיעוד של הפרויקט בצורה אופטימלית.
 
+> חשוב: אנו בונים את התיעוד עם `fail_on_warning: true` (RTD) וב‑CI עם `-W --keep-going`. יש להימנע מאזהרות.
+> בעמודי סקירה חופפים (api, database, handlers, services, configuration) יש להשתמש ב‑`:noindex:` כדי למנוע כפילויות באינדקס.
+> מודולים חיצוניים כבדים או לא זמינים נכללים ב‑`autodoc_mock_imports` כדי למנוע קריסות בזמן build.
+
 ## 🤖 הרצה אוטומטית vs ידנית
 
 ### 📊 טבלת השוואה
@@ -363,14 +367,13 @@ autodoc_default_options = {
 
 # Mock imports for CI/CD
 autodoc_mock_imports = [
-    'telegram',
-    'pymongo',
-    'redis',
-    'github',
-    'cairosvg',
-    'aiofiles',
-    'fuzzywuzzy',
-    'aiohttp',
+    'pymongo', 'motor', 'bson',
+    'fuzzywuzzy', 'python_levenshtein', 'Levenshtein',
+    'redis', 'aioredis', 'celery', 'psutil', 'sentry_sdk',
+    'flask', 'uvicorn', 'gunicorn', 'telegram', 'telegram.ext', 'telegram.constants', 'telegram.error',
+    'google', 'googleapiclient', 'googleapiclient.discovery', 'google.oauth2',
+    'github', 'PyGithub',
+    'cairosvg', 'aiohttp', 'textstat', 'langdetect', 'pytest', 'search_engine', 'code_processor', 'integrations',
 ]
 
 # Intersphinx - קישורים לתיעוד חיצוני
@@ -513,7 +516,7 @@ jobs:
 - [ ] דוגמאות קוד לכל מודול מרכזי
 - [ ] מדריך התקנה מלא
 - [ ] מדריך תצורה מפורט
-- [ ] API Reference מלא
+- [ ] API Reference מלא (כולל `/files`)
 - [ ] תיעוד עובר בנייה ללא אזהרות
 - [ ] GitHub Actions מוגדר ועובד
 - [ ] GitHub Pages/Read the Docs מוגדר
