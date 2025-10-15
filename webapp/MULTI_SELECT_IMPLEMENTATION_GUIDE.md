@@ -29,18 +29,23 @@
   - תמיכה רספונסיבית מלאה
 
 ### Backend (Python)
-שישה endpoints חדשים שיש להוסיף ל-**`webapp/app.py`**:
+endpoints חדשים שיש להוסיף ל-**`webapp/app.py`**:
+
+#### Endpoints בסיסיים (נדרשים):
 - **`/api/files/bulk-favorite`** - הוספה קבוצתית למועדפים
 - **`/api/files/bulk-unfavorite`** - הסרה קבוצתית ממועדפים
 - **`/api/files/bulk-tag`** - הוספת תגיות לקבצים מרובים
-- **`/api/files/bulk-delete`** - מחיקה קבוצתית של קבצים
 - **`/api/files/create-zip`** - יצירת קובץ ZIP עם הקבצים הנבחרים
+
+#### Endpoints אופציונליים (הרחבות):
+- **`/api/files/bulk-delete`** - מחיקה קבוצתית של קבצים (זהירות!)
 - **`/api/files/create-share-link`** - יצירת קישור שיתוף לקבצים נבחרים
 
 ## 🎯 יעדים
 - **הוספת checkboxes** לכל כרטיס קובץ
 - **סרגל כלים הקשרי** שמופיע כשיש קבצים נבחרים
 - **פעולות קבוצתיות**: הוספה למועדפים, תיוג, הורדת ZIP
+- **פעולות אופציונליות**: מחיקה קבוצתית (Delete key), שיתוף קבצים
 - **חוויית משתמש נוחה** עם shortcuts ופידבק ברור
 
 ## 🏗️ ארכיטקטורה
@@ -138,6 +143,14 @@ User Selection → JavaScript State → API Call → Backend Processing → UI U
                 <i class="fas fa-file-archive"></i>
                 הורד כ-ZIP
             </button>
+            
+            <!-- אופציונלי: כפתור מחיקה -->
+            <!--
+            <button class="btn btn-danger btn-icon" onclick="bulkDelete()">
+                <i class="fas fa-trash"></i>
+                מחק
+            </button>
+            -->
             
             <button class="btn btn-secondary btn-icon" onclick="clearSelection()">
                 <i class="fas fa-times"></i>
@@ -702,10 +715,12 @@ def bulk_add_tags():
         app.logger.error(f"Error in bulk tag: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+### Endpoints אופציונליים (לא חובה):
+
 @app.route('/api/files/bulk-delete', methods=['POST'])
 @login_required
 def bulk_delete_files():
-    """מחיקה קבוצתית של קבצים"""
+    """מחיקה קבוצתית של קבצים - אופציונלי, השתמש בזהירות!"""
     try:
         data = request.json
         file_ids = data.get('file_ids', [])

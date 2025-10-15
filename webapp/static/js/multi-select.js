@@ -138,12 +138,15 @@ class MultiSelectManager {
                 this.clearSelection();
             }
             
-            // Delete - מחק קבצים נבחרים (עם אישור)
+            // Delete - מחק קבצים נבחרים (אופציונלי - לא מופעל כברירת מחדל)
+            // כדי להפעיל, הסר את ההערות והוסף את ה-endpoint בbackend
+            /*
             if (e.key === 'Delete' && this.selectedFiles.size > 0) {
                 if (confirm(`האם למחוק ${this.selectedFiles.size} קבצים?`)) {
                     this.deleteSelected();
                 }
             }
+            */
         });
     }
     
@@ -179,6 +182,9 @@ class MultiSelectManager {
         });
     }
     
+    // פונקציה אופציונלית למחיקה קבוצתית
+    // כדי להפעיל: הסר את ההערה מה-Delete key handler למעלה
+    // והוסף את ה-endpoint /api/files/bulk-delete בbackend
     deleteSelected() {
         // עם Map, מחלצים את ה-IDs מה-values
         const fileIds = Array.from(this.selectedFiles.values()).map(f => f.id);
