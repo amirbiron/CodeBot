@@ -866,7 +866,9 @@
     // כפתור כיווץ/הרחבה
     if (tocToggle && tocElement) {
       const toggleHandler = (e) => {
+        // עצירת בעבוע האירוע - מונע הפעלה כפולה עם הכותרת
         e.stopPropagation();
+        
         tocState.isCollapsed = !tocState.isCollapsed;
         tocElement.classList.toggle('collapsed');
         tocToggle.setAttribute('aria-expanded', !tocState.isCollapsed);
@@ -926,7 +928,10 @@
     if (!searchBtn || !searchContainer || !searchInput) return;
     
     // כפתור חיפוש
-    const searchBtnHandler = () => {
+    const searchBtnHandler = (e) => {
+      // עצירת בעבוע האירוע למעלה - מונע כיווץ של התפריט
+      e.stopPropagation();
+      
       const isVisible = searchContainer.style.display !== 'none';
       searchContainer.style.display = isVisible ? 'none' : 'block';
       
