@@ -209,6 +209,124 @@ input.md-task-checkbox {
   margin-inline-end: .5rem;
   transform: scale(1.1);
 }
+/* שיפורי כותרות עם גבולות תחתונים */
+#md-content h1 {
+  font-size: 2.2em;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 700;
+  border-bottom: 3px solid #e1e4e8;
+  padding-bottom: 0.3em;
+}
+
+#md-content h2 {
+  font-size: 1.8em;
+  font-weight: 600;
+  border-bottom: 2px solid #e1e4e8;
+  padding-bottom: 0.3em;
+}
+
+#md-content h3 {
+  font-size: 1.4em;
+  font-weight: 600;
+}
+
+#md-content h4 {
+  font-size: 1.2em;
+  font-weight: 500;
+}
+
+/* אנימציות כניסה עדינות */
+#md-content > * {
+  animation: fadeIn 0.4s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* אנימציה מהירה יותר לאלמנטים ספציפיים */
+#md-content pre,
+#md-content blockquote,
+#md-content table {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* נטרל אנימציות לכל ילד ישיר */
+  #md-content > * { animation: none; }
+  /* נטרל גם לכללים הספציפיים יותר כדי לא לעקוף את ההעדפה */
+  #md-content pre,
+  #md-content blockquote,
+  #md-content table { animation: none; }
+  /* צמצם גם מעברים לקישורים ואפקט ה-::after שלהם */
+  #md-content a,
+  #md-content a::after { transition: none; }
+}
+
+/* עיצוב משופר לקישורים */
+#md-content a {
+  color: #0366d6;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+#md-content a:hover {
+  color: #0256c7;
+}
+
+/* אפקט hover נוסף אופציונלי - קו תחתון מתרחב */
+#md-content a::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  width: 0;
+  height: 1px;
+  background: #0366d6;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateX(-50%);
+}
+
+#md-content a:hover::after {
+  width: 100%;
+}
+
+/* קישורים בכותרות - ללא קו תחתון */
+#md-content h1 a,
+#md-content h2 a,
+#md-content h3 a {
+  border-bottom: none;
+}
+
+#md-content h1 a::after,
+#md-content h2 a::after,
+#md-content h3 a::after {
+  display: none;
+}
+
+/* קישורי עוגן (permalink) */
+#md-content .header-anchor {
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: 0.5em;
+  color: #6c757d;
+}
+
+#md-content h1:hover .header-anchor,
+#md-content h2:hover .header-anchor,
+#md-content h3:hover .header-anchor {
+  opacity: 1;
+}
 </style>
 {% endblock %}
 
