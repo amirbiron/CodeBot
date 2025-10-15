@@ -79,7 +79,9 @@ PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
 FA_SRI_HASH = (os.getenv('FA_SRI_HASH') or '').strip()
 # URL בסיסי לתיעוד (לשימוש בקישורי עזרה מה-UI)
-DOCUMENTATION_URL = os.getenv('DOCUMENTATION_URL', 'https://amirbiron.github.io/CodeBot/')
+# מנרמל תמיד לסלאש מסיים כדי למנוע חיבור URL שבור
+_DOCS_URL_RAW = (os.getenv('DOCUMENTATION_URL') or 'https://amirbiron.github.io/CodeBot/')
+DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/')
 
 # --- Cache TTLs (seconds) for heavy endpoints/pages ---
 def _int_env(name: str, default: int, lo: int = 30, hi: int = 180) -> int:
