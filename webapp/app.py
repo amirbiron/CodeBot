@@ -3284,6 +3284,89 @@ def public_share(share_id):
     }
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
 
+# --- Public multiple-files share route (tokens created via /api/files/create-share-link) ---
+@app.route('/shared/<token>')
+def public_shared_files(token: str):
+    """עמוד שיתוף ציבורי לקבצים מרובים לפי token מ-collection share_links.
+
+    תומך בהצגת רשימה עם קישורי הורדה/צפייה לכל קובץ. אם פג תוקף, מחזיר 404.
+    """
+    try:
+        db = get_db()
+        doc = db.share_links.find_one({'token': token})
+    except Exception:
+        doc = None
+    if not doc:
+        return render_template('404.html'), 404
+
+    # תוקף
+    exp = doc.get('expires_at')
+    try:
+        now = datetime.now(timezone.utc)
+        if isinstance(exp, datetime):
+            expired = exp <= now
+        else:
+            expired = True
+    except Exception:
+        expired = True
+    if expired:
+        return render_template('404.html'), 404
+
+    # שליפת קבצים
+    file_ids = [oid for oid in (doc.get('file_ids') or []) if isinstance(oid, ObjectId)]
+    if not file_ids:
+        return render_template('404.html'), 404
+    try:
+        cursor = db.code_snippets.find({'_id': {'$in': file_ids}})
+        files = list(cursor)
+    except Exception:
+        files = []
+    if not files:
+        return render_template('404.html'), 404
+
+    # בניית רשימת פריטים לתצוגה
+    view_items = []
+    for f in files:
+        code = f.get('code', '')
+        language = (f.get('programming_language') or 'text').lower()
+        file_name = (f.get('file_name') or 'snippet.txt')
+        size = len((code or '').encode('utf-8'))
+        lines = len((code or '').split('\n'))
+        view_items.append({
+            'id': str(f.get('_id')),
+            'file_name': file_name,
+            'language': language,
+            'icon': get_language_icon(language),
+            'size': format_file_size(size),
+            'lines': lines,
+            'code': code,
+        })
+
+    # תבנית בסיסית של רשימת קבצים ששותפו
+    # שימוש ב-template קיים אם יש – אחרת נציג רשימה פשוטה דרך view_file עבור פריט בודד אינו מתאים כאן
+    # לכן נשתמש ב-html פשוט בתוך אותו טמפלט בסיס
+    html = [
+        '<div class="glass-card">',
+        '<h2 class="section-title"><i class="fas fa-share-alt"></i> קבצים משותפים</h2>',
+        '<div style="display:grid;gap:1rem">'
+    ]
+    for item in view_items:
+        html.append(
+            f"<div class='glass-card' style='padding:1rem'>"
+            f"<div style='display:flex;justify-content:space-between;align-items:center'>"
+            f"<div style='display:flex;gap:.75rem;align-items:center'><span style='font-size:1.5rem'>{item['icon']}</span><strong>{item['file_name']}</strong><span class='badge'>{item['language']}</span><span class='badge'>{item['lines']} שורות</span></div>"
+            f"<div style='display:flex;gap:.5rem'>"
+            f"<a class='btn btn-secondary btn-icon' href='/download/{item['id']}'><i class='fas fa-download'></i> הורד</a>"
+            f"<a class='btn btn-secondary btn-icon' href='/file/{item['id']}'><i class='fas fa-eye'></i> צפה</a>"
+            f"</div>"
+            f"</div>"
+            f"</div>"
+        )
+    html.append('</div></div>')
+
+    return render_template('base.html')\
+        .replace('{% block content %}{% endblock %}', ''.join(html))
+
 # Error handlers
 @app.errorhandler(404)
 def not_found(e):
