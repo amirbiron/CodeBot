@@ -485,7 +485,8 @@ class BulkActions {
         if (!confirmed) return;
         this.showProcessing(`מוחק ${count} קבצים...`);
         try {
-            await window.multiSelect.deleteSelected(30);
+            // אל תעביר ttl כדי לאפשר לשרת להשתמש בברירת המחדל מה-ENV
+            await window.multiSelect.deleteSelected();
         } finally {
             this.hideProcessing();
         }
