@@ -17,6 +17,8 @@
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
   padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
+  font-size: 16px;
+  line-height: 1.6; /* שיפור קריאות */
 }
 /* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
 #mdCard:fullscreen { height: 100vh; overflow: auto; }
@@ -79,19 +81,22 @@
 #md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; width: 100%; }
 #md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
-  background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%);
-  border: 0;                        /* הסרת מסגרת דקה שמצטיירת כסגולה */
+  background: linear-gradient(135deg, #1a2332 0%, #243447 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   padding: 16px;                    /* בסיס */
   /* ריווח פנימי סימטרי בתוך הבלוק – כדי שהקוד לא ייגע בגבולות */
   padding-right: clamp(22px, 6vw, 36px);
   padding-left: clamp(22px, 6vw, 36px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   overflow-x: auto;
-  margin: 1em 0;                    /* אין מרווח שלילי – לא שוברים פריסה */
+  margin: 1.5em 0;
   width: 100%;                      /* מילוי רוחב הכרטיס, ללא גלישה */
   color: #e8eaed;                   /* Fallback: טקסט בהיר אם hljs לא נטען */
   box-sizing: border-box;
+  position: relative;
+  /* אופטימיזציה לאנימציות */
+  will-change: transform;
 }
 #md-content pre code {
   display: block;
@@ -109,7 +114,38 @@
   word-break: break-word;
 }
 /* מרווח נעים בין פסקאות */
-#md-content p { margin: 0.75rem 0; }
+#md-content p { 
+  margin: 1rem 0;
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* הדגשות ותגיות סמנטיות */
+#md-content strong {
+  font-weight: 600;
+  color: #1a202c;
+}
+
+#md-content em {
+  font-style: italic;
+  color: #2d3748;
+}
+
+#md-content mark {
+  background: linear-gradient(90deg, #ffd700 0%, #ffed4e 100%);
+  color: #000;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* קווי הפרדה */
+#md-content hr {
+  border: none;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
+  margin: 2rem 0;
+}
 /* ריווח ברור סביב כותרות משנה כדי למנוע הדבקה לטקסט שלפניהן/אחריהן */
 #md-content h2, #md-content h3, #md-content h4 {
   margin-top: 1.25rem;
@@ -174,24 +210,35 @@
   vertical-align: middle;
 }
 #md-content code:not(pre code) {
-  background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
-  color: #111111;                 /* טקסט כהה לקריאות */
-  border: 1px solid #e5e7eb;      /* מסגרת עדינה */
-  padding: 0.2rem 0.4rem;
-  border-radius: 6px;
+  background: linear-gradient(135deg, #f1f3f5 0%, #e9ecef 100%);
+  color: #24292e;                 /* כהה אך לא שחור מלא */
+  border: 1px solid #dee2e6;
+  padding: 0.2em 0.5em;
+  border-radius: 4px;
   font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+  font-weight: 500;
+  white-space: nowrap;
 }
 /* חיווי למופע פעיל בחיפוש */
 #md-content .md-highlight.is-active {
   outline: 2px solid #ffd700;
   outline-offset: 1px;
 }
-/* ציטוטים */
-#md-content blockquote {
-  margin: 0.75rem 0;
-  padding: 0.5rem 0.75rem;
-  background: #eef2f7; /* מעט כהה יותר לניגודיות טובה על לבן */
-  border-inline-start: 4px solid #cbd5e1; /* קו צד כהה במקצת */
+/* ציטוטים - מודרנזציה נוספת */
+#md-content > blockquote {
+  position: relative;
+  quotes: "“" "”" "‘" "’";
+}
+
+#md-content > blockquote::before {
+  content: open-quote;
+  position: absolute;
+  top: -10px;
+  right: 10px;
+  font-size: 3em;
+  color: rgba(108, 117, 125, 0.2);
+  font-family: Georgia, serif;
 }
 /* שם קובץ ארוך – מניעת חריגה במסגרת הכותרת */
 #md-file-name-wrap { min-width: 0; }
@@ -208,6 +255,361 @@
 input.md-task-checkbox {
   margin-inline-end: .5rem;
   transform: scale(1.1);
+  cursor: pointer;
+}
+
+/* תוכן עניינים צף */
+.md-toc {
+  position: fixed;
+  top: 100px;
+  left: 20px;
+  max-width: 250px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 100;
+  display: none; /* מוסתר בברירת מחדל */
+}
+
+.md-toc.show {
+  display: block;
+}
+
+.md-toc h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: #2d3748;
+}
+
+.md-toc ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.md-toc li {
+  margin: 0.25rem 0;
+}
+
+.md-toc a {
+  color: #4a5568;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.2s;
+}
+
+.md-toc a:hover {
+  color: var(--primary);
+}
+
+.md-toc a.active {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* הסתרת TOC במסכים קטנים */
+@media (max-width: 1024px) {
+  .md-toc {
+    display: none !important;
+  }
+}
+
+/* שיפורים ויזואליים חדשים */
+
+/* כותרות משופרות */
+#md-content h1 {
+  font-size: 2.2em;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 700;
+  border-bottom: 3px solid #e1e4e8;
+  padding-bottom: 0.3em;
+}
+
+#md-content h2 {
+  font-size: 1.8em;
+  margin-top: 1.3em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  border-bottom: 2px solid #e1e4e8;
+  padding-bottom: 0.3em;
+}
+
+#md-content h3 {
+  font-size: 1.4em;
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+#md-content h4 {
+  font-size: 1.2em;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  font-weight: 600;
+}
+
+/* קישורים משופרים */
+#md-content a {
+  color: #0366d6;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+#md-content a:hover {
+  color: #0256c7;
+  border-bottom-color: #0366d6;
+}
+
+/* בלוקים מצוטטים משודרגים */
+#md-content blockquote {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-inline-start: 5px solid #6c757d;
+  margin: 1.5em 0;
+  padding: 1em 1.5em;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  font-style: italic;
+}
+
+#md-content blockquote p:first-child {
+  margin-top: 0;
+}
+
+#md-content blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* רשימות משופרות */
+#md-content ul, #md-content ol {
+  padding-inline-start: 2em;
+  margin: 1em 0;
+}
+
+#md-content li {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+
+#md-content li::marker {
+  color: var(--primary, #667eea);
+  font-weight: 600;
+}
+
+/* טבלאות מודרניות */
+#md-content table {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin: 1.5em 0;
+}
+
+#md-content table thead {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+#md-content table th {
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  text-align: right;
+  border: none;
+}
+
+#md-content table td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+#md-content table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+#md-content table tbody tr:nth-child(even) {
+  background: #f8f9fa;
+}
+
+#md-content table tbody tr:hover {
+  background: #e9ecef;
+  transition: background 0.2s ease;
+}
+
+/* כפתור העתקה משופר */
+#md-content .md-copy-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#md-content .md-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+/* תווית שפה לבלוקי קוד */
+.code-block[data-language]::before {
+  content: attr(data-language);
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: 'Heebo', sans-serif;
+  z-index: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* מספרי שורות (אופציונלי) */
+.code-block.line-numbers pre {
+  padding-right: 3.5em !important;
+  position: relative;
+  counter-reset: line-number;
+}
+
+.code-block.line-numbers pre code .line::before {
+  counter-increment: line-number;
+  content: counter(line-number);
+  display: inline-block;
+  width: 2.5em;
+  margin-inline-end: 0.5em;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.3);
+  user-select: none;
+}
+
+/* אנימציות כניסה */
+#md-content > * {
+  animation: fadeIn 0.4s ease-out;
+  animation-fill-mode: backwards;
+}
+
+#md-content > *:nth-child(1) { animation-delay: 0.05s; }
+#md-content > *:nth-child(2) { animation-delay: 0.1s; }
+#md-content > *:nth-child(3) { animation-delay: 0.15s; }
+#md-content > *:nth-child(4) { animation-delay: 0.2s; }
+#md-content > *:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* הפחתת אנימציה למשתמשים שמעדיפים תנועה מופחתת */
+@media (prefers-reduced-motion: reduce) {
+  #md-content > * {
+    animation: none;
+  }
+}
+
+/* שיפורי נגישות - focus states */
+#md-content a:focus,
+#md-content button:focus {
+  outline: 2px solid var(--primary, #667eea);
+  outline-offset: 2px;
+}
+
+/* תמיכה ב-Dark Mode (אוטומטי לפי העדפות המערכת) */
+@media (prefers-color-scheme: dark) {
+  #md-content {
+    background: #1a202c;
+    color: #e2e8f0;
+  }
+  
+  #md-content h1, #md-content h2, #md-content h3, #md-content h4 {
+    color: #f7fafc;
+    border-bottom-color: #4a5568;
+  }
+  
+  #md-content a {
+    color: #63b3ed;
+  }
+  
+  #md-content a:hover {
+    color: #90cdf4;
+    border-bottom-color: #63b3ed;
+  }
+  
+  #md-content strong {
+    color: #f7fafc;
+  }
+  
+  #md-content em {
+    color: #cbd5e0;
+  }
+  
+  #md-content code:not(pre code) {
+    background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+    color: #90cdf4;
+    border-color: #4a5568;
+  }
+  
+  #md-content blockquote {
+    background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+    border-inline-start-color: #4a5568;
+  }
+  
+  #md-content table thead {
+    background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+  }
+  
+  #md-content table td {
+    border-bottom-color: #4a5568;
+  }
+  
+  #md-content table tbody tr:nth-child(even) {
+    background: #2d3748;
+  }
+  
+  #md-content table tbody tr:hover {
+    background: #4a5568;
+  }
+  
+  #md-content hr {
+    background: linear-gradient(90deg, transparent, #4a5568, transparent);
+  }
+}
+
+/* רספונסיביות */
+@media (max-width: 768px) {
+  #md-content {
+    font-size: 15px;
+    padding: 12px;
+  }
+  
+  #md-content h1 { font-size: 1.8em; }
+  #md-content h2 { font-size: 1.5em; }
+  #md-content h3 { font-size: 1.3em; }
+  
+  #md-content table {
+    font-size: 14px;
+  }
+  
+  #md-content pre {
+    padding: 12px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
 }
 </style>
 {% endblock %}
@@ -299,15 +701,31 @@ const CDN = {
   mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
   mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
   hljs: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
-  hljsCss: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css',
+  hljsCss: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css', // תמה מודרנית יותר
   katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
   katexJs: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
   katexAuto: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js',
   mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js'
 };
 
-function injectCss(href){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
-function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+function injectCss(href){ 
+  const l=document.createElement('link'); 
+  l.rel='stylesheet'; 
+  l.href=href; 
+  l.media='print'; // טעינה לא חוסמת
+  l.onload = function() { this.media='all'; }; // החלפה אחרי הטעינה
+  document.head.appendChild(l); 
+}
+function loadScript(src){ 
+  return new Promise((res,rej)=>{ 
+    const s=document.createElement('script'); 
+    s.src=src; 
+    s.async=true; // טעינה אסינכרונית
+    s.onload=res; 
+    s.onerror=rej; 
+    document.head.appendChild(s); 
+  }); 
+}
 
 (async function(){
   try{
@@ -510,6 +928,109 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     // Lazy loading לתמונות
     container.querySelectorAll('img').forEach(img => { img.loading = 'lazy'; });
 
+    // Smooth scrolling לעוגנים
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        const href = this.getAttribute('href');
+        if (href && href !== '#') {
+          e.preventDefault();
+          const target = document.querySelector(href);
+          if (target) {
+            target.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'start'
+            });
+            // עדכון URL בלי לגרום לגלילה
+            if (history.pushState) {
+              history.pushState(null, null, href);
+            }
+          }
+        }
+      });
+    });
+    
+    // יצירת תוכן עניינים אוטומטי למסמכים ארוכים
+    try {
+      const headings = container.querySelectorAll('h1, h2, h3');
+      if (headings.length > 3) { // רק אם יש מספיק כותרות
+        const tocContainer = document.createElement('div');
+        tocContainer.className = 'md-toc';
+        tocContainer.innerHTML = '<h3>תוכן עניינים</h3>';
+        const tocList = document.createElement('ul');
+        
+        headings.forEach((heading, index) => {
+          // וודא שלכותרת יש ID
+          if (!heading.id) {
+            heading.id = 'heading-' + index;
+          }
+          
+          const li = document.createElement('li');
+          const level = parseInt(heading.tagName.charAt(1));
+          li.style.paddingInlineStart = ((level - 1) * 1) + 'rem';
+          
+          const link = document.createElement('a');
+          link.href = '#' + heading.id;
+          link.textContent = heading.textContent;
+          link.addEventListener('click', function(e) {
+            e.preventDefault();
+            heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            // סמן כפעיל
+            tocList.querySelectorAll('a').forEach(a => a.classList.remove('active'));
+            this.classList.add('active');
+          });
+          
+          li.appendChild(link);
+          tocList.appendChild(li);
+        });
+        
+        tocContainer.appendChild(tocList);
+        
+        // הוסף כפתור להצגת/הסתרת תוכן עניינים
+        const tocToggle = document.createElement('button');
+        tocToggle.className = 'btn btn-secondary btn-icon';
+        tocToggle.style.position = 'fixed';
+        tocToggle.style.top = '80px';
+        tocToggle.style.left = '20px';
+        tocToggle.style.zIndex = '101';
+        tocToggle.innerHTML = '<i class="fas fa-list"></i> תוכן';
+        tocToggle.addEventListener('click', () => {
+          tocContainer.classList.toggle('show');
+        });
+        
+        // הוסף רק אם המסך גדול מספיק
+        if (window.innerWidth > 1024) {
+          document.body.appendChild(tocContainer);
+          document.body.appendChild(tocToggle);
+          
+          // עדכון אוטומטי של הכותרת הפעילה בזמן גלילה
+          let scrollTimeout;
+          window.addEventListener('scroll', () => {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+              let activeHeading = null;
+              const scrollPos = window.scrollY + 100; // קצת offset מהחלק העליון
+              
+              headings.forEach(heading => {
+                if (heading.offsetTop <= scrollPos) {
+                  activeHeading = heading;
+                }
+              });
+              
+              if (activeHeading) {
+                tocList.querySelectorAll('a').forEach(a => {
+                  a.classList.remove('active');
+                  if (a.href.endsWith('#' + activeHeading.id)) {
+                    a.classList.add('active');
+                  }
+                });
+              }
+            }, 100); // debounce
+          });
+        }
+      }
+    } catch(_) {}
+
     // KaTeX אוטו-רנדר (בבטחה; אין html גולמי)
     try { if (window.renderMathInElement) window.renderMathInElement(container, { delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}] }); } catch(_){ }
 
@@ -534,7 +1055,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       }
     } catch(_){ }
 
-    // כפתור העתקה לכל בלוק קוד (עטיפה ב-.code-block כדי לא להסתיר טקסט)
+    // כפתור העתקה ושפה לכל בלוק קוד (עטיפה ב-.code-block כדי לא להסתיר טקסט)
     try {
       const pres = Array.from(container.querySelectorAll('pre'));
       pres.forEach(pre => {
@@ -545,6 +1066,17 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           pre.replaceWith(wrapper);
           wrapper.appendChild(pre);
         }
+        
+        // זיהוי שפת הקוד
+        const codeEl = pre.querySelector('code');
+        if (codeEl) {
+          const classList = codeEl.className || '';
+          const langMatch = classList.match(/language-(\w+)/);
+          if (langMatch) {
+            wrapper.setAttribute('data-language', langMatch[1]);
+          }
+        }
+        
         // אל תיצור כפתור נוסף אם כבר קיים בתוך ה-wrapper
         if (wrapper.querySelector('button.md-copy-btn')) {
           return;
@@ -553,6 +1085,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         btn.type = 'button';
         btn.className = 'md-copy-btn';
         btn.setAttribute('aria-label', 'העתק קוד');
+        btn.setAttribute('role', 'button');
+        btn.setAttribute('tabindex', '0');
         btn.title = 'העתק קוד';
         btn.addEventListener('click', async () => {
           const codeEl = wrapper.querySelector('code');
