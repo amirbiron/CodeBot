@@ -43,9 +43,10 @@ except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
 try:
-    from metrics import track_performance  # type: ignore
+    from metrics import track_performance, errors_total  # type: ignore
 except Exception:  # pragma: no cover
     from contextlib import contextmanager
+    errors_total = None  # type: ignore
     @contextmanager
     def track_performance(*a, **k):  # type: ignore
         yield
@@ -369,6 +370,8 @@ class GitHubMenuHandler:
             logger.error(f"Error checking rate limit: {e}")
             try:
                 emit_event("github_rate_limit_check_error", severity="error", error=str(e))
+                if errors_total is not None:
+                    errors_total.labels(code="github_rate_limit_check_error").inc()
             except Exception:
                 pass
             return True  # במקרה של שגיאה, נמשיך בכל זאת
@@ -3351,6 +3354,10 @@ class GitHubMenuHandler:
                 return
 
             await update.callback_query.edit_message_text("⏳ מעלה קובץ ל-GitHub...")
+            try:
+                emit_event("github_upload_start", user_id=int(user_id), file_id=str(file_id))
+            except Exception:
+                pass
 
             # לוג פרטי הקובץ
             logger.info(f"📄 מעלה קובץ שמור: {file_data['file_name']}")
@@ -3384,6 +3391,10 @@ class GitHubMenuHandler:
             g = Github(token_opt) if token_opt else Github(None)
 
             # בדוק rate limit לפני הבקשה
+            try:
+                emit_event("github_rate_limit_check", severity="info")
+            except Exception:
+                pass
             logger.info(f"[GitHub API] Checking rate limit before uploading file")
             rate = g.get_rate_limit()
             logger.info(
@@ -3418,29 +3429,30 @@ class GitHubMenuHandler:
             logger.info(f"📁 נתיב יעד: {file_path} (branch: {branch})")
 
             # נסה להעלות או לעדכן את הקובץ
-            try:
-                logger.info(f"[GitHub API] Checking if file exists: {file_path} @ {branch}")
-                existing = repo.get_contents(file_path, ref=branch)
-                logger.info(f"[GitHub API] File exists, updating: {file_path}")
-                result = repo.update_file(
-                    path=file_path,
-                    message=f"Update {file_data['file_name']} via Telegram bot",
-                    content=content,  # PyGithub יקודד אוטומטית
-                    sha=existing.sha,
-                    branch=branch,
-                )
-                action = "עודכן"
-                logger.info(f"✅ קובץ עודכן בהצלחה")
-            except:
-                logger.info(f"[GitHub API] File doesn't exist, creating: {file_path}")
-                result = repo.create_file(
-                    path=file_path,
-                    message=f"Upload {file_data['file_name']} via Telegram bot",
-                    content=content,  # PyGithub יקודד אוטומטית
-                    branch=branch,
-                )
-                action = "הועלה"
-                logger.info(f"[GitHub API] File created successfully: {file_path}")
+            with track_performance("github_upload_saved_file"):
+                try:
+                    logger.info(f"[GitHub API] Checking if file exists: {file_path} @ {branch}")
+                    existing = repo.get_contents(file_path, ref=branch)
+                    logger.info(f"[GitHub API] File exists, updating: {file_path}")
+                    result = repo.update_file(
+                        path=file_path,
+                        message=f"Update {file_data['file_name']} via Telegram bot",
+                        content=content,  # PyGithub יקודד אוטומטית
+                        sha=existing.sha,
+                        branch=branch,
+                    )
+                    action = "עודכן"
+                    logger.info(f"✅ קובץ עודכן בהצלחה")
+                except Exception:
+                    logger.info(f"[GitHub API] File doesn't exist, creating: {file_path}")
+                    result = repo.create_file(
+                        path=file_path,
+                        message=f"Upload {file_data['file_name']} via Telegram bot",
+                        content=content,  # PyGithub יקודד אוטומטית
+                        branch=branch,
+                    )
+                    action = "הועלה"
+                    logger.info(f"[GitHub API] File created successfully: {file_path}")
 
             raw_url = (
                 f"https://raw.githubusercontent.com/{session['selected_repo']}/{branch}/{file_path}"
@@ -3457,10 +3469,14 @@ class GitHubMenuHandler:
 
         except Exception as e:
             logger.error(f"❌ שגיאה בהעלאת קובץ שמור: {str(e)}", exc_info=True)
+            try:
+                emit_event("github_upload_saved_error", severity="error", error=str(e))
+                if errors_total is not None:
+                    errors_total.labels(code="github_upload_saved_error").inc()
+            except Exception:
+                pass
 
             error_msg = str(e)
-
-            # בדוק אם זו שגיאת rate limit
             if "rate limit" in error_msg.lower() or "403" in error_msg:
                 error_msg = (
                     "⏳ חריגה ממגבלת GitHub API\n"
@@ -3501,6 +3517,14 @@ class GitHubMenuHandler:
 
             if update.message.document:
                 await update.message.reply_text("⏳ מעלה קובץ לגיטהאב...")
+                try:
+                    emit_event(
+                        "github_upload_start",
+                        user_id=int(user_id),
+                        file_name=str(update.message.document.file_name),
+                    )
+                except Exception:
+                    pass
 
                 try:
                     file = await context.bot.get_file(update.message.document.file_id)
@@ -3523,6 +3547,10 @@ class GitHubMenuHandler:
                     g = Github(login_or_token=(token or ""))
 
                     # בדוק rate limit לפני הבקשה
+                    try:
+                        emit_event("github_rate_limit_check", severity="info")
+                    except Exception:
+                        pass
                     logger.info(f"[GitHub API] Checking rate limit before file upload")
                     rate = g.get_rate_limit()
                     logger.info(
@@ -3563,24 +3591,25 @@ class GitHubMenuHandler:
                         file_path = filename
                     logger.info(f"📁 נתיב יעד: {file_path}")
 
-                    try:
-                        existing = repo.get_contents(file_path)
-                        result = repo.update_file(
-                            path=file_path,
-                            message=f"Update {filename} via Telegram bot",
-                            content=content,  # PyGithub יקודד אוטומטית
-                            sha=existing.sha,
-                        )
-                        action = "עודכן"
-                        logger.info(f"✅ קובץ עודכן בהצלחה")
-                    except:
-                        result = repo.create_file(
-                            path=file_path,
-                            message=f"Upload {filename} via Telegram bot",
-                            content=content,  # PyGithub יקודד אוטומטית
-                        )
-                        action = "הועלה"
-                        logger.info(f"✅ קובץ נוצר בהצלחה")
+                    with track_performance("github_upload_direct_file"):
+                        try:
+                            existing = repo.get_contents(file_path)
+                            result = repo.update_file(
+                                path=file_path,
+                                message=f"Update {filename} via Telegram bot",
+                                content=content,  # PyGithub יקודד אוטומטית
+                                sha=existing.sha,
+                            )
+                            action = "עודכן"
+                            logger.info(f"✅ קובץ עודכן בהצלחה")
+                        except Exception:
+                            result = repo.create_file(
+                                path=file_path,
+                                message=f"Upload {filename} via Telegram bot",
+                                content=content,  # PyGithub יקודד אוטומטית
+                            )
+                            action = "הועלה"
+                            logger.info(f"✅ קובץ נוצר בהצלחה")
 
                     raw_url = f"https://raw.githubusercontent.com/{repo_name}/main/{file_path}"
 
@@ -3599,6 +3628,12 @@ class GitHubMenuHandler:
 
                 except Exception as e:
                     logger.error(f"❌ שגיאה בהעלאה: {str(e)}", exc_info=True)
+                    try:
+                        emit_event("github_upload_direct_error", severity="error", error=str(e))
+                        if errors_total is not None:
+                            errors_total.labels(code="github_upload_direct_error").inc()
+                    except Exception:
+                        pass
 
                     error_msg = str(e)
 
