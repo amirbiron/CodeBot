@@ -55,9 +55,9 @@ def test_manager_connect_error_emits(monkeypatch):
     monkeypatch.delenv("DISABLE_DB", raising=False)
     monkeypatch.setattr(mgr_mod, "_PYMONGO_AVAILABLE", True, raising=False)
 
-    mgr = mgr_mod.DatabaseManager()
+    # DatabaseManager.__init__ calls connect() internally; wrap instantiation
     try:
-        mgr.connect()
+        mgr = mgr_mod.DatabaseManager()
     except Exception:
         pass
 
