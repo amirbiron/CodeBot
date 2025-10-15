@@ -12,7 +12,7 @@ def test_get_lock_collection_db_missing_emits_and_exits(monkeypatch):
     monkeypatch.setattr(mod, "emit_event", _emit, raising=False)
 
     # simulate db missing
-    mod.db = types.SimpleNamespace(db=None)
+    monkeypatch.setattr(mod, "db", types.SimpleNamespace(db=None), raising=False)
 
     with pytest.raises(SystemExit):
         mod.get_lock_collection()
@@ -62,7 +62,7 @@ async def test_save_code_snippet_failure_emits_and_counts(monkeypatch):
     monkeypatch.setattr(mod.code_processor, "detect_language", lambda code, name: "python")
 
     # force DB save to fail
-    monkeypatch.setattr(mod.db, "save_code_snippet", lambda s: False)
+    monkeypatch.setattr(mod.db, "save_code_snippet", lambda s: False, raising=False)
 
     # capture emit_event
     captured = {}
@@ -108,7 +108,7 @@ async def test_search_command_emits_search_performed_event(monkeypatch):
     ctx = _Ctx()
 
     # Patch db.search_code to return some dummy results
-    monkeypatch.setattr(mod.db, "search_code", lambda uid, q, tags=None, programming_language="": [{"file_name": "a", "programming_language": "python"}])
+    monkeypatch.setattr(mod.db, "search_code", lambda uid, q, tags=None, programming_language="": [{"file_name": "a", "programming_language": "python"}], raising=False)
 
     # Capture emit_event
     captured = {}
