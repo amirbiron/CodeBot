@@ -38,6 +38,18 @@ from config import config
 from file_manager import backup_manager
 from utils import TelegramUtils
 try:
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+try:
+    from metrics import track_performance  # type: ignore
+except Exception:  # pragma: no cover
+    from contextlib import contextmanager
+    @contextmanager
+    def track_performance(*a, **k):  # type: ignore
+        yield
+try:
     from metrics import track_github_sync  # type: ignore
 except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
@@ -355,6 +367,10 @@ class GitHubMenuHandler:
             return True
         except Exception as e:
             logger.error(f"Error checking rate limit: {e}")
+            try:
+                emit_event("github_rate_limit_check_error", severity="error", error=str(e))
+            except Exception:
+                pass
             return True  # במקרה של שגיאה, נמשיך בכל זאת
 
     async def apply_rate_limit_delay(self, user_id: int):
@@ -626,8 +642,10 @@ class GitHubMenuHandler:
             # חליצה לתת-תיקייה ייעודית
             extracted_dir = os.path.join(tmp_dir, "repo")
             os.makedirs(extracted_dir, exist_ok=True)
-            with _zip.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(extracted_dir)
+            # מדוד זמן חליצה
+            with track_performance("github_zip_extract"):
+                with _zip.ZipFile(zip_path, 'r') as zf:
+                    zf.extractall(extracted_dir)
             # מצא שורש (github zip מוסיף תיקיית prefix)
             # נבחר תיקייה הראשונה מתחת extracted_dir
             roots = [os.path.join(extracted_dir, d) for d in os.listdir(extracted_dir)]
@@ -686,7 +704,9 @@ class GitHubMenuHandler:
                         prev_doc = db.get_latest_version(user_id, rel_path)
                         prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
                         existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
-                        ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
+                        # מדידת ביצוע עבור שמירה בודדת (דגימה קלה כדי לא להעמיס)
+                        with track_performance("github_import_save_file"):
+                            ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
                             if existed_for_repo:
                                 updated += 1
@@ -699,6 +719,7 @@ class GitHubMenuHandler:
                         skipped += 1
             try:
                 track_github_sync(user_id=user_id, files_count=saved + updated, success=True)
+                emit_event("github_sync", severity="info", user_id=int(user_id), files_count=int(saved + updated), success=True)
             except Exception:
                 pass
             await query.edit_message_text(
@@ -709,6 +730,10 @@ class GitHubMenuHandler:
                 parse_mode="HTML",
             )
         except Exception as e:
+            try:
+                emit_event("github_import_repo_error", severity="error", error=str(e), repo=repo_full, branch=branch)
+            except Exception:
+                pass
             await query.edit_message_text(f"❌ שגיאה בייבוא: {e}")
         finally:
             # ניקוי בטוח של tmp ושל קובץ ה-ZIP
@@ -822,6 +847,15 @@ class GitHubMenuHandler:
         logger.info(
             f"📱 GitHub handler received callback: {query.data} from user {query.from_user.id}"
         )
+        try:
+            emit_event(
+                "github_callback_received",
+                severity="info",
+                action=str(getattr(query, "data", "")),
+                user_id=int(getattr(getattr(query, "from_user", None), "id", 0) or 0),
+            )
+        except Exception:
+            pass
         await query.answer()
 
         user_id = query.from_user.id

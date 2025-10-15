@@ -104,7 +104,7 @@ def bind_request_id(request_id: str) -> None:
 def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
-    if severity == "error":
+    if severity in {"error", "critical"}:
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
         logger.warning(**fields)

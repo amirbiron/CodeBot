@@ -13,6 +13,11 @@ from cache_manager import cache, cached
 from .manager import DatabaseManager
 from utils import normalize_code
 from config import config
+try:
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
 from .models import CodeSnippet, LargeFile
 
 logger = logging.getLogger(__name__)
@@ -55,7 +60,7 @@ class Repository:
                 return True
             return False
         except Exception as e:
-            logger.error(f"שגיאה בשמירת קטע קוד: {e}")
+            emit_event("db_save_code_snippet_error", severity="error", error=str(e))
             return False
 
     # --- Favorites API ---
@@ -190,7 +195,7 @@ class Repository:
                 return None
             return new_state
         except Exception as e:
-            logger.error(f"שגיאה ב-toggle_favorite: {e}")
+            emit_event("db_toggle_favorite_error", severity="error", error=str(e))
             return None
 
     def get_favorites(self, user_id: int, *, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
@@ -319,7 +324,7 @@ class Repository:
                 pass
             return []
         except Exception as e:
-            logger.error(f"שגיאה ב-get_favorites: {e}")
+            emit_event("db_get_favorites_error", severity="error", error=str(e))
             return []
 
     def get_favorites_count(self, user_id: int) -> int:
@@ -395,14 +400,16 @@ class Repository:
                 return len([r for r in rows if isinstance(r, dict) and ("_id" in r)])
             except Exception:
                 return 0
-        except Exception:
+        except Exception as e:
+            emit_event("db_get_favorites_count_error", severity="error", error=str(e))
             return 0
 
     def is_favorite(self, user_id: int, file_name: str) -> bool:
         try:
             doc = self.get_latest_version(user_id, file_name)
             return bool(doc.get("is_favorite", False)) if doc else False
-        except Exception:
+        except Exception as e:
+            emit_event("db_is_favorite_error", severity="error", error=str(e))
             return False
 
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
@@ -522,7 +529,7 @@ class Repository:
                 sort=[("version", -1)],
             )
         except Exception as e:
-            logger.error(f"שגיאה בקבלת גרסה אחרונה: {e}")
+            emit_event("db_get_latest_version_error", severity="error", error=str(e))
             return None
 
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
@@ -534,7 +541,7 @@ class Repository:
                 sort=[("version", -1)],
             )
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קובץ: {e}")
+            emit_event("db_get_file_error", severity="error", error=str(e))
             return None
 
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict]:
@@ -546,7 +553,7 @@ class Repository:
                 sort=[("version", -1)],
             ))
         except Exception as e:
-            logger.error(f"שגיאה בקבלת כל הגרסאות: {e}")
+            emit_event("db_get_all_versions_error", severity="error", error=str(e))
             return []
 
     def get_version(self, user_id: int, file_name: str, version: int) -> Optional[Dict]:
@@ -557,7 +564,7 @@ class Repository:
                 ]}
             )
         except Exception as e:
-            logger.error(f"שגיאה בקבלת גרסה {version} עבור {file_name}: {e}")
+            emit_event("db_get_version_error", severity="error", error=str(e), file_name=file_name, version=int(version))
             return None
 
     @cached(expire_seconds=120, key_prefix="user_files")
@@ -575,7 +582,7 @@ class Repository:
             ]
             return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קבצי משתמש: {e}")
+            emit_event("db_get_user_files_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=300, key_prefix="search_code")
@@ -600,7 +607,7 @@ class Repository:
             ]
             return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
         except Exception as e:
-            logger.error(f"שגיאה בחיפוש קוד: {e}")
+            emit_event("db_search_code_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=20, key_prefix="files_by_repo")
@@ -642,7 +649,7 @@ class Repository:
             total = int((cnt_res[0]["count"]) if cnt_res else 0)
             return items, total
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קבצי ריפו: {e}")
+            emit_event("db_get_user_files_by_repo_error", severity="error", error=str(e))
             return [], 0
 
     @cached(expire_seconds=20, key_prefix="regular_files")
@@ -712,7 +719,7 @@ class Repository:
             items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
             return items, total
         except Exception as e:
-            logger.error(f"get_regular_files_paginated failed: {e}")
+            emit_event("db_get_regular_files_paginated_error", severity="error", error=str(e))
             return [], 0
 
     def delete_file(self, user_id: int, file_name: str) -> bool:
@@ -736,7 +743,7 @@ class Repository:
                 return True
             return False
         except Exception as e:
-            logger.error(f"שגיאה במחיקת קובץ: {e}")
+            emit_event("db_delete_file_error", severity="error", error=str(e))
             return False
 
     def soft_delete_files_by_names(self, user_id: int, file_names: List[str]) -> int:
@@ -759,7 +766,7 @@ class Repository:
             cache.invalidate_user_cache(user_id)
             return int(result.modified_count or 0)
         except Exception as e:
-            logger.error(f"שגיאה במחיקה רכה מרובה: {e}")
+            emit_event("db_soft_delete_files_by_names_error", severity="error", error=str(e))
             return 0
 
     def delete_file_by_id(self, file_id: str) -> bool:
@@ -796,14 +803,14 @@ class Repository:
                     pass
             return bool(modified and modified > 0)
         except Exception as e:
-            logger.error(f"שגיאה במחיקת קובץ לפי _id: {e}")
+            emit_event("db_delete_file_by_id_error", severity="error", error=str(e))
             return False
 
     def get_file_by_id(self, file_id: str) -> Optional[Dict]:
         try:
             return self.manager.collection.find_one({"_id": ObjectId(file_id)})
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קובץ לפי _id: {e}")
+            emit_event("db_get_file_by_id_error", severity="error", error=str(e))
             return None
 
     @cached(expire_seconds=600, key_prefix="user_stats")
@@ -834,7 +841,7 @@ class Repository:
                 return stats
             return {"total_files": 0, "total_versions": 0, "languages": [], "latest_activity": None}
         except Exception as e:
-            logger.error(f"שגיאה בקבלת סטטיסטיקות: {e}")
+            emit_event("db_get_user_stats_error", severity="error", error=str(e))
             return {}
 
     def rename_file(self, user_id: int, old_name: str, new_name: str) -> bool:
@@ -842,6 +849,10 @@ class Repository:
             existing = self.get_latest_version(user_id, new_name)
             if existing and new_name != old_name:
                 logger.warning(f"File {new_name} already exists for user {user_id}")
+                try:
+                    emit_event("db_rename_conflict", severity="warn", user_id=int(user_id), new_name=str(new_name))
+                except Exception:
+                    pass
                 return False
             result = self.manager.collection.update_many(
                 {"user_id": user_id, "file_name": old_name, "$or": [
@@ -851,7 +862,7 @@ class Repository:
             )
             return bool(result.modified_count and result.modified_count > 0)
         except Exception as e:
-            logger.error(f"Error renaming file {old_name} to {new_name} for user {user_id}: {e}")
+            emit_event("db_rename_file_error", severity="error", error=str(e), old_name=old_name, new_name=new_name)
             return False
 
     # Large files operations
@@ -869,7 +880,7 @@ class Repository:
             result = self.manager.large_files_collection.insert_one(asdict(large_file))
             return bool(result.inserted_id)
         except Exception as e:
-            logger.error(f"שגיאה בשמירת קובץ גדול: {e}")
+            emit_event("db_save_large_file_error", severity="error", error=str(e))
             return False
 
     def get_large_file(self, user_id: int, file_name: str) -> Optional[Dict]:
@@ -880,14 +891,14 @@ class Repository:
                 ]}
             )
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קובץ גדול: {e}")
+            emit_event("db_get_large_file_error", severity="error", error=str(e))
             return None
 
     def get_large_file_by_id(self, file_id: str) -> Optional[Dict]:
         try:
             return self.manager.large_files_collection.find_one({"_id": ObjectId(file_id)})
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קובץ גדול לפי ID: {e}")
+            emit_event("db_get_large_file_by_id_error", severity="error", error=str(e))
             return None
 
     def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict], int]:
@@ -909,7 +920,7 @@ class Repository:
                 files = list(cursor.skip(skip).limit(per_page))
             return files, int(total_count)
         except Exception as e:
-            logger.error(f"שגיאה בקבלת קבצים גדולים: {e}")
+            emit_event("db_get_user_large_files_error", severity="error", error=str(e))
             return [], 0
 
     def delete_large_file(self, user_id: int, file_name: str) -> bool:
@@ -930,7 +941,7 @@ class Repository:
             )
             return bool(result.modified_count and result.modified_count > 0)
         except Exception as e:
-            logger.error(f"שגיאה במחיקת קובץ גדול: {e}")
+            emit_event("db_delete_large_file_error", severity="error", error=str(e))
             return False
 
     def delete_large_file_by_id(self, file_id: str) -> bool:
@@ -967,7 +978,7 @@ class Repository:
                     pass
             return ok
         except Exception as e:
-            logger.error(f"שגיאה במחיקת קובץ גדול לפי ID: {e}")
+            emit_event("db_delete_large_file_by_id_error", severity="error", error=str(e))
             return False
 
     # --- Recycle bin operations ---
@@ -1008,7 +1019,7 @@ class Repository:
             end = start + per_page
             return combined[start:end], int(total)
         except Exception as e:
-            logger.error(f"list_deleted_files failed: {e}")
+            emit_event("db_list_deleted_files_error", severity="error", error=str(e))
             return [], 0
 
     def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
@@ -1033,7 +1044,7 @@ class Repository:
                 return True
             return False
         except Exception as e:
-            logger.error(f"restore_file_by_id failed: {e}")
+            emit_event("db_restore_file_by_id_error", severity="error", error=str(e))
             return False
 
     def purge_file_by_id(self, user_id: int, file_id: str) -> bool:
@@ -1051,7 +1062,7 @@ class Repository:
                     pass
             return ok
         except Exception as e:
-            logger.error(f"purge_file_by_id failed: {e}")
+            emit_event("db_purge_file_by_id_error", severity="error", error=str(e))
             return False
 
     def get_all_user_files_combined(self, user_id: int) -> Dict[str, List[Dict]]:
@@ -1060,7 +1071,7 @@ class Repository:
             large_files, _ = self.get_user_large_files(user_id, page=1, per_page=100)
             return {"regular_files": regular_files, "large_files": large_files}
         except Exception as e:
-            logger.error(f"שגיאה בקבלת כל הקבצים: {e}")
+            emit_event("db_get_all_user_files_combined_error", severity="error", error=str(e))
             return {"regular_files": [], "large_files": []}
 
     # --- Repo tags and names helpers (מטא־דאטה בלבד) ---
@@ -1128,7 +1139,7 @@ class Repository:
             normalized.sort(key=lambda d: d.get("tag", ""))
             return normalized[:max(1, int(max_tags or 100))]
         except Exception as e:
-            logger.error(f"get_repo_tags_with_counts failed: {e}")
+            emit_event("db_get_repo_tags_with_counts_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=20, key_prefix="repo_file_names")
@@ -1156,7 +1167,7 @@ class Repository:
                 names.append(fn)
             return names
         except Exception as e:
-            logger.error(f"get_user_file_names_by_repo failed: {e}")
+            emit_event("db_get_user_file_names_by_repo_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=120, key_prefix="user_file_names")
@@ -1177,7 +1188,7 @@ class Repository:
             docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
         except Exception as e:
-            logger.error(f"get_user_file_names failed: {e}")
+            emit_event("db_get_user_file_names_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=120, key_prefix="user_tags_flat")
@@ -1194,7 +1205,7 @@ class Repository:
             docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             return [d.get("tag") for d in docs if isinstance(d, dict) and d.get("tag")]
         except Exception as e:
-            logger.error(f"get_user_tags_flat failed: {e}")
+            emit_event("db_get_user_tags_flat_error", severity="error", error=str(e))
             return []
 
     # Users auxiliary data
@@ -1212,7 +1223,7 @@ class Repository:
             )
             return bool(result.acknowledged)
         except Exception as e:
-            logger.error(f"שגיאה בשמירת טוקן GitHub: {e}")
+            emit_event("db_save_github_token_error", severity="error", error=str(e))
             return False
 
     def get_github_token(self, user_id: int) -> Optional[str]:
@@ -1229,7 +1240,7 @@ class Repository:
                     return stored
             return None
         except Exception as e:
-            logger.error(f"שגיאה בקבלת טוקן GitHub: {e}")
+            emit_event("db_get_github_token_error", severity="error", error=str(e))
             return None
 
     def delete_github_token(self, user_id: int) -> bool:
@@ -1241,7 +1252,7 @@ class Repository:
             )
             return bool(result.acknowledged)
         except Exception as e:
-            logger.error(f"שגיאה במחיקת טוקן GitHub: {e}")
+            emit_event("db_delete_github_token_error", severity="error", error=str(e))
             return False
 
         
@@ -1256,7 +1267,7 @@ class Repository:
             )
             return bool(result.acknowledged)
         except Exception as e:
-            logger.error(f"שגיאה בשמירת ריפו נבחר: {e}")
+            emit_event("db_save_selected_repo_error", severity="error", error=str(e))
             return False
 
     def get_selected_repo(self, user_id: int) -> Optional[str]:
@@ -1267,7 +1278,7 @@ class Repository:
                 return user["selected_repo"]
             return None
         except Exception as e:
-            logger.error(f"שגיאה בקבלת ריפו נבחר: {e}")
+            emit_event("db_get_selected_repo_error", severity="error", error=str(e))
             return None
 
     def save_user(self, user_id: int, username: str = None) -> bool:
@@ -1281,7 +1292,7 @@ class Repository:
             )
             return bool(result.acknowledged)
         except Exception as e:
-            logger.error(f"שגיאה בשמירת משתמש: {e}")
+            emit_event("db_save_user_error", severity="error", error=str(e))
             return False
 
     # --- Google Drive tokens & preferences ---
@@ -1308,7 +1319,7 @@ class Repository:
             )
             return bool(result.acknowledged)
         except Exception as e:
-            logger.error(f"Failed to save Drive tokens: {e}")
+            emit_event("db_save_drive_tokens_error", severity="error", error=str(e))
             return False
 
     def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
@@ -1333,7 +1344,7 @@ class Repository:
                 out["refresh_token"] = ref_dec
             return out
         except Exception as e:
-            logger.error(f"Failed to get Drive tokens: {e}")
+            emit_event("db_get_drive_tokens_error", severity="error", error=str(e))
             return None
 
     def delete_drive_tokens(self, user_id: int) -> bool:
@@ -1344,7 +1355,7 @@ class Repository:
             )
             return bool(res.acknowledged)
         except Exception as e:
-            logger.error(f"Failed to delete Drive tokens: {e}")
+            emit_event("db_delete_drive_tokens_error", severity="error", error=str(e))
             return False
 
     def save_drive_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
@@ -1361,7 +1372,7 @@ class Repository:
             )
             return bool(res.acknowledged)
         except Exception as e:
-            logger.error(f"Failed to save Drive prefs: {e}")
+            emit_event("db_save_drive_prefs_error", severity="error", error=str(e))
             return False
 
     def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
@@ -1372,7 +1383,7 @@ class Repository:
                 return None
             return user.get("drive_prefs")
         except Exception as e:
-            logger.error(f"Failed to get Drive prefs: {e}")
+            emit_event("db_get_drive_prefs_error", severity="error", error=str(e))
             return None
 
     # --- Backup ratings ---
@@ -1381,6 +1392,10 @@ class Repository:
             coll = self.manager.backup_ratings_collection
             if coll is None:
                 logger.warning("backup_ratings_collection is not initialized")
+                try:
+                    emit_event("db_backup_ratings_coll_uninitialized", severity="warn")
+                except Exception:
+                    pass
                 return False
             doc = {
                 "user_id": user_id,
@@ -1397,7 +1412,7 @@ class Repository:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to save backup rating: {e}")
+            emit_event("db_save_backup_rating_error", severity="error", error=str(e))
             return False
 
     def get_backup_rating(self, user_id: int, backup_id: str) -> Optional[str]:
@@ -1410,7 +1425,7 @@ class Repository:
                 return doc.get("rating")
             return None
         except Exception as e:
-            logger.error(f"Failed to get backup rating: {e}")
+            emit_event("db_get_backup_rating_error", severity="error", error=str(e))
             return None
 
     def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
@@ -1421,7 +1436,7 @@ class Repository:
             res = coll.delete_many({"user_id": user_id, "backup_id": {"$in": backup_ids}})
             return int(res.deleted_count or 0)
         except Exception as e:
-            logger.error(f"Failed to delete backup ratings: {e}")
+            emit_event("db_delete_backup_ratings_error", severity="error", error=str(e))
             return 0
 
     # --- Backup notes ---
@@ -1431,6 +1446,10 @@ class Repository:
             coll = self.manager.backup_ratings_collection
             if coll is None:
                 logger.warning("backup_ratings_collection is not initialized")
+                try:
+                    emit_event("db_backup_ratings_coll_uninitialized", severity="warn")
+                except Exception:
+                    pass
                 return False
             now = datetime.now(timezone.utc)
             coll.update_one(
@@ -1440,7 +1459,7 @@ class Repository:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to save backup note: {e}")
+            emit_event("db_save_backup_note_error", severity="error", error=str(e))
             return False
 
     def get_backup_note(self, user_id: int, backup_id: str) -> Optional[str]:
@@ -1453,6 +1472,6 @@ class Repository:
                 return doc.get("note")
             return None
         except Exception as e:
-            logger.error(f"Failed to get backup note: {e}")
+            emit_event("db_get_backup_note_error", severity="error", error=str(e))
             return None
 
