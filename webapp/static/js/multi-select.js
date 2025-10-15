@@ -5,7 +5,9 @@
 
 class MultiSelectManager {
     constructor() {
-        this.selectedFiles = new Set();
+        // שימוש ב-Map במקום Set כדי למנוע כפילויות
+        // Key: fileId, Value: {id, name}
+        this.selectedFiles = new Map();
         this.toolbar = document.getElementById('bulkActionsToolbar');
         this.lastSelectedIndex = -1;
         this.init();
@@ -44,17 +46,15 @@ class MultiSelectManager {
         const fileCard = checkbox.closest('.file-card');
         
         if (checkbox.checked) {
-            this.selectedFiles.add({
+            // שימוש ב-Map.set מבטיח שאין כפילויות - מחליף ערך קיים
+            this.selectedFiles.set(fileId, {
                 id: fileId,
                 name: fileName
             });
             fileCard.classList.add('selected');
         } else {
-            // מצא ומחק את הקובץ מהסט
-            const fileToRemove = [...this.selectedFiles].find(f => f.id === fileId);
-            if (fileToRemove) {
-                this.selectedFiles.delete(fileToRemove);
-            }
+            // מחיקה לפי key (fileId) - פשוט ויעיל
+            this.selectedFiles.delete(fileId);
             fileCard.classList.remove('selected');
         }
         
@@ -89,6 +89,7 @@ class MultiSelectManager {
     }
     
     updateToolbar() {
+        // Map.size נותן את המספר הנכון של קבצים ייחודיים
         const count = this.selectedFiles.size;
         
         if (!this.toolbar) {
@@ -179,7 +180,8 @@ class MultiSelectManager {
     }
     
     deleteSelected() {
-        const fileIds = [...this.selectedFiles].map(f => f.id);
+        // עם Map, מחלצים את ה-IDs מה-values
+        const fileIds = Array.from(this.selectedFiles.values()).map(f => f.id);
         
         if (fileIds.length === 0) return;
         
@@ -225,7 +227,8 @@ class MultiSelectManager {
     
     persistSelection() {
         // שמור בחירה ב-sessionStorage לשמירה בין עמודים
-        const fileIds = [...this.selectedFiles].map(f => f.id);
+        // עם Map, שומרים רק את ה-keys (file IDs)
+        const fileIds = Array.from(this.selectedFiles.keys());
         sessionStorage.setItem('selectedFiles', JSON.stringify(fileIds));
     }
     
@@ -251,7 +254,8 @@ class MultiSelectManager {
     
     // API Methods
     getSelectedFiles() {
-        return [...this.selectedFiles];
+        // החזר את כל הערכים מה-Map כמערך
+        return Array.from(this.selectedFiles.values());
     }
     
     getSelectedCount() {
@@ -259,15 +263,15 @@ class MultiSelectManager {
     }
     
     addToSelection(fileId, fileName) {
-        this.selectedFiles.add({ id: fileId, name: fileName });
+        // Map.set מבטיח ייחודיות אוטומטית
+        this.selectedFiles.set(fileId, { id: fileId, name: fileName });
         this.updateToolbar();
         this.persistSelection();
     }
     
     removeFromSelection(fileId) {
-        const fileToRemove = [...this.selectedFiles].find(f => f.id === fileId);
-        if (fileToRemove) {
-            this.selectedFiles.delete(fileToRemove);
+        // מחיקה פשוטה לפי key
+        if (this.selectedFiles.delete(fileId)) {
             this.updateToolbar();
             this.persistSelection();
         }

@@ -69,7 +69,7 @@ class BulkActions {
     }
     
     async addToFavorites() {
-        const fileIds = [...window.multiSelect.selectedFiles].map(f => f.id);
+        const fileIds = window.multiSelect.getSelectedFiles().map(f => f.id);
         
         if (fileIds.length === 0) {
             this.showNotification('לא נבחרו קבצים', 'warning');
@@ -124,7 +124,7 @@ class BulkActions {
     }
     
     async removeFromFavorites() {
-        const fileIds = [...window.multiSelect.selectedFiles].map(f => f.id);
+        const fileIds = window.multiSelect.getSelectedFiles().map(f => f.id);
         
         if (fileIds.length === 0) {
             this.showNotification('לא נבחרו קבצים', 'warning');
@@ -171,7 +171,7 @@ class BulkActions {
     }
     
     async addTags() {
-        const fileIds = [...window.multiSelect.selectedFiles].map(f => f.id);
+        const fileIds = window.multiSelect.getSelectedFiles().map(f => f.id);
         
         if (fileIds.length === 0) {
             this.showNotification('לא נבחרו קבצים', 'warning');
@@ -435,7 +435,7 @@ class BulkActions {
     }
     
     async shareFiles() {
-        const fileIds = [...window.multiSelect.selectedFiles].map(f => f.id);
+        const fileIds = window.multiSelect.getSelectedFiles().map(f => f.id);
         
         if (fileIds.length === 0) {
             this.showNotification('לא נבחרו קבצים', 'warning');
