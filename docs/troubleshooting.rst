@@ -18,6 +18,20 @@ Troubleshooting Guide
 ``Message is not modified``
   - עטוף עריכה ב‑wrapper שמתעלם משגיאה זו בלבד
 
+ImportError בזמן טסטים (telegram / ConversationHandler / filters)
+-----------------------------------------------------------------
+
+- ודאו שה‑stubs נטענים אוטומטית דרך ``tests/conftest.py``:
+
+.. code-block:: python
+
+   import tests._telegram_stubs  # noqa
+
+שגיאות parse_mode
+------------------
+
+- שמרו אחידות: העדיפו ``ParseMode=HTML`` עבור הודעות מעוצבות, והימנעו מערבוב עם Markdown באותן הודעות.
+
 ``ETag לא מתעדכן / תמיד 200``
   - ודא שה‑``ETag`` מחושב על גרסת התוכן בלבד (לא על שדות משתנים)
   - צירוף ``ETag`` ו‑``Last-Modified`` גם בתשובת ``200`` וגם ב‑``304``
