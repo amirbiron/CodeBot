@@ -1,4 +1,6 @@
 import types
+import sys
+import types as _types
 import pytest
 
 import github_menu_handler as gh
@@ -63,11 +65,14 @@ async def test_perf_wrapper_on_saved_upload(monkeypatch):
     class _Ctx:
         user_data = {"upload_target_branch": "main", "upload_target_folder": None}
 
-    # stub db find
+    # stub database.db and bson.ObjectId so imports inside function succeed
     class _DB:
         collection = types.SimpleNamespace(find_one=lambda *a, **k: {"file_name": "a.py", "content": "x"})
-    monkeypatch.setitem(globals(), 'db', _DB()) if 'db' in globals() else None
-    monkeypatch.setattr(gh, 'db', _DB(), raising=False)
+    import database as _database
+    monkeypatch.setattr(_database, 'db', _DB(), raising=False)
+    bson_mod = _types.ModuleType('bson')
+    bson_mod.ObjectId = lambda x: x
+    monkeypatch.setitem(sys.modules, 'bson', bson_mod)
 
     # run
     await handler.handle_saved_file_upload(_Update(), _Ctx(), "507f1f77bcf86cd799439011")
