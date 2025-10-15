@@ -184,13 +184,18 @@ class MultiSelectManager {
     
     // מחיקה קבוצתית (soft delete)
     // הערה: אין ניהול overlay כאן – זה מנוהל ב-BulkActions
-    deleteSelected(ttlDays = 30) {
+    deleteSelected(ttlDays) {
         const fileIds = Array.from(this.selectedFiles.values()).map(f => f.id);
         if (fileIds.length === 0) return Promise.resolve();
+        // גוף הבקשה: אם לא הועבר ttlDays – אל תשלח את השדה כדי שהשרת ישתמש בברירת המחדל מה-ENV
+        const payload = { file_ids: fileIds };
+        if (ttlDays !== undefined && ttlDays !== null && String(ttlDays).trim() !== '') {
+            payload.ttl_days = ttlDays;
+        }
         return fetch('/api/files/bulk-delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ file_ids: fileIds, ttl_days: ttlDays })
+            body: JSON.stringify(payload)
         })
         .then(r => r.json())
         .then(result => {

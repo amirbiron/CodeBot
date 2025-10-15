@@ -67,6 +67,7 @@ Code Keeper Bot - תיעוד API
    webapp/caching
    webapp/static-checklist
    webapp/api-reference
+   webapp/bulk-actions
 
 סקירה כללית
 ------------

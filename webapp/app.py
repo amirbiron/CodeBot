@@ -78,6 +78,8 @@ WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
 FA_SRI_HASH = (os.getenv('FA_SRI_HASH') or '').strip()
+# URL בסיסי לתיעוד (לשימוש בקישורי עזרה מה-UI)
+DOCUMENTATION_URL = os.getenv('DOCUMENTATION_URL', 'https://amirbiron.github.io/CodeBot/')
 
 # --- Cache TTLs (seconds) for heavy endpoints/pages ---
 def _int_env(name: str, default: int, lo: int = 30, hi: int = 180) -> int:
@@ -110,6 +112,12 @@ try:
     PUBLIC_SHARE_TTL_DAYS = max(1, int(_ttl_env))
 except Exception:
     PUBLIC_SHARE_TTL_DAYS = 7
+
+# ברירת מחדל לימי שהות בסל מחזור עבור מחיקה רכה בווב
+try:
+    RECYCLE_TTL_DAYS_DEFAULT = max(1, int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'))
+except Exception:
+    RECYCLE_TTL_DAYS_DEFAULT = 7
 
 # הגדרת חיבור קבוע (Remember Me)
 try:
@@ -181,6 +189,8 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        # קישור לתיעוד (לשימוש בתבניות)
+        'documentation_url': DOCUMENTATION_URL,
         # External uptime config for templates (non-sensitive only)
         'uptime_provider': UPTIME_PROVIDER,
         'uptime_status_url': UPTIME_STATUS_URL,
@@ -2818,13 +2828,23 @@ def api_files_bulk_delete():
 
     קלט JSON:
     - file_ids: List[str]
-    - ttl_days: Optional[int] – טווח 1..30, ברירת מחדל 30
+    - ttl_days: Optional[int] – אם לא סופק, יילקח מ־RECYCLE_TTL_DAYS (ברירת מחדל 7)
     """
     try:
         data = request.get_json(silent=True) or {}
         file_ids = list(data.get('file_ids') or [])
-        ttl_days = int(data.get('ttl_days') or 30)
-        if not (1 <= ttl_days <= 30):
+        # ברירת מחדל מ-ENV (RECYCLE_TTL_DAYS); אם התקבל ערך לא חוקי – השתמש בברירת המחדל
+        raw_ttl = data.get('ttl_days')
+        if raw_ttl is None or str(raw_ttl).strip() == '':
+            ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+        else:
+            try:
+                ttl_days = int(raw_ttl)
+            except Exception:
+                ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+        if ttl_days < 1:
+            ttl_days = RECYCLE_TTL_DAYS_DEFAULT
+        if ttl_days > 30:
             ttl_days = 30
 
         if not file_ids:
@@ -2841,6 +2861,14 @@ def api_files_bulk_delete():
         user_id = session['user_id']
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=ttl_days)
+
+        # אימות שהקבצים קיימים ושייכים למשתמש – עקביות עם שאר ה-endpoints
+        owned_count = db.code_snippets.count_documents({
+            '_id': {'$in': object_ids},
+            'user_id': user_id
+        })
+        if owned_count != len(object_ids):
+            return jsonify({'success': False, 'error': 'Some files not found'}), 404
 
         q = {
             '_id': {'$in': object_ids},
