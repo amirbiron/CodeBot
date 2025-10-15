@@ -1285,13 +1285,38 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       if (headings.length > CONFIG.MAX_HEADINGS) { console.warn(`TOC: נמצאו ${headings.length} כותרות, מציג רק ${CONFIG.MAX_HEADINGS} הראשונות`); headings = headings.slice(0, CONFIG.MAX_HEADINGS); }
       tocState.headings = headings;
       const fragment = document.createDocumentFragment();
+      const seenIds = new Map();
       headings.forEach((heading, index) => {
         try {
           const level = parseInt(heading.tagName.substring(1));
           const text = sanitizeText(heading.textContent || '');
-          if (!heading.id || document.querySelectorAll(`#${heading.id}`).length > 1) { heading.id = generateUniqueId('toc-heading', index); }
+          // שמירת מזהים קיימים שנוצרו ע״י markdown-it-anchor; שינוי רק במקרה כפילויות או חוסר מזהה
+          let currentId = heading.id || '';
+          if (!currentId) {
+            currentId = generateUniqueId('toc-heading', index);
+            heading.id = currentId;
+          }
+          const priorCount = seenIds.get(currentId) || 0;
+          if (priorCount > 0) {
+            // הפוך לכותרת ייחודית בלי לשנות את הראשונה
+            let suffix = priorCount + 1;
+            let candidate = `${currentId}-${suffix}`;
+            while (document.getElementById(candidate) || seenIds.has(candidate)) {
+              suffix += 1;
+              candidate = `${currentId}-${suffix}`;
+            }
+            heading.id = candidate;
+            currentId = candidate;
+          }
+          seenIds.set(currentId, (seenIds.get(currentId) || 0) + 1);
+
           const item = document.createElement('a');
-          item.className = 'md-toc-item'; item.setAttribute('data-level', level); item.setAttribute('href', `#${heading.id}`); item.setAttribute('data-index', index); item.setAttribute('aria-label', `עבור לכותרת: ${text}`); item.textContent = text;
+          item.className = 'md-toc-item';
+          item.setAttribute('data-level', level);
+          item.setAttribute('href', `#${encodeURIComponent(currentId)}`);
+          item.setAttribute('data-index', index);
+          item.setAttribute('aria-label', `עבור לכותרת: ${text}`);
+          item.textContent = text;
           if (text.length > 30) { item.title = text; item.textContent = text.substring(0, 30) + '...'; }
           const clickHandler = (e) => { e.preventDefault(); try { heading.scrollIntoView({ behavior: 'smooth', block: 'start' }); updateActiveItem(item); closeSearch(); } catch (error) { console.error('TOC: שגיאה בגלילה', error); } };
           item.addEventListener('click', clickHandler);
