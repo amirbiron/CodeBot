@@ -10,6 +10,7 @@ File Management
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 GitHub Integration
 ------------------
@@ -18,11 +19,13 @@ GitHub Integration
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 .. automodule:: github_upload_fix
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Backup System
 -------------
@@ -31,6 +34,7 @@ Backup System
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Code Processing
 ---------------
@@ -39,11 +43,13 @@ Code Processing
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 .. automodule:: code_preview
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Search Engine
 -------------
@@ -52,6 +58,7 @@ Search Engine
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Repository Analysis
 -------------------
@@ -60,6 +67,7 @@ Repository Analysis
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Batch Processing
 ----------------
@@ -68,11 +76,13 @@ Batch Processing
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 .. automodule:: batch_commands
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Large Files Handling
 --------------------
@@ -81,6 +91,7 @@ Large Files Handling
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Cache Management
 ----------------
@@ -89,11 +100,13 @@ Cache Management
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 .. automodule:: cache_commands
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 User Statistics
 ---------------
@@ -102,6 +115,7 @@ User Statistics
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Activity Reporting
 ------------------
@@ -110,6 +124,7 @@ Activity Reporting
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Utilities
 ---------
@@ -118,6 +133,7 @@ Utilities
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Lazy Loading
 ------------
@@ -126,6 +142,7 @@ Lazy Loading
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Integrations
 ------------
@@ -134,6 +151,7 @@ Integrations
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Terminal Commands
 -----------------
@@ -142,6 +160,7 @@ Terminal Commands
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Autocomplete Manager
 --------------------
@@ -150,3 +169,4 @@ Autocomplete Manager
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:

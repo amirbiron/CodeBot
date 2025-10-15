@@ -1,0 +1,1761 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="he" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>utils module &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=2d7a82d5" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=0062297a"></script>
+      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../_static/translations.js?v=714bf7a6"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="אינדקס" href="../genindex.html" />
+    <link rel="search" title="חיפוש" href="../search.html" />
+    <link rel="next" title="workspace" href="modules.html" />
+    <link rel="prev" title="handlers.states module" href="handlers.states.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Code Keeper Bot
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">למפתחים ולסוכני AI:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart-ai.html">התחלה מהירה - סוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#id2">מה אסור</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#id3">מה מותר ומומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#id4">פורמטי ציטוט קוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#tmp">מחיקה בטוחה (רק ב-/tmp)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#pr">קומיטים ו-PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#id5">קישורים מהירים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">התחלה מהירה - מפתחים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#id2">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#id3">שלב 1: התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#env">שלב 2: הגדרת .env</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#id4">שלב 3: הרצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#id5">מה הלאה?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../ai-guidelines.html">הנחיות מלאות לסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id1">מגבלות קריטיות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../ai-guidelines.html#id2">הרצת פקודות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id3">כלי קבצים מאושרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id4">עקרונות עריכת קוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#pull-requests">קומיטים ו-Pull Requests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id5">עבודה עם טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id6">קישורים מהירים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">ארכיטקטורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id2">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id3">תרשים רכיבים (תמציתי)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id4">מבנה תיקיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id5">זרימות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id6">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">מדריך תרומה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#id2">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#id3">כללים כלליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#workflow">Workflow בסיסי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#id4">דוגמאות שימושיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#id5">קישורים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">מדריכים בסיסיים:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">התקנה והגדרה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id2">דרישות מערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id3">התקנה מהירה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id4">1. שכפל את הריפוזיטורי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id5">2. התקן תלויות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id6">3. הגדר משתני סביבה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#id7">4. הפעל את הבוט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#docker">התקנה עם Docker</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#image">1. בנה את ה-Image</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#docker-compose">2. הפעל עם Docker Compose</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#telegram-bot">הגדרת Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id8">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id9">בדיקת התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id10">פתרון בעיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#id11">תמיכה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">הגדרות תצורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">קובץ התצורה הראשי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">משתני סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#redis-cache">הגדרת Redis Cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">הגדרות אבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">תצורה לסביבות שונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#env">דוגמת קובץ .env מלא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">טיפים וטריקים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id2">טבלה מרכזית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id4">קישורים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="main.html">main module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.application"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.application</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.github_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.github_handler</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.backup_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.backup_handler</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.__init__"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.setup_handlers"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.setup_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.help_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.help_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.save_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.save_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.list_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.list_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.search_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.search_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.check_commands"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.check_commands()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.stats_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stats_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.handle_document"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_document()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.handle_text_message"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_text_message()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.error_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.error_handler()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.start"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.start()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot.stop"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stop()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="main.html#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="config.html">config module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.MONGODB_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.MONGODB_URL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.DATABASE_NAME"><code class="docutils literal notranslate"><span class="pre">BotConfig.DATABASE_NAME</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.REDIS_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.REDIS_URL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.CACHE_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.CACHE_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.GITHUB_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.GITHUB_TOKEN</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.PASTEBIN_API_KEY"><code class="docutils literal notranslate"><span class="pre">BotConfig.PASTEBIN_API_KEY</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.MAX_CODE_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_CODE_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.MAX_FILES_PER_USER"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_FILES_PER_USER</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.SUPPORTED_LANGUAGES"><code class="docutils literal notranslate"><span class="pre">BotConfig.SUPPORTED_LANGUAGES</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.RECYCLE_TTL_DAYS"><code class="docutils literal notranslate"><span class="pre">BotConfig.RECYCLE_TTL_DAYS</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.PUBLIC_BASE_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.PUBLIC_BASE_URL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.WEBAPP_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.WEBAPP_URL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.MAINTENANCE_MODE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MODE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.MAINTENANCE_MESSAGE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MESSAGE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.MAINTENANCE_AUTO_WARMUP_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_AUTO_WARMUP_SECS</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.RATE_LIMIT_PER_MINUTE"><code class="docutils literal notranslate"><span class="pre">BotConfig.RATE_LIMIT_PER_MINUTE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.HIGHLIGHT_THEME"><code class="docutils literal notranslate"><span class="pre">BotConfig.HIGHLIGHT_THEME</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.GIT_CHECKPOINT_PREFIX"><code class="docutils literal notranslate"><span class="pre">BotConfig.GIT_CHECKPOINT_PREFIX</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.GOOGLE_CLIENT_ID"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_ID</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.GOOGLE_CLIENT_SECRET"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_SECRET</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.GOOGLE_OAUTH_SCOPES"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_OAUTH_SCOPES</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.DRIVE_MENU_V2"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_MENU_V2</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.DOCUMENTATION_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.DOCUMENTATION_URL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="conversation_handlers.html">conversation_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database.html">database package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="database.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="database.manager.html">database.manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="database.models.html">database.models module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="database.repository.html">database.repository module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="services.html">services package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="services.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="services.backup_service.html">services.backup_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="services.code_service.html">services.code_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="services.github_service.html">services.github_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="services.google_drive_service.html">services.google_drive_service module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="handlers.html">handlers package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="handlers.html#subpackages">Subpackages</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="handlers.github.html">handlers.github package</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="handlers.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="handlers.file_view.html">handlers.file_view module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers.pagination.html">handlers.pagination module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers.save_flow.html">handlers.save_flow module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers.states.html">handlers.states module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">utils module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CodeErrorLogger.__init__"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CodeErrorLogger.log_code_processing_error"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_code_processing_error()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CodeErrorLogger.log_code_activity"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_code_activity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CodeErrorLogger.log_validation_failure"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_validation_failure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CodeErrorLogger.log_sanitization_success"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_sanitization_success()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TimeUtils.format_relative_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.format_relative_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TimeUtils.parse_date_string"><code class="docutils literal notranslate"><span class="pre">TimeUtils.parse_date_string()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TimeUtils.get_time_ranges"><code class="docutils literal notranslate"><span class="pre">TimeUtils.get_time_ranges()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.TextUtils"><code class="docutils literal notranslate"><span class="pre">TextUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.truncate_text"><code class="docutils literal notranslate"><span class="pre">TextUtils.truncate_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.escape_markdown"><code class="docutils literal notranslate"><span class="pre">TextUtils.escape_markdown()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.clean_filename"><code class="docutils literal notranslate"><span class="pre">TextUtils.clean_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.extract_hashtags"><code class="docutils literal notranslate"><span class="pre">TextUtils.extract_hashtags()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.highlight_text"><code class="docutils literal notranslate"><span class="pre">TextUtils.highlight_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.format_file_size"><code class="docutils literal notranslate"><span class="pre">TextUtils.format_file_size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils.pluralize_hebrew"><code class="docutils literal notranslate"><span class="pre">TextUtils.pluralize_hebrew()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.SecurityUtils"><code class="docutils literal notranslate"><span class="pre">SecurityUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SecurityUtils.generate_secure_token"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.generate_secure_token()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SecurityUtils.hash_content"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.hash_content()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SecurityUtils.validate_user_input"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.validate_user_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SecurityUtils.sanitize_code"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.sanitize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.TelegramUtils"><code class="docutils literal notranslate"><span class="pre">TelegramUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.send_typing_action"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.send_typing_action()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.send_document_action"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.send_document_action()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.safe_answer"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.safe_answer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.get_user_mention"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.get_user_mention()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.split_long_message"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.split_long_message()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.safe_edit_message_text"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.safe_edit_message_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.safe_edit_message_reply_markup"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.safe_edit_message_reply_markup()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils.extract_message_text_preserve_markdown"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.extract_message_text_preserve_markdown()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.CallbackQueryGuard"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CallbackQueryGuard.DEFAULT_WINDOW_SECONDS"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard.DEFAULT_WINDOW_SECONDS</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CallbackQueryGuard.should_block"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard.should_block()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CallbackQueryGuard.should_block_async"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard.should_block_async()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.AsyncUtils"><code class="docutils literal notranslate"><span class="pre">AsyncUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.AsyncUtils.run_with_timeout"><code class="docutils literal notranslate"><span class="pre">AsyncUtils.run_with_timeout()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.AsyncUtils.batch_process"><code class="docutils literal notranslate"><span class="pre">AsyncUtils.batch_process()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.PerformanceUtils"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.PerformanceUtils.timing_decorator"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils.timing_decorator()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.PerformanceUtils.measure_time"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils.measure_time()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.ValidationUtils"><code class="docutils literal notranslate"><span class="pre">ValidationUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.ValidationUtils.is_valid_filename"><code class="docutils literal notranslate"><span class="pre">ValidationUtils.is_valid_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.ValidationUtils.is_safe_code"><code class="docutils literal notranslate"><span class="pre">ValidationUtils.is_safe_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.FileUtils"><code class="docutils literal notranslate"><span class="pre">FileUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.FileUtils.download_file"><code class="docutils literal notranslate"><span class="pre">FileUtils.download_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.FileUtils.get_file_extension"><code class="docutils literal notranslate"><span class="pre">FileUtils.get_file_extension()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.FileUtils.get_mime_type"><code class="docutils literal notranslate"><span class="pre">FileUtils.get_mime_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.FileUtils.create_temp_file"><code class="docutils literal notranslate"><span class="pre">FileUtils.create_temp_file()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.ConfigUtils"><code class="docutils literal notranslate"><span class="pre">ConfigUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.ConfigUtils.load_json_config"><code class="docutils literal notranslate"><span class="pre">ConfigUtils.load_json_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.ConfigUtils.save_json_config"><code class="docutils literal notranslate"><span class="pre">ConfigUtils.save_json_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.CacheUtils"><code class="docutils literal notranslate"><span class="pre">CacheUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CacheUtils.set"><code class="docutils literal notranslate"><span class="pre">CacheUtils.set()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CacheUtils.get"><code class="docutils literal notranslate"><span class="pre">CacheUtils.get()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CacheUtils.delete"><code class="docutils literal notranslate"><span class="pre">CacheUtils.delete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CacheUtils.clear"><code class="docutils literal notranslate"><span class="pre">CacheUtils.clear()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.get_memory_usage"><code class="docutils literal notranslate"><span class="pre">get_memory_usage()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.setup_logging"><code class="docutils literal notranslate"><span class="pre">setup_logging()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.generate_summary_stats"><code class="docutils literal notranslate"><span class="pre">generate_summary_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.detect_language_from_filename"><code class="docutils literal notranslate"><span class="pre">detect_language_from_filename()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.get_language_emoji"><code class="docutils literal notranslate"><span class="pre">get_language_emoji()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.SensitiveDataFilter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SensitiveDataFilter.filter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter.filter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.install_sensitive_filter"><code class="docutils literal notranslate"><span class="pre">install_sensitive_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#utils.normalize_code"><code class="docutils literal notranslate"><span class="pre">normalize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2 current"><a class="reference internal" href="modules.html">workspace</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="autocomplete_manager.html">autocomplete_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="autocomplete_manager.html#autocomplete_manager.AutocompleteManager"><code class="docutils literal notranslate"><span class="pre">AutocompleteManager</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="batch_commands.html">batch_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="batch_commands.html#batch_commands.batch_analyze_command"><code class="docutils literal notranslate"><span class="pre">batch_analyze_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="batch_commands.html#batch_commands.batch_validate_command"><code class="docutils literal notranslate"><span class="pre">batch_validate_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="batch_commands.html#batch_commands.job_status_command"><code class="docutils literal notranslate"><span class="pre">job_status_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="batch_commands.html#batch_commands.large_file_command"><code class="docutils literal notranslate"><span class="pre">large_file_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="batch_commands.html#batch_commands.handle_batch_callbacks"><code class="docutils literal notranslate"><span class="pre">handle_batch_callbacks()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="batch_commands.html#batch_commands.setup_batch_handlers"><code class="docutils literal notranslate"><span class="pre">setup_batch_handlers()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="batch_processor.html">batch_processor module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="batch_processor.html#batch_processor.BatchJob"><code class="docutils literal notranslate"><span class="pre">BatchJob</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="batch_processor.html#batch_processor.BatchProcessor"><code class="docutils literal notranslate"><span class="pre">BatchProcessor</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache_commands.html">cache_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="code_preview.html">code_preview module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="code_preview.html#code_preview.CodePreviewManager"><code class="docutils literal notranslate"><span class="pre">CodePreviewManager</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="code_processor.html">code_processor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="config.html">config module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="conftest.html">conftest module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="conversation_handlers.html">conversation_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database.html">database package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="database.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="file_manager.html">file_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="file_manager.html#file_manager.BackupInfo"><code class="docutils literal notranslate"><span class="pre">BackupInfo</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="file_manager.html#file_manager.BackupManager"><code class="docutils literal notranslate"><span class="pre">BackupManager</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="fix_telegram_parse_error.html">fix_telegram_parse_error module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="fix_telegram_parse_error.html#fix_telegram_parse_error.clean_for_telegram"><code class="docutils literal notranslate"><span class="pre">clean_for_telegram()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="fix_telegram_parse_error.html#fix_telegram_parse_error.apply_fix"><code class="docutils literal notranslate"><span class="pre">apply_fix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="fix_telegram_parse_error.html#fix_telegram_parse_error.wrap_edit_message_calls"><code class="docutils literal notranslate"><span class="pre">wrap_edit_message_calls()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="github_menu_handler.html">github_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="github_upload_fix.html">github_upload_fix module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="github_upload_fix.html#github_upload_fix.github_upload_new_file"><code class="docutils literal notranslate"><span class="pre">github_upload_new_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_upload_fix.html#github_upload_fix.handle_document_fixed"><code class="docutils literal notranslate"><span class="pre">handle_document_fixed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_upload_fix.html#github_upload_fix.upload_to_github_fixed"><code class="docutils literal notranslate"><span class="pre">upload_to_github_fixed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_upload_fix.html#github_upload_fix.setup_minimal_commands"><code class="docutils literal notranslate"><span class="pre">setup_minimal_commands()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_upload_fix.html#github_upload_fix.stats_command_secured"><code class="docutils literal notranslate"><span class="pre">stats_command_secured()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="github_upload_fix.html#github_upload_fix.check_commands"><code class="docutils literal notranslate"><span class="pre">check_commands()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="handlers.html">handlers package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="handlers.html#subpackages">Subpackages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="i18n.html">i18n package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="i18n.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="integrations.html">integrations module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="large_files_handler.html">large_files_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="large_files_handler.html#large_files_handler.LargeFilesHandler"><code class="docutils literal notranslate"><span class="pre">LargeFilesHandler</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="lazy_loader.html">lazy_loader module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="lazy_loader.html#lazy_loader.FileChunk"><code class="docutils literal notranslate"><span class="pre">FileChunk</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="main.html">main module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="main.html#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="repo_analyzer.html">repo_analyzer module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="repo_analyzer.html#repo_analyzer.RepoAnalyzer"><code class="docutils literal notranslate"><span class="pre">RepoAnalyzer</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="search_engine.html">search_engine module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="secret_manager.html">secret_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="secret_manager.html#secret_manager.encrypt_secret"><code class="docutils literal notranslate"><span class="pre">encrypt_secret()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="secret_manager.html#secret_manager.decrypt_secret"><code class="docutils literal notranslate"><span class="pre">decrypt_secret()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="services.html">services package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="services.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="terminal_commands.html">terminal_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.run_in_sandbox"><code class="docutils literal notranslate"><span class="pre">run_in_sandbox()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.terminal_enter"><code class="docutils literal notranslate"><span class="pre">terminal_enter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.terminal_exit"><code class="docutils literal notranslate"><span class="pre">terminal_exit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.terminal_run_command"><code class="docutils literal notranslate"><span class="pre">terminal_run_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.terminal_command"><code class="docutils literal notranslate"><span class="pre">terminal_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.setup_terminal_handlers"><code class="docutils literal notranslate"><span class="pre">setup_terminal_handlers()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="test_basic.html">test_basic module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="test_basic.html#test_basic.test_python_version"><code class="docutils literal notranslate"><span class="pre">test_python_version()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="test_basic.html#test_basic.test_import_main"><code class="docutils literal notranslate"><span class="pre">test_import_main()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="test_basic.html#test_basic.test_environment"><code class="docutils literal notranslate"><span class="pre">test_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="test_basic.html#test_basic.test_basic_calculation"><code class="docutils literal notranslate"><span class="pre">test_basic_calculation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="test_basic.html#test_basic.TestRequirements"><code class="docutils literal notranslate"><span class="pre">TestRequirements</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="user_stats.html">user_stats module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="user_stats.html#user_stats.UserStats"><code class="docutils literal notranslate"><span class="pre">UserStats</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">utils module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TextUtils"><code class="docutils literal notranslate"><span class="pre">TextUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SecurityUtils"><code class="docutils literal notranslate"><span class="pre">SecurityUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.TelegramUtils"><code class="docutils literal notranslate"><span class="pre">TelegramUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CallbackQueryGuard"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.AsyncUtils"><code class="docutils literal notranslate"><span class="pre">AsyncUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.PerformanceUtils"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.ValidationUtils"><code class="docutils literal notranslate"><span class="pre">ValidationUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.FileUtils"><code class="docutils literal notranslate"><span class="pre">FileUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.ConfigUtils"><code class="docutils literal notranslate"><span class="pre">ConfigUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.CacheUtils"><code class="docutils literal notranslate"><span class="pre">CacheUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.get_memory_usage"><code class="docutils literal notranslate"><span class="pre">get_memory_usage()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.setup_logging"><code class="docutils literal notranslate"><span class="pre">setup_logging()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.generate_summary_stats"><code class="docutils literal notranslate"><span class="pre">generate_summary_stats()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.detect_language_from_filename"><code class="docutils literal notranslate"><span class="pre">detect_language_from_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.get_language_emoji"><code class="docutils literal notranslate"><span class="pre">get_language_emoji()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.SensitiveDataFilter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.install_sensitive_filter"><code class="docutils literal notranslate"><span class="pre">install_sensitive_filter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#utils.normalize_code"><code class="docutils literal notranslate"><span class="pre">normalize_code()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../modules/index.html">מודולים ראשיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#file-management">File Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#github-integration">GitHub Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#backup-system">Backup System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#code-processing">Code Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#search-engine">Search Engine</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#repository-analysis">Repository Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#batch-processing">Batch Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#large-files-handling">Large Files Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#cache-management">Cache Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#user-statistics">User Statistics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#activity-reporting">Activity Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#utilities">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#lazy-loading">Lazy Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#integrations">Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#terminal-commands">Terminal Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../modules/index.html#autocomplete-manager">Autocomplete Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#drive-menu">Drive Menu</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../handlers/drive_menu.html">Drive Menu V2</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id1">סקירה</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id2">דגל פיצ’ר</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id3">זרימות עיקריות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#device-flow">התחברות (Device Flow)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id4">טיפול שגיאות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id5">ניטור</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#module-handlers.drive.menu">API (autodoc)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#pagination-handler">Pagination Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#states-handler">States Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#github-handlers">GitHub Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../services/index.html">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#code-service">Code Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../services/index.html#code-service-module">Code Service Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#github-service">GitHub Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#backup-service">Backup Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../services/index.html#google-drive-service">Google Drive Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../services/google_drive_service.html">Google Drive Service</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#id1">סקירה</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#oauth">הערות OAuth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#id2">מבני קבצים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../services/google_drive_service.html#api-autodoc">API (autodoc)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../database/index.html">Database</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#database-manager">Database Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#models">Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#codesnippet-model">CodeSnippet Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#databasemanager-class">DatabaseManager Class</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#database-operations">Database Operations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#save-operations">Save Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#search-operations">Search Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#delete-operations">Delete Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database/index.html#statistics-operations">Statistics Operations</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../database-schema.html">Database Schema</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../database-schema.html#collections">Collections</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../database-schema.html#code-snippets"><code class="docutils literal notranslate"><span class="pre">code_snippets</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database-schema.html#users"><code class="docutils literal notranslate"><span class="pre">users</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database-schema.html#bookmarks"><code class="docutils literal notranslate"><span class="pre">bookmarks</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../database-schema.html#sessions-webapp"><code class="docutils literal notranslate"><span class="pre">sessions</span></code> (WebApp)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../database-schema.html#indexes">Indexes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database-schema.html#relationships">Relationships</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database-schema.html#id1">קישורים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">עזרה ודוגמאות:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../examples.html">דוגמאות שימוש</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id2">שימוש בסיסי</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id3">יצירת אפליקציית בוט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id4">שמירת קוד חדש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id5">חיפוש קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#handlers">שימוש ב-Handlers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#command-handler">יצירת Command Handler</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#conversation-handler">יצירת Conversation Handler</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#services">שימוש ב-Services</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id6">זיהוי שפת תכנות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id7">ניתוח קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#github">אינטגרציה עם GitHub</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#gist">העלאת קוד ל-Gist</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#gists">שליפת Gists של משתמש</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id8">עבודה עם מסד הנתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id9">ביצוע שאילתות מורכבות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id10">עדכון קבצים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id11">סטטיסטיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id12">טיפול בשגיאות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id13">טיפול בשגיאות בסיסי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#retry-logic">Retry Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id14">בדיקות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id15">בדיקת יחידה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id16">בדיקת אינטגרציה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../examples.html#id17">דוגמאות מתקדמות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id18">עיבוד באצווה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../examples.html#id19">קאשינג</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#id1">עקרונות קריטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#mocking-telegram">Mocking ל‑Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../ci-cd.html">CI/CD Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id1">חוקים קשיחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id3">בדיקות מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id4">בנייה של התיעוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id5">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../conversation-handlers.html">Conversation Handlers &amp; States</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#states">רשימת States (מבחר בפועל)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#save-flow">Save Flow (תרשים מצבים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#github-flow">GitHub Flow (תרשים מצבים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#handler">דוגמת Handler תמציתית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#id2">טבלת זרימות מלאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#id3">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#id4">דוגמאות קוד תמציתיות (ממשיות)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#save">Save – שלבים עיקריים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#github">GitHub – תפריט ושיחת העלאה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#backup">Backup – תפריט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#drive">Drive – תפריט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#id5">מוקשים נפוצים ופתרונות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#query-answer"><code class="docutils literal notranslate"><span class="pre">query.answer()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#message-is-not-modified">עריכת הודעות בבטחה – ”Message is not modified“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#filters">Filters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#persistent-data-context-user-data">Persistent data (<code class="docutils literal notranslate"><span class="pre">context.user_data</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../conversation-handlers.html#id6">דוגמאות טסטים קצרות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#id7">Save – התחלה וזרימה בסיסית</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../conversation-handlers.html#github-upload-conv-handler">GitHub – upload_conv_handler</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id1">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id2">דיבוג מהיר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../development.html">Development Workflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#handler">הוספת Handler חדש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#endpoint-webapp">הוספת Endpoint ל‑WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#schema">עדכון Schema במסד הנתונים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development.html#id1">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../integrations.html">Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#github-api">GitHub API</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../integrations.html#gist">יצירת Gist (דוגמה)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#google-drive-oauth-flow">Google Drive (OAuth Flow)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#telegram-webhooks-vs-polling">Telegram Webhooks vs Polling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#id1">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../security.html">Security Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../security.html#id1">סודות ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../security.html#id2">הצפנת טוקנים (דוגמה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../security.html#csrf-webapp">CSRF ב‑WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../security.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#id2">מה זה עושה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#id3">איפה הכפתור מופיע?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#id4">איך זה עובד (זרימה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#env">דרישות סביבתיות (ENV)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#id5">מגבלות והתנהגות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#id6">הודעות הצלחה/שגיאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#troubleshooting">Troubleshooting קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/share_code.html#id7">דוגמאות (טקסטואליות)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/github_browse.html">עיון בקוד GitHub (כולל חיפוש בשם קובץ)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/github_browse.html#id1">שורת כלים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/github_browse.html#id2">תוצאות חיפוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/github_browse.html#id3">ניווט ריפו</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/download_repo.html">הורדת ריפו</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/download_repo.html#id2">מה בדיוק מוריד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/download_repo.html#id3">מגבלות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/download_repo.html#id4">הודעות נפוצות</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">WebApp:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/overview.html">המיני Web App (סקירה)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/overview.html#id1">מה נותן?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/overview.html#id2">כתובת והרשאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/overview.html#env">הגדרות ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/overview.html#id3">קישורים ותמונות מסך</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/caching.html">Caching &amp; HTTP Validators (ETag / Last-Modified / 304)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id1">למה זה חשוב?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id2">עקרונות בסיס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#flask-werkzeug">מתכון: Flask + werkzeug</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#checklist">Checklist למימוש נכון</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/api-reference.html">WebApp API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#endpoints">Endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#authentication-flow">Authentication Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#response-schema-example">Response Schema Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#errors">Errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#id1">קישורים</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Code Keeper Bot</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">utils module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/utils.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="handlers.states.html" class="btn btn-neutral float-left" title="handlers.states module" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="modules.html" class="btn btn-neutral float-right" title="workspace" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-utils">
+<span id="utils-module"></span><h1>utils module<a class="headerlink" href="#module-utils" title="Link to this heading"></a></h1>
+<p>פונקציות עזר כלליות לבוט שומר קבצי קוד
+General Utility Functions for Code Keeper Bot</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.CodeErrorLogger">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">CodeErrorLogger</span></span><a class="reference internal" href="../_modules/utils.html#CodeErrorLogger"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CodeErrorLogger" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>מערכת לוגים ייעודית לשגיאות עיבוד קוד</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CodeErrorLogger.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CodeErrorLogger.__init__"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CodeErrorLogger.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CodeErrorLogger.log_code_processing_error">
+<span class="sig-name descname"><span class="pre">log_code_processing_error</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_message</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CodeErrorLogger.log_code_processing_error"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CodeErrorLogger.log_code_processing_error" title="Link to this definition"></a></dt>
+<dd><p>רישום שגיאות עיבוד קוד</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>error_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>error_message</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>context</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CodeErrorLogger.log_code_activity">
+<span class="sig-name descname"><span class="pre">log_code_activity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">activity_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">details</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CodeErrorLogger.log_code_activity"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CodeErrorLogger.log_code_activity" title="Link to this definition"></a></dt>
+<dd><p>רישום פעילות עיבוד קוד</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>activity_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>details</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CodeErrorLogger.log_validation_failure">
+<span class="sig-name descname"><span class="pre">log_validation_failure</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code_length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error_reason</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CodeErrorLogger.log_validation_failure"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CodeErrorLogger.log_validation_failure" title="Link to this definition"></a></dt>
+<dd><p>רישום כשל באימות קוד</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>code_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>error_reason</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CodeErrorLogger.log_sanitization_success">
+<span class="sig-name descname"><span class="pre">log_sanitization_success</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">original_length</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cleaned_length</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CodeErrorLogger.log_sanitization_success"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CodeErrorLogger.log_sanitization_success" title="Link to this definition"></a></dt>
+<dd><p>רישום הצלחה בסניטציה</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>original_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>cleaned_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.TimeUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">TimeUtils</span></span><a class="reference internal" href="../_modules/utils.html#TimeUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TimeUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לעבודה עם זמן ותאריכים</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TimeUtils.format_relative_time">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">format_relative_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dt</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TimeUtils.format_relative_time"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TimeUtils.format_relative_time" title="Link to this definition"></a></dt>
+<dd><p>פורמט זמן יחסי (לפני 5 דקות, אתמול וכו«)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>dt</strong> (<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><em>datetime</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TimeUtils.parse_date_string">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">parse_date_string</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">date_str</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TimeUtils.parse_date_string"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TimeUtils.parse_date_string" title="Link to this definition"></a></dt>
+<dd><p>פרסור מחרוזת תאריך לאובייקט datetime</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>date_str</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TimeUtils.get_time_ranges">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_time_ranges</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">period</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TimeUtils.get_time_ranges"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TimeUtils.get_time_ranges" title="Link to this definition"></a></dt>
+<dd><p>קבלת טווח זמנים לפי תקופה</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>period</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.TextUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">TextUtils</span></span><a class="reference internal" href="../_modules/utils.html#TextUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לעבודה עם טקסט</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.truncate_text">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">truncate_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">suffix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'...'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.truncate_text"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.truncate_text" title="Link to this definition"></a></dt>
+<dd><p>קיצור טקסט עם סיומת</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>max_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>suffix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.escape_markdown">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">escape_markdown</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.escape_markdown"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.escape_markdown" title="Link to this definition"></a></dt>
+<dd><p>הגנה על תווים מיוחדים ב-Markdown</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>version</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.clean_filename">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">clean_filename</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.clean_filename"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.clean_filename" title="Link to this definition"></a></dt>
+<dd><p>ניקוי שם קובץ מתווים לא חוקיים</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.extract_hashtags">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">extract_hashtags</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.extract_hashtags"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.extract_hashtags" title="Link to this definition"></a></dt>
+<dd><p>חילוץ תגיות מטקסט</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.highlight_text">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">highlight_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'**'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.highlight_text"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.highlight_text" title="Link to this definition"></a></dt>
+<dd><p>הדגשת מילות חיפוש בטקסט</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>query</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>tag</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.format_file_size">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">format_file_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">size_bytes</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.format_file_size"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.format_file_size" title="Link to this definition"></a></dt>
+<dd><p>פורמט גודל קובץ (bytes -&gt; KB/MB/GB)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>size_bytes</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TextUtils.pluralize_hebrew">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">pluralize_hebrew</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">count</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">singular</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plural</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TextUtils.pluralize_hebrew"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TextUtils.pluralize_hebrew" title="Link to this definition"></a></dt>
+<dd><p>צורת רבים עבריות</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>count</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>singular</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>plural</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.SecurityUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">SecurityUtils</span></span><a class="reference internal" href="../_modules/utils.html#SecurityUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SecurityUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים אמינות ובטיחות</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.SecurityUtils.generate_secure_token">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">generate_secure_token</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">32</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#SecurityUtils.generate_secure_token"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SecurityUtils.generate_secure_token" title="Link to this definition"></a></dt>
+<dd><p>יצירת טוקן מאובטח</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.SecurityUtils.hash_content">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">hash_content</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">algorithm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'sha256'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#SecurityUtils.hash_content"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SecurityUtils.hash_content" title="Link to this definition"></a></dt>
+<dd><p>יצירת hash לתוכן</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>content</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>algorithm</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.SecurityUtils.validate_user_input">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">validate_user_input</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forbidden_patterns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#SecurityUtils.validate_user_input"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SecurityUtils.validate_user_input" title="Link to this definition"></a></dt>
+<dd><p>בדיקת קלט משתמש</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>max_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>forbidden_patterns</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.SecurityUtils.sanitize_code">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sanitize_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#SecurityUtils.sanitize_code"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SecurityUtils.sanitize_code" title="Link to this definition"></a></dt>
+<dd><p>ניקוי קוד מתוכן מסוכן (בסיסי)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.TelegramUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">TelegramUtils</span></span><a class="reference internal" href="../_modules/utils.html#TelegramUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לעבודה עם Telegram</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.send_typing_action">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">send_typing_action</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.send_typing_action"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.send_typing_action" title="Link to this definition"></a></dt>
+<dd><p>שליחת אקשן »כותב…«</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.send_document_action">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">send_document_action</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.send_document_action"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.send_document_action" title="Link to this definition"></a></dt>
+<dd><p>שליחת אקשן »שולח מסמך…«</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.safe_answer">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">safe_answer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_alert</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.safe_answer"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.safe_answer" title="Link to this definition"></a></dt>
+<dd><p>מענה בטוח ל-CallbackQuery: מתעלם משגיאות »Query is too old«/«query_id_invalid«.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>show_alert</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>cache_time</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.get_user_mention">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_user_mention</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.get_user_mention"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.get_user_mention" title="Link to this definition"></a></dt>
+<dd><p>קבלת מנשן למשתמש</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>user</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.user.html#telegram.User" title="(in python-telegram-bot v22.5)"><em>telegram.User</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.split_long_message">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">split_long_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4096</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.split_long_message"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.split_long_message" title="Link to this definition"></a></dt>
+<dd><p>חלוקת הודעה ארוכה לחלקים</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>max_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.safe_edit_message_text">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">safe_edit_message_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reply_markup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parse_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.safe_edit_message_text"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.safe_edit_message_text" title="Link to this definition"></a></dt>
+<dd><p>עריכת טקסט הודעה בבטיחות: מתעלם משגיאת »Message is not modified«.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>parse_mode</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.safe_edit_message_reply_markup">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">safe_edit_message_reply_markup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reply_markup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.safe_edit_message_reply_markup"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.safe_edit_message_reply_markup" title="Link to this definition"></a></dt>
+<dd><p>עריכת מקלדת הודעה בבטיחות: מתעלם משגיאת »Message is not modified«.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.TelegramUtils.extract_message_text_preserve_markdown">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">extract_message_text_preserve_markdown</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">message</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reconstruct_from_entities</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#TelegramUtils.extract_message_text_preserve_markdown"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.TelegramUtils.extract_message_text_preserve_markdown" title="Link to this definition"></a></dt>
+<dd><p>שחזור טקסט ההודעה תוך ניסיון להחזיר את מה שהמשתמש התכוון מבחינת תווי Markdown.</p>
+<p>עקרונות:
+:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+<ul class="simple">
+<li><p>ברירת מחדל: נשתמש ב-<code class="docutils literal notranslate"><span class="pre">text</span></code>/<code class="docutils literal notranslate"><span class="pre">caption</span></code> (התוכן הגולמי כפי שנשלח לשרת לאחר עיבוד Markdown).
+זאת כדי לא לשמור מחרוזת ”מרונדרת“ (למשל <code class="docutils literal notranslate"><span class="pre">*_name_*</span></code>), שאינה משקפת קלט משתמש.</p></li>
+<li><p>במידה ו-<code class="docutils literal notranslate"><span class="pre">reconstruct_from_entities=True</span></code> ויש ישויות עיצוב (<code class="docutils literal notranslate"><span class="pre">bold</span></code>/<code class="docutils literal notranslate"><span class="pre">italic</span></code>), ננסה לשחזר
+תווי Markdown שהיוו כנראה את מקור העיצוב ע“י הוספת תחיליות/סיומות סביב הטקסט שסומן.
+מיפוי פשוט: <code class="docutils literal notranslate"><span class="pre">bold</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;__&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">italic</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;_&quot;</span></code>. שאר ישויות נשמרות כפי שהן.</p></li>
+<li><p>אם יש כיתוב (caption), נשתמש במקבילות <code class="docutils literal notranslate"><span class="pre">caption_entities</span></code>.</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>message</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.message.html#telegram.Message" title="(in python-telegram-bot v22.5)"><em>telegram.Message</em></a>)</p></li>
+<li><p><strong>reconstruct_from_entities</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.CallbackQueryGuard">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">CallbackQueryGuard</span></span><a class="reference internal" href="../_modules/utils.html#CallbackQueryGuard"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CallbackQueryGuard" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.</p>
+<p>מבוסס על טביעת אצבע של המשתמש/הודעה/הנתון (callback_data) כדי לחסום
+את אותה פעולה בחלון זמן קצר, בלי לחסום פעולות שונות.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="utils.CallbackQueryGuard.DEFAULT_WINDOW_SECONDS">
+<span class="sig-name descname"><span class="pre">DEFAULT_WINDOW_SECONDS</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1.2</span></em><a class="headerlink" href="#utils.CallbackQueryGuard.DEFAULT_WINDOW_SECONDS" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CallbackQueryGuard.should_block">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">should_block</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_seconds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CallbackQueryGuard.should_block"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CallbackQueryGuard.should_block" title="Link to this definition"></a></dt>
+<dd><p>בודק האם יש לחסום את העדכון כלחיצה כפולה.</p>
+<p>אם זו אותה טביעת אצבע בתוך חלון הזמן – נחסום; אחרת נסמן ונאפשר.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+<li><p><strong>window_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CallbackQueryGuard.should_block_async">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">should_block_async</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_seconds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CallbackQueryGuard.should_block_async"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CallbackQueryGuard.should_block_async" title="Link to this definition"></a></dt>
+<dd><p>בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.</p>
+<p>חסימה מבוססת חלון זמן פר-משתמש, ללא תלות ב-message_id/data, כדי למנוע מרוץ.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+<li><p><strong>window_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.AsyncUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">AsyncUtils</span></span><a class="reference internal" href="../_modules/utils.html#AsyncUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.AsyncUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לעבודה אסינכרונית</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.AsyncUtils.run_with_timeout">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">run_with_timeout</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coro</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#AsyncUtils.run_with_timeout"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.AsyncUtils.run_with_timeout" title="Link to this definition"></a></dt>
+<dd><p>הרצת פונקציה אסינכרונית עם timeout</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timeout</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.AsyncUtils.batch_process">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">batch_process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">items</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">process_func</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#AsyncUtils.batch_process"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.AsyncUtils.batch_process" title="Link to this definition"></a></dt>
+<dd><p>עיבוד פריטים בקבוצות</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>items</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>]</em>)</p></li>
+<li><p><strong>process_func</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><em>Callable</em></a>)</p></li>
+<li><p><strong>batch_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>delay</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.PerformanceUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">PerformanceUtils</span></span><a class="reference internal" href="../_modules/utils.html#PerformanceUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.PerformanceUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים למדידת ביצועים</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.PerformanceUtils.timing_decorator">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">timing_decorator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">func</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#PerformanceUtils.timing_decorator"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.PerformanceUtils.timing_decorator" title="Link to this definition"></a></dt>
+<dd><p>דקורטור למדידת זמן ביצוע</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.PerformanceUtils.measure_time">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">measure_time</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">operation_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#PerformanceUtils.measure_time"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.PerformanceUtils.measure_time" title="Link to this definition"></a></dt>
+<dd><p>מדידת זמן עם context manager</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>operation_name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.ValidationUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">ValidationUtils</span></span><a class="reference internal" href="../_modules/utils.html#ValidationUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.ValidationUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לוולידציה</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.ValidationUtils.is_valid_filename">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_valid_filename</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#ValidationUtils.is_valid_filename"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.ValidationUtils.is_valid_filename" title="Link to this definition"></a></dt>
+<dd><p>בדיקת תקינות שם קובץ</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.ValidationUtils.is_safe_code">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_safe_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">programming_language</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#ValidationUtils.is_safe_code"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.ValidationUtils.is_safe_code" title="Link to this definition"></a></dt>
+<dd><p>בדיקה בסיסית של בטיחות קוד</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>programming_language</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.FileUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">FileUtils</span></span><a class="reference internal" href="../_modules/utils.html#FileUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.FileUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לעבודה עם קבצים</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.FileUtils.download_file">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">download_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10485760</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#FileUtils.download_file"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.FileUtils.download_file" title="Link to this definition"></a></dt>
+<dd><p>הורדת קובץ מ-URL</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bytes</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>url</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>max_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.FileUtils.get_file_extension">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_file_extension</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#FileUtils.get_file_extension"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.FileUtils.get_file_extension" title="Link to this definition"></a></dt>
+<dd><p>קבלת סיומת קובץ</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.FileUtils.get_mime_type">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_mime_type</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#FileUtils.get_mime_type"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.FileUtils.get_mime_type" title="Link to this definition"></a></dt>
+<dd><p>קבלת MIME type של קובץ</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.FileUtils.create_temp_file">
+<em class="property"><span class="pre">async</span><span class="w"> </span><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">create_temp_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">suffix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#FileUtils.create_temp_file"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.FileUtils.create_temp_file" title="Link to this definition"></a></dt>
+<dd><p>יצירת קובץ זמני</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>content</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.14)"><em>bytes</em></a>)</p></li>
+<li><p><strong>suffix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.ConfigUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">ConfigUtils</span></span><a class="reference internal" href="../_modules/utils.html#ConfigUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.ConfigUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לקונפיגורציה</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.ConfigUtils.load_json_config">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">load_json_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#ConfigUtils.load_json_config"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.ConfigUtils.load_json_config" title="Link to this definition"></a></dt>
+<dd><p>טעינת קונפיגורציה מקובץ JSON</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>file_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>default</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.ConfigUtils.save_json_config">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_json_config</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">config</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#ConfigUtils.save_json_config"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.ConfigUtils.save_json_config" title="Link to this definition"></a></dt>
+<dd><p>שמירת קונפיגורציה לקובץ JSON</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>file_path</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>config</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.CacheUtils">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">CacheUtils</span></span><a class="reference internal" href="../_modules/utils.html#CacheUtils"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CacheUtils" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>כלים לקאש זמני</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CacheUtils.set">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ttl</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">300</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CacheUtils.set"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CacheUtils.set" title="Link to this definition"></a></dt>
+<dd><p>שמירה בקאש עם TTL (שניות)</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>value</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>ttl</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CacheUtils.get">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CacheUtils.get"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CacheUtils.get" title="Link to this definition"></a></dt>
+<dd><p>קבלה מהקאש</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>default</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CacheUtils.delete">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">delete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CacheUtils.delete"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CacheUtils.delete" title="Link to this definition"></a></dt>
+<dd><p>מחיקה מהקאש</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.CacheUtils.clear">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">clear</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#CacheUtils.clear"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.CacheUtils.clear" title="Link to this definition"></a></dt>
+<dd><p>ניקוי כל הקאש</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.get_memory_usage">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">get_memory_usage</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#get_memory_usage"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.get_memory_usage" title="Link to this definition"></a></dt>
+<dd><p>קבלת נתוני זיכרון</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.setup_logging">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">setup_logging</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'INFO'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_file</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#setup_logging"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.setup_logging" title="Link to this definition"></a></dt>
+<dd><p>הגדרת לוגים</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Logger" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Logger</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>level</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>log_file</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.generate_summary_stats">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">generate_summary_stats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">files_data</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#generate_summary_stats"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.generate_summary_stats" title="Link to this definition"></a></dt>
+<dd><p>יצירת סיכום סטטיסטיקות</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>files_data</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>]</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.detect_language_from_filename">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">detect_language_from_filename</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#detect_language_from_filename"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.detect_language_from_filename" title="Link to this definition"></a></dt>
+<dd><p>זיהוי שפת תכנות לפי סיומת הקובץ</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.get_language_emoji">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">get_language_emoji</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">language</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#get_language_emoji"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.get_language_emoji" title="Link to this definition"></a></dt>
+<dd><p>מחזיר אימוג’י מתאים לשפת התכנות</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>language</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="utils.SensitiveDataFilter">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">SensitiveDataFilter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#SensitiveDataFilter"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SensitiveDataFilter" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.Filter" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Filter</span></code></a></p>
+<p>מסנן שמטשטש טוקנים ונתונים רגישים בלוגים.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="utils.SensitiveDataFilter.filter">
+<span class="sig-name descname"><span class="pre">filter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">record</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#SensitiveDataFilter.filter"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.SensitiveDataFilter.filter" title="Link to this definition"></a></dt>
+<dd><p>Determine if the specified record is to be logged.</p>
+<p>Returns True if the record should be logged, or False otherwise.
+If deemed appropriate, the record may be modified in-place.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>record</strong> (<a class="reference external" href="https://docs.python.org/3/library/logging.html#logging.LogRecord" title="(in Python v3.14)"><em>LogRecord</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.install_sensitive_filter">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">install_sensitive_filter</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#install_sensitive_filter"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.install_sensitive_filter" title="Link to this definition"></a></dt>
+<dd><p>התקנת המסנן על כל ה-handlers הקיימים.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="utils.normalize_code">
+<span class="sig-prename descclassname"><span class="pre">utils.</span></span><span class="sig-name descname"><span class="pre">normalize_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strip_bom</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">normalize_newlines</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replace_nbsp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">replace_all_space_separators</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">remove_zero_width</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">remove_directional_marks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trim_trailing_whitespace</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">remove_other_format_chars</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">remove_escaped_format_escapes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">remove_variation_selectors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/utils.html#normalize_code"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#utils.normalize_code" title="Link to this definition"></a></dt>
+<dd><p>נרמול קוד לפני שמירה.</p>
+<p>פעולות עיקריות:
+:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+<ul class="simple">
+<li><p>הסרת BOM בתחילת הטקסט</p></li>
+<li><p>המרת CRLF/CR ל-LF</p></li>
+<li><p>החלפת רווחים לא-שוברים (NBSP/NNBSP) לרווח רגיל</p></li>
+<li><p>הסרת תווי רוחב-אפס וסימוני כיוון (LRM/RLM/LRE/RLE/PDF/RLO/LRO/LRI/RLI/FSI/PDI)</p></li>
+<li><p>הסרת תווי בקרה (Cc) פרט ל-t, n, r</p></li>
+<li><p>הסרת רווחי סוף שורה</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>strip_bom</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>normalize_newlines</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>replace_nbsp</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>replace_all_space_separators</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>remove_zero_width</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>remove_directional_marks</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>trim_trailing_whitespace</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>remove_other_format_chars</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>remove_escaped_format_escapes</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>remove_variation_selectors</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="handlers.states.html" class="btn btn-neutral float-left" title="handlers.states module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="modules.html" class="btn btn-neutral float-right" title="workspace" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Development Team.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
