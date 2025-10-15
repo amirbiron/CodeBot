@@ -141,6 +141,23 @@ class GitHubMenuHandler:
             }
         return self.user_sessions[user_id]
 
+    # --- Date/time helpers ---
+    def _to_utc_aware(self, dt: Optional[datetime]) -> Optional[datetime]:
+        """Normalize datetime to timezone-aware UTC to avoid comparison errors.
+
+        PyGithub often returns naive UTC datetimes. We must not compare
+        naive and aware datetimes, so we coerce to aware UTC.
+        """
+        if dt is None:
+            return None
+        try:
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            # Fallback: return as-is if unexpected type
+            return dt
+
     async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
         query = update.callback_query
@@ -5002,13 +5019,17 @@ class GitHubMenuHandler:
                 else:
                     pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
                     for pr in pulls[:10]:
-                        updated = pr.updated_at
-                        if updated <= last_pr_check_time:
+                        updated = self._to_utc_aware(getattr(pr, "updated_at", None))
+                        # Normalize baseline too (safety in case it was saved naive somehow)
+                        baseline = self._to_utc_aware(last_pr_check_time)
+                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                        if baseline and (updated is None or updated <= baseline):
                             break
+                        created = self._to_utc_aware(getattr(pr, "created_at", None))
                         status = (
                             "נפתח"
-                            if pr.state == "open" and pr.created_at == pr.updated_at
-                            else ("מוזג" if pr.merged else ("נסגר" if pr.state == "closed" else "עודכן"))
+                            if (pr.state == "open" and created and updated and created == updated)
+                            else ("מוזג" if getattr(pr, "merged", False) else ("נסגר" if pr.state == "closed" else "עודכן"))
                         )
                         messages.append(
                             f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
@@ -5027,12 +5048,15 @@ class GitHubMenuHandler:
                     for issue in issues:
                         if issue.pull_request is not None:
                             continue
-                        updated = issue.updated_at
-                        if updated <= last_issues_check_time:
+                        updated = self._to_utc_aware(getattr(issue, "updated_at", None))
+                        baseline = self._to_utc_aware(last_issues_check_time)
+                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                        if baseline and (updated is None or updated <= baseline):
                             break
+                        created = self._to_utc_aware(getattr(issue, "created_at", None))
                         status = (
                             "נפתח"
-                            if issue.state == "open" and issue.created_at == issue.updated_at
+                            if (issue.state == "open" and created and updated and created == updated)
                             else ("נסגר" if issue.state == "closed" else "עודכן")
                         )
                         messages.append(
