@@ -5022,7 +5022,8 @@ class GitHubMenuHandler:
                         updated = self._to_utc_aware(getattr(pr, "updated_at", None))
                         # Normalize baseline too (safety in case it was saved naive somehow)
                         baseline = self._to_utc_aware(last_pr_check_time)
-                        if updated and baseline and updated <= baseline:
+                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                        if baseline and (updated is None or updated <= baseline):
                             break
                         created = self._to_utc_aware(getattr(pr, "created_at", None))
                         status = (
@@ -5049,7 +5050,8 @@ class GitHubMenuHandler:
                             continue
                         updated = self._to_utc_aware(getattr(issue, "updated_at", None))
                         baseline = self._to_utc_aware(last_issues_check_time)
-                        if updated and baseline and updated <= baseline:
+                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                        if baseline and (updated is None or updated <= baseline):
                             break
                         created = self._to_utc_aware(getattr(issue, "created_at", None))
                         status = (
