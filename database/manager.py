@@ -16,6 +16,12 @@ except Exception:  # ModuleNotFoundError or any import-time error
     _PYMONGO_AVAILABLE = False
 
 from config import config
+try:
+    # Structured logging events
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +89,12 @@ class DatabaseManager:
             self.collection = NoOpCollection()
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
-            logger.info("DB disabled (docs/CI mode) — using no-op collections")
+            emit_event("db_disabled", reason="docs_or_ci_mode")
 
         # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
         if not _PYMONGO_AVAILABLE:
             _init_noop_collections()
-            logger.info("DB disabled (pymongo not available) — using no-op collections")
+            emit_event("db_disabled", reason="pymongo_not_available")
             return
 
         if disable_db:
@@ -117,13 +123,13 @@ class DatabaseManager:
             self.internal_shares_collection = self.db.internal_shares
             self.client.admin.command('ping')
             self._create_indexes()
-            logger.info("התחברות למסד הנתונים הצליחה עם Connection Pooling מתקדם")
+            emit_event("db_connected", severity="info")
         except Exception as e:
             if disable_db:
                 _init_noop_collections()
-                logger.warning("DB connection failed; falling back to no-op collections for docs/CI")
+                emit_event("db_connection_fallback_noop", severity="warn", error=str(e))
                 return
-            logger.error(f"שגיאה בהתחברות למסד הנתונים: {e}")
+            emit_event("db_connection_failed", severity="error", error=str(e))
             raise
 
     # --- Lazy repository accessor to avoid circular imports ---
@@ -262,10 +268,10 @@ class DatabaseManager:
                     self.large_files_collection.create_indexes(large_files_indexes)
                     if self.backup_ratings_collection is not None:
                         self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
-                except Exception:
-                    logger.warning("נכשל עדכון אינדקסים לאחר קונפליקט")
+                except Exception as _e:
+                    emit_event("db_indexes_conflict_update_failed", severity="warn", error=str(_e))
             else:
-                logger.warning(f"שגיאה ביצירת אינדקסים: {e}")
+                emit_event("db_create_indexes_error", severity="warn", error=str(e))
 
     def close(self):
         if self.client:
