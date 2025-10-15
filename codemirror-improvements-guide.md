@@ -123,6 +123,7 @@ export class MobileSupport {
     this.isMobile = this.detectMobile();
     this.isTablet = this.detectTablet();
     this.touchStartY = 0;
+    this.lastTap = 0; // אתחול למניעת NaN בהשוואה הראשונה
   }
   
   detectMobile() {
@@ -183,10 +184,15 @@ export class MobileSupport {
         
         // Double tap to select word
         touchend: (e, view) => {
-          if (e.timeStamp - this.lastTap < 300) {
+          const currentTime = e.timeStamp || Date.now();
+          const timeSinceLastTap = currentTime - this.lastTap;
+          
+          if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
+            // Double tap detected
             this.selectWordAtTouch(e, view);
           }
-          this.lastTap = e.timeStamp;
+          
+          this.lastTap = currentTime;
           return false;
         }
       })
