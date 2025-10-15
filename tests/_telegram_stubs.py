@@ -160,8 +160,12 @@ class RetryAfter(Exception):
         super().__init__('RetryAfter')
         self.retry_after = retry_after
 
+class Forbidden(Exception):
+    pass
+
 terr.BadRequest = BadRequest
 terr.RetryAfter = RetryAfter
+terr.Forbidden = Forbidden
 sys.modules['telegram.error'] = terr
 
 # Also expose telegram.error under the root telegram module for
