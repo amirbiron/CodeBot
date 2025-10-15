@@ -51,7 +51,13 @@ from observability import (
     generate_request_id,
     emit_event,
 )
-from metrics import telegram_updates_total, track_file_saved, track_search_performed
+from metrics import (
+    telegram_updates_total,
+    track_file_saved,
+    track_search_performed,
+    track_performance,
+    errors_total,
+)
 from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
@@ -122,6 +128,10 @@ def _register_catch_all_callback(application, callback_fn) -> None:
 
 # הודעת התחלה מרשימה
 logger.info("🚀 מפעיל בוט קוד מתקדם - גרסה פרו!")
+try:
+    emit_event("bot_start", msg_he="מפעיל את הבוט", severity="info")
+except Exception:
+    pass
 
 # הפחתת רעש בלוגים
 logging.getLogger("httpx").setLevel(logging.ERROR)  # רק שגיאות קריטיות
@@ -381,7 +391,11 @@ def get_lock_collection():
         # Use the already-selected database from DatabaseManager
         selected_db = db.db
         if selected_db is None:
-            logger.critical("DatabaseManager.db is not initialized!")
+        logger.critical("DatabaseManager.db is not initialized!")
+        try:
+            emit_event("db_lock_db_missing", severity="critical", event="db_lock_db_missing")
+        except Exception:
+            pass
             sys.exit(1)
         # Optional: small debug to help diagnose DB mismatches
         try:
@@ -391,6 +405,10 @@ def get_lock_collection():
         return selected_db[LOCK_COLLECTION]
     except Exception as e:
         logger.critical(f"Failed to get lock collection from DatabaseManager: {e}", exc_info=True)
+        try:
+            emit_event("db_lock_get_failed", severity="critical", error=str(e))
+        except Exception:
+            pass
         sys.exit(1)
 
 # New: ensure TTL index on expires_at so stale locks get auto-removed
@@ -409,6 +427,10 @@ def ensure_lock_indexes() -> None:
     except Exception as e:
         # Non-fatal; continue without TTL if index creation fails
         logger.warning(f"Could not ensure TTL index for lock collection: {e}")
+        try:
+            emit_event("lock_ttl_index_failed", severity="warn", error=str(e))
+        except Exception:
+            pass
 
 def cleanup_mongo_lock():
     """
@@ -431,10 +453,22 @@ def cleanup_mongo_lock():
         result = lock_collection.delete_one({"_id": LOCK_ID, "pid": pid})
         if result.deleted_count > 0:
             logger.info(f"Lock '{LOCK_ID}' released successfully by PID: {pid}.")
+            try:
+                emit_event("lock_released", severity="info", pid=pid)
+            except Exception:
+                pass
     except pymongo.errors.InvalidOperation:
         logger.warning("Mongo client already closed; skipping lock cleanup.")
+        try:
+            emit_event("lock_cleanup_skipped_client_closed", severity="warn")
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
+        try:
+            emit_event("lock_release_error", severity="error", error=str(e))
+        except Exception:
+            pass
 
 def manage_mongo_lock():
     """
@@ -460,6 +494,10 @@ def manage_mongo_lock():
         try:
             lock_collection.insert_one({"_id": LOCK_ID, "pid": pid, "expires_at": expires_at})
             logger.info(f"✅ MongoDB lock acquired by PID {pid}")
+            try:
+                emit_event("lock_acquired", severity="info", pid=pid)
+            except Exception:
+                pass
         except DuplicateKeyError:
             # A lock already exists
             # First, attempt immediate takeover if the lock is expired
@@ -477,6 +515,10 @@ def manage_mongo_lock():
                     )
                     if result:
                         logger.info(f"✅ MongoDB lock re-acquired by PID {pid} (expired lock)")
+                        try:
+                            emit_event("lock_reacquired", severity="info", pid=pid)
+                        except Exception:
+                            pass
                         break
                 else:
                     # Not expired: wait and retry instead of exiting to support blue/green deploys
@@ -494,10 +536,18 @@ def manage_mongo_lock():
                         # loop will re-check and attempt takeover at the top
                         if time.time() >= deadline:
                             logger.warning("Timeout waiting for existing lock to release. Exiting gracefully.")
+                            try:
+                                emit_event("lock_wait_timeout", severity="warn", max_wait_seconds=max_wait_seconds)
+                            except Exception:
+                                pass
                             return False
                     else:
                         # Infinite wait with periodic log
                         logger.warning("Another bot instance is already running (lock present). Waiting for lock release…")
+                        try:
+                            emit_event("lock_waiting_existing", severity="warn")
+                        except Exception:
+                            pass
                         time.sleep(retry_interval_seconds)
                         continue
                 # If we reach here without breaking, loop will retry
@@ -508,6 +558,10 @@ def manage_mongo_lock():
 
     except Exception as e:
         logger.error(f"Failed to acquire MongoDB lock: {e}", exc_info=True)
+        try:
+            emit_event("lock_acquire_failed", severity="error", error=str(e))
+        except Exception:
+            pass
         # Fail-open to not crash the app, but log loudly
         return True
 
@@ -712,6 +766,10 @@ class CodeKeeperBot:
         # ספור את ה-handlers
         handler_count = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers לפני: {handler_count}")
+        try:
+            emit_event("handlers_count_before", severity="info", count=handler_count)
+        except Exception:
+            pass
 
         # --- Rate limiting gate (גבוה עדיפות, לפני שאר ה-handlers) ---
         async def _rate_limit_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -750,25 +808,45 @@ class CodeKeeperBot:
         conversation_handler = get_save_conversation_handler(db)
         self.application.add_handler(conversation_handler)
         logger.info("ConversationHandler נוסף")
+        try:
+            emit_event("conversation_handler_added", severity="info")
+        except Exception:
+            pass
 
         # ספור שוב
         handler_count_after = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers אחרי: {handler_count_after}")
+        try:
+            emit_event("handlers_count_after", severity="info", count=handler_count_after)
+        except Exception:
+            pass
 
         # --- GitHub handlers - חייבים להיות לפני ה-handler הגלובלי! ---
         # יצירת instance יחיד של GitHubMenuHandler ושמירה ב-bot_data
         github_handler = GitHubMenuHandler()
         self.application.bot_data['github_handler'] = github_handler
         logger.info("✅ GitHubMenuHandler instance created and stored in bot_data")
+        try:
+            emit_event("github_handler_ready", severity="info")
+        except Exception:
+            pass
         # יצירת BackupMenuHandler ושמירה
         backup_handler = BackupMenuHandler()
         self.application.bot_data['backup_handler'] = backup_handler
         logger.info("✅ BackupMenuHandler instance created and stored in bot_data")
+        try:
+            emit_event("backup_handler_ready", severity="info")
+        except Exception:
+            pass
 
         # יצירת GoogleDriveMenuHandler ושמירה
         drive_handler = GoogleDriveMenuHandler()
         self.application.bot_data['drive_handler'] = drive_handler
         logger.info("✅ GoogleDriveMenuHandler instance created and stored in bot_data")
+        try:
+            emit_event("drive_handler_ready", severity="info")
+        except Exception:
+            pass
         
         # הוסף פקודת github
         self.application.add_handler(CommandHandler("github", github_handler.github_menu_command))
@@ -1242,10 +1320,12 @@ class CodeKeeperBot:
             query = ""
         elif query in config.SUPPORTED_LANGUAGES:
             # חיפוש לפי שפה
-            results = db.search_code(user_id, "", programming_language=query)
+            with track_performance("search_by_language", labels={"operation": "search_by_language"}):
+                results = db.search_code(user_id, "", programming_language=query)
         else:
             # חיפוש חופשי
-            results = db.search_code(user_id, query, tags=tags)
+            with track_performance("search_free", labels={"operation": "search_free"}):
+                results = db.search_code(user_id, query, tags=tags)
         
         if not results:
             await update.message.reply_text(
@@ -1257,6 +1337,13 @@ class CodeKeeperBot:
         # Business metric: search performed (avoid logging raw query)
         try:
             track_search_performed(user_id=user_id, query=' '.join(context.args), results_count=len(results))
+            emit_event(
+                "search_performed",
+                severity="info",
+                user_id=user_id,
+                query_length=len(' '.join(context.args)),
+                results_count=len(results),
+            )
         except Exception:
             pass
 
@@ -2223,9 +2310,20 @@ class CodeKeeperBot:
             )
             return
         
-        # זיהוי שפת התכנות באמצעות CodeProcessor
-        detected_language = code_processor.detect_language(code, saving_data['file_name'])
+        # זיהוי שפת התכנות באמצעות CodeProcessor + תיעוד מדוד
+        with track_performance("detect_language"):
+            detected_language = code_processor.detect_language(code, saving_data['file_name'])
         logger.info(f"זוהתה שפה: {detected_language} עבור הקובץ {saving_data['file_name']}")
+        try:
+            emit_event(
+                "file_save_detect_language",
+                severity="info",
+                language=detected_language,
+                file_name=saving_data['file_name'],
+                size_bytes=len(code.encode('utf-8', errors='replace')),
+            )
+        except Exception:
+            pass
         
         # אם טרם נשמרה הערה, נשאל כעת
         if not saving_data.get('note_asked'):
@@ -2254,7 +2352,10 @@ class CodeKeeperBot:
         )
         
         # שמירה במסד הנתונים
-        if db.save_code_snippet(snippet):
+        saved_ok = False
+        with track_performance("db_save_code_snippet"):
+            saved_ok = db.save_code_snippet(snippet)
+        if saved_ok:
             try:
                 # Business metric: file saved (size in BYTES, not chars)
                 try:
@@ -2262,6 +2363,14 @@ class CodeKeeperBot:
                 except Exception:
                     size_bytes = len(code)  # Fallback
                 track_file_saved(user_id=saving_data['user_id'], language=detected_language, size_bytes=size_bytes)
+                emit_event(
+                    "file_saved",
+                    severity="info",
+                    user_id=saving_data['user_id'],
+                    language=detected_language,
+                    size_bytes=size_bytes,
+                    file_name=saving_data['file_name'],
+                )
             except Exception:
                 pass
             await update.message.reply_text(
@@ -2277,6 +2386,17 @@ class CodeKeeperBot:
             await update.message.reply_text(
                 "❌ שגיאה בשמירה. נסה שוב מאוחר יותר."
             )
+            try:
+                if errors_total is not None:
+                    errors_total.labels(code="E_SAVE_FAILED").inc()
+                emit_event(
+                    "file_save_failed",
+                    severity="error",
+                    user_id=saving_data['user_id'],
+                    file_name=saving_data['file_name'],
+                )
+            except Exception:
+                pass
     
     def _looks_like_code(self, text: str) -> bool:
         """בדיקה פשוטה אם טקסט נראה כמו קוד"""
