@@ -41,9 +41,17 @@ from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKe
 from telegram.constants import ParseMode
 from telegram.ext import (Application, CommandHandler, ContextTypes,
                           MessageHandler, filters, Defaults, ConversationHandler, CallbackQueryHandler,
-                          PicklePersistence, InlineQueryHandler, ApplicationHandlerStop)
+                          PicklePersistence, InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
 
 from config import config
+from observability import (
+    setup_structlog_logging,
+    init_sentry,
+    bind_request_id,
+    generate_request_id,
+    emit_event,
+)
+from metrics import telegram_updates_total
 from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
@@ -78,19 +86,22 @@ except Exception:
 
 # (Lock mechanism constants removed)
 
-# הגדרת לוגר מתקדם
+# הגדרת לוגים בסיסית + structlog + Sentry
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
-# התקנת מסנן טשטוש נתונים רגישים
 try:
     from utils import install_sensitive_filter
     install_sensitive_filter()
 except Exception:
+    pass
+try:
+    setup_structlog_logging("INFO")
+    init_sentry()
+except Exception:
+    # אל תכשיל את האפליקציה אם תצורת observability נכשלה
     pass
 
 logger = logging.getLogger(__name__)
@@ -569,6 +580,12 @@ class CodeKeeperBot:
                         # Fallback שקט: אין polling אמיתי; מאפשר start ללא קריסה
                         return None
                 self.application = _MiniApp()
+        # התקנת מתאם קורלציה לפני רישום שאר ה-handlers
+        try:
+            self._install_correlation_layer()
+        except Exception:
+            pass
+
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
         # רישום קטגוריית "⭐ מועדפים" לתפריט "📚 הקבצים"
@@ -582,6 +599,48 @@ class CodeKeeperBot:
             self._rate_limiter = RateLimiter(max_per_minute=int(getattr(config, 'RATE_LIMIT_PER_MINUTE', 30) or 30))
         except Exception:
             self._rate_limiter = RateLimiter(max_per_minute=30)
+
+    def _install_correlation_layer(self) -> None:
+        """רישום Handler מוקדם שמייצר ומקשר request_id ומודד מטריקות בסיסיות."""
+        async def _pre_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            # request_id קצר ונוח
+            try:
+                req_id = context.user_data.get("request_id") if hasattr(context, "user_data") else None
+            except Exception:
+                req_id = None
+            if not req_id:
+                req_id = generate_request_id()
+                try:
+                    if hasattr(context, "user_data"):
+                        context.user_data["request_id"] = req_id
+                except Exception:
+                    pass
+            # כרוך ל-contextvars כך שיופיע בכל רשומת לוג בהמשך השרשור
+            try:
+                bind_request_id(req_id)
+            except Exception:
+                pass
+            # עדכון מטריקה כללית על סוג ה-update
+            try:
+                upd_type = (
+                    "callback_query" if getattr(update, "callback_query", None) else
+                    "inline_query" if getattr(update, "inline_query", None) else
+                    "message" if getattr(update, "message", None) else
+                    "other"
+                )
+                if telegram_updates_total is not None:
+                    telegram_updates_total.labels(type=upd_type, status="received").inc()
+            except Exception:
+                pass
+
+        handler = TypeHandler(Update, _pre_update)  # כל ה-Updates
+        try:
+            self.application.add_handler(handler, group=-100)
+        except TypeError:
+            self.application.add_handler(handler)
+        except Exception:
+            # אל תכשיל את האפליקציה במקרה של כשל
+            pass
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""

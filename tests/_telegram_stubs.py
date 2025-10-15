@@ -118,6 +118,11 @@ class Defaults:
 class Application:  # placeholder to satisfy imports; tests monkeypatch runtime behavior
     pass
 
+class TypeHandler:
+    def __init__(self, t, callback):
+        self.t = t
+        self.callback = callback
+
 class ApplicationHandlerStop(Exception):
     pass
 
@@ -170,6 +175,7 @@ te.PicklePersistence = PicklePersistence
 te.ContextTypes = ContextTypes
 te.Defaults = Defaults
 te.Application = Application
+te.TypeHandler = TypeHandler
 te.ApplicationHandlerStop = ApplicationHandlerStop
 te.ConversationHandler = ConversationHandler
 te.filters = filters

@@ -64,6 +64,7 @@ structlog==23.2.0
 sentry-sdk==1.39.2
 psutil==5.9.6
 memory-profiler==0.61.0
+prometheus-client==0.20.0
 
 # Security
 bcrypt==4.1.2
