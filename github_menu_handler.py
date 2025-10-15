@@ -522,6 +522,10 @@ class GitHubMenuHandler:
         try:
             repo = g.get_repo(repo_full)
         except Exception as e:
+            try:
+                emit_event("github_import_repo_error", severity="error", error=str(e), repo=repo_full, branch=branch)
+            except Exception:
+                pass
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
             return
         try:

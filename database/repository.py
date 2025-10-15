@@ -989,11 +989,20 @@ class Repository:
             # Fetch all and merge-sort in Python for simplicity and correctness across two collections
             try:
                 reg_docs = list(self.manager.collection.find(match))
-            except Exception:
+            except Exception as e:
+                # Emit per-source failure to help diagnostics
+                try:
+                    emit_event("db_list_deleted_files_error", severity="error", error=str(e), stage="regular")
+                except Exception:
+                    pass
                 reg_docs = []
             try:
                 large_docs = list(self.manager.large_files_collection.find(match))
-            except Exception:
+            except Exception as e:
+                try:
+                    emit_event("db_list_deleted_files_error", severity="error", error=str(e), stage="large")
+                except Exception:
+                    pass
                 large_docs = []
 
             def _key(doc: Dict[str, Any]):
