@@ -30,9 +30,18 @@ class ReplyKeyboardRemove:
     def __init__(self, *a, **k):
         pass
 
-# Optional minimal type often referenced in tests as a spec
+# Optional minimal types often referenced in tests as a spec
 class Update:  # pragma: no cover - shape only
     pass
+
+class BotCommand:
+    def __init__(self, command: str, description: str):
+        self.command = command
+        self.description = description
+
+class BotCommandScopeChat:
+    def __init__(self, chat_id: int):
+        self.chat_id = chat_id
 
 telegram.InlineKeyboardButton = InlineKeyboardButton
 telegram.InlineKeyboardMarkup = InlineKeyboardMarkup
@@ -40,6 +49,8 @@ telegram.InputFile = InputFile
 telegram.ReplyKeyboardMarkup = ReplyKeyboardMarkup
 telegram.ReplyKeyboardRemove = ReplyKeyboardRemove
 telegram.Update = Update
+telegram.BotCommand = BotCommand
+telegram.BotCommandScopeChat = BotCommandScopeChat
 sys.modules['telegram'] = telegram
 
 # --- telegram.constants module stub ---
@@ -152,3 +163,7 @@ class RetryAfter(Exception):
 terr.BadRequest = BadRequest
 terr.RetryAfter = RetryAfter
 sys.modules['telegram.error'] = terr
+
+# Also expose telegram.error under the root telegram module for
+# call sites using `import telegram; telegram.error.BadRequest`
+telegram.error = terr
