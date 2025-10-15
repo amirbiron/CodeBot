@@ -183,11 +183,11 @@ class MultiSelectManager {
     }
     
     // מחיקה קבוצתית (soft delete)
+    // הערה: אין ניהול overlay כאן – זה מנוהל ב-BulkActions
     deleteSelected(ttlDays = 30) {
         const fileIds = Array.from(this.selectedFiles.values()).map(f => f.id);
-        if (fileIds.length === 0) return;
-        window.bulkActions?.showProcessing(`מוחק ${fileIds.length} קבצים...`);
-        fetch('/api/files/bulk-delete', {
+        if (fileIds.length === 0) return Promise.resolve();
+        return fetch('/api/files/bulk-delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ file_ids: fileIds, ttl_days: ttlDays })
@@ -210,8 +210,7 @@ class MultiSelectManager {
         .catch(err => {
             console.error('Error deleting files:', err);
             window.bulkActions?.showNotification('שגיאה במחיקה', 'error');
-        })
-        .finally(() => window.bulkActions?.hideProcessing());
+        });
     }
     
     persistSelection() {
