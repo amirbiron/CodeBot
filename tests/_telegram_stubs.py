@@ -79,20 +79,30 @@ sys.modules['telegram.constants'] = tc
 te = types.ModuleType('telegram.ext')
 
 class CallbackQueryHandler:
-    def __init__(self, *a, **k):
-        pass
+    def __init__(self, callback=None, pattern=None, *args, **kwargs):
+        # PTB v20+: first arg is the callback
+        self.callback = callback or kwargs.get('callback')
+        self.pattern = pattern or kwargs.get('pattern')
 
 class CommandHandler:
-    def __init__(self, *a, **k):
-        pass
+    def __init__(self, command=None, callback=None, *args, **kwargs):
+        # Accept both (command, callback) and (callback) shapes
+        if callback is None and callable(command):
+            self.callback = command
+            self.command = None
+        else:
+            self.command = command
+            self.callback = callback or kwargs.get('callback')
 
 class MessageHandler:
-    def __init__(self, *a, **k):
-        pass
+    def __init__(self, filters, callback, *args, **kwargs):
+        # PTB v20+: (filters, callback)
+        self.filters = filters
+        self.callback = callback
 
 class InlineQueryHandler:
-    def __init__(self, *a, **k):
-        pass
+    def __init__(self, callback=None, *args, **kwargs):
+        self.callback = callback or kwargs.get('callback')
 
 class PicklePersistence:
     def __init__(self, *a, **k):
@@ -122,28 +132,33 @@ class ConversationHandler:
 
 # Minimal filters namespace used by code; values aren't exercised in tests
 class _FiltersNS:
-    class _All:
+    class _Filter:
+        def __init__(self, kind: str, value=None):
+            self.kind = kind
+            self.value = value
         def __and__(self, other):
-            return self
+            return _FiltersNS._Filter('AND', (self, other))
+        def __or__(self, other):
+            return _FiltersNS._Filter('OR', (self, other))
         def __invert__(self):
-            return self
-
-    class _Regex:
-        def __init__(self, pattern):
-            self.pattern = pattern
+            return _FiltersNS._Filter('NOT', self)
 
     class _DocumentNS:
-        ALL = object()
+        ALL = None  # initialized after _Filter is defined
 
-    TEXT = object()
-    COMMAND = object()
-    ALL = _All()
+    # Common filters
+    TEXT = _Filter('TEXT')
+    COMMAND = _Filter('COMMAND')
+    ALL = _Filter('ALL')
 
     @staticmethod
     def Regex(pattern):
-        return _FiltersNS._Regex(pattern)
+        f = _FiltersNS._Filter('REGEX', pattern)
+        f.pattern = pattern
+        return f
 
     Document = _DocumentNS()
+    Document.ALL = _Filter('DOCUMENT_ALL')
 
 filters = _FiltersNS()
 
