@@ -39,6 +39,7 @@ async def test_perf_wrapper_on_saved_upload(monkeypatch):
 
     # stub db + repo operations
     class _Repo:
+        default_branch = "main"
         def get_contents(self, *a, **k):
             raise Exception("not exists")
         def create_file(self, *a, **k):
@@ -59,11 +60,13 @@ async def test_perf_wrapper_on_saved_upload(monkeypatch):
             return None
         async def answer(self, *a, **k):
             return None
+        message = types.SimpleNamespace(reply_document=lambda *a, **k: None)
     class _Update:
         callback_query = _Query()
         effective_user = types.SimpleNamespace(id=1)
     class _Ctx:
         user_data = {"upload_target_branch": "main", "upload_target_folder": None}
+        application = types.SimpleNamespace()  # unused but present in some paths
 
     # stub database.db and bson.ObjectId so imports inside function succeed
     class _DB:
