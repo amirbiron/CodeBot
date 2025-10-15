@@ -523,7 +523,8 @@ class GitHubMenuHandler:
             repo = g.get_repo(repo_full)
         except Exception as e:
             try:
-                emit_event("github_import_repo_error", severity="error", error=str(e), repo=repo_full, branch=branch)
+                # אין ענף בשלב זה; דווח רק על הריפו
+                emit_event("github_import_repo_error", severity="error", error=str(e), repo=repo_full)
             except Exception:
                 pass
             await query.edit_message_text(f"❌ שגיאה בטעינת ריפו: {e}")
