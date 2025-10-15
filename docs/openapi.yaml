@@ -617,6 +617,9 @@ paths:
                 $ref: '#/components/schemas/UiPrefsResponse'
         '401': { description: Unauthorized }
 
+  # Note: The WebApp exposes HTML at GET /files only.
+  # JSON API for files listing is not implemented yet; keeping spec minimal to avoid 404s for generators.
+
   /api/public_stats:
     get:
       summary: Public global statistics (no auth)

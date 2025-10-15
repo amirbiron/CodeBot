@@ -15,6 +15,10 @@ Code Keeper Bot - תיעוד API
    quickstart-ai
    quickstart
    ai-guidelines
+   doc-authoring
+   style-glossary
+   versioning-stable-anchors
+   whats-new
    architecture
    contributing
 
@@ -35,6 +39,8 @@ Code Keeper Bot - תיעוד API
    handlers/index
    services/index
    database/index
+   database/indexing
+   database/cursor-pagination
    database-schema
 
 .. toctree::
@@ -58,6 +64,8 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
+   webapp/caching
+   webapp/static-checklist
    webapp/api-reference
 
 סקירה כללית

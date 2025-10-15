@@ -18,6 +18,7 @@ File View Handler
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Pagination Handler
 ------------------
@@ -26,6 +27,7 @@ Pagination Handler
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 Save Flow Handler
 -----------------
@@ -34,6 +36,7 @@ Save Flow Handler
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 States Handler
 --------------
@@ -42,6 +45,7 @@ States Handler
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
 
 GitHub Handlers
 ---------------
@@ -50,3 +54,4 @@ GitHub Handlers
    :members:
    :undoc-members:
    :show-inheritance:
+   :noindex:
