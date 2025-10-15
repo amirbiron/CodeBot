@@ -29,6 +29,8 @@ from pathlib import Path
 import secrets
 import threading
 import base64
+from io import BytesIO
+import zipfile
 
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
@@ -2575,6 +2577,257 @@ def api_toggle_favorite(file_id):
             return jsonify({'ok': False, 'error': f'לא ניתן לעדכן מועדפים: {e}'}), 500
 
         return jsonify({'ok': True, 'state': new_state})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# --- Bulk files API (multi-select actions) ---
+@app.route('/api/files/bulk-favorite', methods=['POST'])
+@login_required
+def api_files_bulk_favorite():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        data = request.get_json(silent=True) or {}
+        file_ids = [str(x) for x in (data.get('file_ids') or []) if str(x).strip()]
+        file_names_in = [str(x) for x in (data.get('file_names') or []) if str(x).strip()]
+        # קבצי יעד לפי שם קובץ (distinct)
+        target_names = set()
+        if file_ids:
+            try:
+                rows = list(db.code_snippets.find({'_id': {'$in': [ObjectId(fid) for fid in file_ids]}, 'user_id': user_id}, {'file_name': 1}))
+            except Exception:
+                rows = []
+            for r in rows:
+                fn = r.get('file_name')
+                if fn:
+                    target_names.add(str(fn))
+        for fn in file_names_in:
+            target_names.add(fn)
+        if not target_names:
+            return jsonify({'ok': False, 'error': 'לא נבחרו קבצים'}), 400
+
+        now = datetime.now(timezone.utc)
+        q = {
+            'user_id': user_id,
+            'file_name': {'$in': sorted(target_names)},
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}},
+            ],
+        }
+        try:
+            res = db.code_snippets.update_many(q, {
+                '$set': {
+                    'is_favorite': True,
+                    'favorited_at': now,
+                    'updated_at': now,
+                }
+            })
+            modified = int(getattr(res, 'modified_count', 0) or 0)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'עדכון נכשל: {e}'}), 500
+
+        try:
+            cache.invalidate_user_cache(int(user_id))
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'updated': modified, 'files': len(target_names)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/files/bulk-unfavorite', methods=['POST'])
+@login_required
+def api_files_bulk_unfavorite():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        data = request.get_json(silent=True) or {}
+        file_ids = [str(x) for x in (data.get('file_ids') or []) if str(x).strip()]
+        file_names_in = [str(x) for x in (data.get('file_names') or []) if str(x).strip()]
+        target_names = set()
+        if file_ids:
+            try:
+                rows = list(db.code_snippets.find({'_id': {'$in': [ObjectId(fid) for fid in file_ids]}, 'user_id': user_id}, {'file_name': 1}))
+            except Exception:
+                rows = []
+            for r in rows:
+                fn = r.get('file_name')
+                if fn:
+                    target_names.add(str(fn))
+        for fn in file_names_in:
+            target_names.add(fn)
+        if not target_names:
+            return jsonify({'ok': False, 'error': 'לא נבחרו קבצים'}), 400
+
+        now = datetime.now(timezone.utc)
+        q = {
+            'user_id': user_id,
+            'file_name': {'$in': sorted(target_names)},
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}},
+            ],
+        }
+        try:
+            res = db.code_snippets.update_many(q, {
+                '$set': {
+                    'is_favorite': False,
+                    'favorited_at': None,
+                    'updated_at': now,
+                }
+            })
+            modified = int(getattr(res, 'modified_count', 0) or 0)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'עדכון נכשל: {e}'}), 500
+
+        try:
+            cache.invalidate_user_cache(int(user_id))
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'updated': modified, 'files': len(target_names)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/files/bulk-tag', methods=['POST'])
+@login_required
+def api_files_bulk_tag():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        data = request.get_json(silent=True) or {}
+        raw_tags = data.get('tags') or []
+        if isinstance(raw_tags, str):
+            raw_tags = [raw_tags]
+        # נרמל וננקה תגיות; נתעלם מתגיות repo:* כדי להימנע מפגיעה בסמנטיקה מיוחדת
+        tags = []
+        seen = set()
+        for t in raw_tags:
+            s = str(t or '').strip()
+            if not s:
+                continue
+            if s.lower().startswith('repo:'):
+                continue
+            if s not in seen:
+                seen.add(s)
+                tags.append(s)
+        if not tags:
+            return jsonify({'ok': False, 'error': 'אין תגיות חוקיות להוספה'}), 400
+
+        # יעד: לפי file_ids ו/או file_names
+        file_ids = [str(x) for x in (data.get('file_ids') or []) if str(x).strip()]
+        file_names_in = [str(x) for x in (data.get('file_names') or []) if str(x).strip()]
+        target_names = set()
+        if file_ids:
+            try:
+                rows = list(db.code_snippets.find({'_id': {'$in': [ObjectId(fid) for fid in file_ids]}, 'user_id': user_id}, {'file_name': 1}))
+            except Exception:
+                rows = []
+            for r in rows:
+                fn = r.get('file_name')
+                if fn:
+                    target_names.add(str(fn))
+        for fn in file_names_in:
+            target_names.add(fn)
+        if not target_names:
+            return jsonify({'ok': False, 'error': 'לא נבחרו קבצים'}), 400
+
+        q = {
+            'user_id': user_id,
+            'file_name': {'$in': sorted(target_names)},
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}},
+            ],
+        }
+        try:
+            res = db.code_snippets.update_many(q, {
+                '$addToSet': {
+                    'tags': {'$each': tags}
+                }
+            })
+            modified = int(getattr(res, 'modified_count', 0) or 0)
+        except Exception as e:
+            return jsonify({'ok': False, 'error': f'עדכון תגיות נכשל: {e}'}), 500
+        try:
+            cache.invalidate_user_cache(int(user_id))
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'updated': modified, 'files': len(target_names), 'tags_added': len(tags)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/files/create-zip', methods=['POST'])
+@login_required
+def api_files_create_zip():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        data = request.get_json(silent=True) or {}
+        file_ids = [str(x) for x in (data.get('file_ids') or []) if str(x).strip()]
+        file_names_in = [str(x) for x in (data.get('file_names') or []) if str(x).strip()]
+
+        docs: List[Dict[str, Any]] = []
+        if file_ids:
+            try:
+                docs = list(db.code_snippets.find({'_id': {'$in': [ObjectId(fid) for fid in file_ids]}, 'user_id': user_id}))
+            except Exception:
+                docs = []
+        if not docs and file_names_in:
+            try:
+                docs = list(db.code_snippets.aggregate([
+                    {'$match': {'user_id': user_id, 'file_name': {'$in': file_names_in}, '$or': [
+                        {'is_active': True}, {'is_active': {'$exists': False}}
+                    ]}},
+                    {'$sort': {'file_name': 1, 'version': -1}},
+                    {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+                    {'$replaceRoot': {'newRoot': '$latest'}},
+                ]))
+            except Exception:
+                docs = []
+        if not docs:
+            return jsonify({'ok': False, 'error': 'לא נמצאו קבצים ליצור ZIP'}), 400
+
+        # מיפוי סיומות בדומה ל-download_file
+        extensions = {
+            'python': 'py', 'javascript': 'js', 'typescript': 'ts', 'java': 'java', 'cpp': 'cpp', 'c': 'c',
+            'csharp': 'cs', 'go': 'go', 'rust': 'rs', 'ruby': 'rb', 'php': 'php', 'swift': 'swift', 'kotlin': 'kt',
+            'html': 'html', 'css': 'css', 'sql': 'sql', 'bash': 'sh', 'shell': 'sh', 'dockerfile': 'dockerfile',
+            'yaml': 'yaml', 'json': 'json', 'xml': 'xml', 'markdown': 'md', 'text': 'txt'
+        }
+
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+            used_names = set()
+            for d in docs:
+                fname = str(d.get('file_name') or 'file')
+                lang = str((d.get('programming_language') or 'text')).lower()
+                ext = extensions.get(lang, 'txt')
+                out_name = fname if fname.lower().endswith(f'.{ext}') else f"{fname}.{ext}"
+                # מניעת כפילויות בשם בקובץ ה-ZIP
+                base_name = out_name
+                idx = 2
+                while out_name in used_names:
+                    # הוסף סיומת מספרית לפני סיומת הקובץ
+                    if '.' in base_name:
+                        root, dot, e = base_name.rpartition('.')
+                        out_name = f"{root}-{idx}.{e}"
+                    else:
+                        out_name = f"{base_name}-{idx}"
+                    idx += 1
+                used_names.add(out_name)
+                code = d.get('code') or ''
+                try:
+                    zf.writestr(out_name, code)
+                except Exception:
+                    # אל תפיל חבילה שלמה בגלל קובץ אחד
+                    continue
+        buf.seek(0)
+        stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')
+        download_name = f'codebot-files-{stamp}.zip'
+        return send_file(buf, as_attachment=True, download_name=download_name, mimetype='application/zip')
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 

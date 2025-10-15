@@ -161,7 +161,15 @@
 {% elif files %}
 <div class="files-grid" style="display: grid; gap: 1rem;">
     {% for file in files %}
-    <div class="glass-card file-card">
+    <div class="glass-card file-card" data-file-id="{{ file.id }}">
+        <div class="file-selection">
+            <input type="checkbox" 
+                   class="file-checkbox" 
+                   id="select-{{ file.id }}"
+                   data-file-id="{{ file.id }}"
+                   data-file-name="{{ file.file_name }}">
+            <label for="select-{{ file.id }}"></label>
+        </div>
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <div style="flex: 1;">
                 <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
@@ -334,5 +342,12 @@
     }
 }
 </style>
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/multi-select.css">
+{% endblock %}
 <div id="bottom"></div>
+{% block extra_js %}
+<script src="/static/js/multi-select.js"></script>
+<script src="/static/js/bulk-actions.js"></script>
+{% endblock %}
 {% endblock %}
