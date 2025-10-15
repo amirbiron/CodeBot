@@ -3,6 +3,37 @@
 ## 📋 סקירה כללית
 מימוש מערכת בחירה מרובה בדף הקבצים שתאפשר למשתמשים לבחור כמה קבצים ולבצע פעולות קבוצתיות עליהם.
 
+## 📦 קבצים שנוצרו במימוש
+
+### Frontend (JavaScript)
+- **`webapp/static/js/multi-select.js`** - מנהל לוגיקת הבחירה המרובה:
+  - טיפול ב-checkboxes ובחירת קבצים
+  - תמיכה ב-Shift+Click לבחירת טווח
+  - קיצורי מקלדת (Ctrl+A לבחירת הכל, Escape לניקוי)
+  - שמירה ושחזור בחירה בין עמודים (sessionStorage)
+  
+- **`webapp/static/js/bulk-actions.js`** - מנהל פעולות קבוצתיות:
+  - הוספה/הסרה ממועדפים
+  - הוספת תגיות מרובות
+  - יצירת והורדת קובץ ZIP
+  - מערכת התראות (notifications)
+  - דיאלוגים מודאליים אינטראקטיביים
+
+### Frontend (CSS)
+- **`webapp/static/css/multi-select.css`** - עיצוב מלא למערכת:
+  - עיצוב checkboxes עם אפקטי hover
+  - סגנון לכרטיסי קבצים נבחרים
+  - סרגל כלים הקשרי צף
+  - אנימציות חלקות (fade, slide, pulse)
+  - עיצוב התראות ודיאלוגים מודאליים
+  - תמיכה רספונסיבית מלאה
+
+### Backend (Python)
+שלושה endpoints חדשים שיש להוסיף ל-**`webapp/app.py`**:
+- **`/api/files/bulk-favorite`** - הוספה/הסרה קבוצתית ממועדפים
+- **`/api/files/bulk-tag`** - הוספת תגיות לקבצים מרובים
+- **`/api/files/create-zip`** - יצירת קובץ ZIP עם הקבצים הנבחרים
+
 ## 🎯 יעדים
 - **הוספת checkboxes** לכל כרטיס קובץ
 - **סרגל כלים הקשרי** שמופיע כשיש קבצים נבחרים
