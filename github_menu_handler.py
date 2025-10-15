@@ -3512,7 +3512,11 @@ class GitHubMenuHandler:
             if update.message.document:
                 await update.message.reply_text("⏳ מעלה קובץ לגיטהאב...")
                 try:
-                    emit_event("github_upload_start", user_id=int(user_id), file_name=str(filename))
+                    emit_event(
+                        "github_upload_start",
+                        user_id=int(user_id),
+                        file_name=str(update.message.document.file_name),
+                    )
                 except Exception:
                     pass
 
