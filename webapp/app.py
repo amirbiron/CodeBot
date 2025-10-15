@@ -2851,44 +2851,59 @@ def api_files_bulk_delete():
 
         if not file_ids:
             return jsonify({'success': False, 'error': 'No files selected'}), 400
-        if len(file_ids) > 100:
-            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
-
+        # המרה ל-ObjectId והסרת כפילויות לשמירה על לוגיקה עקבית בספירה/אימות
         try:
             object_ids = [ObjectId(fid) for fid in file_ids]
         except Exception:
             return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+        # שמור סדר אך הסר כפילויות
+        unique_object_ids = list(dict.fromkeys(object_ids))
+        if len(unique_object_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
 
         db = get_db()
         user_id = session['user_id']
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=ttl_days)
 
-        # אימות שהקבצים קיימים ושייכים למשתמש – עקביות עם שאר ה-endpoints
-        owned_count = db.code_snippets.count_documents({
-            '_id': {'$in': object_ids},
-            'user_id': user_id
-        })
-        if owned_count != len(object_ids):
+        # אימות בעלות ואיסוף סטטוס is_active לכל קובץ; תוצאה אחת לכל ID ייחודי
+        docs = list(db.code_snippets.find(
+            {'_id': {'$in': unique_object_ids}, 'user_id': user_id},
+            {'_id': 1, 'is_active': 1}
+        ))
+        found_ids = {doc['_id'] for doc in docs}
+        if len(found_ids) != len(unique_object_ids):
             return jsonify({'success': False, 'error': 'Some files not found'}), 404
+        # קבצים פעילים למחיקה (מוגדר כ-True או לא קיים)
+        active_ids = [doc['_id'] for doc in docs if bool(doc.get('is_active', True))]
+        skipped_already_deleted = len(unique_object_ids) - len(active_ids)
 
-        q = {
-            '_id': {'$in': object_ids},
-            'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
-        }
-        res = db.code_snippets.update_many(q, {
-            '$set': {
-                'is_active': False,
-                'deleted_at': now,
-                'deleted_expires_at': expires_at,
-                'updated_at': now,
+        modified_count = 0
+        if active_ids:
+            q = {
+                '_id': {'$in': active_ids},
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
             }
+            res = db.code_snippets.update_many(q, {
+                '$set': {
+                    'is_active': False,
+                    'deleted_at': now,
+                    'deleted_expires_at': expires_at,
+                    'updated_at': now,
+                }
+            })
+            modified_count = int(getattr(res, 'modified_count', 0))
+        return jsonify({
+            'success': True,
+            'deleted': modified_count,
+            'skipped_already_deleted': skipped_already_deleted,
+            'requested': len(unique_object_ids),
+            'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'
         })
-        return jsonify({'success': True, 'deleted': int(getattr(res, 'modified_count', 0)), 'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
