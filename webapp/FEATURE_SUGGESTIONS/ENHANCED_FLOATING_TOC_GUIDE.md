@@ -941,36 +941,106 @@
     searchBtn.addEventListener('click', searchBtnHandler);
     tocState.clickHandlers.push({ element: searchBtn, event: 'click', handler: searchBtnHandler });
     
+    // פונקציה ל-escape תווים מיוחדים ב-RegExp (מניעת ReDoS)
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    
+    // פונקציה בטוחה להדגשת טקסט (מניעת XSS)
+    function highlightText(element, searchTerm) {
+      const originalText = element.textContent;
+      
+      if (!searchTerm) {
+        // אין חיפוש - החזר טקסט מקורי
+        element.textContent = originalText;
+        return;
+      }
+      
+      // נקה את האלמנט
+      element.textContent = '';
+      
+      // חפש את כל ההתאמות בצורה בטוחה
+      const escapedTerm = escapeRegExp(searchTerm);
+      const regex = new RegExp(escapedTerm, 'gi');
+      let lastIndex = 0;
+      let match;
+      
+      // מגבלת ביצועים - מניעת ReDoS
+      const maxIterations = 100;
+      let iterations = 0;
+      
+      while ((match = regex.exec(originalText)) !== null && iterations < maxIterations) {
+        iterations++;
+        
+        // הוסף טקסט לפני ההתאמה
+        if (match.index > lastIndex) {
+          const textNode = document.createTextNode(originalText.slice(lastIndex, match.index));
+          element.appendChild(textNode);
+        }
+        
+        // צור mark element בצורה בטוחה
+        const mark = document.createElement('mark');
+        mark.textContent = match[0]; // שימוש ב-textContent למניעת XSS
+        element.appendChild(mark);
+        
+        lastIndex = regex.lastIndex;
+        
+        // מניעת לולאה אינסופית
+        if (regex.lastIndex === match.index) {
+          regex.lastIndex++;
+        }
+      }
+      
+      // הוסף טקסט אחרי ההתאמה האחרונה
+      if (lastIndex < originalText.length) {
+        const textNode = document.createTextNode(originalText.slice(lastIndex));
+        element.appendChild(textNode);
+      }
+    }
+    
     // חיפוש בזמן אמת
     const searchHandler = debounce((e) => {
-      const searchTerm = e.target.value.toLowerCase();
+      const searchTerm = e.target.value.toLowerCase().trim();
+      
+      // הגבלת אורך החיפוש למניעת DoS
+      const MAX_SEARCH_LENGTH = 100;
+      if (searchTerm.length > MAX_SEARCH_LENGTH) {
+        console.warn('TOC: חיפוש ארוך מדי');
+        return;
+      }
+      
       tocState.searchTerm = searchTerm;
       
       const items = document.querySelectorAll('.md-toc-item');
       let matchCount = 0;
       
       items.forEach(item => {
-        const text = item.textContent.toLowerCase();
+        // שמור טקסט מקורי אם לא קיים
+        if (!item.dataset.originalText) {
+          item.dataset.originalText = item.textContent;
+        }
+        
+        const originalText = item.dataset.originalText;
+        const text = originalText.toLowerCase();
         
         if (!searchTerm) {
-          // ריק - הצג הכל
+          // ריק - הצג הכל עם טקסט מקורי
           item.classList.remove('search-hidden', 'search-match');
-          item.innerHTML = item.textContent;
+          item.textContent = originalText;
         } else if (text.includes(searchTerm)) {
-          // נמצא - הדגש
+          // נמצא - הדגש בצורה בטוחה
           item.classList.remove('search-hidden');
           item.classList.add('search-match');
           
-          // הדגשת הטקסט שנמצא
-          const regex = new RegExp(`(${searchTerm})`, 'gi');
-          item.innerHTML = item.textContent.replace(regex, '<mark>$1</mark>');
+          // הדגשה בטוחה של הטקסט
+          highlightText(item, searchTerm);
           
           matchCount++;
         } else {
           // לא נמצא - הסתר
           item.classList.add('search-hidden');
           item.classList.remove('search-match');
-          item.innerHTML = item.textContent;
+          item.textContent = originalText;
         }
       });
       
@@ -1010,10 +1080,13 @@
     if (searchInput) searchInput.value = '';
     if (searchResults) searchResults.textContent = '';
     
-    // ניקוי הדגשות
+    // ניקוי הדגשות בצורה בטוחה
     document.querySelectorAll('.md-toc-item').forEach(item => {
       item.classList.remove('search-hidden', 'search-match');
-      item.innerHTML = item.textContent;
+      // שחזור טקסט מקורי בצורה בטוחה
+      if (item.dataset.originalText) {
+        item.textContent = item.dataset.originalText;
+      }
     });
     
     tocState.searchTerm = '';
