@@ -720,8 +720,10 @@ def bulk_add_tags():
 @app.route('/api/files/bulk-delete', methods=['POST'])
 @login_required
 def bulk_delete_files():
-    """מחיקה קבוצתית של קבצים - אופציונלי, השתמש בזהירות!"""
+    """מחיקה רכה (Soft Delete) של קבצים - מעביר לסל מחזור ל-7 ימים"""
     try:
+        from datetime import datetime, timezone, timedelta
+        
         data = request.json
         file_ids = data.get('file_ids', [])
         
@@ -734,19 +736,38 @@ def bulk_delete_files():
         # המר string IDs ל-ObjectIds
         object_ids = [ObjectId(fid) for fid in file_ids]
         
-        # מחק את הקבצים (רק של המשתמש הנוכחי)
-        result = db.code_snippets.delete_many({
-            '_id': {'$in': object_ids},
-            'user_id': user_id
-        })
+        # מחיקה רכה - כמו בבוט, מעבר לסל מחזור
+        now = datetime.now(timezone.utc)
+        ttl_days = 7  # ימי שמירה בסל מחזור
+        expires_at = now + timedelta(days=ttl_days)
+        
+        result = db.code_snippets.update_many(
+            {
+                '_id': {'$in': object_ids},
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            },
+            {
+                '$set': {
+                    'is_active': False,
+                    'deleted_at': now,
+                    'deleted_expires_at': expires_at,
+                    'updated_at': now
+                }
+            }
+        )
         
         return jsonify({
             'success': True,
-            'deleted': result.deleted_count
+            'deleted': result.modified_count,
+            'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'
         })
         
     except Exception as e:
-        app.logger.error(f"Error in bulk delete: {e}")
+        app.logger.error(f"Error in soft delete: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/files/create-zip', methods=['POST'])
