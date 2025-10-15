@@ -33,7 +33,14 @@ async def test_save_command_emits_file_saved(monkeypatch):
     monkeypatch.setattr(mod, "track_file_saved", _track_file_saved)
 
     # Patch db.save_code_snippet to succeed
-    class _Snippet: pass
+    class _Snippet:
+        def __init__(self, user_id, file_name, code, programming_language, description=None, tags=None):
+            self.user_id = user_id
+            self.file_name = file_name
+            self.code = code
+            self.programming_language = programming_language
+            self.description = description
+            self.tags = tags or []
     def _save(snippet):
         return True
     monkeypatch.setattr(mod, "CodeSnippet", _Snippet)
