@@ -22,6 +22,7 @@ async def test_emit_event_on_direct_upload_start(monkeypatch):
     # minimal context/update stubs
     class _Msg:
         document = types.SimpleNamespace(file_name="file.txt")
+        from_user = types.SimpleNamespace(id=1)
         async def reply_text(self, *a, **k):
             return None
     class _Bot:
