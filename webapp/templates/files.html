@@ -262,6 +262,10 @@
                 <i class="fas fa-share-alt"></i>
                 שתף
             </button>
+            <button class="btn btn-danger btn-icon" type="button" onclick="bulkDeleteFiles()" title="מחק">
+                <i class="fas fa-trash"></i>
+                מחק
+            </button>
             <button class="btn btn-secondary btn-icon" type="button" onclick="clearSelection()" title="נקה בחירה">
                 <i class="fas fa-times"></i>
                 ביטול בחירה
@@ -389,4 +393,29 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
+<script>
+    // חיבור לכפתור מחיקה
+    window.bulkDeleteFiles = () => window.bulkActions.deleteSelected();
+    // תמיכה בקיצור Delete מהמקלדת
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Delete' && window.multiSelect?.getSelectedCount?.() > 0) {
+            e.preventDefault();
+            window.bulkActions.deleteSelected();
+        }
+    });
+    // הוספת כפתור בחר הכל כבר ברגע טעינת הדף (כבר קיים ב-multi-select.js; כאן רק fallback)
+    window.addEventListener('DOMContentLoaded', () => {
+        if (!document.getElementById('selectAllBtn')) {
+            const filtersSection = document.querySelector('.filters-section');
+            if (filtersSection) {
+                const btn = document.createElement('button');
+                btn.id = 'selectAllBtn';
+                btn.className = 'btn btn-secondary btn-icon';
+                btn.innerHTML = '<i class="fas fa-check-square"></i> בחר הכל';
+                btn.onclick = () => window.multiSelect?.selectAll?.();
+                filtersSection.appendChild(btn);
+            }
+        }
+    });
+    </script>
 {% endblock %}

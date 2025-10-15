@@ -2811,6 +2811,57 @@ def api_files_create_share_link():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/files/bulk-delete', methods=['POST'])
+@login_required
+def api_files_bulk_delete():
+    """מחיקה רכה (soft delete) לקבוצת קבצים – מסמן is_active=False עם תוקף שחזור.
+
+    קלט JSON:
+    - file_ids: List[str]
+    - ttl_days: Optional[int] – טווח 1..30, ברירת מחדל 30
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        ttl_days = int(data.get('ttl_days') or 30)
+        if not (1 <= ttl_days <= 30):
+            ttl_days = 30
+
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=ttl_days)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$set': {
+                'is_active': False,
+                'deleted_at': now,
+                'deleted_expires_at': expires_at,
+                'updated_at': now,
+            }
+        })
+        return jsonify({'success': True, 'deleted': int(getattr(res, 'modified_count', 0)), 'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/stats')
 @login_required
 def api_stats():
