@@ -2256,8 +2256,12 @@ class CodeKeeperBot:
         # שמירה במסד הנתונים
         if db.save_code_snippet(snippet):
             try:
-                # Business metric: file saved
-                track_file_saved(user_id=saving_data['user_id'], language=detected_language, size_bytes=len(code))
+                # Business metric: file saved (size in BYTES, not chars)
+                try:
+                    size_bytes = len(code.encode("utf-8", errors="replace"))
+                except Exception:
+                    size_bytes = len(code)  # Fallback
+                track_file_saved(user_id=saving_data['user_id'], language=detected_language, size_bytes=size_bytes)
             except Exception:
                 pass
             await update.message.reply_text(

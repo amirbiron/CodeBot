@@ -51,11 +51,13 @@ async def test_save_command_emits_file_saved(monkeypatch):
 
     # Call the private save helper directly
     bot = mod.CodeKeeperBot()
-    await bot._save_code_snippet(upd, ctx, code="print(1)")
+    # Non-ASCII to ensure bytes != chars
+    await bot._save_code_snippet(upd, ctx, code="print('שלום')")
 
     assert captured.get("user_id") == 7
     assert captured.get("language") == "python"
-    assert captured.get("size_bytes") == len("print(1)")
+    # validate bytes length (UTF-8), not character count
+    assert captured.get("size_bytes") == len("print('שלום')".encode('utf-8'))
 
 
 @pytest.mark.asyncio
