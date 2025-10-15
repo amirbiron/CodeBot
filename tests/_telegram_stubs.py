@@ -43,6 +43,21 @@ class BotCommandScopeChat:
     def __init__(self, chat_id: int):
         self.chat_id = chat_id
 
+class InlineQueryResultArticle:
+    def __init__(self, id: str, title: str, input_message_content=None, reply_markup=None, description=None, **kwargs):
+        self.id = id
+        self.title = title
+        self.input_message_content = input_message_content
+        self.reply_markup = reply_markup
+        self.description = description
+        self.kwargs = kwargs
+
+class InputTextMessageContent:
+    def __init__(self, message_text: str, parse_mode=None, **kwargs):
+        self.message_text = message_text
+        self.parse_mode = parse_mode
+        self.kwargs = kwargs
+
 telegram.InlineKeyboardButton = InlineKeyboardButton
 telegram.InlineKeyboardMarkup = InlineKeyboardMarkup
 telegram.InputFile = InputFile
@@ -51,6 +66,8 @@ telegram.ReplyKeyboardRemove = ReplyKeyboardRemove
 telegram.Update = Update
 telegram.BotCommand = BotCommand
 telegram.BotCommandScopeChat = BotCommandScopeChat
+telegram.InlineQueryResultArticle = InlineQueryResultArticle
+telegram.InputTextMessageContent = InputTextMessageContent
 sys.modules['telegram'] = telegram
 
 # --- telegram.constants module stub ---
