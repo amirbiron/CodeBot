@@ -2,6 +2,10 @@
 
 {% block title %}הקבצים שלי - Code Keeper Bot{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}">
+{% endblock %}
+
 {% block content %}
 <h1 class="page-title">הקבצים שלי</h1>
 
@@ -161,7 +165,15 @@
 {% elif files %}
 <div class="files-grid" style="display: grid; gap: 1rem;">
     {% for file in files %}
-    <div class="glass-card file-card">
+    <div class="glass-card file-card" data-file-id="{{ file.id }}">
+        <div class="file-selection">
+            <input type="checkbox"
+                   class="file-checkbox"
+                   id="select-{{ file.id }}"
+                   data-file-id="{{ file.id }}"
+                   data-file-name="{{ file.file_name }}">
+            <label for="select-{{ file.id }}"></label>
+        </div>
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <div style="flex: 1;">
                 <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
@@ -219,6 +231,43 @@
         </div>
     </div>
     {% endfor %}
+</div>
+
+<!-- Bulk actions toolbar -->
+<div id="bulkActionsToolbar" class="bulk-actions-toolbar hidden" aria-live="polite">
+    <div class="toolbar-content">
+        <div class="selection-info">
+            <i class="fas fa-check-square"></i>
+            <span class="selected-count">0</span>
+            נבחרו
+        </div>
+        <div class="toolbar-actions">
+            <button class="btn btn-icon" type="button" onclick="bulkAddToFavorites()" title="הוסף למועדפים">
+                <i class="fas fa-star"></i>
+                הוסף למועדפים
+            </button>
+            <button class="btn btn-icon" type="button" onclick="bulkRemoveFromFavorites()" title="הסר ממועדפים">
+                <i class="far fa-star"></i>
+                הסר ממועדפים
+            </button>
+            <button class="btn btn-icon" type="button" onclick="showBulkTagDialog()" title="הוסף תגיות">
+                <i class="fas fa-tags"></i>
+                הוסף תגיות
+            </button>
+            <button class="btn btn-icon" type="button" onclick="bulkDownloadZip()" title="הורד ZIP">
+                <i class="fas fa-file-archive"></i>
+                הורד ZIP
+            </button>
+            <button class="btn btn-icon" type="button" onclick="bulkShareFiles()" title="שתף">
+                <i class="fas fa-share-alt"></i>
+                שתף
+            </button>
+            <button class="btn btn-secondary btn-icon" type="button" onclick="clearSelection()" title="נקה בחירה">
+                <i class="fas fa-times"></i>
+                ביטול בחירה
+            </button>
+        </div>
+    </div>
 </div>
 
 <div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
@@ -335,4 +384,9 @@
 }
 </style>
 <div id="bottom"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
 {% endblock %}

@@ -2578,6 +2578,239 @@ def api_toggle_favorite(file_id):
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+@app.route('/api/files/bulk-favorite', methods=['POST'])
+@login_required
+def api_files_bulk_favorite():
+    """הוספת is_favorite=True לקבוצת קבצים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$set': {
+                'is_favorite': True,
+                'favorited_at': now,
+                'updated_at': now,
+            }
+        })
+        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/bulk-unfavorite', methods=['POST'])
+@login_required
+def api_files_bulk_unfavorite():
+    """ביטול is_favorite לקבוצת קבצים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$set': {
+                'is_favorite': False,
+                'favorited_at': None,
+                'updated_at': now,
+            }
+        })
+        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/bulk-tag', methods=['POST'])
+@login_required
+def api_files_bulk_tag():
+    """הוספת תגיות לקבוצת קבצים של המשתמש ללא כפילויות."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        tags = list(data.get('tags') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+        # נרמול תגיות – מחרוזות לא ריקות בלבד
+        safe_tags = []
+        for t in tags:
+            try:
+                s = str(t).strip()
+            except Exception:
+                s = ''
+            if s:
+                safe_tags.append(s)
+        # הסר כפילויות תוך שמירה על סדר יחסי
+        seen = set()
+        norm_tags = [x for x in safe_tags if not (x in seen or seen.add(x))]
+        if not norm_tags:
+            return jsonify({'success': False, 'error': 'No tags provided'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+        now = datetime.now(timezone.utc)
+
+        q = {
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        }
+        res = db.code_snippets.update_many(q, {
+            '$addToSet': {'tags': {'$each': norm_tags}},
+            '$set': {'updated_at': now}
+        })
+        return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/create-zip', methods=['POST'])
+@login_required
+def api_files_create_zip():
+    """יצירת קובץ ZIP עם קבצים נבחרים של המשתמש."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+
+        # שליפת הקבצים השייכים למשתמש בלבד
+        cursor = db.code_snippets.find({
+            '_id': {'$in': object_ids},
+            'user_id': user_id,
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}
+            ]
+        })
+
+        from io import BytesIO
+        import zipfile
+
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for doc in cursor:
+                filename = (doc.get('file_name') or f"file_{str(doc.get('_id'))}.txt").strip() or f"file_{str(doc.get('_id'))}.txt"
+                # ודא שם ייחודי אם יש כפילויות
+                try:
+                    # מניעת שמות תיקיה מסוכנים
+                    filename = filename.replace('..', '_').replace('/', '_').replace('\\', '_')
+                except Exception:
+                    filename = f"file_{str(doc.get('_id'))}.txt"
+                content = doc.get('code')
+                if not isinstance(content, str):
+                    content = ''
+                zf.writestr(filename, content)
+
+        zip_buffer.seek(0)
+        ts = int(time.time())
+        return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name=f'code_files_{ts}.zip')
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/create-share-link', methods=['POST'])
+@login_required
+def api_files_create_share_link():
+    """יוצר קישור שיתוף ציבורי לקבצים נבחרים ומחזיר URL."""
+    try:
+        data = request.get_json(silent=True) or {}
+        file_ids = list(data.get('file_ids') or [])
+        if not file_ids:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
+        if len(file_ids) > 100:
+            return jsonify({'success': False, 'error': 'Too many files (max 100)'}), 400
+
+        try:
+            object_ids = [ObjectId(fid) for fid in file_ids]
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid file id'}), 400
+
+        db = get_db()
+        user_id = session['user_id']
+
+        # אימות שהקבצים שייכים למשתמש
+        owned_count = db.code_snippets.count_documents({
+            '_id': {'$in': object_ids},
+            'user_id': user_id
+        })
+        if owned_count != len(object_ids):
+            return jsonify({'success': False, 'error': 'Some files not found'}), 404
+
+        token = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+
+        db.share_links.insert_one({
+            'token': token,
+            'file_ids': object_ids,
+            'user_id': user_id,
+            'created_at': now,
+            'expires_at': expires_at,
+            'view_count': 0,
+        })
+
+        base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
+        share_url = f"{base_url}/shared/{token}"
+        return jsonify({'success': True, 'share_url': share_url, 'expires_at': expires_at.isoformat(), 'token': token})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/stats')
 @login_required
 def api_stats():
