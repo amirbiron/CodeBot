@@ -182,56 +182,36 @@ class MultiSelectManager {
         });
     }
     
-    // פונקציה אופציונלית למחיקה קבוצתית
-    // כדי להפעיל: הסר את ההערה מכל הפונקציה ומה-Delete key handler למעלה
-    // והוסף את ה-endpoint /api/files/bulk-delete בbackend
-    /*
-    deleteSelected() {
-        // עם Map, מחלצים את ה-IDs מה-values
+    // מחיקה קבוצתית (soft delete)
+    // הערה: אין ניהול overlay כאן – זה מנוהל ב-BulkActions
+    deleteSelected(ttlDays = 30) {
         const fileIds = Array.from(this.selectedFiles.values()).map(f => f.id);
-        
-        if (fileIds.length === 0) return;
-        
-        // הצג אנימציית עיבוד
-        window.bulkActions?.showProcessing(`מוחק ${fileIds.length} קבצים...`);
-        
-        fetch('/api/files/bulk-delete', {
+        if (fileIds.length === 0) return Promise.resolve();
+        return fetch('/api/files/bulk-delete', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ file_ids: fileIds })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_ids: fileIds, ttl_days: ttlDays })
         })
-        .then(response => response.json())
+        .then(r => r.json())
         .then(result => {
-            if (result.success) {
-                window.bulkActions?.showNotification(`${result.deleted} קבצים נמחקו`, 'success');
-                
-                // הסר את הכרטיסים מה-DOM
-                fileIds.forEach(id => {
-                    const card = document.querySelector(`[data-file-id="${id}"]`);
-                    if (card) {
-                        card.style.transition = 'opacity 0.3s, transform 0.3s';
-                        card.style.opacity = '0';
-                        card.style.transform = 'scale(0.9)';
-                        setTimeout(() => card.remove(), 300);
-                    }
-                });
-                
-                this.clearSelection();
-            } else {
-                throw new Error(result.error || 'שגיאה במחיקה');
-            }
+            if (!result.success) throw new Error(result.error || 'delete failed');
+            window.bulkActions?.showNotification(`${result.deleted} קבצים הועברו לסל המחזור`, 'success');
+            fileIds.forEach(id => {
+                const card = document.querySelector(`[data-file-id="${id}"]`);
+                if (card) {
+                    card.style.transition = 'opacity 0.3s, transform 0.3s';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.97)';
+                    setTimeout(() => card.remove(), 250);
+                }
+            });
+            this.clearSelection();
         })
-        .catch(error => {
-            console.error('Error deleting files:', error);
-            window.bulkActions?.showNotification('שגיאה במחיקת הקבצים', 'error');
-        })
-        .finally(() => {
-            window.bulkActions?.hideProcessing();
+        .catch(err => {
+            console.error('Error deleting files:', err);
+            window.bulkActions?.showNotification('שגיאה במחיקה', 'error');
         });
     }
-    */
     
     persistSelection() {
         // שמור בחירה ב-sessionStorage לשמירה בין עמודים

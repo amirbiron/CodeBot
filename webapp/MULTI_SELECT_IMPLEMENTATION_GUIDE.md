@@ -38,7 +38,7 @@ endpoints חדשים שיש להוסיף ל-**`webapp/app.py`**:
 - **`/api/files/create-zip`** - יצירת קובץ ZIP עם הקבצים הנבחרים
 
 #### Endpoints אופציונליים (הרחבות):
-- **`/api/files/bulk-delete`** - מחיקה קבוצתית של קבצים (זהירות!)
+- **`/api/files/bulk-delete`** - מחיקה רכה (soft delete) של קבצים (זהירות!)
 - **`/api/files/create-share-link`** - יצירת קישור שיתוף לקבצים נבחרים
 
 ## 🎯 יעדים
