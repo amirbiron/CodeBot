@@ -746,6 +746,21 @@ self.onmessage = function(e) {
 
 ## 5. אבטחה מתקדמת {#security}
 
+### ⚠️ אזהרה חשובה על סניטציה
+**לעולם אל תנסו לממש סניטציה של HTML בעצמכם עם Regular Expressions!**
+- Regex לא יכול לטפל בכל המקרים של XSS
+- יש אינספור דרכים לעקוף סניטציה פשוטה
+- השתמשו רק בספריות מוכחות כמו DOMPurify
+
+### התקנת DOMPurify (חובה!)
+```bash
+# NPM
+npm install dompurify
+
+# או CDN
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+```
+
 ### הגנה מפני XSS ו-injection attacks
 
 ```python
@@ -827,22 +842,41 @@ export class SecurityManager {
   }
   
   createSanitizer() {
-    // שימוש ב-DOMPurify או פתרון מותאם
+    // ⚠️ אזהרה: אל תנסו לממש סניטציה בעצמכם עם regex!
+    // השתמשו רק בספריות מוכחות כמו DOMPurify
+    
+    // התקנה: npm install dompurify
+    // או CDN: <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    
+    if (typeof DOMPurify === 'undefined') {
+      console.error('DOMPurify not loaded! HTML sanitization disabled.');
+      // במקרה חירום - החזר טקסט פשוט בלבד
+      return {
+        sanitizeHTML: (html) => {
+          // הסרת כל ה-HTML, השארת טקסט בלבד
+          const div = document.createElement('div');
+          div.textContent = html;
+          return div.innerHTML;
+        }
+      };
+    }
+    
+    // הגדרת DOMPurify עם קונפיגורציה בטוחה
     return {
       sanitizeHTML(html) {
-        // הסרת תגי script ותכונות מסוכנות
-        const cleaned = html
-          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-          .replace(/on\w+\s*=\s*"[^"]*"/gi, '')
-          .replace(/on\w+\s*=\s*'[^']*'/gi, '')
-          .replace(/javascript:/gi, '')
-          .replace(/data:text\/html/gi, '');
-        
-        return cleaned;
+        // DOMPurify עם הגדרות מחמירות
+        return DOMPurify.sanitize(html, {
+          ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'li', 'ol'],
+          ALLOWED_ATTR: ['href', 'title'],
+          ALLOW_DATA_ATTR: false,
+          USE_PROFILES: { html: true }
+        });
       },
       
-      sanitizeCode(code) {
-        // בדיקת קוד מסוכן
+      
+      // לבדיקת קוד - רק התראות, לא סניטציה
+      detectDangerousCode(code) {
+        // זו רק בדיקה להתראה, לא הגנה!
         const dangerous = [
           /eval\s*\(/,
           /new\s+Function\s*\(/,
@@ -852,17 +886,25 @@ export class SecurityManager {
           /constructor\s*\[/
         ];
         
+        const detectedPatterns = [];
         for (const pattern of dangerous) {
           if (pattern.test(code)) {
-            console.warn('Potentially dangerous code detected:', pattern);
-            // אפשר להוסיף התראה למשתמש
+            detectedPatterns.push(pattern.source);
           }
         }
         
-        return code;
+        if (detectedPatterns.length > 0) {
+          console.warn('Potentially dangerous patterns detected:', detectedPatterns);
+          // להציג התראה למשתמש, לא לחסום אוטומטית
+          return { safe: false, patterns: detectedPatterns };
+        }
+        
+        return { safe: true };
       },
       
-      escapeHTML(str) {
+      // שיטה בטוחה להמרת טקסט ל-HTML בטוח
+      textToSafeHTML(str) {
+        // שיטה בטוחה - משתמש ב-textContent
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
