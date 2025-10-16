@@ -22,7 +22,8 @@ def test_suggest_filenames_with_stubbed_scores(monkeypatch):
     mgr.min_similarity = 70
 
     # הנמך את הסף דרך החזרת ניקוד גבוה מהמנוע
-    monkeypatch.setattr(am.fuzz, "partial_ratio", lambda a, b: 80, raising=False)
+    # התאמת חתימה ל-rapidfuzz: מאפשר score_cutoff כמילת מפתח
+    monkeypatch.setattr(am.fuzz, "partial_ratio", lambda a, b, score_cutoff=None: 80, raising=False)
     # process.extract מחזיר רשימת tuples/objects; נשתמש במימוש הקיים בספרייה
     # כאן די ב-monkeypatch של scorer כדי שהדירוג יסתדר
 
@@ -46,7 +47,8 @@ def test_suggest_tags_with_stubbed_scores(monkeypatch):
     mgr = am.AutocompleteManager()
     mgr.min_similarity = 70
 
-    monkeypatch.setattr(am.fuzz, "partial_ratio", lambda a, b: 85, raising=False)
+    # התאמת חתימה ל-rapidfuzz: מאפשר score_cutoff כמילת מפתח
+    monkeypatch.setattr(am.fuzz, "partial_ratio", lambda a, b, score_cutoff=None: 85, raising=False)
 
     res = mgr.suggest_tags(user_id=1, partial_tag="back", limit=5)
     assert isinstance(res, list)
