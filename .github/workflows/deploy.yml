@@ -62,8 +62,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install wheel poetry-core
-          pip install -r requirements.txt
-          pip install flake8 black isort mypy bandit safety pytest pytest-asyncio pytest-cov
+          # Install, generate constraints, and re-install with constraints
+          pip install -r requirements/development.txt
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/development.txt -c constraints.txt
       
       - name: 🔎 Dependency integrity (pip check)
         run: |
@@ -162,8 +164,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install wheel poetry-core
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov pytest-mock
+          # Install, generate constraints, and re-install with constraints
+          pip install -r requirements/development.txt
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/development.txt -c constraints.txt
 
       - name: 🔎 Dependency integrity (pip check)
         run: |

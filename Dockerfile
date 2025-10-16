@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1.6
 # ===================================
-# Code Keeper Bot - Production Dockerfile (Chainguard Python)
+# Code Keeper Bot - Production Dockerfile (Debian slim)
 # ===================================
 
 # שלב 1: Build stage (wheel build if needed)
@@ -13,7 +14,7 @@ LABEL description="Advanced Telegram bot for managing code snippets"
 # משתני סביבה לבילד
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PIP_NO_CACHE_DIR=1
+ENV PIP_NO_CACHE_DIR=0
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PIP_DEFAULT_TIMEOUT=100
 ENV PIP_INDEX_URL=https://pypi.org/simple
@@ -36,9 +37,15 @@ RUN apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # העתקת requirements והתקנת dependencies (Production-only)
-COPY requirements.prod.txt requirements.txt
-COPY constraints.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt -c constraints.txt --retries 5 --timeout 60 -i https://pypi.org/simple
+# נשתמש ב-BuildKit cache כדי להאיץ התקנות pip
+COPY requirements/ /app/requirements/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r /app/requirements/production.txt --retries 5 --timeout 60 -i https://pypi.org/simple
+# ייצור constraints.txt אוטומטי מהסביבה שננעלה כעת
+RUN python -m pip freeze | sort > /app/constraints.txt
+# וידוא התקנה מול constraints (לרפרודוציביליות עתידית)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60 -i https://pypi.org/simple
 
 ######################################
 # שלב 2: Production stage (Alpine)
@@ -77,8 +84,9 @@ RUN groupadd -g 1000 botuser && \
 RUN mkdir -p /app /app/logs /app/backups /app/temp \
     && chown -R botuser:botuser /app
 
-# העתקת Python packages מ-builder stage
+# העתקת Python packages ו-constraints מה-builder stage
 COPY --from=builder --chown=botuser:botuser /root/.local /home/botuser/.local
+COPY --from=builder --chown=botuser:botuser /app/constraints.txt /app/constraints.txt
 
 # מעבר למשתמש לא-root
 USER botuser

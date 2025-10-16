@@ -120,8 +120,14 @@ source venv/bin/activate
 ### 3. התקנת תלויות
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements/production.txt -c constraints.txt
 ```
+
+> מבנה דרישות חדש:
+> - `requirements/base.txt` – תלויות בסיס משותפות.
+> - `requirements/production.txt` – מרחיב את base לייצור.
+> - `requirements/development.txt` – מרחיב את production לכלי פיתוח/טסטים.
+> - `constraints.txt` – נוצר אוטומטית בבילד (`pip freeze`) ומשמש כ‑constraints לנעילה.
 
 ### 4. הורדת מודלי שפה נוספים (אופציונלי)
 
@@ -320,8 +326,10 @@ sudo systemctl status code-keeper-bot
 FROM python:3.9-slim
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY requirements/ ./requirements/
+RUN pip install -r requirements/production.txt -c constraints.txt || \
+    (pip install -r requirements/production.txt && pip freeze | sort > constraints.txt && \
+     pip install -r requirements/production.txt -c constraints.txt)
 
 COPY . .
 CMD ["python", "main.py"]

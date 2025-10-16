@@ -16,7 +16,10 @@ services:
     # הגדרות בנייה
     buildCommand: |
       pip install --upgrade pip
-      pip install --no-cache-dir --upgrade -r requirements.txt
+      # Install, generate constraints, and re-install with constraints
+      pip install -r requirements/production.txt
+      pip freeze | sort > constraints.txt
+      pip install -r requirements/production.txt -c constraints.txt
     
     # פקודת הפעלה
     startCommand: python main.py
@@ -95,7 +98,10 @@ services:
     buildCommand: |
       cd webapp
       pip install --upgrade pip
-      pip install --no-cache-dir --upgrade -r requirements.txt
+      # Install project root requirements for webapp too
+      pip install -r ../requirements/production.txt
+      pip freeze | sort > ../constraints.txt
+      pip install -r ../requirements/production.txt -c ../constraints.txt
     
     # פקודת הפעלה
     startCommand: cd webapp && gunicorn app:app --bind 0.0.0.0:$PORT

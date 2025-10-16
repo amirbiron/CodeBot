@@ -2,10 +2,7 @@ name: "🔒 Security Scan"
 
 on:
   pull_request:
-    paths:
-      - '**/Dockerfile'
-      - '**/requirements*.txt'
-      - '**/constraints*.txt'
+    branches: ['**']
   schedule:
     - cron: '0 2 1 * *'
   workflow_dispatch:
@@ -23,11 +20,29 @@ jobs:
       security-events: write
       contents: read
       issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12']
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements/*.txt
+      - name: 📦 Install deps for audits
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/production.txt
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/production.txt -c constraints.txt
+          pip install bandit safety pip-audit
       - name: "🔎 Debug Telegram notify config"
         run: |
           echo "Has TELEGRAM_BOT_TOKEN: $([ -n "${{ env.TELEGRAM_BOT_TOKEN }}" ] && echo yes || echo no)"
@@ -68,6 +83,19 @@ jobs:
       - name: "🔍 Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@v3
         continue-on-error: true
+
+      - name: "🧪 Safety check"
+        run: safety check --full-report || true
+
+      - name: "📦 pip-audit"
+        run: |
+          pip-audit -r requirements/production.txt -f json -o pip-audit.json || true
+      - name: Upload pip-audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit
+          path: pip-audit.json
 
       - name: "📣 Post scan summary as Issue (main, scheduled/manual only)"
         id: scan_summary

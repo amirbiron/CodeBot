@@ -21,8 +21,10 @@ cd CodeBot
 python -m venv .venv
 source .venv/bin/activate  # ב-Windows: .venv\Scripts\activate
 
-# התקנת תלויות
-pip install -r requirements.txt
+# התקנת תלויות (פיתוח)
+pip install -r requirements/development.txt -c constraints.txt || \
+  (pip install -r requirements/development.txt && pip freeze | sort > constraints.txt && \
+   pip install -r requirements/development.txt -c constraints.txt)
 ```
 
 ### 2️⃣ הרצת בדיקות

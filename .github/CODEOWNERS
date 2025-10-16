@@ -1,9 +1,7 @@
 # CODEOWNERS for dependency update notifications
 # תייג את @amirbiron על שינויים בקובצי תלויות כדי לקבל התראה לאישור
 
-requirements.txt    @amirbiron
-requirements.prod.txt    @amirbiron
-webapp/requirements.txt  @amirbiron
-docs/requirements.txt    @amirbiron
-constraints.txt          @amirbiron
-requirements/*.txt       @amirbiron
+requirements.txt          @amirbiron
+requirements/*.txt        @amirbiron
+docs/requirements.txt     @amirbiron
+constraints.txt           @amirbiron
