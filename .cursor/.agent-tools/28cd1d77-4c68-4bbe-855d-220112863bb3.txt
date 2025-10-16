@@ -1,0 +1,572 @@
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# 🤖 הצעה: שדרוג #655 ללוגים ידידותיים לסוכני AI (וגם למפתחים)
+
+## 🎯 מטרות
+
+-   **להגדיר שפה אחידה ויציבה ללוגים:** לאפשר לסוכן AI לנתח דפוסים, לזהות תקלות ולהציע פעולות תיקון.
+-   **לשלב מזהי מעקב (`trace_id`/`span_id`):** ליצור שרשור מלא בין לוגים, מטריקות ו-Traces.
+-   **למנוע דליפת מידע רגיש:** להבטיח פרטיות וביצועים גבוהים באמצעות טשטוש (Redaction) ודגימה (Sampling).
+
+---
+
+## 📜 סכמת לוגים מומלצת
+
+**שדות חובה:**
+-   `schema_version`: גרסת הסכמה (למשל, `"1.0"`).
+-   `event`: שם אירוע קנוני בפורמט `snake_case` (למשל, `file_saved`).
+-   `severity`: רמת חומרה (`info`/`warn`/`error`).
+-   `timestamp`: חותמת זמן בפורמט `ISO8601`.
+-   `request_id`: מזהה בקשה ייחודי וקצר.
+-   `trace_id` / `span_id`: מזהים מ-OpenTelemetry למעקב מקיף.
+
+**שדות מומלצים:**
+-   `user_ref`: מזהה משתמש פנימי או מוסווה (לא PII).
+-   `resource`: אובייקט שעליו בוצעה הפעולה (`{type, id}`).
+-   `attributes`: אוסף שדות ספציפיים לאירוע (גודל קובץ, שפה וכו').
+-   `error_code`: קוד שגיאה יציב ומוגדר מראש.
+-   `msg_he`: טקסט קריא בעברית עבור מפתחים.
+
+**דוגמה:**
+```json
+{
+  "schema_version": "1.0",
+  "event": "file_saved",
+  "severity": "info",
+  "timestamp": "2025-10-15T10:23:45.123Z",
+  "request_id": "a3f2c891",
+  "trace_id": "0123abcd0123abcd0123abcd0123abcd",
+  "span_id": "abcd0123abcd0123",
+  "user_ref": "u_12345",
+  "resource": {"type": "file", "id": "file_789"},
+  "attributes": {"language": "python", "size_bytes": 1520},
+  "msg_he": "קובץ נשמר בהצלחה"
+}
+```
+
+---
+
+## 🚦 סטנדרט שגיאות (AI-Friendly)
+
+יש להגדיר מילון קודי שגיאה יציבים הכולל קטגוריה, חומרה והצעה לפעולת תיקון (`remediation`).
+
+```yaml
+errors:
+  E_FILE_DUPLICATE:
+    category: storage
+    severity: error
+    remediation: "בדקו unique index; הציעו למשתמש שם חדש."
+  E_SEARCH_TIMEOUT:
+    category: search
+    severity: warn
+    remediation: "הקטינו את טווח החיפוש; בדקו אינדקסים או Cache."
+  E_AUTH_INVALID_SESSION:
+    category: auth
+    severity: warn
+    remediation: "בקשו מהמשתמש לבצע התחברות מחדש; אשרו תקינות עוגייה."
+```
+
+---
+
+## ιχ Tracing: הוספת `trace_id` ו-`span_id` לכל לוג
+
+יש להפעיל `OpenTelemetry` ולהוסיף `processor` ל-`structlog` שיצרוב את מזהי המעקב בכל רשומת לוג.
+
+```python
+# utils/logging_config.py
+import structlog
+from opentelemetry.trace import get_current_span
+
+def add_otel_ids(logger, method, event_dict):
+    """מוסיף trace_id ו-span_id מ-OpenTelemetry ללוג."""
+    span = get_current_span()
+    ctx = span.get_span_context() if span else None
+    if ctx and ctx.is_valid:
+        event_dict["trace_id"] = f"{ctx.trace_id:032x}"
+        event_dict["span_id"] = f"{ctx.span_id:016x}"
+    return event_dict
+
+def redact_sensitive(logger, method, event_dict):
+    """מטשטש מידע רגיש מהלוגים."""
+    sensitive = {"token", "password", "secret", "authorization", "cookie"}
+    for k in list(event_dict.keys()):
+        if any(s in k.lower() for s in sensitive):
+            event_dict[k] = "[REDACTED]"
+    return event_dict
+
+def setup_logging():
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            add_otel_ids,
+            redact_sensitive,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+```
+
+---
+
+## 📊 מטריקות מינימום
+
+יש למדוד את המדדים הבאים באמצעות `prometheus_client`:
+-   **Counters:** `errors_total{code}`, `search_requests_total{type,status}`
+-   **Histograms:** `operation_latency_seconds{operation}`
+-   **Gauges:** `active_indexes`
+
+---
+
+## 🛡️ פרטיות ואבטחה
+
+-   **Redaction:** טשטוש אוטומטי של סודות ו-PII בלוגים באמצעות `processor`.
+-   **Sampling (דגימה):**
+    -   בסביבת ייצור (Production), יש לדגום 10-30% מהלוגים ברמת `info`, אך 100% מהלוגים ברמת `warn` ו-`error`.
+    -   אין לדגום אירועים עסקיים קריטיים.
+-   **אבטחת מידע:** אין לכלול סודות, `cookies`, או `Authorization headers` בהודעות הלוג.
+
+---
+
+## 🤖 קבלת החלטות "אוטומטית" לסוכן AI
+
+סוכן AI יוכל לפעול לפי הנתונים המובנים:
+-   `error_code` ← מיפוי ישיר לפעולת תיקון (`remediation`).
+-   `event` + `attributes` ← זיהוי דפוסים והמלצות לשיפור ביצועים.
+-   `trace_id` ← איסוף הקשר מלא (לוגים + מטריקות) לפני ביצוע פעולה מורכבת.
+
+---
+
+## 🚀 צעדי יישום (מהיר)
+
+1.  הוספת `schema_version` ו-`event` לכל הלוגים המרכזיים.
+2.  שילוב `processor` ל-`trace_id`/`span_id` ו-`redaction`.
+3.  אימוץ מילון `error_code` והסרת טקסט חופשי מהודעות שגיאה.
+4.  הוספת `Counters` ו-`Histograms` בסיסיים ב-Prometheus.
+5.  עדכון Sentry כך שישמור `error_code` ו-context מובנה.
+6.  יצירת מסמך קצר: קטלוג אירועים וקודים (`docs/logging_schema.md`).
+
+---
+
+## ✅ קריטריונים להצלחה
+
+-   [ ] 95% מהלוגים מכילים `event`, `schema_version`, `request_id`, ו-`trace_id`.
+-   [ ] 100% מהשגיאות הקריטיות כוללות `error_code` מוגדר.
+-   [ ] קיים Dashboard עם P95 latency עבור 5 הפעולות המרכזיות.
+-   [ ] 0 דליפות של סודות בלוגים (ה-`redaction` עובד).
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+הערה: תשתית Prometheus הוטמעה ונתיב /metrics מוכן; צריך רק להתחיל למדוד פעולות ולבנות דשבורד.
+--
+author:	amirbiron
+association:	owner
+edited:	true
+status:	none
+--
+
+# 📊 סטטוס התקדמות – Observability / Logging / Performance
+
+---
+
+## שבוע 1 – Foundation 🏗️
+
+-   [x] **התקנת `structlog`**
+    -   מוגדר דרך `observability.setup_structlog_logging`, כולל תמיכה ב-JSON/Console, הזרקת `schema_version` ו-`request_id`, טשטוש סודות, ותמיכה אופציונלית ב-OpenTelemetry (`trace_id`/`span_id`).
+-   [ ] **המרת 50 `logger calls` קריטיים**
+    -   **בוצע חלקית:** כ-22 נקודות ליבה הומרו ל-`emit_event`, כולל אירועי אתחול, ניהול נעילות ב-MongoDB, ותקלות ליבה.
+    -   **נדרש להשלים:** המרה במוקדים מרכזיים כמו `github_menu_handler.py`, קבצי `database/*`, `webapp/app.py`, ו-handlers נוספים.
+-   [x] **הוספת `request correlation`**
+    -   Middleware מייצר `request_id` אוטומטי לכל `Update` ומקשר אותו לקונטקסט. המדד `telegram_updates_total` אוסף נתונים על הבקשות.
+-   [x] **Setup Sentry**
+    -   הפעלה אופציונלית באמצעות משתנה הסביבה `SENTRY_DSN`, כולל `LoggingIntegration` וסינון מידע רגיש לפני השליחה.
+
+---
+
+## שבוע 2 – Performance ⏱️
+
+-   [x] **יצירת `track_performance`**
+    -   בשימוש כ-`context manager` למדידת זמנים בפעולות מרכזיות כמו `detect_language`, שמירת קוד ל-DB, וחיפוש.
+-   [ ] **מדידת כל הפעולות הקריטיות**
+    -   **בוצע חלקית:** כיסוי קיים לפעולות הנ"ל.
+    -   **דרוש כיסוי נוסף:** פעולות GitHub כבדות (בדיקת `rate limit`, העלאות, עדכונים), גיבויים, ושאילתות DB מרכזיות.
+-   [x] **הקמת Dashboard ראשון (Grafana)**
+    -   נוספו קבצי `provisioning` ל-Grafana (`docker/grafana/provisioning/...`).
+    -   הדשבורד כולל פאנלים בסיסיים: קצב שגיאות, Latency P95, וקצב עדכונים מטלגרם.
+
+---
+
+## שבוע 3 – Business Metrics 📈
+
+-   [x] **`track_file_saved`**
+    -   נרשם עם `size_bytes`, `language`, `user_id`, ומעדכן את המונה `business_events_total{metric="file_saved"}`.
+-   [x] **`track_search`**
+    -   נרשם עם `query_length`, `results_count`, `user_id`, ומעדכן את המונה `business_events_total{metric="search"}`.
+-   [ ] **`track_github_sync`**
+    -   הפונקציה קיימת, אך **נדרש לחבר אותה** לזרימות העבודה הרלוונטיות של סנכרון ועדכון קבצים מ-GitHub.
+-   [ ] **דוחות שבועיים (Weekly reports)**
+    -   **טרם הוטמע.** הצעה: `job` שבועי שישלח סיכום שימוש (משתמשים פעילים, מגמות) ושגיאות מובילות לערוץ אדמין.
+
+---
+
+## שבוע 4 – Alerts 🔔
+
+-   [x] **הגדרת חוקי התראות (Prometheus)**
+    -   נוספו קבצי קונפיגורציה (`docker/prometheus/alerts.yml`) עם התראות בסיסיות:
+        -   `HighErrorRate`: קצב שגיאות גבוה.
+        -   `SlowOperationsP95`: פעולות איטיות.
+-   [ ] **Integration עם Telegram/Slack**
+    -   **טרם בוצע.** נדרשת הקמה של `Alertmanager` וחיבור `Webhook` למערכת ההתראות הרצויה.
+-   [ ] **On-call rotation**
+    -   **טרם בוצע.** נדרש להגדיר רשימת תורנים וניתוב התראות ב-`Alertmanager`.
+
+---
+
+## 📝 מה נשאר (מיקוד על משימות פתוחות)
+
+-   **המרת `logger calls`:** להשלים את ההמרה ל-`emit_event` בעיקר ב-`github_menu_handler.py`, `database/*`, `webapp/app.py`, ובנקודות שגיאה מרכזיות.
+-   **מדידות ביצועים:** להרחיב את השימוש ב-`track_performance` לפעולות GitHub, גיבויים, וניתוח ריפו.
+-   **חיבור `track_github_sync`:** לשלב את הפונקציה בזרימות העלאה וסנכרון מ-GitHub כדי לאסוף נתונים עסקיים.
+-   **דוחות שבועיים:** לתזמן `job` שיפיק דוח שבועי עם סיכומי שימוש ושגיאות.
+-   **אינטגרציית התראות:** להקים `Alertmanager`, לחבר אותו ל-Slack/Telegram, לכתוב `playbook` קצר, ולהגדיר תורנות.
+
+---
+
+## ✅ אימות מהיר (Quick Verification)
+
+-   נקודת הקצה `/metrics` נחשפת דרך השרת הפנימי כאשר `ENABLE_INTERNAL_SHARE_WEB=true`.
+-   ה-Dashboard ב-Grafana נטען אוטומטית בעת הרצת פרופיל `monitoring` של `docker-compose`.
+-   Sentry יופעל אם משתנה הסביבה `SENTRY_DSN` מוגדר.
+-   הלוגים מופקים בפורמט מובנה (JSON/Console) וכוללים `request_id` וטשטוש סודות.
+
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# 📊 סטטוס עדכני – Observability / Logging / Performance
+
+## ✅ מה הושלם בסבב הזה
+
+-   **חיבור מדד עסקי ל-GitHub:**
+    -   חובר `track_github_sync` לזרימת ייבוא ZIP. האירוע המובנה `github_sync` נרשם כעת עם `files_count` וסטטוס `success`.
+-   **אינסטרומנטציה לביצועים ב-GitHub:**
+    -   נוספו מדידות `track_performance` לשלבי הייבוא: `github_zip_extract` ו-`github_import_save_file`.
+-   **הרחבת Structured Logging (`emit_event`):**
+    -   **Database:**
+        -   `database/manager.py`: נוספו אירועים מובנים כמו `db_disabled`, `db_connected`, `db_connection_failed`, וכן שגיאות הקשורות ליצירת אינדקסים.
+        -   `database/repository.py`: הומרו נקודות שגיאה רבות לאירועי `db_*_error` (שמירה, שליפה, חיפוש, מחיקות וכו').
+    -   **GitHub flow:**
+        -   נוספו אירועי שגיאה מובהקים לכל אורך הזרימה, כגון `github_rate_limit_check_error`, `github_zipball_fetch_error`, `github_import_repo_error` ועוד.
+        -   נוסף אירוע `github_callback_received` לכל Callback מרכזי למעקב אחר זרימת הבקשות.
+    -   **תמיכה בחומרה גבוהה:**
+        -   הפונקציה `emit_event` תומכת כעת גם ב-`severity="critical"`.
+
+---
+
+## 📈 השפעה בפועל
+
+-   **לוגים:** כיסוי הלוגים המובנים (JSON/Console) הורחב וכולל כעת את רוב שגיאות ה-DB והזרימות העיקריות ב-GitHub, תמיד עם `request_id`.
+-   **מטריקות:** מדדי ביצועים חשובים (זמן חליצת ZIP, זמן שמירת קובץ בייבוא) נרשמים כעת לפרומיתאוס ומזינים את הדשבורד הקיים ב-Grafana.
+-   **התראות:** אין שינוי נדרש בתצורת ההתראות הקיימת.
+
+---
+
+## 📋 צ׳קליסט לפי התוכנית
+
+**שבוע 1 – Foundation**
+-   [x] התקנת `structlog`
+-   [ ] המרת 50 `logger calls` קריטיים (הושגה התקדמות משמעותית ב-DB/GitHub, עדיין לא הושלם במלואו)
+-   [x] הוספת `request correlation`
+-   [x] Setup Sentry
+
+**שבוע 2 – Performance**
+-   [x] `track_performance` decorator
+-   [ ] מדידת כל הפעולות הקריטיות (כוסה ייבוא ZIP ושמירות; נדרש להרחיב לעוד זרימות)
+-   [x] Dashboard ראשון
+
+**שבוע 3 – Business Metrics**
+-   [x] `track_file_saved`
+-   [x] `track_search`
+-   [x] `track_github_sync` (מחובר כעת בפועל לזרימת הייבוא)
+-   [ ] דוחות שבועיים (`weekly reports`)
+
+**שבוע 4 – Alerts**
+-   [x] הגדרת חוקי התראות (ראו `docker/prometheus/alerts.yml`)
+-   [ ] אינטגרציה עם Telegram/Slack (`Alertmanager`)
+-   [ ] תורנות (`On-call rotation`)
+
+---
+
+## 🗂️ קבצים מרכזיים שהשתנו
+
+-   `observability.py` – הרחבת `emit_event` לתמיכה ב-`critical`.
+-   `database/manager.py`, `database/repository.py` – המרה לשימוש ב-`emit_event` והוספת אירועים מובנים.
+-   `github_menu_handler.py` – הזרקת `emit_event` ו-`track_performance`, חיבור `track_github_sync`, והוספת אירועי שגיאה ובקרה.
+
+---
+
+## 🚀 צעדים הבאים (מוצע)
+
+1.  **להשלים המרת `logger` ל-`emit_event`** במוקדים שנותרו (זרימות GitHub נוספות, חלקי DB, ו-handlers היסטוריים).
+2.  **להרחיב את `track_performance`** לעוד פעולות כבדות (GitHub `upload`/`update`/`delete` מרובות, גיבויים, אנליזת ריפו).
+3.  **להוסיף `Job` של דוחות שבועיים** (שימוש/מגמות/שגיאות מובילות) ולשלוח לערוץ אדמין.
+4.  **להקים `Alertmanager`** ולחבר אותו ל-Slack/Telegram, כולל Playbook קצר ותורנות on-call.
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# 📊 סטטוס עדכני – Observability / Logging / Performance
+
+## ✅ מה בוצע בסבב הזה
+
+-   **דגימת לוגים (`info sampling`) ב-`observability.py`:**
+    -   נוסף `processor` חדש שמבצע דגימה ללוגים ברמת `info`. הדגימה יציבה פר-בקשה (מבוססת `request_id`).
+    -   הפיצ'ר נשלט על ידי משתני סביבה: `LOG_INFO_SAMPLE_RATE` (בין 0 ל-1) ו-`LOG_INFO_SAMPLE_ALLOWLIST` (לאירועים שחשוב לשמור תמיד).
+-   **אינסטרומנטציה לזרימות העלאה ל-GitHub ב-`github_menu_handler.py`:**
+    -   **אירועים מובנים:** נוספו אירועים חדשים כמו `github_upload_start`, `github_rate_limit_check`, וחיזוק הדיווח של `github_sync` הקיים.
+    -   **מדידות ביצועים:** נוספו מדידות `track_performance` לפעולות `github_upload_saved_file` ו-`github_upload_direct_file`.
+    -   **ספירת שגיאות:** בעת כשל בהעלאה, המונה `errors_total` ב-Prometheus מקודם עם קוד שגיאה מתאים (`github_upload_saved_error` או `github_upload_direct_error`), יחד עם שליחת `emit_event` מפורט.
+
+---
+
+## 🧪 השפעה בפועל
+
+-   **פחות רעש בלוגים:** ניתן כעת להפעיל דגימה בסביבת ייצור כדי להפחית משמעותית את כמות הלוגים ברמת `info`, תוך שמירה מלאה על אירועים עסקיים ומדידות ביצועים.
+-   **נראות משופרת:** המעקב אחר זרימות העלאה ל-GitHub הפך לברור יותר מקצה לקצה, כולל בדיקת `rate-limit` וקישור ל-`request_id` המקורי.
+-   **מטריקות חדשות:** הדשבורד ב-Grafana מתעדכן כעת עם נתוני Latency וספירת שגיאות ייעודית עבור פעולות העלאה.
+
+---
+
+## 📋 צ'קליסט התקדמות
+
+אמנם אין סעיף חדש שסומן כבוצע במלואו, אך הושגה התקדמות משמעותית בסעיפים הבאים:
+-   **המרת 50 `logger calls` קריטיים:** בוצעה הרחבה נקודתית וחשובה בזרימות GitHub.
+-   **מדידת כל הפעולות הקריטיות:** נוספו מדידות לשתי פעולות העלאה מרכזיות; עדיין חסר כיסוי לפעולות כבדות נוספות.
+
+---
+
+## 🔧 משתני סביבה רלוונטיים
+
+-   `LOG_INFO_SAMPLE_RATE` (ברירת מחדל: `1.0` – כלומר, ללא דגימה)
+-   `LOG_INFO_SAMPLE_ALLOWLIST` (ברירת מחדל כוללת: `business_metric`, `performance`, `github_sync`)
+
+---
+
+## ▶️ צעדים הבאים (מוצע)
+
+1.  **להשלים המרת `logger.*` ל-`emit_event`** ב-handlers נוספים (למשל, `handlers/file_view.py`).
+2.  **להרחיב את השימוש ב-`track_performance`** לפעולות GitHub נוספות (כמו `create`/`update`/`delete` מרובות, וגיבויים).
+3.  **לקדם את נושא הדוחות השבועיים (`weekly reports`)** וחיבור `Alertmanager` ל-Slack/Telegram.
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# 📊 סטטוס עדכני – Observability / Logging / Performance (סבב המשך)
+
+ביצענו העמקה נקודתית בתשתית הקיימת כדי לשפר את הכיסוי והנראות של הלוגים והמטריקות.
+
+## מה חדש בסבב הזה
+
+* **לוגים/קורלציה (Web):**
+    * נוספה שכבת middleware ל-`services/webserver.py` שיוצרת `request_id` ייחודי לכל בקשה וקושרת אותו לכל הלוגים בזרימה. המזהה מוחזר גם בכותרת התגובה (`X-Request-ID`).
+    * נוספו אירועים מובנים לנקודת הקצה `/share`: `share_view_error` ו-`share_view_not_found` לטיפול בשגיאות ו-404.
+
+* **ביצועים/מטריקות:**
+    * ב-`metrics.py`, נוספה תווית (`label`) חדשה של `repo` להיסטוגרמה `operation_latency_seconds` כדי לאפשר ניתוח ביצועים פר-מאגר.
+    * ב-`github_menu_handler.py`, נוספה אינסטרומנטציה למדידת ביצועים בפונקציות `github_upload_saved_file` ו-`github_upload_direct_file` באמצעות `track_performance(..., labels={"repo": ...})`.
+    * נוספו אירועי הצלחה מובנים: `github_upload_saved_success` ו-`github_upload_direct_success`, הכוללים מידע על `repo`, `branch` ו-`path`.
+
+* **דגימה/סטנדרטיזציה:**
+    * כל האירועים החדשים מופקים דרך `emit_event` ולכן נהנים אוטומטית מיכולות כמו הוספת `request_id`, `schema_version`, טשטוש שדות רגישים, ודגימת לוגים ברמת `INFO` לפי הגדרות `LOG_INFO_SAMPLE_RATE`.
+
+## 🚀 השפעה בפועל
+
+* **עקיבות מקצה לקצה:** כעת יש `request_id` גם בזרימות Web (בנוסף לטלגרם), מה שמאפשר מעקב מלא אחר בקשות ונראות טובה יותר של כשלים בנקודת הקצה `/share`.
+* **מדדי ביצועים עשירים יותר:** ניתן לפלח את זמני התגובה (`Latency`) של פעולות GitHub לפי מאגר, מה שמקל על יצירת גרפים ממוקדים ב-Grafana.
+* **לוגים עקביים:** הצלחות של העלאת קבצים מתועדות כאירועים קנוניים ונפרדים, מה שמקל על ניתוח וניטור.
+
+## 📂 קבצים עיקריים שהשתנו
+
+* `services/webserver.py`: הוספת middleware של `request_id` ואירועי שגיאה ל-`/share`.
+* `metrics.py`: הרחבת ההיסטוגרמה `operation_latency_seconds` עם תווית `repo`.
+* `github_menu_handler.py`: הוספת אינסטרומנטציה ואירועי הצלחה בזרימות ההעלאה ל-GitHub.
+
+## 📝 עדכון לפי התכנית (העמקת כיסוי)
+
+### שבוע 1 – Foundation
+- [x] התקנת `structlog`
+- [ ] המרת 50 `logger` calls קריטיים (הכיסוי התחזק ב-DB/GitHub/Web, עדיין חלקי)
+- [x] הוספת request correlation (טלגרם + Web)
+- [x] Setup Sentry
+
+### שבוע 2 – Performance
+- [x] `track_performance` decorator
+- [ ] מדידת כל הפעולות הקריטיות (הורחב ל-GitHub upload; עדיין חסר כיסוי לפעולות נוספות)
+- [x] Dashboard ראשון
+
+### שבוע 3 – Business Metrics
+- [x] `track_file_saved`
+- [x] `track_search`
+- [x] `track_github_sync` (מחובר בייבוא ZIP)
+- [ ] `weekly reports`
+
+### שבוע 4 – Alerts
+- [x] הגדרת alerts
+- [ ] Integration עם Telegram/Slack (Alertmanager)
+- [ ] On-call rotation
+
+## 🎯 צעדים הבאים מוצעים
+
+1.  **להשלים המרת `logger.*` ל-`emit_event`** במוקדים שנותרו (GitHub/DB/handlers היסטוריים).
+2.  **להרחיב `track_performance`** לפעולות GitHub נוספות (batch create/update/delete), גיבויים ושאילתות DB כבדות.
+3.  **לממש `weekly reports`** כ-Job מתוזמן (`JobQueue`) ולשלוח לערוץ אדמין (תקציר שימוש/שגיאות/מגמות).
+4.  **להקים `Alertmanager`** ולחבר ל-Slack/Telegram (webhook + ניתוב), ולהגדיר `on-call`/Playbook קצר.
+
+## ✅ אימות מהיר
+
+* **`GET /metrics`**: ניתן לראות מדדים חדשים כמו `operation_latency_seconds_bucket{repo="..."}` ולבצע שאילתות PromQL לפי `repo`.
+* **שגיאת 404 ב-`/share/{id}`**: השרת יחזיר תגובת 404, ובלוגים יופיע אירוע `share_view_not_found` עם `request_id` תואם.
+* **העלאות ל-GitHub**: ניתן לחפש בלוגים אירועים כמו `github_upload_saved_success` או `github_upload_direct_success`, שיכללו את פרטי המאגר, הענף, הנתיב, ו-`request_id`.
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+## 📊 סטטוס עדכני – Observability / Logging / Performance
+
+### הושלמו:
+* **Structured logging** עם `structlog`, `Sentry` פעיל, **Request Correlation** (טלגרם + Web).
+* `track_performance` + **Dashboard** ראשון.
+* **Business metrics**: `file_saved`, `search`, `github_sync`.
+* **Weekly reports**: Job שבועי נשלח לאדמינים, כולל אירועי `weekly_report_sent`.
+* **Alerts**: נוספה נקודת קצה `POST /alerts` (Alertmanager) + העברה ל־Slack/Telegram; אירועים מובנים: `alert_received`, וטשטוש שדות רגישים.
+
+### הרחבות בקוד:
+* `services/webserver.py`: נקודת קצה `/alerts` + אירועי שגיאה מובנים; `/metrics` יציב.
+* `alert_forwarder.py`: העברה ל־Slack/Telegram דרך `SLACK_WEBHOOK_URL`, `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_CHAT_ID`.
+* `main.py`: אירועים `internal_web_started`/`internal_web_start_failed`; תזמון Weekly report (`WEEKLY_REPORT_DELAY_SECS` לדיליי ראשון).
+
+### אימות מהיר:
+* **Alertmanager**: שלחו `POST /alerts` עם alert בדיקה; רואים `alert_received` בלוגים והודעות ב־Slack/Telegram (אם הוגדרו משתנים).
+* **Weekly report**: הגדירו `WEEKLY_REPORT_DELAY_SECS=5` — מתקבל דוח לאדמינים ואירוע `weekly_report_sent`.
+* **שרת פנימי**: עם `ENABLE_INTERNAL_SHARE_WEB=true` ו־`PUBLIC_BASE_URL` — אירוע `internal_web_started`.
+
+### נותר לביצוע:
+* המרת עוד `logger.*` ל־`emit_event` (להשלים יעד 50 קריטיים).
+* הרחבת מדידות ל־“כל הפעולות הקריטיות”.
+* On‑call rotation.
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# סטטוס עדכני – Observability / Logging / Performance (#655)
+
+## ✅ מה הושלם בסבב הזה
+
+### 🔊 מערכת אירועים ולוגים מובנים הורחבה
+* `repo_analyzer.py`: נוספו אירועים `repo_analysis_start|parsed|done` ושגיאות `repo_parse_url_error|repo_analysis_error|repo_analysis_github_api_error`.
+* `search_engine.py`: נוספו אירועים `search_request|search_done|search_error` ומדידות ביצועים בשלבים (`search_index_rebuild|get|execute|filter|sort`).
+* `setup_bookmarks.py`: נוספו אירועי התקנה ואינדקסים (`bookmarks_mongodb_connected|bookmarks_collection_created|bookmarks_indexes_created|bookmarks_setup_error`).
+* `terminal_commands.py`: נוסף אירוע `terminal_command_failed` בנתיב הכשל.
+
+### 📊 מדידות ביצועים
+* הפעולה `track_performance("github_repo_analyze", labels={"repo": <owner/repo>})` עוטפת את כל תהליך ניתוח הריפו.
+* תהליך החיפוש נמדד בשלבים עיקריים (ראה לעיל) ומזין את Prometheus.
+
+### 🐞 תיקון באג P0
+* בלוק `with track_performance` ריק ב-`repo_analyzer.py` תוקן. גוף האנליזה הועבר פנימה ו-`IndentationError` נפתר.
+
+### 🧪 טסטים יחידתיים חדשים (ללא סודות/רשת)
+* `tests/test_repo_analyzer_events.py`: בודק את אירועי `repo_analysis_*` ושגיאת `parse`.
+* `tests/test_search_engine_events.py`: בודק את אירועי `search_request|search_done` ונתיב שגיאה רך.
+* `tests/test_setup_bookmarks_events.py`: בודק את אירועי ההתקנה והאינדקסים.
+* `tests/test_terminal_commands_events.py`: בודק את אירוע `terminal_command_failed`.
+
+---
+
+## 📝 צ׳קליסט לפי התוכנית
+
+* **שבוע 1 – Foundation**
+    * [x] התקנת `structlog`
+    * [ ] המרת 50 `logger` calls קריטיים (התקדמות משמעותית; נדרש סבב השלמה)
+    * [x] `request correlation`
+    * [x] Sentry
+* **שבוע 2 – Performance**
+    * [x] `track_performance` decorator
+    * [ ] מדידת כל הפעולות הקריטיות (כוסו ניתוח ריפו וחיפוש; נדרש להרחיב לעוד זרימות)
+    * [x] Dashboard ראשון
+* **שבוע 3 – Business Metrics**
+    * [x] `track_file_saved`
+    * [x] `track_search`
+    * [x] `track_github_sync`
+    * [x] Weekly reports
+* **שבוע 4 – Alerts**
+    * [x] הגדרת alerts
+    * [x] אינטגרציה ל־Slack/Telegram (Alertmanager)
+    * [ ] On‑call rotation
+
+---
+
+## 🎯 מה עוד חסר כדי “לסגור” את האישיו
+
+* **להשלים המרת `logger.*` ל-`emit_event` במוקדים עם נפח:**
+    * `main.py` (ניהול נעילה, Bootstrap, הודעות סטטוס).
+    * `github_menu_handler.py` (upload/delete/zip/restore).
+    * `services/webserver.py` (שגיאות נקודת קצה).
+* **להרחיב `track_performance` לפעולות כבדות נוספות:**
+    * פעולות GitHub מרובות (batch create/update/delete).
+    * גיבויים (`backup_service.py`).
+    * שאילתות DB כבדות.
+* **קריטריונים מהאישיו:**
+    * לאכוף ≥95% לוגים עם `event|schema_version|request_id|trace_id` באזורים הקריטיים.
+    * לוודא שכל שגיאה קריטית כוללת `error_code` יציב (במקומות שחסרים).
+    * לאשר בדשבורד P95 ל-5 פעולות מרכזיות (חיפוש, ייבוא ZIP, העלאות, ניתוח ריפו, גיבוי).
+    * **On‑call rotation**: להוסיף תצורה/מסמך קצר (מי/מתי/ערוץ), ולהטעין ל-Alertmanager.
+
+---
+
+## ℹ️ הערות טסטים
+
+הטסטים החדשים "מבודדים" (משתמשים ב-stubs/monkeypatch) כדי לא לחשוף סודות (`GH_TOKEN`/`Mongo`) ולא להזדקק לרשת ב-CI. אפשר להוסיף טסטי אינטגרציה אופציונליים מאובטחים (שירוצו רק עם `RUN_INTEGRATION=1` ומשתני סביבה מתאימים) אם יש צורך.
+
+---
+
+## 🚀 מיקוד לסגירה (פרקטי, בלי לחתוך פינות)
+
+1.  מחזור קצר להשלמת המרות הלוגים ומדידות הביצועים באזורים שצוינו.
+2.  בדיקת דגימה של לוגים ברמת `INFO` ו-`allowlist` כדי לוודא שאירועים עסקיים אינם נחסמים.
+3.  אימות ידני בדאשבורד ובלוגים שהקריטריונים שהוגדרו מתקיימים.
+4.  עדכון קצר לתיעוד הסכמה והאירועים (יצורף לינק ב-PR).
+
+אם התוכנית מאושרת – אכוון לסבב אחד מרוכז שישלים את כל הפערים ויאפשר לסגור את האישיו.
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+סטטוס: בוצעה התקדמות במימוש ב #800  PR 
+
+--

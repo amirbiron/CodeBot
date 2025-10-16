@@ -2239,6 +2239,17 @@ class GitHubMenuHandler:
                     except Exception as e:
                         logger.error(f"Error fetching repo zipball: {e}")
                         try:
+                            emit_event(
+                                "github_zipball_fetch_error",
+                                severity="error",
+                                error=str(e),
+                                repo=str(getattr(repo, "full_name", "")),
+                            )
+                            if errors_total is not None:
+                                errors_total.labels(code="github_zipball_fetch_error").inc()
+                        except Exception:
+                            pass
+                        try:
                             await query.edit_message_text(f"❌ שגיאה בהורדת ZIP של הריפו: {e}")
                         except BadRequest as br:
                             if "message is not modified" not in str(br).lower():
@@ -2340,6 +2351,15 @@ class GitHubMenuHandler:
                     backup_manager.save_backup_bytes(zip_buffer.getvalue(), metadata)
                 except Exception as e:
                     logger.warning(f"Failed to persist GitHub ZIP: {e}")
+                    try:
+                        emit_event(
+                            "github_zip_persist_error",
+                            severity="warn",
+                            error=str(e),
+                            repo=str(getattr(repo, "full_name", "")),
+                        )
+                    except Exception:
+                        pass
                 await query.message.reply_document(
                     document=zip_buffer, filename=filename, caption=caption
                 )
@@ -2377,6 +2397,17 @@ class GitHubMenuHandler:
                     pass
             except Exception as e:
                 logger.error(f"Error creating ZIP: {e}")
+                try:
+                    emit_event(
+                        "github_zip_create_error",
+                        severity="error",
+                        error=str(e),
+                        repo=str(getattr(repo, "full_name", "")),
+                    )
+                    if errors_total is not None:
+                        errors_total.labels(code="github_zip_create_error").inc()
+                except Exception:
+                    pass
                 try:
                     await query.edit_message_text(f"❌ שגיאה בהכנת ZIP: {e}")
                 except BadRequest as br:
@@ -2457,6 +2488,18 @@ class GitHubMenuHandler:
                     await _send_document(BytesIO(data), filename)
             except Exception as e:
                 logger.error(f"Inline download error: {e}")
+                try:
+                    emit_event(
+                        "github_inline_download_error",
+                        severity="error",
+                        error=str(e),
+                        repo=str(getattr(repo, "full_name", "")),
+                        path=str(path),
+                    )
+                    if errors_total is not None:
+                        errors_total.labels(code="github_inline_download_error").inc()
+                except Exception:
+                    pass
                 try:
                     if getattr(query, "message", None) is not None:
                         await query.message.reply_text(f"❌ שגיאה בהורדה: {e}")
@@ -2576,6 +2619,18 @@ class GitHubMenuHandler:
                         )
                 except Exception as e:
                     logger.error(f"Multi ZIP error: {e}")
+                    try:
+                        emit_event(
+                            "github_multi_zip_error",
+                            severity="error",
+                            error=str(e),
+                            repo=str(getattr(repo, "full_name", "")),
+                            selected_count=int(len(selection) if isinstance(selection, (list, set, tuple)) else 0),
+                        )
+                        if errors_total is not None:
+                            errors_total.labels(code="github_multi_zip_error").inc()
+                    except Exception:
+                        pass
                     await query.edit_message_text(f"❌ שגיאה באריזת ZIP: {e}")
                     return
                 finally:
@@ -2618,6 +2673,18 @@ class GitHubMenuHandler:
                         pr_url = pr.html_url
                     except Exception as e:
                         logger.error(f"Safe delete failed: {e}")
+                        try:
+                            emit_event(
+                                "github_safe_delete_error",
+                                severity="error",
+                                error=str(e),
+                                repo=str(getattr(repo, "full_name", "")),
+                                branch=str(default_branch),
+                            )
+                            if errors_total is not None:
+                                errors_total.labels(code="github_safe_delete_error").inc()
+                        except Exception:
+                            pass
                         await query.edit_message_text(f"❌ שגיאה במחיקה בטוחה: {e}")
                         return
                 else:
@@ -2635,6 +2702,18 @@ class GitHubMenuHandler:
                             successes += 1
                         except Exception as e:
                             logger.error(f"Delete file failed: {e}")
+                            try:
+                                emit_event(
+                                    "github_delete_file_error",
+                                    severity="error",
+                                    error=str(e),
+                                    repo=str(getattr(repo, "full_name", "")),
+                                    path=str(path),
+                                )
+                                if errors_total is not None:
+                                    errors_total.labels(code="github_delete_file_error").inc()
+                            except Exception:
+                                pass
                             failures += 1
                 # סכם והצג
                 summary = f"✅ נמחקו {successes} | ❌ נכשלו {failures}"
@@ -2702,6 +2781,17 @@ class GitHubMenuHandler:
                 await query.message.reply_text(text)
             except Exception as e:
                 logger.error(f"share_selected_links error: {e}")
+                try:
+                    emit_event(
+                        "github_share_selected_links_error",
+                        severity="error",
+                        error=str(e),
+                        repo=str(getattr(repo, "full_name", "")),
+                    )
+                    if errors_total is not None:
+                        errors_total.labels(code="github_share_selected_links_error").inc()
+                except Exception:
+                    pass
                 await query.answer("שגיאה בשיתוף קישורים", show_alert=True)
             # השאר בדפדפן
             await self.show_repo_browser(update, context)
@@ -2725,6 +2815,18 @@ class GitHubMenuHandler:
                 await query.message.reply_text(f"🔗 קישור לקובץ:\n{url}")
             except Exception as e:
                 logger.error(f"share_single_link error: {e}")
+                try:
+                    emit_event(
+                        "github_share_single_link_error",
+                        severity="error",
+                        error=str(e),
+                        repo=str(getattr(repo, "full_name", "")),
+                        path=str(path),
+                    )
+                    if errors_total is not None:
+                        errors_total.labels(code="github_share_single_link_error").inc()
+                except Exception:
+                    pass
                 await query.answer("שגיאה בשיתוף קישור", show_alert=True)
             await self.show_repo_browser(update, context, only_keyboard=True)
 
