@@ -118,45 +118,37 @@ def _get_existing_metric(name: str):
     except Exception:
         return None
     return None
+class _MetricNoop:
+    def labels(self, *a, **k): return self
+    def inc(self, *a, **k): return None
+    def observe(self, *a, **k): return None
+    def set(self, *a, **k): return None
+def _ensure_metric(name: str, create_fn):
+    existing = _get_existing_metric(name)
+    if existing:
+        return existing
+    try:
+        return create_fn()
+    except Exception:
+        existing = _get_existing_metric(name)
+        if existing:
+            return existing
+        return _MetricNoop()
 
 if Counter and Histogram and Gauge:
-    try:
-        search_counter = _get_existing_metric('search_requests_total') or Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status'])
-    except Exception:
-        # Already registered elsewhere – reuse existing if possible
-        search_counter = _get_existing_metric('search_requests_total') or Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status'])
-    try:
-        search_duration = _get_existing_metric('search_duration_seconds') or Histogram('search_duration_seconds', 'Search request duration in seconds')
-    except Exception:
-        search_duration = _get_existing_metric('search_duration_seconds') or Histogram('search_duration_seconds', 'Search request duration in seconds')
-    try:
-        search_results_count = _get_existing_metric('search_results_count') or Histogram('search_results_count', 'Number of results returned')
-    except Exception:
-        search_results_count = _get_existing_metric('search_results_count') or Histogram('search_results_count', 'Number of results returned')
-    try:
-        search_cache_hits = _get_existing_metric('search_cache_hits_total') or Counter('search_cache_hits_total', 'Total number of cache hits')
-    except Exception:
-        search_cache_hits = _get_existing_metric('search_cache_hits_total') or Counter('search_cache_hits_total', 'Total number of cache hits')
-    try:
-        search_cache_misses = _get_existing_metric('search_cache_misses_total') or Counter('search_cache_misses_total', 'Total number of cache misses')
-    except Exception:
-        search_cache_misses = _get_existing_metric('search_cache_misses_total') or Counter('search_cache_misses_total', 'Total number of cache misses')
-    try:
-        active_indexes_gauge = _get_existing_metric('search_active_indexes') or Gauge('search_active_indexes', 'Number of active search indexes')
-    except Exception:
-        active_indexes_gauge = _get_existing_metric('search_active_indexes') or Gauge('search_active_indexes', 'Number of active search indexes')
+    search_counter = _ensure_metric('search_requests_total', lambda: Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status']))
+    search_duration = _ensure_metric('search_duration_seconds', lambda: Histogram('search_duration_seconds', 'Search request duration in seconds'))
+    search_results_count = _ensure_metric('search_results_count', lambda: Histogram('search_results_count', 'Number of results returned'))
+    search_cache_hits = _ensure_metric('search_cache_hits_total', lambda: Counter('search_cache_hits_total', 'Total number of cache hits'))
+    search_cache_misses = _ensure_metric('search_cache_misses_total', lambda: Counter('search_cache_misses_total', 'Total number of cache misses'))
+    active_indexes_gauge = _ensure_metric('search_active_indexes', lambda: Gauge('search_active_indexes', 'Number of active search indexes'))
 else:
-    class _Dummy:
-        def labels(self, *a, **k): return self
-        def inc(self, *a, **k): return None
-        def observe(self, *a, **k): return None
-        def set(self, *a, **k): return None
-    search_counter = _Dummy()
-    search_duration = _Dummy()
-    search_results_count = _Dummy()
-    search_cache_hits = _Dummy()
-    search_cache_misses = _Dummy()
-    active_indexes_gauge = _Dummy()
+    search_counter = _MetricNoop()
+    search_duration = _MetricNoop()
+    search_results_count = _MetricNoop()
+    search_cache_hits = _MetricNoop()
+    search_cache_misses = _MetricNoop()
+    active_indexes_gauge = _MetricNoop()
 
 # Optional Sentry init (non-fatal if missing)
 try:
