@@ -582,6 +582,14 @@ class AdvancedBotHandlers:
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/status – בדיקות בריאות בסיסיות: DB, Redis, GitHub API"""
         try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
             # DB status
             db_ok = False
             try:
@@ -630,6 +638,14 @@ class AdvancedBotHandlers:
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""
         try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
             lines: list[str] = []
             used_fallback = False
             # Try Sentry via environment – not implemented here to avoid hard dep; fallback to local buffer
@@ -654,6 +670,14 @@ class AdvancedBotHandlers:
     async def rate_limit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/rate_limit – מצב מגבלת GitHub עם התראה אם שימוש >80%"""
         try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
             if aiohttp is None or not os.getenv("GITHUB_TOKEN"):
                 await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
                 return
