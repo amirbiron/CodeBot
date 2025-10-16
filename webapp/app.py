@@ -106,6 +106,13 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
+try:
+    from metrics import record_request_outcome  # type: ignore
+except Exception:  # pragma: no cover
+    def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
+        return None
+
 # --- Search: metrics, limiter (lightweight, optional) ---
 def _no_op(*args, **kwargs):
     return None

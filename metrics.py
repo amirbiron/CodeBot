@@ -170,6 +170,7 @@ def _maybe_trigger_anomaly() -> None:
 
     Sends a single alert per cooldown window.
     """
+    global _ANOMALY_LAST_TS
     now = _time.time()
     try:
         # Cooldown guard
