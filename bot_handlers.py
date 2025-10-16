@@ -26,6 +26,10 @@ from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
 from activity_reporter import create_reporter
 import json
+try:
+    import aiohttp  # for GitHub rate limit check
+except Exception:  # pragma: no cover
+    aiohttp = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +92,10 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
         # חיפוש
         self.application.add_handler(CommandHandler("search", self.search_command))
+        # ChatOps MVP commands
+        self.application.add_handler(CommandHandler("status", self.status_command))
+        self.application.add_handler(CommandHandler("errors", self.errors_command))
+        self.application.add_handler(CommandHandler("rate_limit", self.rate_limit_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -570,6 +578,112 @@ class AdvancedBotHandlers:
                 response += f"• {suggestion}\n"
         
         await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/status – בדיקות בריאות בסיסיות: DB, Redis, GitHub API"""
+        try:
+            # DB status
+            db_ok = False
+            try:
+                from database import db as _db
+                # No-op DB returns empty list; treat as OK in test/doc envs
+                _ = list(getattr(_db, 'collection', None).list_indexes()) if getattr(_db, 'collection', None) else []
+                db_ok = True
+            except Exception:
+                db_ok = False
+
+            # Redis status
+            redis_ok = False
+            try:
+                from cache_manager import cache as _cache
+                redis_ok = bool(getattr(_cache, 'is_enabled', False))
+            except Exception:
+                redis_ok = False
+
+            # GitHub API rate limit (optional)
+            gh_status = "unknown"
+            try:
+                if aiohttp is not None and os.getenv("GITHUB_TOKEN"):
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
+                            data = await resp.json()
+                            remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
+                            limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
+                            used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
+                            gh_status = f"{remaining}/{limit} ({used_pct}% used)"
+            except Exception:
+                gh_status = "error"
+
+            def _emoji(ok: bool) -> str:
+                return "🟢" if ok else "🔴"
+
+            text = (
+                f"📋 Status\n"
+                f"DB: {_emoji(db_ok)}\n"
+                f"Redis: {_emoji(redis_ok)}\n"
+                f"GitHub: {gh_status}\n"
+            )
+            await update.message.reply_text(text)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/status: {html.escape(str(e))}")
+
+    async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""
+        try:
+            lines: list[str] = []
+            used_fallback = False
+            # Try Sentry via environment – not implemented here to avoid hard dep; fallback to local buffer
+            try:
+                from observability import get_recent_errors  # type: ignore
+                recent = get_recent_errors(limit=10) or []
+                if recent:
+                    for i, er in enumerate(recent, 1):
+                        code = er.get("error_code") or "-"
+                        msg = er.get("error") or er.get("event") or ""
+                        lines.append(f"{i}. [{code}] {msg}")
+                else:
+                    used_fallback = True
+            except Exception:
+                used_fallback = True
+            if used_fallback and not lines:
+                lines.append("(אין נתוני שגיאות זמינים בסביבה זו)")
+            await update.message.reply_text("\n".join(["🧰 שגיאות אחרונות:"] + lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/errors: {html.escape(str(e))}")
+
+    async def rate_limit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/rate_limit – מצב מגבלת GitHub עם התראה אם שימוש >80%"""
+        try:
+            if aiohttp is None or not os.getenv("GITHUB_TOKEN"):
+                await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
+                return
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
+                    data = await resp.json()
+            core = data.get("resources", {}).get("core", {})
+            remaining = int(core.get("remaining", 0))
+            limit = int(core.get("limit", 0))
+            used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
+            bar = self._progress_bar(used_pct)
+            msg = (
+                f"📈 GitHub Rate Limit\n"
+                f"Remaining: {remaining}/{limit}\n"
+                f"Usage: {bar}\n"
+            )
+            if used_pct >= 80:
+                msg += "\n⚠️ מתקרבים למגבלה! שקול לצמצם קריאות או להפעיל backoff"
+            await update.message.reply_text(msg)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/rate_limit: {html.escape(str(e))}")
+
+    def _progress_bar(self, percentage: int, width: int = 20) -> str:
+        try:
+            filled = int(width * max(0, min(100, int(percentage))) / 100)
+            bar = "█" * filled + "░" * (width - filled)
+            color = "🟢" if percentage < 60 else "🟡" if percentage < 80 else "🔴"
+            return f"{color} [{bar}] {percentage}%"
+        except Exception:
+            return f"{percentage}%"
     
     async def validate_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """בדיקת תחביר של קוד"""

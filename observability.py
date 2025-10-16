@@ -17,6 +17,8 @@ import random
 import hashlib
 
 import structlog
+from collections import deque
+from datetime import datetime
 
 try:  # Optional OpenTelemetry
     from opentelemetry.trace import get_current_span  # type: ignore
@@ -24,6 +26,9 @@ except Exception:  # pragma: no cover
     get_current_span = None  # type: ignore
 
 SCHEMA_VERSION = "1.0"
+
+# Guard to avoid double Sentry initialization in multi-import scenarios
+_SENTRY_INIT_DONE = False
 
 
 def _add_otel_ids(logger, method, event_dict: Dict[str, Any]):
@@ -159,6 +164,18 @@ def bind_request_id(request_id: str) -> None:
 def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
+    # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
+    try:
+        if severity in {"error", "critical"}:
+            _RECENT_ERRORS.append({
+                "ts": datetime.utcnow().isoformat(),
+                "event": str(event),
+                "error_code": str(fields.get("error_code") or ""),
+                "error": str(fields.get("error") or fields.get("message") or ""),
+                "operation": str(fields.get("operation") or ""),
+            })
+    except Exception:
+        pass
     if severity in {"error", "critical"}:
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
@@ -168,6 +185,9 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
 
 
 def init_sentry() -> None:
+    global _SENTRY_INIT_DONE
+    if _SENTRY_INIT_DONE:
+        return
     dsn = os.getenv("SENTRY_DSN")
     if not dsn:
         return
@@ -194,5 +214,23 @@ def init_sentry() -> None:
             integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
             before_send=_before_send,
         )
+        _SENTRY_INIT_DONE = True
     except Exception:
         return
+
+
+# --- Simple in-memory errors buffer for ChatOps (/errors) ---
+_RECENT_ERRORS: "deque[Dict[str, Any]]" = deque(maxlen=int(os.getenv("RECENT_ERRORS_BUFFER", "200")))
+
+
+def get_recent_errors(limit: int = 10) -> list[Dict[str, Any]]:
+    """Return the most recent error events recorded via emit_event.
+
+    This is a best-effort, in-memory buffer intended for environments without Sentry.
+    """
+    try:
+        if limit <= 0:
+            return []
+        return list(_RECENT_ERRORS)[-limit:]
+    except Exception:
+        return []

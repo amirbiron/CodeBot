@@ -193,6 +193,8 @@ def create_app() -> web.Application:
         return web.Response(text=html, content_type="text/html")
 
     app.router.add_get("/health", health)
+    # Alias for k8s/Render conventions
+    app.router.add_get("/healthz", health)
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/share/{share_id}", share_view)

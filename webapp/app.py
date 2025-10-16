@@ -1283,6 +1283,17 @@ def metrics_endpoint():
         return Response("metrics unavailable", mimetype='text/plain', status=503)
 
 
+@app.route('/healthz')
+def healthz():
+    """Simple liveness probe for platforms expecting /healthz."""
+    try:
+        # Light check: ensure app context and (optional) DB client object exist
+        _ = app.name  # noqa: F841
+        return jsonify({"status": "ok"}), 200
+    except Exception:
+        return jsonify({"status": "error"}), 503
+
+
 @app.route('/api/search/health')
 def api_search_health():
     """בדיקת תקינות פשוטה של מנוע החיפוש (ללא גישה לנתוני משתמש)."""
