@@ -50,7 +50,7 @@ jobs:
       run: |
         cd docs
         # Build with less strict settings for Python 3.9
-        sphinx-build -b html . _build/html --keep-going
+        sphinx-build -b html . _build/html --keep-going -j auto
       env:
         SPHINX_MOCK_IMPORTS: true
         BOT_TOKEN: dummy_token_for_docs

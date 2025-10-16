@@ -13,6 +13,8 @@ on:
     paths:
       - '**.py'
       - 'docs/**'
+  schedule:
+    - cron: '0 2 * * *'
   release:
     types: [published]
   workflow_dispatch:
@@ -30,9 +32,14 @@ env:
   PYTHON_VERSION: '3.11'
   SPHINX_BUILD_DIR: docs/_build/html
 
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-docs:
     name: 🔨 Build Documentation
+    if: ${{ github.event_name != 'schedule' && !(github.event_name == 'pull_request' && github.event.pull_request.draft) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,21 +50,21 @@ jobs:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Full history for git info in docs
+        fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
     
     - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
+        cache-dependency-path: |
+          requirements.txt
+          docs/requirements.txt
     
     - name: 📦 Install documentation dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install sphinx==7.4.7 sphinx-rtd-theme==2.0.0 sphinx-autodoc-typehints==2.2.3 sphinxcontrib-napoleon==0.7 sphinx-multiversion==0.2.4
-        # Project deps (best-effort)
-        pip install -r requirements.txt 2>/dev/null || true
-        # Docs deps (include mermaid and extras)
+        # Install only docs dependencies (conf.py mocks heavy imports)
         pip install -r docs/requirements.txt 2>/dev/null || true
     
     - name: 🔍 Check documentation style
@@ -66,21 +73,30 @@ jobs:
         pip install pydocstyle
         pydocstyle --count --convention=google --add-ignore=D100,D104 || true
     
+    - name: Cache Sphinx doctrees
+      uses: actions/cache@v4
+      with:
+        path: docs/_build/doctrees
+        key: docs-doctrees-${{ github.ref }}-${{ hashFiles('docs/**/*.rst', 'docs/conf.py') }}
+        restore-keys: |
+          docs-doctrees-${{ github.ref }}-
+          docs-doctrees-
+
     - name: 🔨 Build docs (PR single-version)
       if: github.event_name == 'pull_request'
       run: |
         cd docs
-        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going
+        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going -j auto
       env:
         SPHINX_MOCK_IMPORTS: true
         BOT_TOKEN: dummy_token_for_docs
         MONGODB_URL: mongodb://localhost:27017/test
 
     - name: 🔨 Build docs (single-version for stability)
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push' || github.event_name == 'pull_request'
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         cd docs
-        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going
+        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going -j auto
     
     - name: 📊 Generate documentation coverage report
       if: github.event_name == 'pull_request'
@@ -93,18 +109,7 @@ jobs:
         cat _build/coverage/python.txt >> $GITHUB_STEP_SUMMARY || echo "No coverage data available" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
     
-    - name: 🔗 Check for broken links
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      run: |
-        cd docs
-        sphinx-build -b linkcheck . _build/linkcheck || true
-        if [ -f "_build/linkcheck/output.txt" ]; then
-          echo "### 🔗 Link Check Report" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          head -50 _build/linkcheck/output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-        fi
+
     
     - name: 💾 Upload documentation artifacts
       uses: actions/upload-artifact@v4
@@ -226,6 +231,38 @@ jobs:
         echo "- **URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment**: github-pages" >> $GITHUB_STEP_SUMMARY
         echo "- **Deployed at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+
+  linkcheck-nightly:
+    name: 🔗 Nightly linkcheck (Sphinx)
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            docs/requirements.txt
+      - name: 📦 Install docs deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+      - name: 🔗 Run linkcheck
+        continue-on-error: true
+        run: |
+          cd docs
+          sphinx-build -b linkcheck . _build/linkcheck || true
+          if [ -f "_build/linkcheck/output.txt" ]; then
+            echo "### 🔗 Link Check Report (Nightly)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            head -100 _build/linkcheck/output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
   notify-failure:
     name: 📢 Notify on Failure
