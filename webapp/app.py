@@ -736,6 +736,19 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def api_login_required(f):
+    """דקורטור לבדיקת התחברות ל-API: מחזיר 401 JSON במקום redirect."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            try:
+                return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+            except Exception:
+                # כשל לא צפוי בבניית JSON – נ fallback לטקסט
+                return Response('Unauthorized', status=401)
+        return f(*args, **kwargs)
+    return decorated_function
+
 # before_request: אם אין סשן אבל יש cookie "remember_me" תקף — נבצע התחברות שקופה
 @app.before_request
 def try_persistent_login():
@@ -1008,7 +1021,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
 
 
 @app.route('/api/search/global', methods=['POST'])
-@login_required
+@api_login_required
 @_search_limiter_decorator("30 per minute")
 def api_search_global():
     """חיפוש גלובלי בתוכן כל הקבצים של המשתמש."""
@@ -1240,7 +1253,7 @@ def api_search_global():
 
 
 @app.route('/api/search/suggestions', methods=['GET'])
-@login_required
+@api_login_required
 def api_search_suggestions():
     """הצעות השלמה אוטומטיות לחיפוש על בסיס אינדקס המנוע."""
     try:

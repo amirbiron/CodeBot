@@ -56,15 +56,20 @@
       };
       if (!payload.filters.languages || payload.filters.languages.length === 0) delete payload.filters;
       const res = await fetch('/api/search/global', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      const data = await res.json();
+      if (res.status === 401){
+        try { window.location.href = '/login'; } catch(_) {}
+        return;
+      }
+      let data = null;
+      try { data = await res.json(); } catch(_) { data = null; }
       if (res.ok && data && data.success){
         displayResults(data);
       } else {
-        alert(data.error || 'אירעה שגיאה בחיפוש');
+        showError((data && data.error) ? String(data.error) : 'אירעה שגיאה בחיפוש');
       }
     } catch (e){
       console.error('search error', e);
-      alert('אירעה שגיאה בחיפוש');
+      showError('אירעה שגיאה בחיפוש');
     } finally {
       btn.disabled = false; btn.innerHTML = original; hideSuggestions();
     }
@@ -95,6 +100,23 @@
     renderPagination(pagination, data);
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showError(message){
+    const container = $('searchResultsContainer');
+    const info = $('searchInfo');
+    const results = $('searchResults');
+    const pagination = $('searchPagination');
+    const msg = String(message || 'אירעה שגיאה');
+    if (container && info && results && pagination){
+      info.innerHTML = '<div class="alert alert-error">' + escapeHtml(msg) + '</div>';
+      results.innerHTML = '';
+      pagination.innerHTML = '';
+      container.style.display = 'block';
+      try { container.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_) {}
+    } else {
+      try { alert(msg); } catch(_) {}
+    }
   }
 
   function renderCard(r){
