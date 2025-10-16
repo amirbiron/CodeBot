@@ -1268,11 +1268,11 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text("❌ שגיאה בעדכון ההערה")
         return ConversationHandler.END
 
-    # שחזור טקסט עם סימוני Markdown שנבלעו (לדוגמה __main__)
+    # שחזור טקסט עם סימוני Markdown שנבלעו (אם יש), בהתאם למדיניות השימור
     try:
         new_code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
     except Exception:
-        new_code = update.message.text
+        new_code = update.message.text or ''
     
     # בדיקה אם מדובר בעריכת קובץ גדול
     editing_large_file = context.user_data.get('editing_large_file')
@@ -1890,6 +1890,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     """מרכז בקרה מתקדם לכל הכפתורים"""
     query = update.callback_query
     # ה-guard הגלובלי מטופל ב-main.py; אין צורך בבקרת busy כאן
+
+    # מנגנון מונע-כפל ברמת update אחד: אותו callback יכול להיתפס גם ע"י ה-ConversationHandler
+    # וגם ע"י ה-catch-all הגלובלי (בקבוצה מאוחרת). כדי למנוע שליחה כפולה של הודעות,
+    # נסמן את מזהה ה-update כטופל כבר, ונצא מיד אם הוא נתקל שוב.
+    try:
+        uid = getattr(update, 'update_id', None)
+        # החל מנגנון הכפילות רק כאשר יש update_id תקין (לא None)
+        if uid is not None:
+            last_handled_uid = context.user_data.get('_last_callback_update_id')
+            if last_handled_uid == uid:
+                return ConversationHandler.END
+            context.user_data['_last_callback_update_id'] = uid
+    except Exception:
+        # לא לחסום את הזרימה במקרה של חוסר מפתח/טסטים
+        pass
 
     try:
         data = query.data
