@@ -1021,8 +1021,11 @@ def api_search_global():
             except Exception:
                 return default
 
-        # Resolve DB ids for links
-        db = get_db()
+        # Resolve DB ids for links (best-effort; don't fail search if DB unavailable)
+        try:
+            db = get_db()
+        except Exception:
+            db = None
 
         resp = {
             'success': True,
