@@ -22,6 +22,16 @@ from .models import CodeSnippet, LargeFile
 
 logger = logging.getLogger(__name__)
 
+# Optional performance instrumentation
+try:  # type: ignore
+    from metrics import track_performance  # type: ignore
+except Exception:  # pragma: no cover
+    from contextlib import contextmanager
+
+    @contextmanager
+    def track_performance(_operation: str, labels=None):  # type: ignore
+        yield
+
 
 class Repository:
     """CRUD נקי עבור אוספים במאגר הנתונים."""
@@ -580,7 +590,9 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            with track_performance("db_get_user_files"):
+                rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return rows
         except Exception as e:
             emit_event("db_get_user_files_error", severity="error", error=str(e))
             return []
@@ -605,7 +617,9 @@ class Repository:
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
             ]
-            return list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            with track_performance("db_search_code"):
+                rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            return rows
         except Exception as e:
             emit_event("db_search_code_error", severity="error", error=str(e))
             return []
@@ -637,7 +651,8 @@ class Repository:
                 {"$skip": skip},
                 {"$limit": per_page},
             ]
-            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
+            with track_performance("db_get_user_files_by_repo_items", labels={"repo": str(repo_tag)}):
+                items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
 
             # ספירת סה"כ (distinct שמות קבצים)
             count_pipeline = [
@@ -645,7 +660,8 @@ class Repository:
                 {"$group": {"_id": "$file_name"}},
                 {"$count": "count"},
             ]
-            cnt_res = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
+            with track_performance("db_get_user_files_by_repo_count", labels={"repo": str(repo_tag)}):
+                cnt_res = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
             total = int((cnt_res[0]["count"]) if cnt_res else 0)
             return items, total
         except Exception as e:
@@ -681,7 +697,8 @@ class Repository:
                 {"$group": {"_id": "$file_name"}},
                 {"$count": "count"},
             ]
-            cnt = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
+            with track_performance("db_regular_files_count"):
+                cnt = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
             total = int((cnt[0].get("count") if cnt else 0) or 0)
 
             # הידוק עמוד חוקי בהתאם לספירה
@@ -716,7 +733,8 @@ class Repository:
                 {"$skip": skip},
                 {"$limit": per_page},
             ]
-            items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
+            with track_performance("db_regular_files_items"):
+                items = list(self.manager.collection.aggregate(items_pipeline, allowDiskUse=True))
             return items, total
         except Exception as e:
             emit_event("db_get_regular_files_paginated_error", severity="error", error=str(e))
@@ -834,7 +852,8 @@ class Repository:
                     "latest_activity": {"$max": "$latest_update"},
                 }},
             ]
-            result = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            with track_performance("db_get_user_stats"):
+                result = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             if result:
                 stats = result[0]
                 stats.pop('_id', None)
@@ -1194,7 +1213,8 @@ class Repository:
                 {"$project": {"_id": 0, "file_name": 1}},
                 {"$limit": max(1, int(limit or 1000))},
             ]
-            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            with track_performance("db_get_user_file_names"):
+                docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             return [d.get("file_name") for d in docs if isinstance(d, dict) and d.get("file_name")]
         except Exception as e:
             emit_event("db_get_user_file_names_error", severity="error", error=str(e))
@@ -1211,7 +1231,8 @@ class Repository:
                 {"$project": {"_id": 0, "tag": "$_id"}},
                 {"$sort": {"tag": 1}},
             ]
-            docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            with track_performance("db_get_user_tags_flat"):
+                docs = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             return [d.get("tag") for d in docs if isinstance(d, dict) and d.get("tag")]
         except Exception as e:
             emit_event("db_get_user_tags_flat_error", severity="error", error=str(e))
