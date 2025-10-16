@@ -92,3 +92,88 @@ async def test_rate_limit_command_without_token_reports_unavailable(monkeypatch)
 
     out = "\n".join(upd.message.texts)
     assert "אין GITHUB_TOKEN" in out or "לא זמין" in out
+
+
+@pytest.mark.asyncio
+async def test_non_admin_denied_commands(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+
+    # Ensure user is NOT admin
+    if "ADMIN_USER_IDS" in os.environ:
+        del os.environ["ADMIN_USER_IDS"]
+
+    for cmd in (adv.status_command, adv.errors_command, adv.rate_limit_command):
+        upd.message.texts.clear()
+        await cmd(upd, ctx)
+        out = "\n".join(upd.message.texts)
+        assert "פקודה זמינה למנהלים בלבד" in out
+
+
+@pytest.mark.asyncio
+async def test_status_command_emojis_and_components(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+
+    # Admin
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    # Mock DB list_indexes to succeed
+    import types as _t
+    class _Coll:
+        def list_indexes(self):
+            return []
+    db_fake = _t.SimpleNamespace(collection=_Coll())
+    import database as _dbm
+    monkeypatch.setattr(_dbm, "db", db_fake, raising=False)
+
+    # Mock Redis enabled
+    import cache_manager as cm
+    monkeypatch.setattr(cm.cache, "is_enabled", True, raising=False)
+
+    await adv.status_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "DB: 🟢" in out
+    assert "Redis: 🟢" in out
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_command_with_warning(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+
+    # Admin + token
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    os.environ["GITHUB_TOKEN"] = "x"
+
+    # Fake aiohttp client returning 85% usage
+    class _Resp:
+        async def json(self):
+            return {"resources": {"core": {"limit": 100, "remaining": 15}}}
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Session:
+        def __init__(self, *a, **k):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+        def get(self, *a, **k):
+            return _Resp()
+
+    import bot_handlers as bh
+    monkeypatch.setattr(bh, "aiohttp", types.SimpleNamespace(ClientSession=_Session))
+
+    await adv.rate_limit_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Usage:" in out and "⚠️" in out
