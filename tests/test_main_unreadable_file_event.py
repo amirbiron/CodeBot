@@ -47,19 +47,15 @@ async def test_file_read_unreadable_emits_and_counts(monkeypatch):
         async def get_file(self, fid):
             class _F:
                 async def download_to_memory(self, buf):
-                    # Bytes that fail utf-8 but succeed in latin-1; to force full failure,
-                    # we'll monkeypatch encodings_to_try to a strict list with only utf-16.
-                    buf.write(b"\xff\xfe\x00\x00")
+                    # Write bytes that are invalid for all encodings we'll force below
+                    buf.write(b"\x80\x81\x8D\x8F\x90\x9D")
             return _F()
     ctx = _Ctx()
     ctx.bot = _Bot()
 
     # Force encoding list to a single encoding that will fail for given bytes
-    try:
-        # Patch inside function scope by monkeypatching attribute on module then accessed via name
-        mod.encodings_to_try = ["utf-32"]
-    except Exception:
-        pass
+    # Force the function to try only encodings that will fail for bytes above
+    mod.encodings_to_try = ["utf-8", "utf-16"]
 
     await bot.handle_document(_Update(), ctx)
 
