@@ -86,6 +86,9 @@ async def test_rate_limit_command_without_token_reports_unavailable(monkeypatch)
     upd = _Update()
     ctx = _Context()
 
+    # Make the test user an admin so the command is allowed
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
     await adv.rate_limit_command(upd, ctx)
