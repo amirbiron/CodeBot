@@ -164,11 +164,20 @@
     const box = $('searchSuggestions');
     const input = $('globalSearchInput');
     if (!box || !input) return;
-    box.innerHTML = items.map(function(s){
-      const safe = escapeHtml(String(s||''));
-      return '<a href="#" class="list-group-item list-group-item-action" onclick="(function(){document.getElementById(\'globalSearchInput\').value=\'' + safe + '\';performGlobalSearch();})();return false;">' + safe + '</a>';
-    }).join('');
-    const rect = input.getBoundingClientRect();
+    while (box.firstChild) box.removeChild(box.firstChild);
+    items.forEach(function(s){
+      const a = document.createElement('a');
+      a.href = '#';
+      a.className = 'list-group-item list-group-item-action';
+      a.textContent = String(s || '');
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        input.value = String(s || '');
+        hideSuggestions();
+        performGlobalSearch();
+      });
+      box.appendChild(a);
+    });
     box.style.display = 'block';
   }
   function hideSuggestions(){ const box = $('searchSuggestions'); if (box) box.style.display='none'; }
