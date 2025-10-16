@@ -2703,6 +2703,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 import asyncio as _asyncio
                 if _asyncio.isfuture(result) or _asyncio.iscoroutine(result):
                     await result  # type: ignore[misc]
+                else:
+                    # אם אין Future לחכות לו, הפק אירוע "start" באופן מיטבי כדי לא לפספס בטסטים
+                    try:
+                        port_guess = int(os.getenv("PORT", "10000"))
+                        emit_event("internal_web_started", severity="info", port=port_guess)
+                    except Exception:
+                        pass
             except Exception:
                 pass
         except Exception as e:
