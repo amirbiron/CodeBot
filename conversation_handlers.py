@@ -1895,10 +1895,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # וגם ע"י ה-catch-all הגלובלי (בקבוצה מאוחרת). כדי למנוע שליחה כפולה של הודעות,
     # נסמן את מזהה ה-update כטופל כבר, ונצא מיד אם הוא נתקל שוב.
     try:
-        last_handled_uid = context.user_data.get('_last_callback_update_id')
-        if last_handled_uid == update.update_id:
-            return ConversationHandler.END
-        context.user_data['_last_callback_update_id'] = update.update_id
+        uid = getattr(update, 'update_id', None)
+        # החל מנגנון הכפילות רק כאשר יש update_id תקין (לא None)
+        if uid is not None:
+            last_handled_uid = context.user_data.get('_last_callback_update_id')
+            if last_handled_uid == uid:
+                return ConversationHandler.END
+            context.user_data['_last_callback_update_id'] = uid
     except Exception:
         # לא לחסום את הזרימה במקרה של חוסר מפתח/טסטים
         pass
