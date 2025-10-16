@@ -64,6 +64,15 @@
 <li class="toctree-l2"><a class="reference internal" href="../quickstart.html#id5">מה הלאה?</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart-contrib.html">Quickstart לתרומה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-contrib.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-contrib.html#id2">צעדי הכנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-contrib.html#id3">סביבת פיתוח</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-contrib.html#id4">הרצת טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-contrib.html#stubs">על ה‑Stubs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-contrib.html#id5">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../ai-guidelines.html">הנחיות מלאות לסוכני AI</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id1">מגבלות קריטיות</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../ai-guidelines.html#id2">הרצת פקודות</a></li>
@@ -74,6 +83,31 @@
 <li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#pull-requests">קומיטים ו-Pull Requests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id5">עבודה עם טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id6">קישורים מהירים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id2">מדיניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id3">טיפים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../style-glossary.html">Style &amp; Naming Glossary</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../style-glossary.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../style-glossary.html#id2">מיפוי מונחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../style-glossary.html#id3">כללים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../style-glossary.html#id4">עוגני תיעוד</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../versioning-stable-anchors.html">Versioning &amp; Stable Anchors</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../versioning-stable-anchors.html#id1">מדיניות עוגנים יציבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../versioning-stable-anchors.html#whats-new">What’s New</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../versioning-stable-anchors.html#anchors">דוגמת Anchors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../versioning-stable-anchors.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../whats-new.html">What’s New</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">ארכיטקטורה</a><ul>
@@ -139,40 +173,7 @@
 <p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
 <ul class="current">
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
-<li class="toctree-l2 current"><a class="current reference internal" href="#">main module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.application"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.application</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.github_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.github_handler</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.backup_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.backup_handler</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.__init__"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.setup_handlers"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.setup_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.help_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.help_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.save_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.save_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.list_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.list_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.search_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.search_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.check_commands"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.check_commands()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.stats_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stats_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.handle_document"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_document()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.handle_text_message"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_text_message()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.error_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.error_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.start"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.start()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot.stop"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stop()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">main module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="config.html">config module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
@@ -351,6 +352,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
 </ul>
 </li>
@@ -409,6 +411,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="github_menu_handler.html">github_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
@@ -442,23 +445,9 @@
 <li class="toctree-l4"><a class="reference internal" href="lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">main module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">main module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="repo_analyzer.html">repo_analyzer module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="repo_analyzer.html#repo_analyzer.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="repo_analyzer.html#repo_analyzer.RepoAnalyzer"><code class="docutils literal notranslate"><span class="pre">RepoAnalyzer</span></code></a></li>
 </ul>
 </li>
@@ -473,6 +462,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="terminal_commands.html">terminal_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.run_in_sandbox"><code class="docutils literal notranslate"><span class="pre">run_in_sandbox()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.terminal_enter"><code class="docutils literal notranslate"><span class="pre">terminal_enter()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="terminal_commands.html#terminal_commands.terminal_exit"><code class="docutils literal notranslate"><span class="pre">terminal_exit()</span></code></a></li>
@@ -540,6 +530,16 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#show-command">Show Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../handlers/show.html">Show Command</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/show.html#show">מפרט פקודת <cite>/show</cite></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/show.html#html">דוגמת תגובת HTML</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/show.html#id1">הערות יישום</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/show.html#id2">קישורים</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#drive-menu">Drive Menu</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../handlers/drive_menu.html">Drive Menu V2</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id1">סקירה</a></li>
@@ -596,6 +596,31 @@
 <li class="toctree-l3"><a class="reference internal" href="../database/index.html#statistics-operations">Statistics Operations</a></li>
 </ul>
 </li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../database/indexing.html">MongoDB Indexing Cookbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#id1">למה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#id2">אינדקסים מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#python-pymongo">מתכונים (Python / PyMongo)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#explain-mongo-shell">בדיקות explain (Mongo Shell)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#explain">מה לחפש ב-explain?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#id3">בדיקת קיום אינדקסים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#id4">שיטות עבודה מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#id5">דוגמאות נוספות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/indexing.html#gotchas">Gotchas נפוצים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../database/cursor-pagination.html">Cursor-based Pagination (created_at / _id)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#id1">למה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#id2">עקרונות מיון יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#python">קידוד/פענוח קורסור (Python)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#id3">תבנית שאילתה (חדש → ישן)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#pymongo">PyMongo – דוגמה מלאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#id4">דפדוף לאחור (ישן → חדש)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#id5">שיטות עבודה מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#gotchas">Gotchas נפוצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/cursor-pagination.html#id6">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../database-schema.html">Database Schema</a><ul>
@@ -660,10 +685,13 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../testing.html#id1">עקרונות קריטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#quickstart">🚀 Quickstart לטסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#id1">הנחיות קריטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../testing.html#mocking-telegram">Mocking ל‑Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id3">קישורים</a></li>
 </ul>
 </li>
@@ -706,6 +734,8 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">Troubleshooting Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id1">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id3">קישורים</a></li>
@@ -734,6 +764,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../security.html#csrf-webapp">CSRF ב‑WebApp</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../security.html#id3">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../security.html#id4">אבטחת הודעות בטלגרם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -780,12 +811,109 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id3">קישורים נוספים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#cache-control">כותרות Cache-Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#subresource-integrity-sri">Subresource Integrity (SRI)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#gotchas">Gotchas</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/api-reference.html">WebApp API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#authentication-flow">Authentication Flow</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#response-schema-example">Response Schema Example</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#errors">Errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/api-reference.html#files">מסנן ושדות קלט ל-<code class="docutils literal notranslate"><span class="pre">/files</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/api-reference.html#id2">טבלת פרמטרים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/api-reference.html#id3">דוגמאות בקשה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/api-reference.html#id4">דוגמאות תגובה</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/bulk-actions.html">Bulk actions (בחירה מרובה)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/bulk-actions.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/bulk-actions.html#endpoints">Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/bulk-actions.html#post-api-files-bulk-favorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-favorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/bulk-actions.html#post-api-files-bulk-unfavorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-unfavorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/bulk-actions.html#post-api-files-bulk-tag"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-tag</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/bulk-actions.html#post-api-files-create-zip"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-zip</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/bulk-actions.html#post-api-files-bulk-delete-soft-delete"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-delete</span></code> (Soft Delete)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/bulk-actions.html#post-api-files-create-share-link"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-share-link</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/bulk-actions.html#id2">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../observability.html">אובזרווביליות (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#id2">קהלי יעד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#id3">תצורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id2">שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id3">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id4">דוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../metrics.html">מדדים (Metrics)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#id1">נקודת קצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#id2">מטריקות קיימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#promql">דוגמאות PromQL</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../alerts.html">התראות (Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../alerts.html#id1">חוקי התראה לדוגמה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../sentry.html">Sentry</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../sentry.html#id1">הפעלה (משתני סביבה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../sentry.html#id2">עקרונות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/logging-levels.html#id2">טיפ</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#github">GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#db">DB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#web-share">Web/Share</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#alerts">Alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#business">Business</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/error_codes.html#id1">דוגמאות מיפוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/error_codes.html#id2">הנחיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#id1">שיעור שגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#id2">אירועי ביזנס</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/alerts_playbook.html">Playbook קצר להתראות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id1">זרימה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id2">קישורים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id3">דגשים</a></li>
 </ul>
 </li>
 </ul>
@@ -818,357 +946,8 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="module-main">
-<span id="main-module"></span><h1>main module<a class="headerlink" href="#module-main" title="Link to this heading"></a></h1>
-<p>בוט שומר קבצי קוד - Code Keeper Bot
-נקודת הכניסה הראשית לבוט</p>
-<dl class="py function">
-<dt class="sig sig-object py" id="main.get_admin_ids">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">get_admin_ids</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#get_admin_ids"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.get_admin_ids" title="Link to this definition"></a></dt>
-<dd><dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>]</span></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.notify_admins">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">notify_admins</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">text</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#notify_admins"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.notify_admins" title="Link to this definition"></a></dt>
-<dd><dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
-</dd>
-<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><ul class="simple">
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-<li><p><strong>text</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.recycle_backfill_command">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">recycle_backfill_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#recycle_backfill_command"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.recycle_backfill_command" title="Link to this definition"></a></dt>
-<dd><p>ממלא deleted_at ו-deleted_expires_at לרשומות מחוקות רכות וחושב TTL.</p>
-<p>שימוש: /recycle_backfill [X]
-X = ימים לתוקף סל (ברירת מחדל מהקונפיג RECYCLE_TTL_DAYS)
-הפקודה זמינה למנהלים בלבד.</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.log_user_activity">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">log_user_activity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#log_user_activity"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.log_user_activity" title="Link to this definition"></a></dt>
-<dd><p>רישום פעילות משתמש במערכת.</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Update</span></code></a></span>) – אובייקט Update מטלגרם</p></li>
-<li><p><strong>context</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">DEFAULT_TYPE</span></code></span>) – הקונטקסט של השיחה</p></li>
-</ul>
-</dd>
-</dl>
-<div class="admonition note">
-<p class="admonition-title">הערה</p>
-<p>פונקציה זו נקראת אוטומטית עבור כל פעולה של משתמש</p>
-</div>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.get_lock_collection">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">get_lock_collection</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#get_lock_collection"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.get_lock_collection" title="Link to this definition"></a></dt>
-<dd><p>מחזיר את קולקציית הנעילות ממסד הנתונים.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>קולקציית הנעילות</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html#pymongo.collection.Collection" title="(in PyMongo v4.15.3)">pymongo.collection.Collection</a></p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#SystemExit" title="(in Python v3.14)"><strong>SystemExit</strong></a> – אם מסד הנתונים לא אותחל כראוי</p>
-</dd>
-</dl>
-<div class="admonition note">
-<p class="admonition-title">הערה</p>
-<p>משתמש במסד הנתונים שכבר נבחר ב-DatabaseManager</p>
-</div>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.ensure_lock_indexes">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">ensure_lock_indexes</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#ensure_lock_indexes"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.ensure_lock_indexes" title="Link to this definition"></a></dt>
-<dd><p>יוצר אינדקס TTL על שדה expires_at לניקוי אוטומטי של נעילות ישנות.
-:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
-<div class="admonition note">
-<p class="admonition-title">הערה</p>
-<p>אם יצירת האינדקס נכשלת, המערכת תמשיך לעבוד ללא TTL אוטומטי</p>
-</div>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.cleanup_mongo_lock">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">cleanup_mongo_lock</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#cleanup_mongo_lock"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.cleanup_mongo_lock" title="Link to this definition"></a></dt>
-<dd><p>מנקה את נעילת MongoDB בעת יציאה מהתוכנית.</p>
-<div class="admonition note">
-<p class="admonition-title">הערה</p>
-<p>פונקציה זו נרשמת עם atexit ורצה אוטומטית בסיום התוכנית</p>
-</div>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.manage_mongo_lock">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">manage_mongo_lock</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#manage_mongo_lock"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.manage_mongo_lock" title="Link to this definition"></a></dt>
-<dd><p>רוכש נעילה מבוזרת ב-MongoDB כדי להבטיח שרק מופע אחד של הבוט רץ.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>True אם הנעילה נרכשה בהצלחה, False אחרת</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)">bool</a></p>
-</dd>
-</dl>
-<div class="admonition note">
-<p class="admonition-title">הערה</p>
-<p>תומך בהמתנה לשחרור נעילה קיימת עבור blue/green deployments</p>
-</div>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="main.CodeKeeperBot">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">CodeKeeperBot</span></span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
-<p>המחלקה הראשית של Code Keeper Bot.</p>
-<p>מחלקה זו מנהלת את כל הפונקציונליות של הבוט, כולל:
-- הגדרת handlers לפקודות ומסרים
-- ניהול שיחות מורכבות
-- אינטגרציות עם שירותים חיצוניים
-- ניהול מסד נתונים</p>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.application">
-<span class="sig-name descname"><span class="pre">application</span></span><a class="headerlink" href="#main.CodeKeeperBot.application" title="Link to this definition"></a></dt>
-<dd><p>אובייקט Application של python-telegram-bot</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.github_handler">
-<span class="sig-name descname"><span class="pre">github_handler</span></span><a class="headerlink" href="#main.CodeKeeperBot.github_handler" title="Link to this definition"></a></dt>
-<dd><p>מנהל אינטגרציית GitHub</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.backup_handler">
-<span class="sig-name descname"><span class="pre">backup_handler</span></span><a class="headerlink" href="#main.CodeKeeperBot.backup_handler" title="Link to this definition"></a></dt>
-<dd><p>מנהל מערכת הגיבויים</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.__init__"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.__init__" title="Link to this definition"></a></dt>
-<dd></dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.setup_handlers">
-<span class="sig-name descname"><span class="pre">setup_handlers</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.setup_handlers"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.setup_handlers" title="Link to this definition"></a></dt>
-<dd><p>הגדרת כל ה-handlers של הבוט בסדר הנכון</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.help_command">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">help_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.help_command"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.help_command" title="Link to this definition"></a></dt>
-<dd><p>פקודת עזרה מפורטת</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.save_command">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.save_command"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.save_command" title="Link to this definition"></a></dt>
-<dd><p>פקודת שמירת קוד</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.list_command">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">list_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.list_command"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.list_command" title="Link to this definition"></a></dt>
-<dd><p>הצגת רשימת הקטעים של המשתמש</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.search_command">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">search_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.search_command"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.search_command" title="Link to this definition"></a></dt>
-<dd><p>חיפוש קטעי קוד</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.check_commands">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">check_commands</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.check_commands"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.check_commands" title="Link to this definition"></a></dt>
-<dd><p>בדיקת הפקודות הזמינות (רק לאמיר)</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.stats_command">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">stats_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.stats_command"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.stats_command" title="Link to this definition"></a></dt>
-<dd><p>הצגת סטטיסטיקות המשתמש או מנהל</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.handle_document">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">handle_document</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.handle_document"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.handle_document" title="Link to this definition"></a></dt>
-<dd><p>טיפול בקבצים שנשלחים לבוט</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.handle_text_message">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">handle_text_message</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.handle_text_message"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.handle_text_message" title="Link to this definition"></a></dt>
-<dd><p>טיפול בהודעות טקסט (קוד פוטנציאלי)</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.error_handler">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">error_handler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.error_handler"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.error_handler" title="Link to this definition"></a></dt>
-<dd><p>טיפול בשגיאות</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><em>object</em></a>)</p></li>
-<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
-</ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.start">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.start"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.start" title="Link to this definition"></a></dt>
-<dd><p>הפעלת הבוט</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="main.CodeKeeperBot.stop">
-<em class="property"><span class="pre">async</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">stop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#CodeKeeperBot.stop"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.CodeKeeperBot.stop" title="Link to this definition"></a></dt>
-<dd><p>עצירת הבוט</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.signal_handler">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">signal_handler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">signum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frame</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#signal_handler"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.signal_handler" title="Link to this definition"></a></dt>
-<dd><p>טיפול בסיגנלי עצירה</p>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.setup_handlers">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">setup_handlers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">application</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">db_manager</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#setup_handlers"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.setup_handlers" title="Link to this definition"></a></dt>
-<dd><p>Register basic command handlers required for the bot to operate.</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>application</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.ext.application.html#telegram.ext.Application" title="(in python-telegram-bot v22.5)"><em>telegram.ext.Application</em></a>)</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.main">
-<span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#main"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.main" title="Link to this definition"></a></dt>
-<dd><p>Initializes and runs the bot after acquiring a lock.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="main.setup_bot_data">
-<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">main.</span></span><span class="sig-name descname"><span class="pre">setup_bot_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">application</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/main.html#setup_bot_data"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#main.setup_bot_data" title="Link to this definition"></a></dt>
-<dd><p>A post_init function to setup application-wide data.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
-</dd>
-<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>application</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.ext.application.html#telegram.ext.Application" title="(in python-telegram-bot v22.5)"><em>telegram.ext.Application</em></a>)</p>
-</dd>
-</dl>
-</dd></dl>
-
+  <section id="main-module">
+<h1>main module<a class="headerlink" href="#main-module" title="Link to this heading"></a></h1>
 </section>
 
 
