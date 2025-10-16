@@ -55,7 +55,11 @@ async def test_file_read_unreadable_emits_and_counts(monkeypatch):
     ctx.bot = _Bot()
 
     # Force encoding list to a single encoding that will fail for given bytes
-    monkeypatch.setattr(mod, "encodings_to_try", ["utf-32"], raising=False) if hasattr(mod, "encodings_to_try") else None
+    try:
+        # Patch inside function scope by monkeypatching attribute on module then accessed via name
+        mod.encodings_to_try = ["utf-32"]
+    except Exception:
+        pass
 
     await bot.handle_document(_Update(), ctx)
 
