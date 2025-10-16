@@ -951,27 +951,41 @@ def _safe_search(user_id: int, query: str, **kwargs):
     # החזרת מבנה תוצאות הדומה למנוע המלא
     from types import SimpleNamespace
     results: list = []
-    q_lower = (query or '').lower()
+    # קומפילציה ל-highlight תואם Unicode: רגקס לא-רגיש לאותיות/ביטוי מקורי
+    try:
+        if is_regex:
+            comp = re.compile(query, re.IGNORECASE | re.MULTILINE)
+        else:
+            comp = re.compile(re.escape(query), re.IGNORECASE)
+    except Exception:
+        comp = None
+
     for doc in docs:
         code_text = str(doc.get('code') or '')
-        content_lower = code_text.lower()
-        pos = content_lower.find(q_lower) if q_lower else -1
 
-        # יצירת snippet ו-highlight בסיסיים
+        # יצירת snippet ו-highlight מדויקים לפי span של regex (Unicode-safe)
         snippet = ''
         highlight_ranges = []
-        if pos >= 0 and q_lower:
-            start = max(0, pos - 50)
-            end = min(len(code_text), pos + len(query) + 50)
-            snippet = code_text[start:end]
-            rel_start = pos - start
-            rel_end = rel_start + len(query)
-            highlight_ranges = [(rel_start, rel_end)]
+        match_start = -1
+        match_end = -1
+        if comp is not None:
+            m = comp.search(code_text)
+            if m:
+                match_start, match_end = m.start(), m.end()
+                start = max(0, match_start - 50)
+                end = min(len(code_text), match_end + 50)
+                snippet = code_text[start:end]
+                rel_start = match_start - start
+                rel_end = match_end - start
+                highlight_ranges = [(rel_start, rel_end)]
 
-        # ניקוד פשוט לפי שכיחות ביחס לאורך המסמך
-        occurrences = content_lower.count(q_lower) if q_lower else 0
+        # ניקוד פשוט לפי שכיחות ביחס לאורך המסמך (סופרים הופעות ע"י regex)
+        try:
+            occurrences = sum(1 for _ in comp.finditer(code_text)) if comp is not None else 0
+        except Exception:
+            occurrences = 1 if match_start >= 0 else 0
         denom = max(1, len(code_text))
-        score = min((occurrences or (1 if pos >= 0 else 0)) / (denom / 1000.0), 10.0)
+        score = min((occurrences or (1 if match_start >= 0 else 0)) / (denom / 1000.0), 10.0)
 
         # בניית אובייקט תוצאה עם תכונות כפי שמצופה downstream
         results.append(SimpleNamespace(
