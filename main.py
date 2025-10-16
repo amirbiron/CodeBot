@@ -2028,12 +2028,22 @@ class CodeKeeperBot:
                     content = raw_bytes.decode(encoding)
                     detected_encoding = encoding
                     logger.info(f"✅ הקובץ נקרא בהצלחה בקידוד: {encoding}")
+                    try:
+                        emit_event("file_read_success", severity="info", encoding=str(encoding))
+                    except Exception:
+                        pass
                     break
                 except UnicodeDecodeError:
                     continue
             
             if content is None:
                 logger.error(f"❌ לא ניתן לקרוא את הקובץ באף קידוד: {encodings_to_try}")
+                try:
+                    emit_event("file_read_unreadable", severity="error", attempted_encodings=",".join(encodings_to_try))
+                    if errors_total is not None:
+                        errors_total.labels(code="E_FILE_UNREADABLE").inc()
+                except Exception:
+                    pass
                 await update.message.reply_text(
                     "❌ לא ניתן לקרוא את הקובץ!\n"
                     f"📝 ניסיתי את הקידודים: {', '.join(encodings_to_try)}\n"
@@ -2060,6 +2070,17 @@ class CodeKeeperBot:
                 )
                 
                 success = db.save_large_file(large_file)
+                try:
+                    emit_event(
+                        "file_saved",
+                        severity="info",
+                        user_id=int(user_id),
+                        language=str(language),
+                        size_bytes=int(len(content.encode('utf-8'))),
+                        large=True,
+                    )
+                except Exception:
+                    pass
                 
                 if success:
                     from utils import get_language_emoji
@@ -2114,6 +2135,17 @@ class CodeKeeperBot:
                 )
                 
                 success = db.save_code_snippet(snippet)
+                try:
+                    emit_event(
+                        "file_saved",
+                        severity="info",
+                        user_id=int(user_id),
+                        language=str(language),
+                        size_bytes=int(len(content.encode('utf-8'))),
+                        large=False,
+                    )
+                except Exception:
+                    pass
                 
                 if success:
                     from utils import get_language_emoji
@@ -2160,6 +2192,12 @@ class CodeKeeperBot:
             
         except Exception as e:
             logger.error(f"שגיאה בטיפול בקובץ: {e}")
+            try:
+                emit_event("file_process_error", severity="error", error=str(e))
+                if errors_total is not None:
+                    errors_total.labels(code="E_FILE_PROCESS").inc()
+            except Exception:
+                pass
             await update.message.reply_text("❌ שגיאה בעיבוד הקובץ")
     
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
