@@ -50,6 +50,7 @@ async def test_file_read_unreadable_emits_event(monkeypatch):
     class _Doc:
         file_name = "bin.dat"
         file_size = 10
+        file_id = "fid-1"
     class _Msg:
         document = _Doc()
         async def reply_text(self, *a, **k):
@@ -93,6 +94,7 @@ async def test_file_saved_emits_business_event(monkeypatch):
     class _Doc:
         file_name = "a.py"
         file_size = 10
+        file_id = "fid-2"
     class _ByteFile:
         async def download_to_memory(self, buf):
             buf.write(b"print('x')")
