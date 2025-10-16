@@ -151,6 +151,12 @@
      - ``INFO``
      - ``DEBUG``
      - Bot/WebApp
+   * - ``LOG_FORMAT``
+     - פורמט לוגים (``text``/``json``)
+     - לא
+     - ``text``
+     - ``json``
+     - Bot/WebApp
    * - ``MAX_CODE_SIZE``
      - גודל קוד מקסימלי לשמירה (בתווים)
      - לא
@@ -294,6 +300,24 @@
      - לא
      - -
      - ``32-byte-key``
+     - Bot/WebApp
+   * - ``SENTRY_DSN``
+     - DSN לשילוב עם Sentry (שגיאות ותובנות)
+     - לא
+     - "" (ריק)
+     - ``https://xxx@o1234.ingest.sentry.io/5678``
+     - Bot/WebApp
+   * - ``SENTRY_TRACES_SAMPLE_RATE``
+     - דגימת Traces (0.0–1.0)
+     - לא
+     - ``0.0``
+     - ``0.1``
+     - Bot/WebApp
+   * - ``SENTRY_PROFILES_SAMPLE_RATE``
+     - דגימת Profiles (0.0–1.0)
+     - לא
+     - ``0.0``
+     - ``0.1``
      - Bot/WebApp
 
 דוגמאות קונפיגורציה
