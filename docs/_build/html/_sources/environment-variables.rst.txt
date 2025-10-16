@@ -157,6 +157,24 @@
      - ``text``
      - ``json``
      - Bot/WebApp
+   * - ``LOG_INFO_SAMPLE_RATE``
+     - שיעור דגימה ללוגים ברמת ``INFO`` (0.0–1.0)
+     - לא
+     - ``1.0``
+     - ``0.1``
+     - Bot/WebApp
+   * - ``LOG_INFO_SAMPLE_ALLOWLIST``
+     - אירועים שלא נדגמים לעולם (מופרדים בפסיקים)
+     - לא
+     - ``business_metric,performance,github_sync``
+     - ``event_a,event_b``
+     - Bot/WebApp
+   * - ``ENVIRONMENT``
+     - שם הסביבה לדיווחי Sentry/לוגים (``production``/``staging``/``dev``)
+     - לא
+     - ``production``
+     - ``staging``
+     - Bot/WebApp
    * - ``MAX_CODE_SIZE``
      - גודל קוד מקסימלי לשמירה (בתווים)
      - לא
