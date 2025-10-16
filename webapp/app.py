@@ -914,15 +914,35 @@ def api_search_global():
 
         # Regex validation if relevant
         if search_type_str == 'regex':
-            try:
-                re.compile(query)
-            except re.error as e:
+            # סינון בסיסי למניעת ReDoS על דפוסים מסוכנים
+            def _is_regex_safe(p: str) -> bool:
+                try:
+                    # אורך מרבי
+                    if len(p) > 200:
+                        return False
+                    # מניעת כוכב כפול על תחומים רחבים (.*.*)
+                    if re.search(r"\.(\*)[^\n]*\.(\*)", p):
+                        return False
+                    # מניעת כמתים מקוננים (דפוסים ידועים לקטסטרופה)
+                    if re.search(r"\([^)]{0,64}[+*]{1,2}\)\s*[+*]{1,2}", p):
+                        return False
+                    # כמתים מספריים גדולים
+                    for m in re.finditer(r"\{\s*(\d{2,})\s*(?:,\s*(\d+)\s*)?\}", p):
+                        lo = int(m.group(1) or 0)
+                        hi = int(m.group(2)) if m.group(2) else lo
+                        if lo > 100 or hi > 200:
+                            return False
+                    # קומפילציה בסיסית בלבד
+                    re.compile(p)
+                    return True
+                except Exception:
+                    return False
+            if not _is_regex_safe(query):
                 try:
                     search_counter.labels(search_type='regex', status='invalid_pattern').inc()
                 except Exception:
                     pass
-                # אל נחשוף פרטי חריגה חוצה
-                return jsonify({'error': 'ביטוי רגולרי לא תקין'}), 400
+                return jsonify({'error': 'ביטוי רגולרי לא מאושר'}), 400
 
         # Sorting
         sort_str = (payload.get('sort') or 'relevance').strip().lower()
@@ -1080,8 +1100,8 @@ def metrics_endpoint():
             return Response('metrics disabled', mimetype='text/plain')
         active_indexes_gauge.set(_get_search_index_count())
         return Response(generate_latest(), mimetype='text/plain; charset=utf-8')
-    except Exception as e:
-        return Response(f"metrics error: {e}", mimetype='text/plain', status=500)
+    except Exception:
+        return Response("metrics unavailable", mimetype='text/plain', status=503)
 
 
 @app.route('/api/search/health')
@@ -1090,8 +1110,8 @@ def api_search_health():
     try:
         _ = _get_search_index_count()
         return jsonify({'status': 'ok', 'indexes': _}), 200
-    except Exception as e:
-        return jsonify({'status': 'error', 'error': str(e)}), 503
+    except Exception:
+        return jsonify({'status': 'error'}), 503
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -2703,15 +2723,15 @@ def create_public_share(file_id):
 
         try:
             coll.insert_one(doc)
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'שגיאה בשמירה: {e}'}), 500
+        except Exception:
+            return jsonify({'ok': False, 'error': 'שגיאה בשמירה'}), 500
 
         # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
         base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
         return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -2982,12 +3002,12 @@ def api_toggle_favorite(file_id):
                     'updated_at': now,
                 }
             })
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'לא ניתן לעדכן מועדפים: {e}'}), 500
+        except Exception:
+            return jsonify({'ok': False, 'error': 'לא ניתן לעדכן מועדפים'}), 500
 
         return jsonify({'ok': True, 'state': new_state})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-favorite', methods=['POST'])
 @login_required
@@ -3026,8 +3046,8 @@ def api_files_bulk_favorite():
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-unfavorite', methods=['POST'])
 @login_required
@@ -3066,8 +3086,8 @@ def api_files_bulk_unfavorite():
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-tag', methods=['POST'])
 @login_required
@@ -3118,8 +3138,8 @@ def api_files_bulk_tag():
             '$set': {'updated_at': now}
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/create-zip', methods=['POST'])
 @login_required
@@ -3172,8 +3192,8 @@ def api_files_create_zip():
         zip_buffer.seek(0)
         ts = int(time.time())
         return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name=f'code_files_{ts}.zip')
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/create-share-link', methods=['POST'])
 @login_required
@@ -3219,8 +3239,8 @@ def api_files_create_share_link():
         base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
         share_url = f"{base_url}/shared/{token}"
         return jsonify({'success': True, 'share_url': share_url, 'expires_at': expires_at.isoformat(), 'token': token})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-delete', methods=['POST'])
 @login_required
@@ -3303,8 +3323,8 @@ def api_files_bulk_delete():
             'requested': len(unique_object_ids),
             'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/stats')
 @login_required
@@ -3454,7 +3474,8 @@ def health():
     except Exception as e:
         health_data['database'] = 'error'
         health_data['status'] = 'unhealthy'
-        health_data['error'] = str(e)
+        # אל נחשוף פירוט חריגה
+        health_data['error'] = 'unhealthy'
     
     return jsonify(health_data)
 
@@ -3504,8 +3525,8 @@ def api_persistent_login():
             resp.delete_cookie(REMEMBER_COOKIE_NAME)
 
         return resp
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
@@ -3535,8 +3556,8 @@ def api_ui_prefs():
         except Exception:
             pass
         return resp
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
@@ -3595,7 +3616,6 @@ def api_public_stats():
     except Exception as e:
         return jsonify({
             "ok": False,
-            "error": str(e),
             "total_users": 0,
             "active_users_24h": 0,
             "total_snippets": 0,
@@ -3638,8 +3658,8 @@ def api_me():
                 'theme': prefs.get('theme')
             }
         })
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 # --- External uptime public endpoint ---
 @app.route('/api/uptime')
@@ -3656,8 +3676,8 @@ def api_uptime():
             'status_url': summary.get('status_url') or (UPTIME_STATUS_URL or None),
         }
         return jsonify(safe)
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 # --- Public share route ---
 @app.route('/share/<share_id>')
@@ -3817,8 +3837,8 @@ OPENAPI_SPEC_PATH = Path(ROOT_DIR) / 'docs' / 'openapi.yaml'
 def openapi_yaml():
     try:
         return send_file(OPENAPI_SPEC_PATH, mimetype='application/yaml')
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unavailable'}), 500
 
 @app.route('/docs')
 def swagger_docs():
