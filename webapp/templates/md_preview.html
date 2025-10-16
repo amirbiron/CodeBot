@@ -342,6 +342,42 @@ input.md-task-checkbox {
   --toc-active-dark: rgba(102, 126, 234, 0.25);
 }
 
+:root {
+  --toc-bg-light: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(250,250,252,0.98) 100%);
+  --toc-bg-dark: linear-gradient(135deg, rgba(30,30,40,0.98) 0%, rgba(40,40,50,0.98) 100%);
+  --toc-header-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --toc-text-light: #2d3748;
+  --toc-text-dark: #e0e0e0;
+  --toc-hover-light: rgba(102, 126, 234, 0.1);
+  --toc-hover-dark: rgba(102, 126, 234, 0.2);
+  --toc-active-light: rgba(102, 126, 234, 0.15);
+  --toc-active-dark: rgba(102, 126, 234, 0.25);
+}
+
+:root {
+  --toc-bg-light: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(250,250,252,0.98) 100%);
+  --toc-bg-dark: linear-gradient(135deg, rgba(30,30,40,0.98) 0%, rgba(40,40,50,0.98) 100%);
+  --toc-header-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --toc-text-light: #2d3748;
+  --toc-text-dark: #e0e0e0;
+  --toc-hover-light: rgba(102, 126, 234, 0.1);
+  --toc-hover-dark: rgba(102, 126, 234, 0.2);
+  --toc-active-light: rgba(102, 126, 234, 0.15);
+  --toc-active-dark: rgba(102, 126, 234, 0.25);
+}
+
+:root {
+  --toc-bg-light: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(250,250,252,0.98) 100%);
+  --toc-bg-dark: linear-gradient(135deg, rgba(30,30,40,0.98) 0%, rgba(40,40,50,0.98) 100%);
+  --toc-header-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --toc-text-light: #2d3748;
+  --toc-text-dark: #e0e0e0;
+  --toc-hover-light: rgba(102, 126, 234, 0.1);
+  --toc-hover-dark: rgba(102, 126, 234, 0.2);
+  --toc-active-light: rgba(102, 126, 234, 0.15);
+  --toc-active-dark: rgba(102, 126, 234, 0.25);
+}
+
 .md-toc {
   position: fixed;
   top: 100px;
@@ -671,10 +707,9 @@ input.md-task-checkbox {
 }
 
 @media (max-width: 768px) {
-  .md-toc,
-  .md-toc-mini-btn {
-    display: none !important;
-  }
+  /* במובייל: הסתרת הפאנל והצגת כפתור מינימלי לפתיחה */
+  .md-toc { display: none; }
+  .md-toc-mini-btn { display: block !important; }
 }
 
 /* במסך מלא - הסתר */
