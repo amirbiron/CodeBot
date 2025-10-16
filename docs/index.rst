@@ -81,6 +81,15 @@ Code Keeper Bot - תיעוד API
    sentry
    runbooks/logging-levels
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Observability – Advanced
+
+   observability/events_catalog
+   observability/error_codes
+   observability/metrics_promql
+   observability/alerts_playbook
+
 סקירה כללית
 ------------
 
