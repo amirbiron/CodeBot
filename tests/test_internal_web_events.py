@@ -2,9 +2,11 @@ import importlib
 import types
 import os
 import asyncio
+import pytest
 
 
-def test_internal_web_events_emitted(monkeypatch):
+@pytest.mark.asyncio
+async def test_internal_web_events_emitted(monkeypatch):
     # Arrange observability shim to capture emit_event
     captured = {"evts": []}
     fake_obs = types.SimpleNamespace(
@@ -39,7 +41,7 @@ def test_internal_web_events_emitted(monkeypatch):
     # Rebind job_queue.run_once to run immediately
     class _JobQ:
         def run_once(self, fn, when=0, name=None):  # noqa: ARG002
-            asyncio.get_event_loop().run_until_complete(fn(None))
+            return asyncio.get_event_loop().create_task(fn(None))
     class _Bot:
         async def delete_my_commands(self):
             return None
@@ -51,7 +53,6 @@ def test_internal_web_events_emitted(monkeypatch):
     app = _App()
 
     # Call setup_bot_data to trigger scheduling immediately
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(m.setup_bot_data(app))
+    await m.setup_bot_data(app)
 
     assert any(e[0] == "internal_web_started" for e in captured["evts"])  # event emitted
