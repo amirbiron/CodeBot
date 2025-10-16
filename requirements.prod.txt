@@ -95,8 +95,7 @@ slowapi==0.1.9
 celery==5.3.4
 
 # Text Processing
-fuzzywuzzy==0.18.0
-python-levenshtein==0.23.0
+rapidfuzz==3.14.1
 
 # CLI Tools used at runtime
 rich==13.7.0
