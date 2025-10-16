@@ -33,9 +33,12 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
     monkeypatch.setattr(_database, 'db', _DB(), raising=False)
 
     # stub query & update/context
+    class _Msg:
+        async def reply_text(self, *a, **k):
+            return None
     class _Query:
         data = "download_zip:"
-        message = types.SimpleNamespace(reply_text=lambda *a, **k: None)
+        message = _Msg()
         async def edit_message_text(self, *a, **k):
             return None
         async def answer(self, *a, **k):
@@ -64,13 +67,11 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
     # we call the callback handler directly for the relevant branch
     # locate method that handles callback data; common name is on_callback_query or similar
     # We'll invoke the class method "on_callback_query" if exists else simulate narrow path
-    if hasattr(handler, "on_callback_query"):
+    # Route via the public callback handler used in tests
+    if hasattr(handler, "handle_menu_callback"):
+        await handler.handle_menu_callback(_Update(), _Ctx())
+    elif hasattr(handler, "on_callback_query"):
         await handler.on_callback_query(_Update(), _Ctx())
-    else:
-        # call internal flow used by tests elsewhere (reuse browse path)
-        # Ensure code path hits the zip creation branch by setting a prefix
-        _Update.callback_query.data = "download_zip:current"
-        await handler._on_callback_query(_Update(), _Ctx()) if hasattr(handler, "_on_callback_query") else None
 
     # assert event or at least counter emitted for zip error
     assert any(e[0] in ("github_zip_create_error", "errors_total_inc") for e in events["evts"]) or True
@@ -95,9 +96,12 @@ async def test_inline_download_error_emits_event_and_counter(monkeypatch):
     monkeypatch.setattr(gh, "Github", _Github, raising=False)
 
     # update/context stubs
+    class _Msg2:
+        async def reply_text(self, *a, **k):
+            return None
     class _Query:
         data = "inline_download_file:path/to/file.txt"
-        message = types.SimpleNamespace()
+        message = _Msg2()
         async def edit_message_text(self, *a, **k):
             return None
         async def answer(self, *a, **k):
@@ -122,10 +126,9 @@ async def test_inline_download_error_emits_event_and_counter(monkeypatch):
     monkeypatch.setattr(gh, "errors_total", _Errors(), raising=False)
 
     # invoke
-    if hasattr(handler, "on_callback_query"):
+    if hasattr(handler, "handle_menu_callback"):
+        await handler.handle_menu_callback(_Update(), _Ctx())
+    elif hasattr(handler, "on_callback_query"):
         await handler.on_callback_query(_Update(), _Ctx())
-    else:
-        _Update.callback_query.data = "inline_download_file:foo.txt"
-        await handler._on_callback_query(_Update(), _Ctx()) if hasattr(handler, "_on_callback_query") else None
 
     assert any(e[0] == "github_inline_download_error" for e in events["evts"]) or True
