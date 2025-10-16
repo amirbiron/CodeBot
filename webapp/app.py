@@ -873,9 +873,122 @@ def _cache_set(uid: int, key: str, value: dict):
     wait=wait_exponential(multiplier=1, min=1, max=8) if wait_exponential else None,
 )
 def _safe_search(user_id: int, query: str, **kwargs):
-    if not search_engine:
+    """Wrapper לביצוע חיפוש באופן עמיד לתקלות.
+
+    אם מנוע החיפוש המלא אינו זמין (למשל ייבוא נכשל בגלל ENV חסרים),
+    נשתמש ב-Fallback פשוט שמבצע חיפוש substring ב-DB ישירות.
+    """
+    # ניסיון להשתמש במנוע המלא אם זמין
+    if search_engine:
+        try:
+            return search_engine.search(user_id, query, **kwargs)
+        except Exception:
+            # ניפול ל-fallback הבסיסי במקרה של תקלה
+            pass
+
+    # Fallback: חיפוש בסיסי ב-MongoDB על תוכן הקבצים (code)
+    try:
+        db = get_db()
+    except Exception:
         return []
-    return search_engine.search(user_id, query, **kwargs)
+
+    # הגבלת תוצאות כוללת (כמו באסטרטגיית total_limit)
+    try:
+        total_limit = int(kwargs.get('limit') or 50)
+    except Exception:
+        total_limit = 50
+
+    # החלטה האם לבצע Regex גולמי או חיפוש מחרוזת רגיל (ברירת מחדל: רגיל)
+    st = kwargs.get('search_type')
+    try:
+        is_regex = (getattr(st, 'name', '') == 'REGEX') or (str(st).lower() == 'regex')
+    except Exception:
+        is_regex = False
+
+    # בניית ביטוי החיפוש ל-$regex (רגיש/לא רגיש)
+    pattern = query if is_regex else re.escape(query)
+
+    # בניית match בסיסי
+    match_stage = {
+        'user_id': user_id,
+        '$or': [
+            {'is_active': True},
+            {'is_active': {'$exists': False}},
+        ],
+        'code': {
+            '$regex': pattern,
+            '$options': 'i',  # חיפוש לא רגיש לאותיות גדולות/קטנות
+        },
+    }
+
+    # ניסיון להחיל מסננים בסיסיים אם הועברו
+    filters = kwargs.get('filters')
+    try:
+        if filters:
+            langs = list(getattr(filters, 'languages', []) or [])
+            if langs:
+                match_stage['programming_language'] = {'$in': langs}
+            tags = list(getattr(filters, 'tags', []) or [])
+            if tags:
+                match_stage['tags'] = {'$in': tags}
+    except Exception:
+        pass
+
+    pipeline = [
+        {'$match': match_stage},
+        {'$sort': {'file_name': 1, 'version': -1}},
+        {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+        {'$replaceRoot': {'newRoot': '$latest'}},
+        {'$sort': {'updated_at': -1}},
+        {'$limit': total_limit},
+    ]
+
+    try:
+        docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+    except Exception:
+        return []
+
+    # החזרת מבנה תוצאות הדומה למנוע המלא
+    from types import SimpleNamespace
+    results: list = []
+    q_lower = (query or '').lower()
+    for doc in docs:
+        code_text = str(doc.get('code') or '')
+        content_lower = code_text.lower()
+        pos = content_lower.find(q_lower) if q_lower else -1
+
+        # יצירת snippet ו-highlight בסיסיים
+        snippet = ''
+        highlight_ranges = []
+        if pos >= 0 and q_lower:
+            start = max(0, pos - 50)
+            end = min(len(code_text), pos + len(query) + 50)
+            snippet = code_text[start:end]
+            rel_start = pos - start
+            rel_end = rel_start + len(query)
+            highlight_ranges = [(rel_start, rel_end)]
+
+        # ניקוד פשוט לפי שכיחות ביחס לאורך המסמך
+        occurrences = content_lower.count(q_lower) if q_lower else 0
+        denom = max(1, len(code_text))
+        score = min((occurrences or (1 if pos >= 0 else 0)) / (denom / 1000.0), 10.0)
+
+        # בניית אובייקט תוצאה עם תכונות כפי שמצופה downstream
+        results.append(SimpleNamespace(
+            file_name=str(doc.get('file_name') or ''),
+            content=code_text,
+            programming_language=str(doc.get('programming_language') or ''),
+            tags=list(doc.get('tags') or []),
+            created_at=doc.get('created_at') or datetime.now(timezone.utc),
+            updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
+            version=int(doc.get('version') or 1),
+            relevance_score=float(score),
+            matches=[],
+            snippet_preview=snippet,
+            highlight_ranges=highlight_ranges,
+        ))
+
+    return results
 
 
 @app.route('/api/search/global', methods=['POST'])
