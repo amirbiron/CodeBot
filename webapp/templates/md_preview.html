@@ -659,17 +659,18 @@ input.md-task-checkbox {
 .md-toc-mini-btn {
   position: fixed;
   top: 100px;
-  left: 20px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  left: 12px;  /* בצד שמאל של המסך */
+  width: 44px;
+  height: 44px;
+  border-radius: 10px; /* ריבוע מעוגל קלות */
   background: var(--toc-header-gradient);
   color: white;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-  transition: all 0.3s ease;
-  z-index: 899;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  z-index: 1000;
+  touch-action: none; /* מאפשר גרירה חלקה במובייל */
 }
 
 .md-toc-mini-btn:hover {
@@ -821,6 +822,13 @@ input.md-task-checkbox {
                 title="חיפוש (Ctrl+F)">
           <i class="fas fa-search" aria-hidden="true"></i>
         </button>
+        <!-- סמל תפריט (☰) – לחיצה ארוכה תמזער את הפאנל -->
+        <button id="mdTocMenuBtn"
+                class="md-toc-toggle"
+                aria-label="מזעור התפריט בלחיצה ארוכה"
+                title="לחיצה ארוכה: מזער (☰)">
+          <i class="fas fa-bars" aria-hidden="true"></i>
+        </button>
         <button id="mdTocToggle" 
                 class="md-toc-toggle" 
                 aria-controls="mdTocNav" 
@@ -849,16 +857,16 @@ input.md-task-checkbox {
          role="list">
       <!-- כאן יוכנסו הכותרות דינמית -->
     </nav>
-    
-    <!-- כפתור מצב מינימלי -->
-    <button id="mdTocMini" 
-            class="md-toc-mini-btn" 
-            style="display:none;"
-            aria-label="הצג תוכן עניינים"
-            title="הצג תוכן עניינים (Ctrl+T)">
-      <i class="fas fa-bars"></i>
-    </button>
   </div>
+  <!-- כפתור מינימלי צף (מחוץ לפאנל) -->
+  <button id="mdTocMini" 
+          class="md-toc-mini-btn" 
+          style="display:none;"
+          aria-label="הצג תוכן עניינים"
+          title="הצג תוכן עניינים">
+    <i class="fas fa-bars"></i>
+  </button>
+  
   {% if not is_public %}
   <div class="glass-card" style="margin-top: 1rem;">
     <h2 class="section-title">
@@ -1266,7 +1274,9 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     INTERSECTION_THRESHOLD: 0.5,
     INTERSECTION_MARGIN: '-20% 0% -70% 0%',
     WAIT_TIMEOUT: 5000,
-    CHECK_INTERVAL: 100
+    CHECK_INTERVAL: 100,
+    LONG_PRESS_MS: 450,
+    MINI_POS_KEY: 'md_toc_mini_top'
   };
   let tocState = {
     headings: [],
@@ -1279,6 +1289,17 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     isMinimized: false,
     scrollPercentage: 0
   };
+  function clamp(value, min, max){ return Math.min(Math.max(value, min), max); }
+  function getSavedMiniTop(){
+    try { const v = parseInt(localStorage.getItem(CONFIG.MINI_POS_KEY) || '100', 10); return isNaN(v) ? 100 : v; } catch(_) { return 100; }
+  }
+  function saveMiniTop(top){ try { localStorage.setItem(CONFIG.MINI_POS_KEY, String(top)); } catch(_){} }
+  function applyMiniTop(top){
+    const miniBtn = document.getElementById('mdTocMini');
+    const tocElement = document.getElementById('mdToc');
+    if (miniBtn) miniBtn.style.top = top + 'px';
+    if (tocElement) tocElement.style.top = top + 'px';
+  }
   function debounce(func, wait) {
     let timeout; return function executedFunction(...args) { const later = () => { clearTimeout(timeout); func(...args); }; clearTimeout(timeout); timeout = setTimeout(later, wait); };
   }
@@ -1353,7 +1374,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           item.setAttribute('aria-label', `עבור לכותרת: ${text}`);
           item.textContent = text;
           if (text.length > 30) { item.title = text; item.textContent = text.substring(0, 30) + '...'; }
-          const clickHandler = (e) => { e.preventDefault(); try { heading.scrollIntoView({ behavior: 'smooth', block: 'start' }); updateActiveItem(item); closeSearch(); } catch (error) { console.error('TOC: שגיאה בגלילה', error); } };
+          const clickHandler = (e) => { e.preventDefault(); try { heading.scrollIntoView({ behavior: 'smooth', block: 'start' }); updateActiveItem(item); closeSearch(); minimizeTOC(); } catch (error) { console.error('TOC: שגיאה בגלילה', error); } };
           item.addEventListener('click', clickHandler);
           tocState.clickHandlers.push({ element: item, event: 'click', handler: clickHandler });
           fragment.appendChild(item);
@@ -1407,6 +1428,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     const tocToggle = document.getElementById('mdTocToggle');
     const tocHeader = document.querySelector('.md-toc-header');
     const miniBtn = document.getElementById('mdTocMini');
+    const menuBtn = document.getElementById('mdTocMenuBtn');
     if (tocToggle && tocElement) {
       const toggleHandler = (e) => { e.stopPropagation(); tocState.isCollapsed = !tocState.isCollapsed; tocElement.classList.toggle('collapsed'); tocToggle.setAttribute('aria-expanded', !tocState.isCollapsed); localStorage.setItem('mdTocCollapsed', tocState.isCollapsed); };
       tocToggle.addEventListener('click', toggleHandler);
@@ -1418,9 +1440,57 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       tocState.clickHandlers.push({ element: tocHeader, event: 'click', handler: headerHandler });
     }
     if (miniBtn && tocElement) {
-      const miniHandler = () => { tocElement.classList.remove('minimized'); tocElement.style.display = 'block'; miniBtn.style.display = 'none'; tocState.isMinimized = false; };
+      // שחזור מיקום שמור
+      applyMiniTop(getSavedMiniTop());
+      const miniHandler = () => {
+        tocElement.classList.remove('minimized');
+        tocElement.classList.remove('collapsed');
+        const tocToggle = document.getElementById('mdTocToggle');
+        if (tocToggle) tocToggle.setAttribute('aria-expanded', 'true');
+        tocState.isCollapsed = false;
+        tocElement.style.display = 'block';
+        miniBtn.style.display = 'none';
+        tocState.isMinimized = false;
+      };
       miniBtn.addEventListener('click', miniHandler);
       tocState.clickHandlers.push({ element: miniBtn, event: 'click', handler: miniHandler });
+
+      // גרירה אנכית לריבוע הצף (שומר מיקום)
+      let dragActive = false; let startY = 0; let startTop = 0; const onPointerDown = (ev) => {
+        try { ev.preventDefault(); } catch(_){}
+        dragActive = true; startY = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0;
+        startTop = parseInt(window.getComputedStyle(miniBtn).top || '100', 10) || 100;
+        try { miniBtn.setPointerCapture && miniBtn.setPointerCapture(ev.pointerId); } catch(_){}
+      };
+      const onPointerMove = (ev) => {
+        if (!dragActive) return; const y = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0; const delta = y - startY; let newTop = startTop + delta; const maxTop = Math.max(60, window.innerHeight - 64); newTop = clamp(newTop, 60, maxTop); applyMiniTop(newTop);
+      };
+      const onPointerUp = (ev) => { if (!dragActive) return; dragActive = false; const top = parseInt(miniBtn.style.top || '100', 10) || 100; saveMiniTop(top); };
+      miniBtn.addEventListener('pointerdown', onPointerDown, { passive: false });
+      window.addEventListener('pointermove', onPointerMove, { passive: false });
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
+      // רישום לניקוי
+      tocState.clickHandlers.push({ element: miniBtn, event: 'pointerdown', handler: onPointerDown });
+      tocState.clickHandlers.push({ element: window, event: 'pointermove', handler: onPointerMove });
+      tocState.clickHandlers.push({ element: window, event: 'pointerup', handler: onPointerUp });
+      tocState.clickHandlers.push({ element: window, event: 'pointercancel', handler: onPointerUp });
+    }
+    // לחיצה ארוכה על סמל ☰ למזעור מהיר
+    if (menuBtn) {
+      let pressTimer = null;
+      const start = (e) => { try { e.preventDefault(); } catch(_){}; clearTimeout(pressTimer); pressTimer = setTimeout(() => { minimizeTOC(); }, CONFIG.LONG_PRESS_MS); };
+      const cancel = () => { clearTimeout(pressTimer); };
+      const ctxHandler = (e)=>{ try{ e.preventDefault(); }catch(_){} };
+      menuBtn.addEventListener('pointerdown', start);
+      menuBtn.addEventListener('pointerup', cancel);
+      menuBtn.addEventListener('pointerleave', cancel);
+      menuBtn.addEventListener('contextmenu', ctxHandler);
+      // רישום לניקוי
+      tocState.clickHandlers.push({ element: menuBtn, event: 'pointerdown', handler: start });
+      tocState.clickHandlers.push({ element: menuBtn, event: 'pointerup', handler: cancel });
+      tocState.clickHandlers.push({ element: menuBtn, event: 'pointerleave', handler: cancel });
+      tocState.clickHandlers.push({ element: menuBtn, event: 'contextmenu', handler: ctxHandler });
     }
     const savedCollapsed = localStorage.getItem('mdTocCollapsed');
     if (savedCollapsed === 'true') {
@@ -1473,9 +1543,9 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     document.addEventListener('keydown', keyboardHandler);
     tocState.clickHandlers.push({ element: document, event: 'keydown', handler: keyboardHandler });
   }
-  function toggleMinimize() {
-    const tocElement = document.getElementById('mdToc'); const miniBtn = document.getElementById('mdTocMini'); if (!tocElement || !miniBtn) return; tocState.isMinimized = !tocState.isMinimized; if (tocState.isMinimized) { tocElement.style.display = 'none'; miniBtn.style.display = 'block'; } else { tocElement.style.display = 'block'; miniBtn.style.display = 'none'; }
-  }
+  function minimizeTOC(){ const tocElement = document.getElementById('mdToc'); const miniBtn = document.getElementById('mdTocMini'); if (!tocElement || !miniBtn) return; tocState.isMinimized = true; tocElement.style.display = 'none'; miniBtn.style.display = 'block'; applyMiniTop(parseInt(miniBtn.style.top||String(getSavedMiniTop()),10)); }
+  function restoreTOC(){ const tocElement = document.getElementById('mdToc'); const miniBtn = document.getElementById('mdTocMini'); if (!tocElement || !miniBtn) return; tocState.isMinimized = false; tocElement.style.display = 'block'; miniBtn.style.display = 'none'; }
+  function toggleMinimize() { if (tocState.isMinimized) { restoreTOC(); } else { minimizeTOC(); } }
   function setupProgressIndicator() {
     const progressBar = document.getElementById('tocProgressBar'); if (!progressBar) return; const updateProgress = () => { const scrollHeight = document.documentElement.scrollHeight - window.innerHeight; const scrollPosition = window.scrollY; const percentage = Math.round((scrollPosition / scrollHeight) * 100); progressBar.style.width = `${percentage}%`; tocState.scrollPercentage = percentage; const progressContainer = document.querySelector('.md-toc-progress'); if (progressContainer) { progressContainer.setAttribute('aria-valuenow', percentage); } };
     updateProgress(); let progressTicking = false; const progressHandler = () => { if (!progressTicking) { window.requestAnimationFrame(() => { updateProgress(); progressTicking = false; }); progressTicking = true; } };
@@ -1488,6 +1558,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       waitForContent(buildTOC);
       window.addEventListener('beforeunload', cleanup);
       if (window.navigation) { window.navigation.addEventListener('navigate', cleanup); }
+      // יישר מיקום התפריט והכפתור המינימלי לשורה אחת בצד שמאל
+      applyMiniTop(getSavedMiniTop());
     } catch (e) { console.error('TOC: שגיאה באתחול', e); hideTOC(); }
   }
   init();
