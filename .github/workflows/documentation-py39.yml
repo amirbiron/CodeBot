@@ -1,4 +1,4 @@
-name: 📖 Build Documentation (Python 3.9 Compatible)
+name: 📖 Build Documentation (Python 3.11 Compatible)
 
 on:
   workflow_dispatch:
@@ -10,12 +10,12 @@ on:
       - 'requirements.txt'
 
 env:
-  PYTHON_VERSION: '3.9'
+  PYTHON_VERSION: '3.11'
   SPHINX_BUILD_DIR: docs/_build/html
 
 jobs:
   build-docs-py39:
-    name: 🔨 Build Documentation (Python 3.9)
+    name: 🔨 Build Documentation (Python 3.11)
     runs-on: ubuntu-latest
     
     steps:
@@ -30,16 +30,11 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
     
-    - name: 📦 Install Python 3.9 compatible documentation dependencies
+    - name: 📦 Install documentation dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install Python 3.9 compatible versions
-        pip install \
-          sphinx==7.4.7 \
-          sphinx-rtd-theme==2.0.0 \
-          sphinx-autodoc-typehints==1.25.3 \
-          sphinxcontrib-napoleon==0.7 \
-          sphinxcontrib-mermaid==0.9.2
+        # Install docs deps (conf.py mocks heavy imports)
+        pip install -r docs/requirements.txt 2>/dev/null || true
         
         # Try to install project dependencies
         pip install -r requirements.txt 2>/dev/null || true
@@ -49,7 +44,7 @@ jobs:
     - name: 🔨 Build HTML documentation
       run: |
         cd docs
-        # Build with less strict settings for Python 3.9
+        # Build docs
         sphinx-build -b html . _build/html --keep-going -j auto
       env:
         SPHINX_MOCK_IMPORTS: true
@@ -65,7 +60,7 @@ jobs:
     
     - name: 📝 Generate summary
       run: |
-        echo "### 📖 Documentation Build (Python 3.9)" >> $GITHUB_STEP_SUMMARY
+        echo "### 📖 Documentation Build (Python 3.11)" >> $GITHUB_STEP_SUMMARY
         echo "- **Python Version**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Sphinx Version**: 7.4.7" >> $GITHUB_STEP_SUMMARY
+        echo "- **Sphinx Version**: $(sphinx-build --version 2>&1 | head -1)" >> $GITHUB_STEP_SUMMARY
         echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
