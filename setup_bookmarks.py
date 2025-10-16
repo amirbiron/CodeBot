@@ -19,6 +19,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Structured events fallback
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+
 
 def check_mongodb_connection():
     """בדיקת חיבור ל-MongoDB (ללא תלות ב-config.py)"""
@@ -42,9 +49,17 @@ def check_mongodb_connection():
         db = client[db_name]
 
         logger.info("✅ MongoDB connection successful")
+        try:
+            emit_event("bookmarks_mongodb_connected", severity="info")
+        except Exception:
+            pass
         return db
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
+        try:
+            emit_event("bookmarks_mongodb_connection_failed", severity="error", error=str(e))
+        except Exception:
+            pass
         return None
 
 
@@ -55,12 +70,20 @@ def setup_bookmarks_collection(db):
         if 'file_bookmarks' not in db.list_collection_names():
             db.create_collection('file_bookmarks')
             logger.info("✅ Created file_bookmarks collection")
+            try:
+                emit_event("bookmarks_collection_created", severity="info", name="file_bookmarks")
+            except Exception:
+                pass
         else:
             logger.info("ℹ️ file_bookmarks collection already exists")
         
         if 'bookmark_events' not in db.list_collection_names():
             db.create_collection('bookmark_events')
             logger.info("✅ Created bookmark_events collection")
+            try:
+                emit_event("bookmarks_collection_created", severity="info", name="bookmark_events")
+            except Exception:
+                pass
         else:
             logger.info("ℹ️ bookmark_events collection already exists")
         
@@ -68,11 +91,19 @@ def setup_bookmarks_collection(db):
         from database.bookmarks_manager import BookmarksManager
         bm_manager = BookmarksManager(db)
         logger.info("✅ Bookmarks indexes created")
+        try:
+            emit_event("bookmarks_indexes_created", severity="info")
+        except Exception:
+            pass
         
         return True
         
     except Exception as e:
         logger.error(f"❌ Error setting up collections: {e}")
+        try:
+            emit_event("bookmarks_setup_error", severity="error", error=str(e))
+        except Exception:
+            pass
         return False
 
 

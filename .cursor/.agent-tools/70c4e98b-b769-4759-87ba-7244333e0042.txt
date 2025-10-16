@@ -1,0 +1,266 @@
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+לממש אחרי סיום #655 
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# 🤖 מדריך Observability לסוכני AI
+
+מסמך זה מסביר איך סוכן AI צריך לרשום לוגים, מטריקות ושגיאות בפרויקט כדי לאפשר ניטור, דיבוג וניתוח ביצועים בצורה עקבית ובטוחה.
+
+---
+
+## 📜 TL;DR לסוכני AI
+
+-   **לוגים:** השתמשו בפונקציה `emit_event("event_name", ...)` כדי לרשום לוגים מובְנים (structured).
+-   **ביצועים:** עטפו פעולות קריטיות עם `track_performance("operation", labels=...)`.
+-   **פרטיות:** **אל תרשמו PII או טוקנים.** אם חייבים לרשום מידע על קלט, רִשמו רק מאפיינים (אורך, סוג) ולא את התוכן עצמו.
+-   **קורלציה:** ודאו שיש `request_id` לכל `Update` מטלגרם; זה מתבצע אוטומטית.
+-   **שגיאות:** `Sentry` מופעל אוטומטית אם `SENTRY_DSN` מוגדר. אין צורך לזרוק חריגות מיוחדות.
+-   **מטריקות:** המדדים נחשפים בנקודת הקצה `/metrics`. שמרו על שמות ולייבלים עקביים.
+
+---
+
+## 🪵 Structured Logging
+
+הלוגים בפרויקט משתמשים ב-`structlog` ומופקים בפורמט JSON (לסביבת ייצור) או Console (לפיתוח מקומי).
+
+-   **הגדרה:** הפונקציה `observability.setup_structlog_logging` מופעלת ב-`main.py`.
+-   **שדות סטנדרטיים:** `schema_version`, `event`, `level`, `timestamp`, `request_id`, `trace_id`, `span_id`.
+-   **השחרה (Redaction) אוטומטית:** מפתחות המכילים `token`/`password`/`secret`/`cookie`/`authorization` יוחלפו אוטומטית ב-`[REDACTED]`.
+
+### שימוש בסיסי
+
+```python
+from observability import emit_event
+
+# אירוע עסקי מפורש:
+emit_event(
+    "file_saved",
+    user_id=user_id,
+    file_name=file_name,
+    language=language,
+    size_bytes=len(code),
+    msg_he="קובץ נשמר"
+)
+
+# אירוע תהליכי (ללא גליפת PII):
+emit_event(
+    "search_performed",
+    user_id=user_id,
+    query_length=len(query or ""),
+    results_count=len(results),
+    msg_he="בוצע חיפוש"
+)
+```
+
+### קונבנציות כתיבה
+-   שם ה-`event` יהיה באנגלית, קצר, ועקבי (למשל, `file_saved`, `github_sync`).
+-   יש להוסיף `msg_he` לטובת קריאות בעברית, מבלי לשבור את יכולת החיפוש באנגלית.
+-   **לא רושמים** `raw bodies`, שאילתות או טוקנים. במקום זאת, רושמים מאפיינים כמו אורך, סוג או סטטוס.
+
+---
+
+## 🔗 Correlation IDs
+
+בכל `Update` מטלגרם נוצר `request_id` קצר ונקשר אוטומטית לקונטקסט, כך שכל רשומת לוג בהמשך השרשור תכיל אותו.
+-   אין צורך לקשור אותו בעצמכם, אלא אם אתם יוצרים תהליך רקע חדש באופן ידני.
+
+---
+
+## ⏱️ Performance Metrics
+
+למדידת זמן פעולות, השתמשו ב-`metrics.track_performance` כ-`context manager`.
+
+```python
+from metrics import track_performance
+
+def save_file(user_id: int, file_name: str, code: str):
+    with track_performance("save_file"):
+        # ... לוגיקה של שמירה ...
+        pass
+
+# דוגמה עם לייבלים נוספים
+with track_performance("search", labels={"env": "prod"}):
+    results = search(...)
+```
+
+---
+
+## 📈 Business Metrics
+
+נוספו פונקציות ייעודיות שמפיקות גם לוגים מובְנים וגם מונים ב-Prometheus.
+
+```python
+from metrics import (
+    track_file_saved,
+    track_search_performed,
+    track_github_sync,
+)
+
+# יש לקרוא לפונקציות אלו במקומות הרלוונטיים בקוד
+track_file_saved(user_id, language, size_bytes)
+track_search_performed(user_id, query, results_count)  # הערה: הפונקציה לא רושמת את ה-query עצמו ללוג
+track_github_sync(user_id, files_count, success)
+```
+
+---
+
+## 🛡️ Sentry (ניטור שגיאות)
+
+האינטגרציה עם Sentry מופעלת אוטומטית אם מוגדר משתנה הסביבה `SENTRY_DSN`.
+-   לוגים ברמת `ERROR` נשלחים אוטומטית.
+-   לפני השליחה מתבצע סינון של מידע רגיש.
+
+```sh
+# דוגמה להגדרת משתני סביבה
+export SENTRY_DSN="https://<key>@sentry.io/<project>"
+export ENVIRONMENT="staging"
+export SENTRY_TRACES_SAMPLE_RATE="0.2"
+export SENTRY_PROFILES_SAMPLE_RATE="0.1"
+```
+
+---
+
+## 📊 Prometheus Metrics
+
+המטריקות נחשפות בנתיב `/metrics`.
+
+-   **מטריקות קיימות:**
+    -   `errors_total{code}` (Counter)
+    -   `operation_latency_seconds{operation}` (Histogram)
+    -   `telegram_updates_total{type,status}` (Counter)
+    -   `business_events_total{metric}` (Counter)
+    -   `active_indexes` (Gauge)
+-   **דוגמאות לשאילתות Grafana:**
+    ```promql
+    # זמן תגובה p95 לפי פעולה
+    histogram_quantile(0.95, sum(rate(operation_latency_seconds_bucket[5m])) by (le, operation))
+
+    # קצב אירועי ביזנס (file_saved)
+    rate(business_events_total{metric="file_saved"}[1m])
+    ```
+
+---
+
+## 🔔 Alerts (התראות)
+
+דוגמה לחוקי התראה בקובץ `alerts.yml`:
+```yaml
+groups:
+  - name: codebot_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(errors_total[5m]) > 0.05
+        for: 5m
+        annotations:
+          summary: "שיעור שגיאות גבוה: {{ $value }}"
+      - alert: SlowOperations
+        expr: histogram_quantile(0.95, sum(rate(operation_latency_seconds_bucket[5m])) by (le)) > 2
+        for: 10m
+        annotations:
+          summary: "פעולות איטיות: 95p > 2s"
+```
+
+---
+
+## 📝 רפרנס שדות לוג עיקריים
+
+| שדה | טיפוס | חובה | הערות |
+| :--- | :--- | :---: | :--- |
+| `schema_version` | string | כן | גרסת סכימת לוגים (כיום 1.0) |
+| `event` | string | כן | שם אירוע באנגלית, קצר וברור |
+| `request_id` | string | כן | נוצר אוטומטית לכל Update |
+| `trace_id`/`span_id` | string | לא | אם OpenTelemetry זמין |
+| `msg_he` | string | מומלץ | הודעה קצרה בעברית לקריאות ידנית |
+| `user_id` | int | תלוי הקשר | לא לזהות משתמשים מעבר ל-ID |
+| `duration_ms` | number | תלוי הקשר | בתוצאות ביצועים או אירועים מתוזמנים |
+| `success` | bool | תלוי הקשר | באירועים עם תוצאה בינארית (למשל sync) |
+
+---
+
+## ✅ צ'ק-ליסט מיגרציה לסוכנים
+
+-   [ ] החליפו קריאות `logger.info/warn/error` קריטיות ל-`emit_event("...")` עם שדות מובְנים.
+-   [ ] עטפו פעולות עיקריות ב-`track_performance("...")`.
+-   [ ] קראו לפונקציות המדדים העסקיים (`track_file_saved`, וכו') במקומות המתאימים.
+-   [ ] הקפידו **לא לרשום PII** או טוקנים. אין לרשום תוכן מלא של שאילתות.
+
+---
+
+## ❓ שאלות נפוצות
+
+-   **האם צריך ליצור `request_id` ידנית?**
+    לא. זה נעשה אוטומטית בשכבת הקורלציה.
+-   **האם מותר לרשום תוכן חיפוש או קוד?**
+    לא. יש לרשום רק מאפיינים כמו אורך, כמות תוצאות, או שפה משוערת.
+-   **איך מפעילים Sentry?**
+    יש להגדיר את משתנה הסביבה `SENTRY_DSN`. אין צורך בשינוי קוד נוסף.
+
+--
+author:	amirbiron
+association:	owner
+edited:	false
+status:	none
+--
+# 📚 הצעה: עמודי תיעוד חדשים לאובזרווביליות ידידותית לסוכני AI
+
+**המטרה:** ליצור סט מסמכים מקיף שיאפשר לסוכני AI (וגם למפתחים) להבין, לצרוך ולפעול על בסיס הלוגים, המטריקות והאירועים של המערכת — בצורה פשוטה, עקבית ובטוחה.
+
+---
+
+## 📄 עמודי התיעוד המוצעים
+
+### 1. חוזה Observability ל-AI
+-   **מה לשים:** את סכמת הלוגים היציבה (`schema_version`, `event`, `severity`, `timestamp`, `request_id`, `trace_id`/`span_id`), עקרונות טשטוש מידע (redaction) ודגימה (sampling), וכללים לשמות אירועים קנוניים.
+-   **ערך:** נותן לסוכן מפתח קריאה יחיד ואחיד לכל הלוגים, ומבטיח יציבות לאורך זמן.
+
+### 2. קטלוג אירועים ואבחון מהיר
+-   **מה לשים:** טבלה של אירועים מרכזיים (למשל, קבוצות `db_*`, `github_*`, `business_metric`), השדות החשובים בכל אירוע, דוגמאות, והסבר "מה הסוכן צריך לעשות" בתגובה.
+-   **ערך:** מאפשר פעולות אוטומטיות לפי אירוע (לדוגמה, אם `event` הוא `github_rate_limit_exceeded` → יש להשתמש בקאש או להמתין).
+
+### 3. מילון קודי שגיאה ופעולות תיקון (Remediation)
+-   **מה לשים:** טבלה הממפה `error_code` ← `category` ← `severity` ← `remediation` (פעולה מיידית מומלצת).
+-   **ערך:** מקצר את זמן ההתאוששות (MTTR) של הסוכן ומאפשר לו לפתור בעיות באופן אוטומטי.
+
+### 4. מדריך מטריקות ושאילתות (Queries)
+-   **מה לשים:** רשימת המטריקות המרכזיות ב-Prometheus (למשל, `errors_total{code}`, `operation_latency_seconds{operation}`), יחד עם דוגמאות לשאילתות `PromQL` שימושיות וספי ההתראה המומלצים.
+-   **ערך:** הסוכן יודע בדיוק איך "לתשאל" את המערכת כדי להבין את מצבה וביצועיה.
+
+### 5. מדריכי הפעלה (Playbooks) לפי תחום
+-   **מה לשים:** מדריכים קצרים ותכליתיים בפורמט "אם קרה X ← בצע Y".
+    -   **GitHub:** זיהוי `Rate limit`, טיפול בכשלי ZIP/Upload, חזרה לקאש, והודעות מתאימות למשתמש.
+    -   **DB:** טיפול בקונפליקטים של אינדקסים, זיהוי איטיות חריגה, וביצוע מחיקות רכות/שחזור.
+    -   **Web/Services:** טיפול במצב שבו `/metrics` נפל, כולל איסוף הקשר ושליחת התראה.
+-   **ערך:** מספק לוגיקה מוכנה מראש לאוטומציה של טיפול בתקלות נפוצות.
+
+### 6. הנחיות אינסטרומנטציה למפתחים
+-   **מה לשים:** מתי להשתמש ב-`emit_event`, איך לקרוא ל-`operation` ב-`track_performance`, קונבנציות לשמות אירועים ו-Labels, ובעיקר – מה **לא** לרשום בלוגים (PII/סודות).
+-   **ערך:** שומר על אחידות הקוד והנתונים, מה שמבטיח שהמידע הנאסף יהיה שימושי ואיכותי עבור הסוכן.
+
+### 7. קורלציה ו-Tracing מעשי
+-   **מה לשים:** הסבר על איך `request_id` זורם במערכת, איך לסנכרן אותו עם OpenTelemetry (כאשר זמין), ואיך להשתמש בו כדי לחפש טרייס מלא של בקשה מקצה לקצה.
+-   **ערך:** מאפשר לסוכן "לתפור" את כל חלקי הפאזל של בקשה מורכבת ולהבין את התמונה המלאה.
+
+---
+
+## 🗺️ מיקום מוצע באתר התיעוד
+
+-   `docs/observability/ai-contract.md` – החוזה והסכמה.
+-   `docs/observability/events-catalog.md` – קטלוג אירועים ופעולות תיקון.
+-   `docs/observability/metrics.md` – מטריקות, PromQL, וספי התראות.
+-   `docs/observability/playbooks.md` – Playbooks ממוקדים (GitHub/DB/Web).
+-   `docs/observability/instrumentation-guide.md` – הנחיות למפתחים.
+
+#### הערות RTD/Sphinx
+-   יש להימנע מכפילויות בין עמודים (ולהשתמש ב-`:noindex:` במידת הצורך).
+-   יש לשמור על אפס אזהרות בזמן `build`.
+-   יש להשתמש בדוגמאות קוד קצרות בלבד, ולא להריץ קוד בטעינת המודול.
+
+--

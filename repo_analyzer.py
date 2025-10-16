@@ -8,6 +8,22 @@ import re
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
+# Structured logging + metrics (safe fallbacks for tests)
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+
+try:  # type: ignore
+    from metrics import track_performance  # type: ignore
+except Exception:  # pragma: no cover
+    from contextlib import contextmanager
+
+    @contextmanager
+    def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):  # type: ignore
+        yield
+
 logger = logging.getLogger(__name__)
 
 class RepoAnalyzer:
@@ -57,21 +73,33 @@ class RepoAnalyzer:
             else:
                 raise ValueError("Invalid GitHub URL format")
         except Exception as e:
+            # שמירה כאירוע מובנה לניתוח על-ידי AI/דשבורד
+            try:
+                emit_event("repo_parse_url_error", severity="warn", error=str(e))
+            except Exception:
+                pass
             logger.error(f"Error parsing GitHub URL: {e}")
             raise ValueError(f"לא הצלחתי לנתח את ה-URL: {url}") from e
     
     async def fetch_and_analyze_repo(self, repo_url: str) -> Dict[str, Any]:
         """שולף ומנתח ריפוזיטורי מ-GitHub"""
-        logger.info(f"🔍 Starting analysis of repository: {repo_url}")
+        try:
+            emit_event("repo_analysis_start", severity="info", repo_url=str(repo_url))
+        except Exception:
+            pass
         try:
             owner, repo_name = self.parse_github_url(repo_url)
-            logger.info(f"📦 Parsed repo: owner={owner}, name={repo_name}")
+            try:
+                emit_event("repo_analysis_parsed", severity="info", owner=str(owner), repo=str(repo_name))
+            except Exception:
+                pass
             
             if not self.github_client:
                 raise ValueError("נדרש GitHub token לניתוח ריפוזיטורי")
             
             # קבל את הריפו
-            repo = self.github_client.get_repo(f"{owner}/{repo_name}")
+            repo_full = f"{owner}/{repo_name}"
+            repo = self.github_client.get_repo(repo_full)
             
             analysis = {
                 'repo_name': repo.name,
@@ -98,129 +126,151 @@ class RepoAnalyzer:
                 'pull_requests_count': 0
             }
             
-            # בדוק אם יש LICENSE
-            try:
-                license_info = repo.get_license()
-                if license_info:
-                    analysis['has_license'] = True
-                    analysis['license_type'] = license_info.license.name
-            except:
-                pass
-            
-            # סרוק קבצים בריפו (עומק 1)
-            contents = repo.get_contents("")
-            files_analyzed = 0
-            
-            while contents and files_analyzed < self.MAX_FILES:
-                file_content = contents.pop(0)
-                
-                if file_content.type == "dir":
-                    # הוסף תיקייה למבנה
-                    analysis['directory_structure'][file_content.path] = {
-                        'type': 'directory',
-                        'name': file_content.name
-                    }
-                    
-                    # בדוק תיקיות מיוחדות
-                    if file_content.name in ['tests', 'test', 'spec', '__tests__']:
-                        analysis['test_coverage'] = True
-                    elif file_content.name == '.github':
-                        # בדוק אם יש workflows
-                        try:
-                            workflows = repo.get_contents(".github/workflows")
-                            if workflows:
-                                analysis['has_ci_cd'] = True
-                        except:
-                            pass
-                    
-                    # הוסף תוכן התיקייה לסריקה (רק עומק 1)
-                    if files_analyzed < self.MAX_FILES - 10:  # השאר מקום לקבצים חשובים
-                        try:
-                            sub_contents = repo.get_contents(file_content.path)
-                            contents.extend(sub_contents[:10])  # הגבל תת-תיקיות
-                        except:
-                            pass
-                            
-                elif file_content.type == "file":
-                    files_analyzed += 1
-                    file_name = file_content.name
-                    file_path = file_content.path
-                    
-                    # בדוק קבצים חשובים
-                    if file_name.upper() in ['README.MD', 'README.RST', 'README.TXT', 'README']:
-                        analysis['has_readme'] = True
-                        # נסה לקרוא את ה-README לניתוח איכות
-                        try:
-                            if file_content.size < 50000:  # מקסימום 50KB
-                                readme_content = base64.b64decode(file_content.content).decode('utf-8')
-                                analysis['readme_length'] = len(readme_content)
-                                # בדוק איכות תיעוד בסיסית
-                                if len(readme_content) > 500:
-                                    if any(section in readme_content.lower() for section in 
-                                          ['installation', 'usage', 'example', 'התקנה', 'שימוש', 'דוגמה']):
-                                        analysis['documentation_quality'] = 'good'
-                                    else:
-                                        analysis['documentation_quality'] = 'basic'
-                        except:
-                            pass
-                    
-                    if file_name.upper() in ['LICENSE', 'LICENSE.MD', 'LICENSE.TXT']:
+            # מדידת ביצועים כוללת לניתוח הריפו
+            with track_performance("github_repo_analyze", labels={"repo": repo_full}):
+                # בדוק אם יש LICENSE
+                try:
+                    license_info = repo.get_license()
+                    if license_info:
                         analysis['has_license'] = True
-                        
-                    if file_name == '.gitignore':
-                        analysis['has_gitignore'] = True
+                        analysis['license_type'] = license_info.license.name
+                except Exception:
+                    pass
+
+                # סרוק קבצים בריפו (עומק 1)
+                contents = repo.get_contents("")
+                files_analyzed = 0
+                
+                while contents and files_analyzed < self.MAX_FILES:
+                    file_content = contents.pop(0)
                     
-                    # ספור קבצים לפי סוג
-                    ext = os.path.splitext(file_name)[1].lower()
-                    if ext in self.CODE_EXTENSIONS:
-                        analysis['files_by_type'][ext] = analysis['files_by_type'].get(ext, 0) + 1
-                        analysis['file_count'] += 1
+                    if file_content.type == "dir":
+                        # הוסף תיקייה למבנה
+                        analysis['directory_structure'][file_content.path] = {
+                            'type': 'directory',
+                            'name': file_content.name
+                        }
                         
-                        # בדוק גודל קובץ
-                        if file_content.size > 0:
+                        # בדוק תיקיות מיוחדות
+                        if file_content.name in ['tests', 'test', 'spec', '__tests__']:
+                            analysis['test_coverage'] = True
+                        elif file_content.name == '.github':
+                            # בדוק אם יש workflows
                             try:
-                                # נסה לקרוא את הקובץ אם הוא לא גדול מדי
-                                if file_content.size < self.MAX_FILE_SIZE:
-                                    code_content = base64.b64decode(file_content.content).decode('utf-8')
-                                    lines = code_content.split('\n')
-                                    line_count = len(lines)
-                                    
-                                    if line_count > self.LARGE_FILE_LINES:
-                                        analysis['large_files'].append({
-                                            'path': file_path,
-                                            'lines': line_count,
-                                            'size': file_content.size
-                                        })
-                                    
-                                    # חפש פונקציות ארוכות (Python/JS)
-                                    if ext in ['.py', '.js', '.ts']:
-                                        long_funcs = self._find_long_functions(code_content, ext)
-                                        analysis['long_functions'].extend(long_funcs)
-                            except Exception as e:
-                                logger.debug(f"Could not analyze file {file_path}: {e}")
-                    
-                    # בדוק קבצי תלויות
-                    if file_name.lower() in self.CONFIG_FILES:
-                        try:
-                            if file_content.size < 50000:
-                                config_content = base64.b64decode(file_content.content).decode('utf-8')
-                                deps = self._extract_dependencies(file_name, config_content)
-                                analysis['dependencies'].extend(deps)
-                        except:
-                            pass
+                                workflows = repo.get_contents(".github/workflows")
+                                if workflows:
+                                    analysis['has_ci_cd'] = True
+                            except:
+                                pass
+                        
+                        # הוסף תוכן התיקייה לסריקה (רק עומק 1)
+                        if files_analyzed < self.MAX_FILES - 10:  # השאר מקום לקבצים חשובים
+                            try:
+                                sub_contents = repo.get_contents(file_content.path)
+                                contents.extend(sub_contents[:10])  # הגבל תת-תיקיות
+                            except:
+                                pass
+                                
+                    elif file_content.type == "file":
+                        files_analyzed += 1
+                        file_name = file_content.name
+                        file_path = file_content.path
+                        
+                        # בדוק קבצים חשובים
+                        if file_name.upper() in ['README.MD', 'README.RST', 'README.TXT', 'README']:
+                            analysis['has_readme'] = True
+                            # נסה לקרוא את ה-README לניתוח איכות
+                            try:
+                                if file_content.size < 50000:  # מקסימום 50KB
+                                    readme_content = base64.b64decode(file_content.content).decode('utf-8')
+                                    analysis['readme_length'] = len(readme_content)
+                                    # בדוק איכות תיעוד בסיסית
+                                    if len(readme_content) > 500:
+                                        if any(section in readme_content.lower() for section in 
+                                              ['installation', 'usage', 'example', 'התקנה', 'שימוש', 'דוגמה']):
+                                            analysis['documentation_quality'] = 'good'
+                                        else:
+                                            analysis['documentation_quality'] = 'basic'
+                            except:
+                                pass
+                        
+                        if file_name.upper() in ['LICENSE', 'LICENSE.MD', 'LICENSE.TXT']:
+                            analysis['has_license'] = True
+                            
+                        if file_name == '.gitignore':
+                            analysis['has_gitignore'] = True
+                        
+                        # ספור קבצים לפי סוג
+                        ext = os.path.splitext(file_name)[1].lower()
+                        if ext in self.CODE_EXTENSIONS:
+                            analysis['files_by_type'][ext] = analysis['files_by_type'].get(ext, 0) + 1
+                            analysis['file_count'] += 1
+                            
+                            # בדוק גודל קובץ
+                            if file_content.size > 0:
+                                try:
+                                    # נסה לקרוא את הקובץ אם הוא לא גדול מדי
+                                    if file_content.size < self.MAX_FILE_SIZE:
+                                        code_content = base64.b64decode(file_content.content).decode('utf-8')
+                                        lines = code_content.split('\n')
+                                        line_count = len(lines)
+                                        
+                                        if line_count > self.LARGE_FILE_LINES:
+                                            analysis['large_files'].append({
+                                                'path': file_path,
+                                                'lines': line_count,
+                                                'size': file_content.size
+                                            })
+                                        
+                                        # חפש פונקציות ארוכות (Python/JS)
+                                        if ext in ['.py', '.js', '.ts']:
+                                            long_funcs = self._find_long_functions(code_content, ext)
+                                            analysis['long_functions'].extend(long_funcs)
+                                except Exception as e:
+                                    logger.debug(f"Could not analyze file {file_path}: {e}")
+                        
+                        # בדוק קבצי תלויות
+                        if file_name.lower() in self.CONFIG_FILES:
+                            try:
+                                if file_content.size < 50000:
+                                    config_content = base64.b64decode(file_content.content).decode('utf-8')
+                                    deps = self._extract_dependencies(file_name, config_content)
+                                    analysis['dependencies'].extend(deps)
+                            except:
+                                pass
             
             # חשב ציון איכות כללי
             analysis['quality_score'] = self._calculate_quality_score(analysis)
+            
+            try:
+                emit_event(
+                    "repo_analysis_done",
+                    severity="info",
+                    owner=str(owner),
+                    repo=str(repo_name),
+                    file_count=int(analysis.get('file_count', 0)),
+                )
+            except Exception:
+                pass
             
             return analysis
             
         except GithubException as e:
             logger.error(f"GitHub API error: {e}")
+            try:
+                msg = getattr(e, 'data', {}).get('message', str(e)) if hasattr(e, 'data') else str(e)
+                emit_event("repo_analysis_github_api_error", severity="error", error=str(msg))
+            except Exception:
+                pass
             raise ValueError(
                 f"שגיאה בגישה לריפוזיטורי: {e.data.get('message', str(e))}"
             ) from e
         except Exception as e:
             logger.error(f"Error analyzing repo: {e}")
+            try:
+                emit_event("repo_analysis_error", severity="error", error=str(e))
+            except Exception:
+                pass
             raise ValueError(
                 f"שגיאה בניתוח הריפוזיטורי: {str(e)}"
             ) from e
