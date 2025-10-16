@@ -63,6 +63,14 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
             return _C()
     monkeypatch.setattr(gh, "emit_event", _emit, raising=False)
     monkeypatch.setattr(gh, "errors_total", _Errors(), raising=False)
+    # stub backup manager to avoid real IO
+    import file_manager as _fm
+    class _BM:
+        def save_backup_bytes(self, *a, **k):
+            return None
+        def list_backups(self, *a, **k):
+            return []
+    monkeypatch.setattr(_fm, "backup_manager", _BM(), raising=False)
 
     # run the branch that builds zip from current repo path
     # we call the callback handler directly for the relevant branch
@@ -126,6 +134,9 @@ async def test_inline_download_error_emits_event_and_counter(monkeypatch):
             return _C()
     monkeypatch.setattr(gh, "emit_event", _emit, raising=False)
     monkeypatch.setattr(gh, "errors_total", _Errors(), raising=False)
+    # stub backup manager too for safety (though not used on this path)
+    import file_manager as _fm2
+    monkeypatch.setattr(_fm2, "backup_manager", types.SimpleNamespace(list_backups=lambda *a, **k: [], save_backup_bytes=lambda *a, **k: None), raising=False)
 
     # invoke
     if hasattr(handler, "handle_menu_callback"):
