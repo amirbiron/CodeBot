@@ -25,7 +25,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     labels = alert.get("labels", {}) or {}
     annotations = alert.get("annotations", {}) or {}
     status = str(alert.get("status") or "firing")
-    severity = labels.get("severity") or labels.get("level") or "info"
+    severity = str(labels.get("severity") or labels.get("level") or "info").upper()
     name = labels.get("alertname") or labels.get("name") or "Alert"
     summary = annotations.get("summary") or annotations.get("description") or ""
     generator_url = alert.get("generatorURL") or ""

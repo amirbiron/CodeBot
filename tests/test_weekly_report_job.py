@@ -33,6 +33,7 @@ def test_weekly_report_emits_and_notifies(monkeypatch):
             asyncio.get_event_loop().run_until_complete(fn(None))
     class _App:
         job_queue = _JobQ()
+        bot = types.SimpleNamespace()
     app = _App()
 
     # Call setup to register and fire the job once

@@ -27,6 +27,7 @@ def test_internal_web_events_emitted(monkeypatch):
             asyncio.get_event_loop().create_task(fn(None))
     class _App:
         job_queue = _JobQ()
+        bot = types.SimpleNamespace()
     app = _App()
 
     # Monkeypatch inside setup_bot_data scope
