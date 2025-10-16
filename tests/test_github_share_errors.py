@@ -14,6 +14,8 @@ async def test_github_share_selected_links_error_emits_and_counts(monkeypatch):
     class _Repo:
         full_name = "owner/repo"
         default_branch = "main"
+        def get_contents(self, path):
+            return types.SimpleNamespace(type="file", path=path, size=1, decoded_content=b"x")
     class _GH:
         def __init__(self, token):
             pass
@@ -67,6 +69,8 @@ async def test_github_share_single_link_error_emits_and_counts(monkeypatch):
     class _Repo:
         full_name = "owner/repo"
         default_branch = "main"
+        def get_contents(self, path):
+            return types.SimpleNamespace(type="file", path=path, size=1, decoded_content=b"x")
     class _GH:
         def __init__(self, token):
             pass
