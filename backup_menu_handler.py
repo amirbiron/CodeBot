@@ -270,7 +270,7 @@ class BackupMenuHandler:
 				await query.answer("לא נבחרו פריטים", show_alert=True)
 				return
 			# הצג מסך אימות סופי
-			txt = "האם אתה בטוח שברצונך למחוק את:"\
+			txt = "אישור מחיקה\nהאם אתה בטוח שברצונך למחוק את:"\
 				+ "\n" + "\n".join(sel[:15]) + ("\n…" if len(sel) > 15 else "")
 			kb = [
 				[InlineKeyboardButton("✅ אישור מחיקה", callback_data="backup_delete_execute")],
