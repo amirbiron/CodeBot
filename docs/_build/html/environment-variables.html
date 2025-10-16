@@ -64,6 +64,15 @@
 <li class="toctree-l2"><a class="reference internal" href="quickstart.html#id5">מה הלאה?</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart-contrib.html">Quickstart לתרומה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id2">צעדי הכנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id3">סביבת פיתוח</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id4">הרצת טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#stubs">על ה‑Stubs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id5">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="ai-guidelines.html">הנחיות מלאות לסוכני AI</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id1">מגבלות קריטיות</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="ai-guidelines.html#id2">הרצת פקודות</a></li>
@@ -74,6 +83,31 @@
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#pull-requests">קומיטים ו-Pull Requests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id5">עבודה עם טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id6">קישורים מהירים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id2">מדיניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id3">טיפים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="style-glossary.html">Style &amp; Naming Glossary</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id2">מיפוי מונחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id3">כללים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id4">עוגני תיעוד</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="versioning-stable-anchors.html">Versioning &amp; Stable Anchors</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#id1">מדיניות עוגנים יציבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#whats-new">What’s New</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#anchors">דוגמת Anchors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="whats-new.html">What’s New</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="whats-new.html#id1">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="architecture.html">ארכיטקטורה</a><ul>
@@ -139,40 +173,7 @@
 <p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/main.html">main module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.application"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.application</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.github_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.github_handler</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.backup_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.backup_handler</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.__init__"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.setup_handlers"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.setup_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.help_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.help_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.save_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.save_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.list_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.list_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.search_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.search_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.check_commands"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.check_commands()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.stats_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stats_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.handle_document"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_document()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.handle_text_message"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_text_message()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.error_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.error_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.start"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.start()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.stop"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stop()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="api/main.html">main module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/config.html">config module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
@@ -351,6 +352,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
 </ul>
 </li>
@@ -409,6 +411,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/github_menu_handler.html">github_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
@@ -442,23 +445,9 @@
 <li class="toctree-l4"><a class="reference internal" href="api/lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html">main module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/main.html">main module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/repo_analyzer.html">repo_analyzer module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/repo_analyzer.html#repo_analyzer.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer"><code class="docutils literal notranslate"><span class="pre">RepoAnalyzer</span></code></a></li>
 </ul>
 </li>
@@ -473,6 +462,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/terminal_commands.html">terminal_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.run_in_sandbox"><code class="docutils literal notranslate"><span class="pre">run_in_sandbox()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.terminal_enter"><code class="docutils literal notranslate"><span class="pre">terminal_enter()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.terminal_exit"><code class="docutils literal notranslate"><span class="pre">terminal_exit()</span></code></a></li>
@@ -540,6 +530,16 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#show-command">Show Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="handlers/show.html">Show Command</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#show">מפרט פקודת <cite>/show</cite></a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#html">דוגמת תגובת HTML</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#id1">הערות יישום</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#id2">קישורים</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="handlers/index.html#drive-menu">Drive Menu</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="handlers/drive_menu.html">Drive Menu V2</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#id1">סקירה</a></li>
@@ -685,10 +685,13 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing Guide</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="testing.html#id1">עקרונות קריטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#quickstart">🚀 Quickstart לטסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#id1">הנחיות קריטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id2">מחיקה בטוחה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="testing.html#mocking-telegram">Mocking ל‑Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id3">קישורים</a></li>
 </ul>
 </li>
@@ -731,6 +734,8 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id1">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id3">קישורים</a></li>
@@ -759,6 +764,7 @@
 <li class="toctree-l2"><a class="reference internal" href="security.html#csrf-webapp">CSRF ב‑WebApp</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id3">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#id4">אבטחת הודעות בטלגרם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -827,6 +833,58 @@
 <li class="toctree-l3"><a class="reference internal" href="webapp/api-reference.html#id4">דוגמאות תגובה</a></li>
 </ul>
 </li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/bulk-actions.html">Bulk actions (בחירה מרובה)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#endpoints">Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-favorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-favorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-unfavorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-unfavorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-tag"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-tag</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-create-zip"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-zip</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-delete-soft-delete"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-delete</span></code> (Soft Delete)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-create-share-link"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-share-link</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id2">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="observability.html">אובזרווביליות (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id2">קהלי יעד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id3">תצורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">דוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#id1">נקודת קצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#id2">מטריקות קיימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#promql">דוגמאות PromQL</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="alerts.html">התראות (Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="alerts.html#id1">חוקי התראה לדוגמה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="sentry.html">Sentry</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="sentry.html#id1">הפעלה (משתני סביבה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="sentry.html#id2">עקרונות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
 </ul>
@@ -1053,35 +1111,42 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">DEBUG</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_CODE_SIZE</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_FORMAT</span></code></p></td>
+<td><p>פורמט לוגים (<code class="docutils literal notranslate"><span class="pre">text</span></code>/<code class="docutils literal notranslate"><span class="pre">json</span></code>)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">text</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">json</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_CODE_SIZE</span></code></p></td>
 <td><p>גודל קוד מקסימלי לשמירה (בתווים)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">100000</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">200000</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_FILES_PER_USER</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_FILES_PER_USER</span></code></p></td>
 <td><p>מגבלת כמות קבצים למשתמש</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1000</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">2000</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">HIGHLIGHT_THEME</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">HIGHLIGHT_THEME</span></code></p></td>
 <td><p>ערכת צבעים להדגשת תחביר</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">github-dark</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">monokai</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GIT_CHECKPOINT_PREFIX</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GIT_CHECKPOINT_PREFIX</span></code></p></td>
 <td><p>קידומת לשמירת checkpoints</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">checkpoint</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">ckpt</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_ID</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_ID</span></code></p></td>
 <td><p>OAuth Client ID של Google</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1091,7 +1156,7 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">xxx.apps.googleusercontent.com</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_SECRET</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_SECRET</span></code></p></td>
 <td><p>OAuth Client Secret של Google</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1101,91 +1166,91 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">********</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_OAUTH_SCOPES</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_OAUTH_SCOPES</span></code></p></td>
 <td><p>מרחבי OAuth לברירת מחדל</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://www.googleapis.com/auth/drive.file</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">...</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></p></td>
 <td><p>מרווח חידוש טוקן בטרם פקיעה (שניות)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">120</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">300</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_MENU_V2</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_MENU_V2</span></code></p></td>
 <td><p>הפעלת תפריט Drive v2</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DOCUMENTATION_URL</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DOCUMENTATION_URL</span></code></p></td>
 <td><p>קישור לאתר התיעוד הרשמי</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://amirbiron.github.io/CodeBot/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://docs.example.com</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BOT_LABEL</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BOT_LABEL</span></code></p></td>
 <td><p>תווית תצוגה לבוט</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">CodeBot</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">CKB</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_ADD_HASH</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_ADD_HASH</span></code></p></td>
 <td><p>הוספת hash לקבצים משותפים</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></code></p></td>
 <td><p>נרמול קוד בשמירה</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MODE</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MODE</span></code></p></td>
 <td><p>מצב תחזוקה המדכא פעולות משתמשים</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MESSAGE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MESSAGE</span></code></p></td>
 <td><p>הודעה למצב תחזוקה</p></td>
 <td><p>לא</p></td>
 <td><p>הודעת ברירת מחדל ידידותית</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;🚀</span> <span class="pre">אנחנו</span> <span class="pre">מעלים</span> <span class="pre">עדכון</span> <span class="pre">חדש!&quot;</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></code></p></td>
 <td><p>חימום אוטומטי לאחר יציאה מתחזוקה (שניות)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_PER_MINUTE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_PER_MINUTE</span></code></p></td>
 <td><p>מגבלת קצב בקשות לדקה</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RECYCLE_TTL_DAYS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">RECYCLE_TTL_DAYS</span></code></p></td>
 <td><p>ימי שמירת פריטים בסל המחזור</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">7</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URL</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URL</span></code></p></td>
 <td><p>URI חלופי ל-reporter (עדיפות על <code class="docutils literal notranslate"><span class="pre">MONGODB_URL</span></code>)</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1195,7 +1260,7 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">mongodb://...</span></code></p></td>
 <td><p>Reporter</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URI</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URI</span></code></p></td>
 <td><p>שם חלופי ל-URI של reporter</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1205,28 +1270,28 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">mongodb://...</span></code></p></td>
 <td><p>Reporter</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_SERVICE_ID</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_SERVICE_ID</span></code></p></td>
 <td><p>מזהה שירות עבור הדוחות</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">srv-d29d72adbo4c73bcuep0</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">srv-xxxx</span></code></p></td>
 <td><p>Reporter</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ENABLE_INTERNAL_SHARE_WEB</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ENABLE_INTERNAL_SHARE_WEB</span></code></p></td>
 <td><p>הפעלת שירות שיתוף פנימי</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PORT</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PORT</span></code></p></td>
 <td><p>פורט להרצת שירותים פנימיים/בדיקות</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10000</span></code> (ב-main), <code class="docutils literal notranslate"><span class="pre">5000</span></code> (ב-WebApp)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">8080</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ENCRYPTION_KEY</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ENCRYPTION_KEY</span></code></p></td>
 <td><p>מפתח הצפנה לנתונים רגישים</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1234,6 +1299,27 @@
 </ul>
 </td>
 <td><p><code class="docutils literal notranslate"><span class="pre">32-byte-key</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_DSN</span></code></p></td>
+<td><p>DSN לשילוב עם Sentry (שגיאות ותובנות)</p></td>
+<td><p>לא</p></td>
+<td><p>”“ (ריק)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">https://xxx&#64;o1234.ingest.sentry.io/5678</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_TRACES_SAMPLE_RATE</span></code></p></td>
+<td><p>דגימת Traces (0.0–1.0)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.1</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_PROFILES_SAMPLE_RATE</span></code></p></td>
+<td><p>דגימת Profiles (0.0–1.0)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.1</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
 </tbody>

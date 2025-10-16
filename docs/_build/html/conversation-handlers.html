@@ -66,6 +66,15 @@
 <li class="toctree-l2"><a class="reference internal" href="quickstart.html#id5">מה הלאה?</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart-contrib.html">Quickstart לתרומה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id2">צעדי הכנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id3">סביבת פיתוח</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id4">הרצת טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#stubs">על ה‑Stubs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-contrib.html#id5">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="ai-guidelines.html">הנחיות מלאות לסוכני AI</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id1">מגבלות קריטיות</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="ai-guidelines.html#id2">הרצת פקודות</a></li>
@@ -76,6 +85,31 @@
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#pull-requests">קומיטים ו-Pull Requests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id5">עבודה עם טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id6">קישורים מהירים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id2">מדיניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id3">טיפים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="style-glossary.html">Style &amp; Naming Glossary</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id2">מיפוי מונחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id3">כללים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="style-glossary.html#id4">עוגני תיעוד</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="versioning-stable-anchors.html">Versioning &amp; Stable Anchors</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#id1">מדיניות עוגנים יציבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#whats-new">What’s New</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#anchors">דוגמת Anchors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="versioning-stable-anchors.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="whats-new.html">What’s New</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="whats-new.html#id1">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="architecture.html">ארכיטקטורה</a><ul>
@@ -141,40 +175,7 @@
 <p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/main.html">main module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.application"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.application</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.github_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.github_handler</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.backup_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.backup_handler</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.__init__"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.setup_handlers"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.setup_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.help_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.help_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.save_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.save_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.list_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.list_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.search_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.search_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.check_commands"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.check_commands()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.stats_command"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stats_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.handle_document"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_document()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.handle_text_message"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.handle_text_message()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.error_handler"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.error_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.start"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.start()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot.stop"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot.stop()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="api/main.html">main module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/config.html">config module</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
@@ -353,6 +354,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
 </ul>
 </li>
@@ -411,6 +413,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/github_menu_handler.html">github_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
@@ -444,23 +447,9 @@
 <li class="toctree-l4"><a class="reference internal" href="api/lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/main.html">main module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.log_user_activity"><code class="docutils literal notranslate"><span class="pre">log_user_activity()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.get_lock_collection"><code class="docutils literal notranslate"><span class="pre">get_lock_collection()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.ensure_lock_indexes"><code class="docutils literal notranslate"><span class="pre">ensure_lock_indexes()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.cleanup_mongo_lock"><code class="docutils literal notranslate"><span class="pre">cleanup_mongo_lock()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.manage_mongo_lock"><code class="docutils literal notranslate"><span class="pre">manage_mongo_lock()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.CodeKeeperBot"><code class="docutils literal notranslate"><span class="pre">CodeKeeperBot</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.signal_handler"><code class="docutils literal notranslate"><span class="pre">signal_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.setup_handlers"><code class="docutils literal notranslate"><span class="pre">setup_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/main.html#main.setup_bot_data"><code class="docutils literal notranslate"><span class="pre">setup_bot_data()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/main.html">main module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/repo_analyzer.html">repo_analyzer module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/repo_analyzer.html#repo_analyzer.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer"><code class="docutils literal notranslate"><span class="pre">RepoAnalyzer</span></code></a></li>
 </ul>
 </li>
@@ -475,6 +464,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/terminal_commands.html">terminal_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.run_in_sandbox"><code class="docutils literal notranslate"><span class="pre">run_in_sandbox()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.terminal_enter"><code class="docutils literal notranslate"><span class="pre">terminal_enter()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/terminal_commands.html#terminal_commands.terminal_exit"><code class="docutils literal notranslate"><span class="pre">terminal_exit()</span></code></a></li>
@@ -542,6 +532,16 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#show-command">Show Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="handlers/show.html">Show Command</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#show">מפרט פקודת <cite>/show</cite></a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#html">דוגמת תגובת HTML</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#id1">הערות יישום</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/show.html#id2">קישורים</a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="handlers/index.html#drive-menu">Drive Menu</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="handlers/drive_menu.html">Drive Menu V2</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#id1">סקירה</a></li>
@@ -598,6 +598,31 @@
 <li class="toctree-l3"><a class="reference internal" href="database/index.html#statistics-operations">Statistics Operations</a></li>
 </ul>
 </li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="database/indexing.html">MongoDB Indexing Cookbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#id1">למה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#id2">אינדקסים מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#python-pymongo">מתכונים (Python / PyMongo)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#explain-mongo-shell">בדיקות explain (Mongo Shell)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#explain">מה לחפש ב-explain?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#id3">בדיקת קיום אינדקסים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#id4">שיטות עבודה מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#id5">דוגמאות נוספות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/indexing.html#gotchas">Gotchas נפוצים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="database/cursor-pagination.html">Cursor-based Pagination (created_at / _id)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#id1">למה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#id2">עקרונות מיון יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#python">קידוד/פענוח קורסור (Python)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#id3">תבנית שאילתה (חדש → ישן)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#pymongo">PyMongo – דוגמה מלאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#id4">דפדוף לאחור (ישן → חדש)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#id5">שיטות עבודה מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#gotchas">Gotchas נפוצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="database/cursor-pagination.html#id6">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="database-schema.html">Database Schema</a><ul>
@@ -662,10 +687,13 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing Guide</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="testing.html#id1">עקרונות קריטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#quickstart">🚀 Quickstart לטסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#id1">הנחיות קריטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id2">מחיקה בטוחה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="testing.html#mocking-telegram">Mocking ל‑Telegram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id3">קישורים</a></li>
 </ul>
 </li>
@@ -708,6 +736,8 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">Troubleshooting Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id1">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id3">קישורים</a></li>
@@ -736,6 +766,7 @@
 <li class="toctree-l2"><a class="reference internal" href="security.html#csrf-webapp">CSRF ב‑WebApp</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id3">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="security.html#id4">אבטחת הודעות בטלגרם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -782,12 +813,80 @@
 <li class="toctree-l2"><a class="reference internal" href="webapp/caching.html#id3">קישורים נוספים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#cache-control">כותרות Cache-Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#subresource-integrity-sri">Subresource Integrity (SRI)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/static-checklist.html#gotchas">Gotchas</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="webapp/api-reference.html">WebApp API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="webapp/api-reference.html#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="webapp/api-reference.html#authentication-flow">Authentication Flow</a></li>
 <li class="toctree-l2"><a class="reference internal" href="webapp/api-reference.html#response-schema-example">Response Schema Example</a></li>
 <li class="toctree-l2"><a class="reference internal" href="webapp/api-reference.html#errors">Errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="webapp/api-reference.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/api-reference.html#files">מסנן ושדות קלט ל-<code class="docutils literal notranslate"><span class="pre">/files</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="webapp/api-reference.html#id2">טבלת פרמטרים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/api-reference.html#id3">דוגמאות בקשה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/api-reference.html#id4">דוגמאות תגובה</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/bulk-actions.html">Bulk actions (בחירה מרובה)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#endpoints">Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-favorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-favorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-unfavorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-unfavorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-tag"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-tag</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-create-zip"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-zip</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-bulk-delete-soft-delete"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-delete</span></code> (Soft Delete)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="webapp/bulk-actions.html#post-api-files-create-share-link"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-share-link</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id2">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="observability.html">אובזרווביליות (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id2">קהלי יעד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id3">תצורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">דוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#id1">נקודת קצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#id2">מטריקות קיימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#promql">דוגמאות PromQL</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="alerts.html">התראות (Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="alerts.html#id1">חוקי התראה לדוגמה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="sentry.html">Sentry</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="sentry.html#id1">הפעלה (משתני סביבה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="sentry.html#id2">עקרונות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
 </ul>
@@ -973,13 +1072,7 @@
 </div>
 <div class="literal-block-wrapper docutils container" id="id10">
 <div class="code-block-caption"><span class="caption-text">handlers/save_flow.py – get_code</span><a class="headerlink" href="#id10" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span> <span class="nf">get_code</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-    <span class="c1"># שחזור טקסט עם סימוני Markdown שנבלעו</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">code</span> <span class="o">=</span> <span class="n">TelegramUtils</span><span class="o">.</span><span class="n">extract_message_text_preserve_markdown</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="p">)</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-        <span class="n">code</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span>
-    <span class="c1"># נרמול מוקדם כדי למנוע תווים נסתרים כבר בשלב האיסוף</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="c1"># נרמול מוקדם כדי למנוע תווים נסתרים כבר בשלב האיסוף</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">code</span> <span class="o">=</span> <span class="n">normalize_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
@@ -999,18 +1092,18 @@
         <span class="n">parse_mode</span><span class="o">=</span><span class="s1">&#39;Markdown&#39;</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">GET_FILENAME</span>
+
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">get_filename</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="n">filename</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="n">user_id</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">from_user</span><span class="o">.</span><span class="n">id</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;^[\w\.\-\_]+\.[a-zA-Z0-9]+$&#39;</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id11">
 <div class="code-block-caption"><span class="caption-text">handlers/save_flow.py – get_filename</span><a class="headerlink" href="#id11" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span> <span class="nf">get_filename</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-    <span class="n">filename</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-    <span class="n">user_id</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">from_user</span><span class="o">.</span><span class="n">id</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;^[\w\.\-\_]+\.[a-zA-Z0-9]+$&#39;</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
-        <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span>
-            <span class="s2">&quot;🤔 השם נראה קצת מוזר...</span><span class="se">\n</span><span class="s2">&quot;</span>
-            <span class="s2">&quot;💡 נסה שם כמו: `script.py` או `index.html`</span><span class="se">\n</span><span class="s2">&quot;</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>            <span class="s2">&quot;💡 נסה שם כמו: `script.py` או `index.html`</span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="s2">&quot;✅ אותיות, מספרים, נקודות וקווים מותרים!&quot;</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">GET_FILENAME</span>
@@ -1036,32 +1129,32 @@
         <span class="s2">&quot;כתוב/כתבי אותה עכשיו או שלח/י &#39;דלג&#39; כדי לשמור בלי הערה.&quot;</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">GET_NOTE</span>
+
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">get_note</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="n">note_text</span> <span class="o">=</span> <span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span> <span class="ow">or</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">note_text</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;דלג&quot;</span><span class="p">,</span> <span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;ללא&quot;</span><span class="p">}:</span>
+        <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;note_to_save&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id12">
 <div class="code-block-caption"><span class="caption-text">handlers/save_flow.py – get_note</span><a class="headerlink" href="#id12" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span> <span class="nf">get_note</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-    <span class="n">note_text</span> <span class="o">=</span> <span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">text</span> <span class="ow">or</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-    <span class="k">if</span> <span class="n">note_text</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;דלג&quot;</span><span class="p">,</span> <span class="s2">&quot;skip&quot;</span><span class="p">,</span> <span class="s2">&quot;ללא&quot;</span><span class="p">}:</span>
-        <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;note_to_save&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;note_to_save&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">note_text</span><span class="p">[:</span><span class="mi">280</span><span class="p">]</span>
-    <span class="n">filename</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;pending_filename&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;filename_to_save&#39;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="n">filename</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;pending_filename&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;filename_to_save&#39;</span><span class="p">)</span>
     <span class="n">user_id</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">from_user</span><span class="o">.</span><span class="n">id</span>
     <span class="k">return</span> <span class="k">await</span> <span class="n">save_file_final</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">user_id</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span> <span class="nf">save_file_final</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">user_id</span><span class="p">):</span>
+    <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;filename_to_save&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">filename</span>
+    <span class="n">code</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;code_to_save&#39;</span><span class="p">)</span>
+    <span class="c1"># הבטחת נרמול לפני שמירה (אידמפוטנטי)</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id13">
 <div class="code-block-caption"><span class="caption-text">handlers/save_flow.py – save_file_final</span><a class="headerlink" href="#id13" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">def</span> <span class="nf">save_file_final</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">user_id</span><span class="p">):</span>
-    <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s1">&#39;filename_to_save&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">filename</span>
-    <span class="n">code</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;code_to_save&#39;</span><span class="p">)</span>
-    <span class="c1"># הבטחת נרמול לפני שמירה (אידמפוטנטי)</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">code</span> <span class="o">=</span> <span class="n">normalize_code</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="k">pass</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">detected_language</span> <span class="o">=</span> <span class="n">code_service</span><span class="o">.</span><span class="n">detect_language</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
@@ -1105,6 +1198,12 @@
                 <span class="p">],</span>
                 <span class="p">[</span>
                     <span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🔙 לרשימה&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;files&quot;</span><span class="p">),</span>
+                <span class="p">],</span>
+            <span class="p">]</span>
+            <span class="n">reply_markup</span> <span class="o">=</span> <span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">keyboard</span><span class="p">)</span>
+            <span class="n">note_display</span> <span class="o">=</span> <span class="n">TextUtils</span><span class="o">.</span><span class="n">escape_markdown</span><span class="p">(</span><span class="n">note</span><span class="p">,</span> <span class="n">version</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">note</span> <span class="k">else</span> <span class="s1">&#39;—&#39;</span>
+            <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;🎉 *קובץ נשמר בהצלחה!*</span><span class="se">\n\n</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
 </div>
@@ -1113,7 +1212,79 @@
 <h3>GitHub – תפריט ושיחת העלאה<a class="headerlink" href="#github" title="Link to this heading"></a></h3>
 <div class="literal-block-wrapper docutils container" id="id14">
 <div class="code-block-caption"><span class="caption-text">github_menu_handler.py – github_menu_command</span><a class="headerlink" href="#id14" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="k">async</span> <span class="k">def</span> <span class="nf">github_menu_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>                    <span class="k">if</span> <span class="n">rel_path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">):</span>
+                        <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="k">continue</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="c1"># קרא כ-bytes ובדוק בינארי/גודל</span>
+                        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+                            <span class="n">raw</span> <span class="o">=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">IMPORT_MAX_FILE_BYTES</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_FILE_BYTES</span><span class="p">:</span>
+                            <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
+                            <span class="k">continue</span>
+                        <span class="c1"># heuristic: אם יש אפס-בייטים רבים → כנראה בינארי</span>
+                        <span class="k">if</span> <span class="sa">b</span><span class="s2">&quot;</span><span class="se">\x00</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">raw</span><span class="p">:</span>
+                            <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
+                            <span class="k">continue</span>
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="n">text</span> <span class="o">=</span> <span class="n">raw</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
+                        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                            <span class="k">try</span><span class="p">:</span>
+                                <span class="n">text</span> <span class="o">=</span> <span class="n">raw</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;latin-1&#39;</span><span class="p">)</span>
+                            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                                <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
+                                <span class="k">continue</span>
+                        <span class="k">if</span> <span class="n">total_bytes</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_TOTAL_BYTES</span><span class="p">:</span>
+                            <span class="k">continue</span>
+                        <span class="k">if</span> <span class="n">saved</span> <span class="o">&gt;=</span> <span class="n">IMPORT_MAX_FILES</span><span class="p">:</span>
+                            <span class="k">continue</span>
+                        <span class="n">lang</span> <span class="o">=</span> <span class="n">detect_language_from_filename</span><span class="p">(</span><span class="n">rel_path</span><span class="p">)</span>
+                        <span class="c1"># בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:)</span>
+                        <span class="n">prev_doc</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_latest_version</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">rel_path</span><span class="p">)</span>
+                        <span class="n">prev_tags</span> <span class="o">=</span> <span class="p">(</span><span class="n">prev_doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;tags&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">prev_doc</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">[]</span>
+                        <span class="n">existed_for_repo</span> <span class="o">=</span> <span class="nb">any</span><span class="p">((</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">t</span> <span class="o">==</span> <span class="n">repo_tag</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">prev_tags</span><span class="p">)</span>
+                        <span class="c1"># מדידת ביצוע עבור שמירה בודדת (דגימה קלה כדי לא להעמיס)</span>
+                        <span class="k">with</span> <span class="n">track_performance</span><span class="p">(</span><span class="s2">&quot;github_import_save_file&quot;</span><span class="p">):</span>
+                            <span class="n">ok</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">save_file</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="n">rel_path</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">programming_language</span><span class="o">=</span><span class="n">lang</span><span class="p">,</span> <span class="n">extra_tags</span><span class="o">=</span><span class="p">[</span><span class="n">repo_tag</span><span class="p">,</span> <span class="n">source_tag</span><span class="p">])</span>
+                        <span class="k">if</span> <span class="n">ok</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">existed_for_repo</span><span class="p">:</span>
+                                <span class="n">updated</span> <span class="o">+=</span> <span class="mi">1</span>
+                            <span class="k">else</span><span class="p">:</span>
+                                <span class="n">saved</span> <span class="o">+=</span> <span class="mi">1</span>
+                            <span class="n">total_bytes</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                        <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">track_github_sync</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">files_count</span><span class="o">=</span><span class="n">saved</span> <span class="o">+</span> <span class="n">updated</span><span class="p">,</span> <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;github_sync&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">user_id</span><span class="p">),</span> <span class="n">files_count</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">saved</span> <span class="o">+</span> <span class="n">updated</span><span class="p">),</span> <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;✅ ייבוא הושלם: </span><span class="si">{</span><span class="n">saved</span><span class="si">}</span><span class="s2"> חדשים, </span><span class="si">{</span><span class="n">updated</span><span class="si">}</span><span class="s2"> עודכנו, </span><span class="si">{</span><span class="n">skipped</span><span class="si">}</span><span class="s2"> דילוגים.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;🔖 תיוג: &lt;code&gt;</span><span class="si">{</span><span class="n">repo_tag</span><span class="si">}</span><span class="s2">&lt;/code&gt; (ו-&lt;code&gt;</span><span class="si">{</span><span class="n">source_tag</span><span class="si">}</span><span class="s2">&lt;/code&gt;)</span><span class="se">\n\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.</span><span class="se">\n</span><span class="s2">&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;תוכל למצוא את הקבצים ב׳🗂 לפי ריפו׳.&quot;</span><span class="p">,</span>
+                <span class="n">parse_mode</span><span class="o">=</span><span class="s2">&quot;HTML&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;github_import_repo_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span> <span class="n">repo</span><span class="o">=</span><span class="n">repo_full</span><span class="p">,</span> <span class="n">branch</span><span class="o">=</span><span class="n">branch</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;❌ שגיאה בייבוא: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c1"># ניקוי בטוח של tmp ושל קובץ ה-ZIP</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">zip_path</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">zip_path</span><span class="p">):</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">zip_path</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="n">_safe_rmtree_tmp</span><span class="p">(</span><span class="n">extracted_dir</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">_safe_rmtree_tmp</span><span class="p">(</span><span class="n">tmp_dir</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">github_menu_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;מציג תפריט GitHub&quot;&quot;&quot;</span>
         <span class="n">user_id</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span>
 
@@ -1137,104 +1308,32 @@
         <span class="k">if</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;selected_repo&quot;</span><span class="p">):</span>
             <span class="n">status_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;📁 ריפו נבחר: &lt;code&gt;</span><span class="si">{</span><span class="n">session</span><span class="p">[</span><span class="s1">&#39;selected_repo&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&lt;/code&gt;</span><span class="se">\n</span><span class="s2">&quot;</span>
         <span class="k">if</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;selected_folder&quot;</span><span class="p">):</span>
-            <span class="n">status_msg</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;📂 תיקיית יעד: &lt;code&gt;</span><span class="si">{</span><span class="n">session</span><span class="p">[</span><span class="s1">&#39;selected_folder&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&lt;/code&gt;</span><span class="se">\n</span><span class="s2">&quot;</span>
-
-        <span class="n">keyboard</span> <span class="o">=</span> <span class="p">[]</span>
-
-        <span class="c1"># כפתור הגדרת טוקן</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">token</span><span class="p">:</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🔑 הגדר טוקן GitHub&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;set_token&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-
-        <span class="c1"># כפתור בחירת ריפו - זמין רק עם טוקן</span>
-        <span class="k">if</span> <span class="n">token</span><span class="p">:</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📁 בחר ריפו&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;select_repo&quot;</span><span class="p">)])</span>
-            <span class="c1"># יצירת ריפו חדש מ-ZIP גם ללא ריפו נבחר</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🆕 צור ריפו חדש מּZIP&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;github_create_repo_from_zip&quot;</span><span class="p">)])</span>
-
-        <span class="c1"># כפתורי העלאה - מוצגים רק אם יש ריפו נבחר</span>
-        <span class="k">if</span> <span class="n">token</span> <span class="ow">and</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;selected_repo&quot;</span><span class="p">):</span>
-            <span class="c1"># העבר את &quot;בחר תיקיית יעד&quot; למעלה, ישירות אחרי &quot;בחר ריפו&quot;</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📂 בחר תיקיית יעד&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;set_folder&quot;</span><span class="p">)])</span>
-            <span class="c1"># ניווט בריפו</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🗃️ עיין בריפו&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;browse_repo&quot;</span><span class="p">)])</span>
-            <span class="c1"># כפתור העלאה</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📤 העלה קובץ חדש&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;upload_file&quot;</span><span class="p">)])</span>
-            <span class="c1"># פעולות נוספות בטוחות</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📥 הורד קובץ מהריפו&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;download_file_menu&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-            <span class="c1"># כפתור ייבוא ריפו (ZIP רשמי → ייבוא קבצים ל-DB)</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;⬇️ הורד ריפו&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;github_import_repo&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-            <span class="c1"># ריכוז פעולות מחיקה בתפריט משנה</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🧨 מחק קובץ/ריפו שלם&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;danger_delete_menu&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-            <span class="c1"># התראות חכמות</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🔔 התראות חכמות&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;notifications_menu&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-            <span class="c1"># תפריט גיבוי/שחזור מרוכז</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🧰 גיבוי ושחזור&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;github_backup_menu&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-
-        <span class="c1"># כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן</span>
-        <span class="k">if</span> <span class="n">token</span><span class="p">:</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🔍 נתח ריפו&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;analyze_repo&quot;</span><span class="p">)])</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;✅ בדוק תקינות ריפו&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;validate_repo&quot;</span><span class="p">)])</span>
-            <span class="c1"># כפתור יציאה (מחיקת טוקן) כאשר יש טוקן</span>
-            <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🚪 התנתק מגיטהאב&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;logout_github&quot;</span><span class="p">)]</span>
-            <span class="p">)</span>
-
-        <span class="c1"># כפתור הצגת הגדרות</span>
-        <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-            <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📋 הצג הגדרות נוכחיות&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;show_current&quot;</span><span class="p">)]</span>
-        <span class="p">)</span>
-
-        <span class="c1"># כפתור סגירה</span>
-        <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;❌ סגור&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;close_menu&quot;</span><span class="p">)])</span>
-
-        <span class="n">reply_markup</span> <span class="o">=</span> <span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">keyboard</span><span class="p">)</span>
-
-        <span class="k">if</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="p">:</span>
-            <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span>
-                <span class="n">status_msg</span><span class="p">,</span> <span class="n">reply_markup</span><span class="o">=</span><span class="n">reply_markup</span><span class="p">,</span> <span class="n">parse_mode</span><span class="o">=</span><span class="s2">&quot;HTML&quot;</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span>
-                <span class="n">status_msg</span><span class="p">,</span> <span class="n">reply_markup</span><span class="o">=</span><span class="n">reply_markup</span><span class="p">,</span> <span class="n">parse_mode</span><span class="o">=</span><span class="s2">&quot;HTML&quot;</span>
-            <span class="p">)</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id15">
 <div class="code-block-caption"><span class="caption-text">main.py – הגדרת upload_conv_handler (FILE_UPLOAD/REPO_SELECT/FOLDER_SELECT)</span><a class="headerlink" href="#id15" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>        <span class="c1"># הגדר conversation handler להעלאת קבצים</span>
-        <span class="kn">from</span> <span class="nn">github_menu_handler</span> <span class="kn">import</span> <span class="n">FILE_UPLOAD</span><span class="p">,</span> <span class="n">REPO_SELECT</span><span class="p">,</span> <span class="n">FOLDER_SELECT</span>
-        <span class="n">upload_conv_handler</span> <span class="o">=</span> <span class="n">ConversationHandler</span><span class="p">(</span>
-            <span class="n">entry_points</span><span class="o">=</span><span class="p">[</span>
-                <span class="n">CallbackQueryHandler</span><span class="p">(</span><span class="n">github_handler</span><span class="o">.</span><span class="n">handle_menu_callback</span><span class="p">,</span> <span class="n">pattern</span><span class="o">=</span><span class="s1">&#39;^upload_file$&#39;</span><span class="p">)</span>
-            <span class="p">],</span>
-            <span class="n">states</span><span class="o">=</span><span class="p">{</span>
-                <span class="n">FILE_UPLOAD</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="n">MessageHandler</span><span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">Document</span><span class="o">.</span><span class="n">ALL</span><span class="p">,</span> <span class="n">github_handler</span><span class="o">.</span><span class="n">handle_file_upload</span><span class="p">)</span>
-                <span class="p">],</span>
-                <span class="n">REPO_SELECT</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="n">MessageHandler</span><span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">TEXT</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">filters</span><span class="o">.</span><span class="n">COMMAND</span><span class="p">,</span> <span class="n">github_handler</span><span class="o">.</span><span class="n">handle_text_input</span><span class="p">)</span>
-                <span class="p">],</span>
-                <span class="n">FOLDER_SELECT</span><span class="p">:</span> <span class="p">[</span>
-                    <span class="n">MessageHandler</span><span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">TEXT</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">filters</span><span class="o">.</span><span class="n">COMMAND</span><span class="p">,</span> <span class="n">github_handler</span><span class="o">.</span><span class="n">handle_text_input</span><span class="p">)</span>
-                <span class="p">]</span>
-            <span class="p">},</span>
-            <span class="n">fallbacks</span><span class="o">=</span><span class="p">[</span><span class="n">CommandHandler</span><span class="p">(</span><span class="s1">&#39;cancel&#39;</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">u</span><span class="p">,</span> <span class="n">c</span><span class="p">:</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span><span class="p">)]</span>
-        <span class="p">)</span>
-        
-        <span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="n">upload_conv_handler</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">await</span> <span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="o">.</span><span class="n">edit_message_text</span> <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="s1">&#39;callback_query&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="k">else</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">)(</span>
+                        <span class="n">config</span><span class="o">.</span><span class="n">MAINTENANCE_MESSAGE</span>
+                    <span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span>
+            <span class="c1"># Catch-all high-priority handlers during maintenance (keep references for clean removal)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_maintenance_message_handler</span> <span class="o">=</span> <span class="n">MessageHandler</span><span class="p">(</span><span class="n">filters</span><span class="o">.</span><span class="n">ALL</span><span class="p">,</span> <span class="n">maintenance_reply</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_maintenance_callback_handler</span> <span class="o">=</span> <span class="n">CallbackQueryHandler</span><span class="p">(</span><span class="n">maintenance_reply</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_maintenance_message_handler</span><span class="p">,</span> <span class="n">group</span><span class="o">=-</span><span class="mi">100</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="o">.</span><span class="n">add_handler</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_maintenance_callback_handler</span><span class="p">,</span> <span class="n">group</span><span class="o">=-</span><span class="mi">100</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;MAINTENANCE_MODE is ON — all updates will receive maintenance message&quot;</span><span class="p">)</span>
+            <span class="c1"># אל תחסום לגמרי: לאחר warmup אוטומטי, הסר תחזוקה (ללא Redeploy)</span>
+            <span class="c1"># Schedule removing maintenance handlers via JobQueue instead of create_task</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">warmup_secs</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">MAINTENANCE_AUTO_WARMUP_SECS</span><span class="p">))</span>
+                <span class="k">async</span> <span class="k">def</span> <span class="nf">_clear_handlers_cb</span><span class="p">(</span><span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">app</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">application</span>
+                        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_maintenance_message_handler&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
 </pre></div>
 </div>
 </div>
@@ -1243,75 +1342,75 @@
 <h3>Backup – תפריט<a class="headerlink" href="#backup" title="Link to this heading"></a></h3>
 <div class="literal-block-wrapper docutils container" id="id16">
 <div class="code-block-caption"><span class="caption-text">backup_menu_handler.py – show_backup_menu</span><a class="headerlink" href="#id16" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>	<span class="k">async</span> <span class="k">def</span> <span class="nf">show_backup_menu</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
-		<span class="n">query</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">if</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">else</span> <span class="kc">None</span>
-		<span class="k">if</span> <span class="n">query</span><span class="p">:</span>
-			<span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">answer</span><span class="p">()</span>
-			<span class="n">message</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span>
-		<span class="k">else</span><span class="p">:</span>
-			<span class="n">message</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span>
-		
-		<span class="n">keyboard</span> <span class="o">=</span> <span class="p">[</span>
-			<span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📦 צור גיבוי מלא&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;backup_create_full&quot;</span><span class="p">)],</span>
-			<span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;♻️ שחזור מגיבוי (ZIP)&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;backup_restore_full_start&quot;</span><span class="p">)],</span>
-			<span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🗂 גיבויים אחרונים&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;backup_list&quot;</span><span class="p">)],</span>
-		<span class="p">]</span>
-		<span class="n">reply_markup</span> <span class="o">=</span> <span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">keyboard</span><span class="p">)</span>
-		<span class="k">await</span> <span class="n">message</span><span class="p">(</span><span class="s2">&quot;בחר פעולה מתפריט הגיבוי/שחזור:&quot;</span><span class="p">,</span> <span class="n">reply_markup</span><span class="o">=</span><span class="n">reply_markup</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="n">text</span> <span class="o">=</span> <span class="n">build_button_text</span><span class="p">(</span><span class="n">prim_use</span><span class="p">,</span> <span class="n">version_text</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">MAX_LEN</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">text</span>
+    <span class="c1"># 3) נפילה סופית: שם קצר מאוד עם גרסה</span>
+    <span class="k">return</span> <span class="n">build_button_text</span><span class="p">(</span><span class="n">_truncate_middle</span><span class="p">(</span><span class="n">primary</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="n">version_text</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+<span class="k">class</span> <span class="nc">BackupMenuHandler</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;תפריט גיבוי ושחזור מלא + נקודות שמירה בגיט&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    
+    <span class="k">def</span> <span class="nf">_get_session</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="k">if</span> <span class="n">user_id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">[</span><span class="n">user_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">[</span><span class="n">user_id</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id17">
 <div class="code-block-caption"><span class="caption-text">backup_menu_handler.py – handle_callback_query (קטע ראשון)</span><a class="headerlink" href="#id17" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>	<span class="k">async</span> <span class="k">def</span> <span class="nf">handle_callback_query</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
-		<span class="n">query</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span>
-		<span class="n">user_id</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">from_user</span><span class="o">.</span><span class="n">id</span>
-		<span class="n">data</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">data</span>
-		
-		<span class="k">if</span> <span class="n">data</span> <span class="o">==</span> <span class="s2">&quot;backup_create_full&quot;</span><span class="p">:</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_full_backup</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span> <span class="o">==</span> <span class="s2">&quot;backup_restore_full_start&quot;</span><span class="p">:</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backups_list</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span> <span class="o">==</span> <span class="s2">&quot;backup_list&quot;</span><span class="p">:</span>
-			<span class="c1"># הצג את הרשימה בעמוד האחרון שבו היינו (אם נשמר), אחרת עמוד 1</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backups_list</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_add_note:&quot;</span><span class="p">):</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ask_backup_note</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_page_&quot;</span><span class="p">):</span>
-			<span class="k">try</span><span class="p">:</span>
-				<span class="n">page</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
-			<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-				<span class="n">page</span> <span class="o">=</span> <span class="mi">1</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backups_list</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">page</span><span class="o">=</span><span class="n">page</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_restore_id:&quot;</span><span class="p">):</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_restore_by_id</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_download_id:&quot;</span><span class="p">):</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="c1"># הורדה בפועל של קובץ הגיבוי לפי מזהה</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_download_by_id</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_details:&quot;</span><span class="p">):</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backup_details</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_rate_menu:&quot;</span><span class="p">):</span>
-			<span class="c1"># פתיחת מסך תיוג עם 3 כפתורים (🏆 / 👍 / 🤷)</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">send_rating_prompt</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_delete_one_confirm:&quot;</span><span class="p">):</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="n">kb</span> <span class="o">=</span> <span class="p">[</span>
-				<span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;✅ אישור מחיקה&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;backup_delete_one_execute:</span><span class="si">{</span><span class="n">backup_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)],</span>
-				<span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🔙 ביטול&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;backup_details:</span><span class="si">{</span><span class="n">backup_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)],</span>
-			<span class="p">]</span>
-			<span class="n">txt</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;האם למחוק לצמיתות את הגיבוי:</span><span class="se">\n</span><span class="si">{</span><span class="n">backup_id</span><span class="si">}</span><span class="s2">?&quot;</span>
-			<span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="n">txt</span><span class="p">,</span> <span class="n">reply_markup</span><span class="o">=</span><span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">kb</span><span class="p">))</span>
-		<span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_delete_one_execute:&quot;</span><span class="p">):</span>
-			<span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
-			<span class="k">try</span><span class="p">:</span>
-				<span class="n">res</span> <span class="o">=</span> <span class="n">backup_manager</span><span class="o">.</span><span class="n">delete_backups</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="p">[</span><span class="n">backup_id</span><span class="p">])</span>
-				<span class="k">try</span><span class="p">:</span>
-					<span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span> <span class="k">as</span> <span class="n">_db</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="k">async</span> <span class="k">def</span> <span class="nf">show_backup_menu</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">if</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">query</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">answer</span><span class="p">()</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span>
+        
+        <span class="n">keyboard</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📦 צור גיבוי מלא&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;backup_create_full&quot;</span><span class="p">)],</span>
+            <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;♻️ שחזור מגיבוי (ZIP)&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;backup_restore_full_start&quot;</span><span class="p">)],</span>
+            <span class="p">[</span><span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🗂 גיבויים אחרונים&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;backup_list&quot;</span><span class="p">)],</span>
+        <span class="p">]</span>
+        <span class="n">reply_markup</span> <span class="o">=</span> <span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">keyboard</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">user_id</span> <span class="o">=</span> <span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="o">.</span><span class="n">from_user</span><span class="o">.</span><span class="n">id</span> <span class="k">if</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">else</span> <span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+            <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;backup_menu_opened&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">user_id</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">await</span> <span class="n">message</span><span class="p">(</span><span class="s2">&quot;בחר פעולה מתפריט הגיבוי/שחזור:&quot;</span><span class="p">,</span> <span class="n">reply_markup</span><span class="o">=</span><span class="n">reply_markup</span><span class="p">)</span>
+    
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">handle_callback_query</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span>
+        <span class="n">user_id</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">from_user</span><span class="o">.</span><span class="n">id</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">query</span><span class="o">.</span><span class="n">data</span>
+        
+        <span class="k">if</span> <span class="n">data</span> <span class="o">==</span> <span class="s2">&quot;backup_create_full&quot;</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_full_backup</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">data</span> <span class="o">==</span> <span class="s2">&quot;backup_restore_full_start&quot;</span><span class="p">:</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backups_list</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">data</span> <span class="o">==</span> <span class="s2">&quot;backup_list&quot;</span><span class="p">:</span>
+            <span class="c1"># הצג את הרשימה בעמוד האחרון שבו היינו (אם נשמר), אחרת עמוד 1</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backups_list</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_add_note:&quot;</span><span class="p">):</span>
+            <span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ask_backup_note</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_page_&quot;</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">page</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="n">page</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_show_backups_list</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">page</span><span class="o">=</span><span class="n">page</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_restore_id:&quot;</span><span class="p">):</span>
+            <span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_restore_by_id</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_download_id:&quot;</span><span class="p">):</span>
+            <span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="c1"># הורדה בפועל של קובץ הגיבוי לפי מזהה</span>
+            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_download_by_id</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
