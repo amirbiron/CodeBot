@@ -17,7 +17,9 @@ def test_import_main():
 
 def test_environment():
     """Test basic environment setup"""
-    assert os.path.exists("requirements.txt"), "requirements.txt not found"
+    assert os.path.exists("requirements"), "requirements/ not found"
+    assert os.path.exists("requirements/base.txt"), "requirements/base.txt not found"
+    assert os.path.exists("requirements/production.txt"), "requirements/production.txt not found"
     
 def test_basic_calculation():
     """Simple sanity check"""

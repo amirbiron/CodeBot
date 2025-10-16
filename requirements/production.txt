@@ -1,0 +1,2 @@
+# Production requirements - extend base
+-r base.txt

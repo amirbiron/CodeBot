@@ -7,7 +7,7 @@ on:
     paths:
       - '**.py'
       - 'docs/**'
-      - 'requirements.txt'
+      - 'requirements/*.txt'
 
 env:
   PYTHON_VERSION: '3.11'
@@ -36,8 +36,8 @@ jobs:
         # Install docs deps (conf.py mocks heavy imports)
         pip install -r docs/requirements.txt 2>/dev/null || true
         
-        # Try to install project dependencies
-        pip install -r requirements.txt 2>/dev/null || true
+        # Try to install project dependencies (production-only)
+        pip install -r requirements/production.txt 2>/dev/null || true
         # Install docs extra requirements (includes mermaid and addons)
         pip install -r docs/requirements.txt 2>/dev/null || true
     

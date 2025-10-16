@@ -6,7 +6,8 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"  # Dependabot does not support biweekly; use weekly
+      day: "monday"
       time: "02:00"
       timezone: "UTC"
     open-pull-requests-limit: 10
@@ -15,7 +16,8 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
+      day: "monday"
       time: "02:15"
       timezone: "UTC"
     open-pull-requests-limit: 5
