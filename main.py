@@ -2797,8 +2797,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             )
         except Exception:
             # In restricted test environments, schedule may fail due to event loop state.
-            # Fallback: run once immediately to ensure observability event is emitted.
-            await _weekly_admin_report(None)
+            # Fallback: run once immediately with a minimal context stub to avoid attribute errors.
+            class _Ctx:
+                bot = None  # notify_admins will no-op safely if bot is missing
+            await _weekly_admin_report(_Ctx())
     except Exception:
         pass
 
