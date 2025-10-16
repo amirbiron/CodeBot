@@ -153,6 +153,12 @@ else:
 # Optional Sentry init (non-fatal if missing)
 try:
     if _SENTRY_AVAILABLE and getattr(__import__('config'), 'config').SENTRY_DSN:  # type: ignore
+        # Install sensitive data redaction on all handlers before Sentry hooks logging
+        try:
+            from utils import install_sensitive_filter  # type: ignore
+            install_sensitive_filter()
+        except Exception:
+            pass
         sentry_sdk.init(  # type: ignore
             dsn=getattr(__import__('config'), 'config').SENTRY_DSN,  # type: ignore
             integrations=[FlaskIntegration()],  # type: ignore
