@@ -54,9 +54,9 @@ except Exception:
 
 # Optional monitoring & resilience
 try:
-    from prometheus_client import Counter, Histogram, Gauge, generate_latest  # type: ignore
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY  # type: ignore
 except Exception:
-    Counter = Histogram = Gauge = generate_latest = None  # type: ignore
+    Counter = Histogram = Gauge = generate_latest = REGISTRY = None  # type: ignore
 try:
     from tenacity import retry, stop_after_attempt, wait_exponential  # type: ignore
 except Exception:
@@ -110,26 +110,45 @@ except Exception:
     get_remote_address = lambda: request.remote_addr if request else ""  # type: ignore
     _LIMITER_AVAILABLE = False
 
-# Prometheus metrics
+# Prometheus metrics (idempotent registration)
+def _get_existing_metric(name: str):
+    try:
+        if REGISTRY is not None and hasattr(REGISTRY, '_names_to_collectors'):
+            return REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    return None
+class _MetricNoop:
+    def labels(self, *a, **k): return self
+    def inc(self, *a, **k): return None
+    def observe(self, *a, **k): return None
+    def set(self, *a, **k): return None
+def _ensure_metric(name: str, create_fn):
+    existing = _get_existing_metric(name)
+    if existing:
+        return existing
+    try:
+        return create_fn()
+    except Exception:
+        existing = _get_existing_metric(name)
+        if existing:
+            return existing
+        return _MetricNoop()
+
 if Counter and Histogram and Gauge:
-    search_counter = Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status'])
-    search_duration = Histogram('search_duration_seconds', 'Search request duration in seconds')
-    search_results_count = Histogram('search_results_count', 'Number of results returned')
-    search_cache_hits = Counter('search_cache_hits_total', 'Total number of cache hits')
-    search_cache_misses = Counter('search_cache_misses_total', 'Total number of cache misses')
-    active_indexes_gauge = Gauge('search_active_indexes', 'Number of active search indexes')
+    search_counter = _ensure_metric('search_requests_total', lambda: Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status']))
+    search_duration = _ensure_metric('search_duration_seconds', lambda: Histogram('search_duration_seconds', 'Search request duration in seconds'))
+    search_results_count = _ensure_metric('search_results_count', lambda: Histogram('search_results_count', 'Number of results returned'))
+    search_cache_hits = _ensure_metric('search_cache_hits_total', lambda: Counter('search_cache_hits_total', 'Total number of cache hits'))
+    search_cache_misses = _ensure_metric('search_cache_misses_total', lambda: Counter('search_cache_misses_total', 'Total number of cache misses'))
+    active_indexes_gauge = _ensure_metric('search_active_indexes', lambda: Gauge('search_active_indexes', 'Number of active search indexes'))
 else:
-    class _Dummy:
-        def labels(self, *a, **k): return self
-        def inc(self, *a, **k): return None
-        def observe(self, *a, **k): return None
-        def set(self, *a, **k): return None
-    search_counter = _Dummy()
-    search_duration = _Dummy()
-    search_results_count = _Dummy()
-    search_cache_hits = _Dummy()
-    search_cache_misses = _Dummy()
-    active_indexes_gauge = _Dummy()
+    search_counter = _MetricNoop()
+    search_duration = _MetricNoop()
+    search_results_count = _MetricNoop()
+    search_cache_hits = _MetricNoop()
+    search_cache_misses = _MetricNoop()
+    active_indexes_gauge = _MetricNoop()
 
 # Optional Sentry init (non-fatal if missing)
 try:
@@ -883,16 +902,22 @@ def api_search_global():
             return jsonify({'error': 'השאילתה ארוכה מדי (מקסימום 500 תווים)'}), 400
 
         search_type_str = (payload.get('search_type') or 'content').strip().lower()
-        try:
-            st_map = {
-                'content': SearchType.CONTENT,
-                'regex': SearchType.REGEX,
-                'fuzzy': SearchType.FUZZY,
-                'function': SearchType.FUNCTION,
-                'text': SearchType.TEXT,
-            }
-            search_type = st_map.get(search_type_str, SearchType.CONTENT)
-        except Exception:
+        enums_ok = bool(search_engine) and hasattr(SearchType, 'CONTENT') and hasattr(SortOrder, 'RELEVANCE')
+        if enums_ok:
+            try:
+                st_map = {
+                    'content': SearchType.CONTENT,
+                    'regex': SearchType.REGEX,
+                    'fuzzy': SearchType.FUZZY,
+                    'function': SearchType.FUNCTION,
+                    'text': SearchType.TEXT,
+                }
+                search_type = st_map.get(search_type_str, SearchType.CONTENT)
+            except Exception:
+                # Fallback בטוח במידה ויש Enum אך קרתה שגיאה במיפוי
+                search_type = getattr(SearchType, 'CONTENT', None)
+        else:
+            # כאשר מנוע החיפוש/Enums לא זמינים — אל ניגע ב-Enums כדי שלא ייזרק AttributeError
             search_type = None
 
         # Filters
@@ -946,18 +971,21 @@ def api_search_global():
 
         # Sorting
         sort_str = (payload.get('sort') or 'relevance').strip().lower()
-        try:
-            so_map = {
-                'relevance': SortOrder.RELEVANCE,
-                'date_desc': SortOrder.DATE_DESC,
-                'date_asc': SortOrder.DATE_ASC,
-                'name_asc': SortOrder.NAME_ASC,
-                'name_desc': SortOrder.NAME_DESC,
-                'size_desc': SortOrder.SIZE_DESC,
-                'size_asc': SortOrder.SIZE_ASC,
-            }
-            sort_order = so_map.get(sort_str, SortOrder.RELEVANCE)
-        except Exception:
+        if enums_ok:
+            try:
+                so_map = {
+                    'relevance': SortOrder.RELEVANCE,
+                    'date_desc': SortOrder.DATE_DESC,
+                    'date_asc': SortOrder.DATE_ASC,
+                    'name_asc': SortOrder.NAME_ASC,
+                    'name_desc': SortOrder.NAME_DESC,
+                    'size_desc': SortOrder.SIZE_DESC,
+                    'size_asc': SortOrder.SIZE_ASC,
+                }
+                sort_order = so_map.get(sort_str, SortOrder.RELEVANCE)
+            except Exception:
+                sort_order = getattr(SortOrder, 'RELEVANCE', None)
+        else:
             sort_order = None
 
         # Pagination
@@ -993,12 +1021,13 @@ def api_search_global():
 
         # Execute search
         total_limit = min(1000, limit * page)
+        # אל ניגש ל-Enums כשאינם זמינים — במצב כזה _safe_search יחזיר [] ממילא
         results = _safe_search(
             user_id=user_id,
             query=query,
-            search_type=search_type or SearchType.CONTENT,
+            search_type=(search_type if enums_ok else None),
             filters=filters,
-            sort_order=sort_order or SortOrder.RELEVANCE,
+            sort_order=(sort_order if enums_ok else None),
             limit=total_limit,
         )
 
@@ -1021,8 +1050,11 @@ def api_search_global():
             except Exception:
                 return default
 
-        # Resolve DB ids for links
-        db = get_db()
+        # Resolve DB ids for links (best-effort; don't fail search if DB unavailable)
+        try:
+            db = get_db()
+        except Exception:
+            db = None
 
         resp = {
             'success': True,
