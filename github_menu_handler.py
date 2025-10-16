@@ -3429,7 +3429,8 @@ class GitHubMenuHandler:
             logger.info(f"📁 נתיב יעד: {file_path} (branch: {branch})")
 
             # נסה להעלות או לעדכן את הקובץ
-            with track_performance("github_upload_saved_file"):
+            # מדידת ביצועים והוספת מטא-מידע על הריפו/הענף
+            with track_performance("github_upload_saved_file", labels={"repo": str(session.get("selected_repo", ""))}):
                 try:
                     logger.info(f"[GitHub API] Checking if file exists: {file_path} @ {branch}")
                     existing = repo.get_contents(file_path, ref=branch)
@@ -3443,6 +3444,17 @@ class GitHubMenuHandler:
                     )
                     action = "עודכן"
                     logger.info(f"✅ קובץ עודכן בהצלחה")
+                    try:
+                        emit_event(
+                            "github_upload_saved_success",
+                            severity="info",
+                            repo=str(session.get("selected_repo")),
+                            branch=str(branch),
+                            path=str(file_path),
+                            action="update",
+                        )
+                    except Exception:
+                        pass
                 except Exception:
                     logger.info(f"[GitHub API] File doesn't exist, creating: {file_path}")
                     result = repo.create_file(
@@ -3453,6 +3465,17 @@ class GitHubMenuHandler:
                     )
                     action = "הועלה"
                     logger.info(f"[GitHub API] File created successfully: {file_path}")
+                    try:
+                        emit_event(
+                            "github_upload_saved_success",
+                            severity="info",
+                            repo=str(session.get("selected_repo")),
+                            branch=str(branch),
+                            path=str(file_path),
+                            action="create",
+                        )
+                    except Exception:
+                        pass
 
             raw_url = (
                 f"https://raw.githubusercontent.com/{session['selected_repo']}/{branch}/{file_path}"
@@ -3591,7 +3614,7 @@ class GitHubMenuHandler:
                         file_path = filename
                     logger.info(f"📁 נתיב יעד: {file_path}")
 
-                    with track_performance("github_upload_direct_file"):
+                    with track_performance("github_upload_direct_file", labels={"repo": str(repo_name)}):
                         try:
                             existing = repo.get_contents(file_path)
                             result = repo.update_file(
@@ -3602,6 +3625,16 @@ class GitHubMenuHandler:
                             )
                             action = "עודכן"
                             logger.info(f"✅ קובץ עודכן בהצלחה")
+                            try:
+                                emit_event(
+                                    "github_upload_direct_success",
+                                    severity="info",
+                                    repo=str(repo_name),
+                                    path=str(file_path),
+                                    action="update",
+                                )
+                            except Exception:
+                                pass
                         except Exception:
                             result = repo.create_file(
                                 path=file_path,
@@ -3610,6 +3643,16 @@ class GitHubMenuHandler:
                             )
                             action = "הועלה"
                             logger.info(f"✅ קובץ נוצר בהצלחה")
+                            try:
+                                emit_event(
+                                    "github_upload_direct_success",
+                                    severity="info",
+                                    repo=str(repo_name),
+                                    path=str(file_path),
+                                    action="create",
+                                )
+                            except Exception:
+                                pass
 
                     raw_url = f"https://raw.githubusercontent.com/{repo_name}/main/{file_path}"
 

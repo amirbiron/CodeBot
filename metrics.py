@@ -27,7 +27,7 @@ errors_total = Counter("errors_total", "Total error count", ["code"]) if Counter
 operation_latency_seconds = Histogram(
     "operation_latency_seconds",
     "Operation latency in seconds",
-    ["operation"],
+    ["operation", "repo"],
 ) if Histogram else None
 telegram_updates_total = Counter(
     "telegram_updates_total",
@@ -59,6 +59,14 @@ def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):
                     for k, v in labels.items():
                         if k in allowed and k != "operation":
                             target[k] = v
+                # ספק ערכי ברירת מחדל לכל לייבל חסר (למשל repo="") כדי לשמור תאימות לאחור
+                for name in allowed:
+                    if name not in target:
+                        if name == "operation":
+                            # כבר סופק לעיל
+                            continue
+                        # ברירת מחדל: מיתר סמנטיקה, מונע ValueError על חוסר בלייבל
+                        target[name] = ""
                 operation_latency_seconds.labels(**target).observe(time.time() - start)
             except Exception:
                 # avoid breaking app on label mistakes

@@ -3,6 +3,14 @@ from typing import Optional
 
 from aiohttp import web
 try:
+    # Correlation for web requests
+    from observability import generate_request_id, bind_request_id  # type: ignore
+except Exception:  # pragma: no cover
+    def generate_request_id():  # type: ignore
+        return ""
+    def bind_request_id(_rid: str) -> None:  # type: ignore
+        return None
+try:
     from metrics import metrics_endpoint_bytes, metrics_content_type
 except Exception:  # pragma: no cover
     metrics_endpoint_bytes = lambda: b""  # type: ignore
@@ -15,7 +23,24 @@ logger = logging.getLogger(__name__)
 
 
 def create_app() -> web.Application:
-    app = web.Application()
+    # הוסף middleware שמייצר ומקשר request_id לכל בקשה נכנסת
+    @web.middleware
+    async def _request_id_mw(request: web.Request, handler):
+        req_id = generate_request_id() or ""
+        try:
+            bind_request_id(req_id)
+        except Exception:
+            pass
+        # המשך עיבוד
+        response = await handler(request)
+        try:
+            if hasattr(response, "headers") and req_id:
+                response.headers["X-Request-ID"] = req_id
+        except Exception:
+            pass
+        return response
+
+    app = web.Application(middlewares=[_request_id_mw])
 
     async def health(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
@@ -40,8 +65,20 @@ def create_app() -> web.Application:
             data = code_sharing.get_internal_share(share_id)
         except Exception as e:
             logger.error(f"share_view error: {e}")
+            try:
+                # דווח אירוע מובנה על שגיאה בהצגת שיתוף
+                from observability import emit_event  # type: ignore
+                emit_event("share_view_error", severity="error", share_id=str(share_id), error=str(e))
+            except Exception:
+                pass
             data = None
         if not data:
+            # החזר 404 וגם דווח אירוע מובנה לצורכי ניטור
+            try:
+                from observability import emit_event  # type: ignore
+                emit_event("share_view_not_found", severity="warn", share_id=str(share_id))
+            except Exception:
+                pass
             return web.Response(status=404, text="Share not found or expired")
 
         # החזר HTML פשוט לצפייה נוחה
