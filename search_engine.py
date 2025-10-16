@@ -20,6 +20,22 @@ from database import db
 
 logger = logging.getLogger(__name__)
 
+# Structured events + metrics (safe fallbacks)
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+
+try:  # type: ignore
+    from metrics import track_performance, business_events_total  # type: ignore
+except Exception:  # pragma: no cover
+    business_events_total = None  # type: ignore
+    from contextlib import contextmanager
+    @contextmanager
+    def track_performance(operation: str, labels=None):  # type: ignore
+        yield
+
 class SearchType(Enum):
     """סוגי חיפוש"""
     TEXT = "text"
@@ -79,6 +95,10 @@ class SearchIndex:
         
     def rebuild_index(self, user_id: int):
         """בניית האינדקס מחדש"""
+        try:
+            emit_event("search_index_rebuild_start", severity="info", user_id=int(user_id))
+        except Exception:
+            pass
         
         logger.info(f"בונה אינדקס חיפוש עבור משתמש {user_id}")
         
@@ -89,34 +109,45 @@ class SearchIndex:
         self.tag_index.clear()
         
         # קבלת כל הקבצים
-        files = db.get_user_files(user_id, limit=10000)
-        
-        for file_data in files:
-            file_key = f"{user_id}:{file_data['file_name']}"
-            content = file_data['code'].lower()
+        with track_performance("search_index_rebuild", labels={"repo": ""}):
+            files = db.get_user_files(user_id, limit=10000)
             
-            # אינדקס מילים
-            words = re.findall(r'\b\w+\b', content)
-            for word in set(words):
-                if len(word) >= 2:  # רק מילים של 2+ תווים
-                    self.word_index[word].add(file_key)
-            
-            # אינדקס פונקציות
-            functions = code_processor.extract_functions(
-                file_data['code'], file_data['programming_language']
-            )
-            for func in functions:
-                self.function_index[func['name'].lower()].add(file_key)
-            
-            # אינדקס שפות
-            self.language_index[file_data['programming_language']].add(file_key)
-            
-            # אינדקס תגיות
-            for tag in file_data.get('tags', []):
-                self.tag_index[tag.lower()].add(file_key)
+            for file_data in files:
+                file_key = f"{user_id}:{file_data['file_name']}"
+                content = file_data['code'].lower()
+                
+                # אינדקס מילים
+                words = re.findall(r'\b\w+\b', content)
+                for word in set(words):
+                    if len(word) >= 2:  # רק מילים של 2+ תווים
+                        self.word_index[word].add(file_key)
+                
+                # אינדקס פונקציות
+                functions = code_processor.extract_functions(
+                    file_data['code'], file_data['programming_language']
+                )
+                for func in functions:
+                    self.function_index[func['name'].lower()].add(file_key)
+                
+                # אינדקס שפות
+                self.language_index[file_data['programming_language']].add(file_key)
+                
+                # אינדקס תגיות
+                for tag in file_data.get('tags', []):
+                    self.tag_index[tag.lower()].add(file_key)
         
         self.last_update = datetime.now(timezone.utc)
         logger.info(f"אינדקס נבנה: {len(self.word_index)} מילים, {len(self.function_index)} פונקציות")
+        try:
+            emit_event(
+                "search_index_rebuild_done",
+                severity="info",
+                user_id=int(user_id),
+                words=int(len(self.word_index)),
+                functions=int(len(self.function_index)),
+            )
+        except Exception:
+            pass
     
     def should_rebuild(self, max_age_minutes: int = 30) -> bool:
         """בדיקה אם צריך לבנות אינדקס מחדש"""
@@ -152,38 +183,68 @@ class AdvancedSearchEngine:
         """חיפוש מתקדם"""
         
         try:
+            try:
+                emit_event(
+                    "search_request",
+                    severity="info",
+                    user_id=int(user_id),
+                    query_length=int(len(query or "")),
+                    type=str(search_type.value if isinstance(search_type, SearchType) else search_type),
+                )
+            except Exception:
+                pass
             if not query.strip():
                 return []
             
             # קבלת האינדקס
-            index = self.get_index(user_id)
+            with track_performance("search_index_get", labels={"repo": ""}):
+                index = self.get_index(user_id)
             
             # ביצוע החיפוש לפי סוג
-            if search_type == SearchType.TEXT:
-                candidates = self._text_search(query, index, user_id)
-            elif search_type == SearchType.REGEX:
-                candidates = self._regex_search(query, user_id)
-            elif search_type == SearchType.FUZZY:
-                candidates = self._fuzzy_search(query, index, user_id)
-            elif search_type == SearchType.FUNCTION:
-                candidates = self._function_search(query, index, user_id)
-            elif search_type == SearchType.CONTENT:
-                candidates = self._content_search(query, user_id)
-            else:
-                candidates = self._text_search(query, index, user_id)
+            with track_performance("search_execute", labels={"repo": ""}):
+                if search_type == SearchType.TEXT:
+                    candidates = self._text_search(query, index, user_id)
+                elif search_type == SearchType.REGEX:
+                    candidates = self._regex_search(query, user_id)
+                elif search_type == SearchType.FUZZY:
+                    candidates = self._fuzzy_search(query, index, user_id)
+                elif search_type == SearchType.FUNCTION:
+                    candidates = self._function_search(query, index, user_id)
+                elif search_type == SearchType.CONTENT:
+                    candidates = self._content_search(query, user_id)
+                else:
+                    candidates = self._text_search(query, index, user_id)
             
             # החלת מסננים
             if filters:
-                candidates = self._apply_filters(candidates, filters)
+                with track_performance("search_filter", labels={"repo": ""}):
+                    candidates = self._apply_filters(candidates, filters)
             
             # מיון
-            candidates = self._sort_results(candidates, sort_order)
+            with track_performance("search_sort", labels={"repo": ""}):
+                candidates = self._sort_results(candidates, sort_order)
             
             # הגבלת תוצאות
-            return candidates[:limit]
+            results = candidates[:limit]
+            try:
+                emit_event(
+                    "search_done",
+                    severity="info",
+                    user_id=int(user_id),
+                    results_count=int(len(results)),
+                )
+                if business_events_total is not None:
+                    business_events_total.labels(metric="search").inc()
+            except Exception:
+                pass
+            return results
             
         except Exception as e:
             logger.error(f"שגיאה בחיפוש: {e}")
+            try:
+                emit_event("search_error", severity="error", error=str(e))
+            except Exception:
+                pass
             return []
     
     def _text_search(self, query: str, index: SearchIndex, user_id: int) -> List[SearchResult]:

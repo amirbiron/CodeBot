@@ -15,6 +15,13 @@ from telegram.ext import (Application, CommandHandler, MessageHandler, Conversat
 
 logger = logging.getLogger(__name__)
 
+# Structured logging fallback
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+
 # Conversation states
 TERMINAL_ACTIVE = 1
 
@@ -134,6 +141,10 @@ async def terminal_run_command(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     except Exception as e:
         logger.error(f"Terminal command failed: {e}")
+        try:
+            emit_event("terminal_command_failed", severity="error", error=str(e))
+        except Exception:
+            pass
         await update.message.reply_text("❌ שגיאה בהרצת הפקודה", reply_markup=TERMINAL_KEYBOARD)
 
     return TERMINAL_ACTIVE
