@@ -39,6 +39,9 @@ async def test_status_command_outputs_basic_health(monkeypatch):
     upd = _Update()
     ctx = _Context()
 
+    # Make the test user an admin so the command is allowed
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
     # Ensure Redis disabled in test unless actually configured
     import cache_manager as cm
     monkeypatch.setattr(cm.cache, "is_enabled", False, raising=False)
@@ -56,6 +59,9 @@ async def test_errors_command_uses_recent_errors_buffer(monkeypatch):
     adv = AdvancedBotHandlers(app)
     upd = _Update()
     ctx = _Context()
+
+    # Make the test user an admin so the command is allowed
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
 
     # Seed recent errors buffer
     import observability as obs
