@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 
 # Configure structured logging and Sentry as early as possible,
@@ -193,6 +194,12 @@ def create_app() -> web.Application:
         return web.Response(text=html, content_type="text/html")
 
     app.router.add_get("/health", health)
+    # Alias for k8s/Render conventions (opt-in via env)
+    try:
+        if str(os.getenv("ENABLE_HEALTHZ_ALIAS", "")).lower() in {"1", "true", "yes"}:
+            app.router.add_get("/healthz", health)
+    except Exception:
+        pass
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/share/{share_id}", share_view)

@@ -78,3 +78,19 @@ def test_init_sentry_with_dsn_invokes_init(monkeypatch):
     assert captured.get("dsn") == "https://example@sentry.io/1"
     integrations = captured.get("integrations") or []
     assert any(getattr(x, "event_level", None) is not None for x in integrations)
+
+
+def test_recent_errors_buffer_and_getter(monkeypatch):
+    import observability as obs
+    # clear buffer
+    try:
+        obs._RECENT_ERRORS.clear()  # type: ignore[attr-defined]
+    except Exception:
+        pytest.skip("recent errors buffer not available")
+    # emit two errors
+    obs.emit_event("evt1", severity="error", error_code="E1", error="boom1")
+    obs.emit_event("evt2", severity="critical", error_code="E2", error="boom2")
+    recent = obs.get_recent_errors(limit=2)
+    assert isinstance(recent, list) and len(recent) >= 2
+    codes = {r.get("error_code") for r in recent[-2:]}
+    assert {"E1", "E2"}.issubset(codes)
