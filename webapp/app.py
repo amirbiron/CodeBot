@@ -921,7 +921,8 @@ def api_search_global():
                     search_counter.labels(search_type='regex', status='invalid_pattern').inc()
                 except Exception:
                     pass
-                return jsonify({'error': f'ביטוי רגולרי לא תקין: {str(e)}'}), 400
+                # אל נחשוף פרטי חריגה חוצה
+                return jsonify({'error': 'ביטוי רגולרי לא תקין'}), 400
 
         # Sorting
         sort_str = (payload.get('sort') or 'relevance').strip().lower()
@@ -951,11 +952,10 @@ def api_search_global():
 
         # Simple local cache key (not redis)
         try:
-            cache_key = hashlib.md5(json.dumps({
-                'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit
-            }, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+            cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
+            cache_key = hashlib.sha256(cache_payload).hexdigest()
         except Exception:
-            cache_key = f"{user_id}:{search_type_str}:{page}:{limit}:{len(query)}"
+            cache_key = hashlib.sha256(f"{user_id}:{search_type_str}:{page}:{limit}:{len(query)}".encode('utf-8')).hexdigest()
 
         cached = _cache_get(user_id, cache_key)
         if cached:
@@ -1014,7 +1014,7 @@ def api_search_global():
             'cached': False,
             'results': [
                 {
-                    'file_id': (lambda fn: (lambda doc: (str(doc.get('_id')) if isinstance(doc, dict) and doc.get('_id') else hashlib.md5(f"{user_id}:{fn}".encode()).hexdigest()))(
+                    'file_id': (lambda fn: (lambda doc: (str(doc.get('_id')) if isinstance(doc, dict) and doc.get('_id') else hashlib.sha256(f"{user_id}:{fn}".encode('utf-8')).hexdigest()))(
                         (db.code_snippets.find_one({'user_id': user_id, 'file_name': fn}, sort=[('version', -1)]) if db else None)
                     ))(_safe_getattr(r, 'file_name', '')),
                     'file_name': _safe_getattr(r, 'file_name', ''),
@@ -1049,7 +1049,8 @@ def api_search_global():
                 sentry_sdk.capture_exception(e)  # type: ignore
         except Exception:
             pass
-        return jsonify({'error': 'אירעה שגיאה בחיפוש', 'details': str(e) if app.debug else None}), 500
+        # אל נחשוף פרטי חריגה חוצה
+        return jsonify({'error': 'אירעה שגיאה בחיפוש'}), 500
     finally:
         try:
             search_duration.observe(time.time() - start_time)
