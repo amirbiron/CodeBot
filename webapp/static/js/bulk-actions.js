@@ -207,7 +207,10 @@ class BulkActions {
                 
                 // רענן את העמוד או עדכן את התגיות בUI
                 if (result.updated > 0) {
-                    setTimeout(() => location.reload(), 1500);
+                    // סגור חלונית פעולות אוטומטית לאחר הצלחה ונקה בחירה
+                    try { window.multiSelect?.clearSelection(); } catch (e) {}
+                    // אופציונלי: רענון קל כדי לשקף תגיות חדשות
+                    setTimeout(() => location.reload(), 1200);
                 }
             }
         } catch (error) {
@@ -525,6 +528,9 @@ class BulkActions {
                 
                 // הצג את הקישור בדיאלוג
                 this.showShareDialog(result.share_url, result.expires_at);
+
+                // סגור חלונית פעולות אוטומטית ונקה בחירה לאחר יצירת קישור
+                try { window.multiSelect?.clearSelection(); } catch (e) {}
             }
         } catch (error) {
             console.error('Error creating share link:', error);

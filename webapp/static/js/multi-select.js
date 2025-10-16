@@ -10,16 +10,28 @@ class MultiSelectManager {
         this.selectedFiles = new Map();
         this.toolbar = document.getElementById('bulkActionsToolbar');
         this.lastSelectedIndex = -1;
+        this.modeActive = false;
+        this.toggleBtn = null;
         this.init();
     }
     
     init() {
+        // מצב ברירת מחדל: כבוי; שחזור מ-sessionStorage אם הופעל בעבר
+        try {
+            const stored = sessionStorage.getItem('multiModeActive');
+            this.modeActive = stored === 'true';
+        } catch (e) {
+            this.modeActive = false;
+        }
+
         // הגדרת event listeners
         this.setupCheckboxListeners();
         this.setupKeyboardShortcuts();
         this.setupSelectAllButton();
+        this.setupModeToggleButton();
+        this.applyModeState(this.modeActive);
         this.restoreSelection();
-        
+
         console.log('MultiSelectManager initialized');
     }
     
@@ -41,6 +53,12 @@ class MultiSelectManager {
     }
     
     handleFileSelection(checkbox) {
+        // אל תאפשר בחירה כשמצב מרובה כבוי
+        if (!this.modeActive) {
+            // ודא שה-UI נשאר לא מסומן אם מסיבה כלשהי התקבל change
+            checkbox.checked = false;
+            return;
+        }
         const fileId = checkbox.dataset.fileId;
         const fileName = checkbox.dataset.fileName;
         const fileCard = checkbox.closest('.file-card');
@@ -106,19 +124,9 @@ class MultiSelectManager {
             
             this.toolbar.classList.remove('hidden');
             this.toolbar.classList.add('visible');
-            
-            // הוסף class לכל checkboxes להשאירם גלויים
-            document.querySelectorAll('.file-selection').forEach(el => {
-                el.classList.add('has-selection');
-            });
         } else {
             this.toolbar.classList.remove('visible');
             this.toolbar.classList.add('hidden');
-            
-            // הסר class מכל checkboxes
-            document.querySelectorAll('.file-selection').forEach(el => {
-                el.classList.remove('has-selection');
-            });
         }
     }
     
@@ -165,6 +173,9 @@ class MultiSelectManager {
     }
     
     selectAll() {
+        if (!this.modeActive) {
+            return;
+        }
         const checkboxes = document.querySelectorAll('.file-checkbox');
         const allChecked = this.selectedFiles.size === checkboxes.length;
         
@@ -176,10 +187,15 @@ class MultiSelectManager {
     }
     
     clearSelection() {
+        // נקה מצב פנימי ו-UI ללא תלות במצב מרובה
+        this.selectedFiles.clear();
+        // בטל סימון ב-UI מבלי לעדכן לוגיקה
         document.querySelectorAll('.file-checkbox:checked').forEach(checkbox => {
             checkbox.checked = false;
-            this.handleFileSelection(checkbox);
         });
+        // עדכן תצוגת סרגל הכלים ושמור מצב
+        this.updateToolbar();
+        this.persistSelection();
     }
     
     // מחיקה קבוצתית (soft delete)
@@ -231,13 +247,18 @@ class MultiSelectManager {
         if (stored) {
             try {
                 const fileIds = JSON.parse(stored);
-                fileIds.forEach(id => {
-                    const checkbox = document.querySelector(`.file-checkbox[data-file-id="${id}"]`);
-                    if (checkbox) {
-                        checkbox.checked = true;
-                        this.handleFileSelection(checkbox);
-                    }
-                });
+                if (this.modeActive) {
+                    fileIds.forEach(id => {
+                        const checkbox = document.querySelector(`.file-checkbox[data-file-id="${id}"]`);
+                        if (checkbox) {
+                            checkbox.checked = true;
+                            this.handleFileSelection(checkbox);
+                        }
+                    });
+                } else {
+                    // אם המצב לא פעיל, ננקה בחירה שנשמרה כדי למנוע בלבול
+                    sessionStorage.removeItem('selectedFiles');
+                }
             } catch (e) {
                 console.error('Error restoring selection:', e);
                 sessionStorage.removeItem('selectedFiles');
@@ -268,6 +289,40 @@ class MultiSelectManager {
             this.updateToolbar();
             this.persistSelection();
         }
+    }
+
+    // ---- Multi-select mode toggle ----
+    setupModeToggleButton() {
+        this.toggleBtn = document.getElementById('multiSelectToggleBtn');
+        if (!this.toggleBtn) return;
+        this.toggleBtn.addEventListener('click', () => this.toggleMode());
+        this.renderToggleButton();
+    }
+
+    toggleMode() {
+        this.modeActive = !this.modeActive;
+        try { sessionStorage.setItem('multiModeActive', this.modeActive ? 'true' : 'false'); } catch (e) {}
+        if (!this.modeActive) {
+            this.clearSelection();
+        }
+        this.applyModeState(this.modeActive);
+        this.renderToggleButton();
+    }
+
+    applyModeState(active) {
+        const root = document.body;
+        if (active) {
+            root.classList.add('multi-select-active');
+        } else {
+            root.classList.remove('multi-select-active');
+        }
+    }
+
+    renderToggleButton() {
+        if (!this.toggleBtn) return;
+        // שם הכפתור נשאר "בחירה מרובה"; נשנה ויזואלית את הסגנון בלבד
+        this.toggleBtn.classList.toggle('btn-primary', this.modeActive);
+        this.toggleBtn.classList.toggle('btn-secondary', !this.modeActive);
     }
 }
 
