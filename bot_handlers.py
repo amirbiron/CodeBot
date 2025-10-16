@@ -694,7 +694,8 @@ class AdvancedBotHandlers:
                 f"Remaining: {remaining}/{limit}\n"
                 f"Usage: {bar}\n"
             )
-            if used_pct >= 80:
+            # אזהרה גם כאשר הנתונים לא זמינים (limit==0), וגם מעל 80%
+            if used_pct >= 80 or limit == 0:
                 msg += "\n⚠️ מתקרבים למגבלה! שקול לצמצם קריאות או להפעיל backoff"
             await update.message.reply_text(msg)
         except Exception as e:
