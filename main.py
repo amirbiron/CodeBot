@@ -2767,13 +2767,22 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     f"🗓️ פעילים בשבוע האחרון: {active_week}\n"
                 )
                 await notify_admins(context, text)
+                # Emit via a dynamic import to cooperate with test monkeypatching
                 try:
-                    emit_event("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None  # type: ignore
+                    _emit("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
                 except Exception:
                     pass
             except Exception:
                 try:
-                    emit_event("weekly_report_error", severity="error")
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None  # type: ignore
+                    _emit("weekly_report_error", severity="error")
                 except Exception:
                     pass
 
