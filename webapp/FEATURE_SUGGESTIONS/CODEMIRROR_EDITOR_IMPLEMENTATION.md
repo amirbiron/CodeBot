@@ -163,6 +163,28 @@ npm install --save \
   @codemirror/lang-json
 ```
 
+### 1.א. טעינת מודולים עם Fallback ל‑CDN
+
+בטעינת הרחבות/שפות מ‑CDN, מומלץ לנסות mirror חלופי במקרה של כשל רשת:
+
+```javascript
+// cdn-fallback.js
+export async function loadModuleWithFallback(urlCandidates) {
+  let lastError;
+  for (const url of urlCandidates) {
+    try { return await import(url); } catch (e) { lastError = e; }
+  }
+  throw lastError || new Error('All CDN candidates failed');
+}
+
+// דוגמה: טעינת שפת Python
+const mod = await loadModuleWithFallback([
+  'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js',
+  'https://unpkg.com/@codemirror/lang-python@6/dist/index.js'
+]);
+const python = mod.python ? mod.python() : [];
+```
+
 ```javascript
 // editor-bundle.js - קובץ לבנייה עם bundler
 import { EditorState } from '@codemirror/state';
