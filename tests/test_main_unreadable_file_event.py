@@ -55,7 +55,7 @@ async def test_file_read_unreadable_emits_and_counts(monkeypatch):
 
     # Force encoding list to a single encoding that will fail for given bytes
     # Force the function to try only encodings that will fail for bytes above
-    mod.ENCODINGS_TO_TRY = ["utf-8", "utf-16"]
+    mod.ENCODINGS_TO_TRY = ["ascii"]
 
     await bot.handle_document(_Update(), ctx)
 
