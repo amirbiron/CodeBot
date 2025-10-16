@@ -1891,6 +1891,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     # ה-guard הגלובלי מטופל ב-main.py; אין צורך בבקרת busy כאן
 
+    # מנגנון מונע-כפל ברמת update אחד: אותו callback יכול להיתפס גם ע"י ה-ConversationHandler
+    # וגם ע"י ה-catch-all הגלובלי (בקבוצה מאוחרת). כדי למנוע שליחה כפולה של הודעות,
+    # נסמן את מזהה ה-update כטופל כבר, ונצא מיד אם הוא נתקל שוב.
+    try:
+        last_handled_uid = context.user_data.get('_last_callback_update_id')
+        if last_handled_uid == update.update_id:
+            return ConversationHandler.END
+        context.user_data['_last_callback_update_id'] = update.update_id
+    except Exception:
+        # לא לחסום את הזרימה במקרה של חוסר מפתח/טסטים
+        pass
+
     try:
         data = query.data
         
