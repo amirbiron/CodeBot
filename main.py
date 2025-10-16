@@ -111,6 +111,16 @@ except Exception:
     pass
 
 logger = logging.getLogger(__name__)
+
+# רשימת קידודים לניסיון קריאת קבצים (ניתנת לדריסה בטסטים)
+ENCODINGS_TO_TRY = [
+    'utf-8',
+    'windows-1255',
+    'iso-8859-8',
+    'cp1255',
+    'utf-16',
+    'latin-1',
+]
 def _register_catch_all_callback(application, callback_fn) -> None:
     """רישום CallbackQueryHandler כללי בקבוצה מאוחרת, עם fallback כשה-API לא תומך ב-group.
 
@@ -1953,7 +1963,7 @@ class CodeKeeperBot:
             # ניסיון לקרוא את הקובץ בקידודים שונים
             content = None
             detected_encoding = None
-            encodings_to_try = ['utf-8', 'windows-1255', 'iso-8859-8', 'cp1255', 'utf-16', 'latin-1']
+            encodings_to_try = list(ENCODINGS_TO_TRY)
             
             # לוג פרטי הקובץ
             logger.info(f"📄 קובץ נשלח: {document.file_name}, גודל: {document.file_size} bytes")
