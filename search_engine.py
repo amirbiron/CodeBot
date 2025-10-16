@@ -12,7 +12,12 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from fuzzywuzzy import fuzz, process
+try:
+    # rapidfuzz מספק API דומה אך מהיר וללא קומפילציה
+    from rapidfuzz import fuzz, process  # type: ignore
+except Exception:  # pragma: no cover
+    # נפילה שקטה ל-fuzzywuzzy אם rapidfuzz לא מותקן, לשמירה אחורה
+    from fuzzywuzzy import fuzz, process  # type: ignore
 
 from services import code_service as code_processor
 from config import config
