@@ -1,6 +1,15 @@
 import logging
 from typing import Optional
 
+# Configure structured logging and Sentry as early as possible
+try:
+    from observability import setup_structlog_logging, init_sentry  # type: ignore
+    setup_structlog_logging("INFO")
+    init_sentry()
+except Exception:
+    # Fail-open: don't block service startup if observability init fails
+    pass
+
 from aiohttp import web
 import json
 try:
