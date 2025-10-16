@@ -5,7 +5,7 @@
 ### מה קיים בריפו
 - Dependabot: `.github/dependabot.yml`
   - אקוסיסטמים: pip + docker
-  - תיקייה: `/` (קובצי `requirements.txt` ו־`Dockerfile`)
+- תיקייה: `/` (קובצי `requirements/*.txt` ו־`Dockerfile`)
   - תדירות: weekly (יום ד׳, 02:00–02:30 UTC)
 
 - מיזוג אוטומטי ל־Dependabot: `.github/workflows/dependabot-auto-merge.yml`
@@ -23,7 +23,7 @@
 
 - סריקות אבטחה מתוזמנות ו־PR‑Triggered: `.github/workflows/security-scan.yml`
   - רץ אוטומטית פעם בחודש (1 לחודש, 02:00 UTC): Trivy על הריפו ועל התמונה, CodeQL, Issue מסכם, והתראת טלגרם אם מוגדרים סודות.
-  - רץ גם על PR שמשנה `Dockerfile`/`requirements.txt`/`requirements.prod.txt`/`constraints*.txt` כדי לחשוף CVEs לפני merge.
+- רץ גם על PR שמשנה `Dockerfile`/`requirements/*.txt`/`constraints*.txt` כדי לחשוף CVEs לפני merge.
 
 ### שלבי הגדרה (UI בלבד)
 1) פתיחת PR כ־Draft כדי להפעיל CI

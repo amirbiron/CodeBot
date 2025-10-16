@@ -1,15 +1,13 @@
-name: "📦 Monthly Dependency Update"
+name: "📦 Biweekly Dependency Update"
 
 on:
   schedule:
-    - cron: "0 2 1 * *"
+    - cron: "0 2 1,15 * *"  # twice a month
   workflow_dispatch: {}
   push:
     paths:
       - ".github/workflows/dependency-update-pr.yml"
-      - "requirements.txt"
-      - "requirements.prod.txt"
-      - "webapp/requirements.txt"
+      - "requirements/**.txt"
       - "docs/requirements.txt"
       - "constraints.txt"
 
@@ -31,7 +29,7 @@ jobs:
       - name: Bump requirements (best-effort)
         run: |
           set -e
-          echo "Monthly dependency refresh – no-op step (Dependabot handles updates)."
+          echo "Biweekly dependency refresh – no-op step (Dependabot handles updates)."
 
       - name: Refresh stamp (only schedule/manual)
         if: ${{ github.event_name != 'push' }}
@@ -43,8 +41,8 @@ jobs:
         if: ${{ github.event_name != 'push' }}
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: "chore(deps): monthly dependency refresh"
-          title: "chore(deps): monthly dependency refresh"
+          commit-message: "chore(deps): biweekly dependency refresh"
+          title: "chore(deps): biweekly dependency refresh"
           body: |
             Automated monthly dependency refresh.
 

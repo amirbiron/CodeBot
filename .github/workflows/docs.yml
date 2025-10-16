@@ -22,7 +22,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: |
-            requirements.txt
+            requirements/*.txt
             docs/requirements.txt
 
       - name: Install dependencies (docs only)

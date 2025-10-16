@@ -35,10 +35,12 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
+          cache-dependency-path: |
+            requirements/*.txt
       - name: 📦 Install Linters & Tools
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 black isort mypy bandit safety ruff
+          pip install flake8 black isort mypy bandit safety ruff pip-audit
       - name: 📋 Lint (Flake8)
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -58,6 +60,16 @@ jobs:
         run: bandit -q -r . || true
       - name: 🛡️ Dependency Check (Safety)
         run: safety check --full-report || true
+      - name: 📦 Dependency Audit (pip-audit)
+        run: |
+          pip-audit -r requirements/production.txt -f json -o pip-audit.json || true
+      - name: 📊 Upload dependency audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit
+          path: pip-audit.json
+          if-no-files-found: ignore
       - name: 🐶 Ruff (optional)
         run: ruff check . || true
 
@@ -205,12 +217,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+          cache-dependency-path: |
+            requirements/*.txt
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install wheel poetry-core
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov pytest-mock freezegun faker mongomock
+          # התקנה ראשונית (לצורך יצירת constraints)
+          pip install -r requirements/development.txt
+          # הפקת constraints אוטומטי ושימוש בו
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/development.txt -c constraints.txt
       - name: 🔎 Dependency integrity (pip check)
         run: pip check || true
 
@@ -466,7 +482,9 @@ jobs:
         if: steps.has_alembic.outputs.exists == 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements/production.txt
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/production.txt -c constraints.txt
           pip install alembic psycopg2-binary
       - name: Wait for DB
         if: steps.has_alembic.outputs.exists == 'true'

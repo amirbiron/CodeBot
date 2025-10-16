@@ -6,7 +6,7 @@ on:
     paths:
       - '**.py'
       - 'docs/**'
-      - 'requirements.txt'
+      - 'requirements/*.txt'
       - '.github/workflows/documentation.yml'
   pull_request:
     branches: [main]
@@ -58,7 +58,7 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
         cache-dependency-path: |
-          requirements.txt
+          requirements/*.txt
           docs/requirements.txt
     
     - name: 📦 Install documentation dependencies
