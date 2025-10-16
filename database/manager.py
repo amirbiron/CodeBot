@@ -58,6 +58,9 @@ class DatabaseManager:
                     return None
                 def aggregate(self, *args, **kwargs):
                     return []
+                def count_documents(self, *args, **kwargs):
+                    # Mimic PyMongo API; in no-op mode we report zero
+                    return 0
                 def create_index(self, *args, **kwargs):
                     return None
                 def create_indexes(self, *args, **kwargs):
