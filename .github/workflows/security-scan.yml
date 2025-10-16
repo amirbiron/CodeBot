@@ -2,7 +2,11 @@ name: "🔒 Security Scan"
 
 on:
   pull_request:
-    branches: ['**']
+    paths:
+      - '**/Dockerfile'
+      - 'requirements/**.txt'
+      - 'requirements.txt'
+      - '**/constraints*.txt'
   schedule:
     - cron: '0 2 1 * *'
   workflow_dispatch:
@@ -96,6 +100,7 @@ jobs:
         with:
           name: pip-audit
           path: pip-audit.json
+          if-no-files-found: ignore
 
       - name: "📣 Post scan summary as Issue (main, scheduled/manual only)"
         id: scan_summary

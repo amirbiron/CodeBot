@@ -69,6 +69,7 @@ jobs:
         with:
           name: dependency-audit
           path: pip-audit.json
+          if-no-files-found: ignore
       - name: 🐶 Ruff (optional)
         run: ruff check . || true
 
