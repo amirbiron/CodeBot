@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from aiohttp import web
+import json
 try:
     # Correlation for web requests
     from observability import generate_request_id, bind_request_id  # type: ignore
@@ -59,6 +60,39 @@ def create_app() -> web.Application:
                 pass
             return web.Response(status=500, text="metrics error")
 
+    async def alerts_view(request: web.Request) -> web.Response:
+        """Alertmanager webhook endpoint: forwards alerts and logs them.
+
+        Expected payload schema: {"alerts": [...]} or a single alert object.
+        """
+        try:
+            raw = await request.text()
+            data = json.loads(raw) if raw else {}
+        except Exception as e:
+            try:
+                from observability import emit_event  # type: ignore
+                emit_event("alerts_parse_error", severity="warn", error=str(e))
+            except Exception:
+                pass
+            return web.Response(status=400, text="invalid json")
+
+        # Normalize to list of alerts
+        alerts = []
+        if isinstance(data, dict) and "alerts" in data and isinstance(data["alerts"], list):
+            alerts = data["alerts"]
+        elif isinstance(data, dict) and data:
+            alerts = [data]
+
+        # Forward via helper (Slack/Telegram) and emit events
+        try:
+            from alert_forwarder import forward_alerts  # type: ignore
+            forward_alerts(alerts)
+        except Exception:
+            # Soft-fail; already logged by helper as needed
+            pass
+
+        return web.json_response({"status": "ok", "forwarded": len(alerts)})
+
     async def share_view(request: web.Request) -> web.Response:
         share_id = request.match_info.get("share_id", "")
         try:
@@ -111,6 +145,7 @@ def create_app() -> web.Application:
 
     app.router.add_get("/health", health)
     app.router.add_get("/metrics", metrics_view)
+    app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/share/{share_id}", share_view)
 
     return app
