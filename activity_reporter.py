@@ -9,6 +9,11 @@ except Exception:
     _HAS_PYMONGO = False
 from datetime import datetime, timezone
 
+try:
+    from metrics import note_active_user  # type: ignore
+except Exception:  # pragma: no cover
+    def note_active_user(user_id: int) -> None:  # type: ignore
+        return None
 
 class SimpleActivityReporter:
     def __init__(self, mongodb_uri, service_id, service_name=None):
@@ -33,6 +38,11 @@ class SimpleActivityReporter:
     def report_activity(self, user_id):
         """דיווח פעילות פשוט"""
         if not self.connected:
+            try:
+                # Even if DB is unavailable, update in-memory active users gauge if possible
+                note_active_user(int(user_id))
+            except Exception:
+                pass
             return
         
         try:
@@ -67,6 +77,11 @@ class SimpleActivityReporter:
                 },
                 upsert=True
             )
+            # Update active users gauge
+            try:
+                note_active_user(int(user_id))
+            except Exception:
+                pass
             
         except Exception:
             # שקט - אל תיכשל את הבוט אם יש בעיה

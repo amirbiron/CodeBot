@@ -15,6 +15,7 @@ from functools import wraps
 from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
+import time as _time
 from werkzeug.http import http_date, parse_date
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
@@ -88,6 +89,14 @@ app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
+# --- Correlation ID across services (request_id) ---
+try:
+    from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid  # type: ignore
+except Exception:
+    def _gen_rid():  # type: ignore
+        return ""
+    def _bind_rid(_rid: str) -> None:  # type: ignore
+        return None
 
 # --- Bookmarks API blueprint ---
 try:
@@ -797,6 +806,57 @@ def try_persistent_login():
         # אל תכשיל בקשות בגלל כשל חיבור/פרסר
         pass
 
+
+@app.before_request
+def _correlation_bind():
+    """Bind a short request_id to structlog context and store for response header."""
+    try:
+        rid = _gen_rid() or ""
+        if rid:
+            try:
+                _bind_rid(rid)
+            except Exception:
+                pass
+            try:
+                # attach to request for after_request header
+                setattr(request, "_req_id", rid)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+@app.after_request
+def _add_request_id_header(resp):  # type: ignore[override]
+    try:
+        rid = getattr(request, "_req_id", "")
+        if rid:
+            resp.headers["X-Request-ID"] = rid
+    except Exception:
+        pass
+    return resp
+
+
+@app.before_request
+def _metrics_start_timer():  # minimal, best-effort
+    try:
+        request._metrics_start = _time.perf_counter()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
+@app.after_request
+def _metrics_after(resp):  # type: ignore[override]
+    try:
+        start = float(getattr(request, "_metrics_start", 0.0) or 0.0)
+        if start:
+            dur = max(0.0, float(_time.perf_counter() - start))
+            status = int(getattr(resp, "status_code", 0) or 0)
+            record_request_outcome(status, dur)
+    except Exception:
+        pass
+    return resp
+
 def admin_required(f):
     """דקורטור לבדיקת הרשאות אדמין"""
     @wraps(f)
@@ -1273,12 +1333,23 @@ def api_search_suggestions():
 
 @app.route('/metrics')
 def metrics_endpoint():
-    """Prometheus metrics endpoint (if prometheus_client is installed)."""
+    """Prometheus metrics endpoint (unified across services)."""
     try:
-        if generate_latest is None:
-            return Response('metrics disabled', mimetype='text/plain')
-        active_indexes_gauge.set(_get_search_index_count())
-        return Response(generate_latest(), mimetype='text/plain; charset=utf-8')
+        from metrics import metrics_endpoint_bytes, metrics_content_type  # type: ignore
+    except Exception:
+        def metrics_endpoint_bytes():  # type: ignore
+            return b"metrics disabled"
+        def metrics_content_type():  # type: ignore
+            return "text/plain; charset=utf-8"
+    try:
+        # Update local gauges that depend on app state (best-effort)
+        try:
+            if 'active_indexes_gauge' in globals():
+                active_indexes_gauge.set(_get_search_index_count())  # type: ignore[name-defined]
+        except Exception:
+            pass
+        payload = metrics_endpoint_bytes()
+        return Response(payload, mimetype=metrics_content_type())
     except Exception:
         return Response("metrics unavailable", mimetype='text/plain', status=503)
 
