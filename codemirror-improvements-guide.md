@@ -271,8 +271,56 @@ export class MobileSupport {
 }
 ```
 
----
+### התאמת גובה עם VisualViewport (מקלדת וירטואלית במובייל)
 
+```javascript
+// viewport-adjust.js
+export function setupViewportHeightAdjustment(rootSelector = '.codemirror-container') {
+  const root = document.querySelector(rootSelector) || document.querySelector('.cm-editor');
+  if (!root) return () => {};
+
+  const vv = window.visualViewport;
+  let rafId = null;
+
+  const apply = () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      const vh = (vv && vv.height) || window.innerHeight;
+      const top = root.getBoundingClientRect().top;
+      const padding = 24; // מרווח תחתון קטן
+      const height = Math.max(180, Math.floor(vh - top - padding));
+      root.style.maxHeight = height + 'px';
+      root.style.height = height + 'px';
+      const scroller = root.querySelector('.cm-scroller');
+      if (scroller) scroller.style.maxHeight = height + 'px';
+    });
+  };
+
+  apply();
+
+  if (vv) {
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+  } else {
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+  }
+
+  return () => {
+    if (vv) {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+    } else {
+      window.removeEventListener('resize', apply);
+      window.removeEventListener('orientationchange', apply);
+    }
+    if (rafId) cancelAnimationFrame(rafId);
+  };
+}
+```
+
+---
+ 
 ## 3. טיפול בשגיאות משופר {#error-handling}
 
 ### מערכת Error Recovery מתקדמת
@@ -496,6 +544,26 @@ export class ErrorRecoverySystem {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
+```
+
+### טעינת מודולים עם Fallback ל‑CDN
+
+```javascript
+// cdn-fallback.js
+export async function loadModuleWithFallback(urls) {
+  let lastErr;
+  for (const url of urls) {
+    try { return await import(url); } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('All CDN candidates failed');
+}
+
+// דוגמה: טעינת מודול שפה ל‑CodeMirror
+const mod = await loadModuleWithFallback([
+  'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js',
+  'https://unpkg.com/@codemirror/lang-python@6/dist/index.js'
+]);
+const python = mod.python ? mod.python() : [];
 ```
 
 ---
@@ -1317,8 +1385,29 @@ export class AutoSaveManager {
 }
 ```
 
----
+#### Fallback קליל לשמירה מקומית (localStorage)
 
+במידה ולא נדרש המנגנון המלא, ניתן להוסיף שכבת Auto‑Save מקומית פשוטה שתמנע אובדן קוד בקריסות/ניתוק רשת:
+
+```javascript
+// minimal-local-autosave.js
+const textarea = document.querySelector('textarea[name="code"]');
+const KEY = `autosaveDraft_${location.pathname}`;
+setInterval(() => {
+  try {
+    const value = window.editorManager ? window.editorManager.getValue() : (textarea?.value || '');
+    localStorage.setItem(KEY, value);
+  } catch (_) {}
+}, 5000);
+
+try {
+  const draft = localStorage.getItem(KEY);
+  if (draft && textarea && !textarea.value) textarea.value = draft;
+} catch (_) {}
+```
+
+---
+ 
 ## 7. בדיקות מקיפות {#testing}
 
 ### מערכת בדיקות אוטומטית
