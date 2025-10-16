@@ -1470,15 +1470,27 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       window.addEventListener('pointermove', onPointerMove, { passive: false });
       window.addEventListener('pointerup', onPointerUp);
       window.addEventListener('pointercancel', onPointerUp);
+      // רישום לניקוי
+      tocState.clickHandlers.push({ element: miniBtn, event: 'pointerdown', handler: onPointerDown });
+      tocState.clickHandlers.push({ element: window, event: 'pointermove', handler: onPointerMove });
+      tocState.clickHandlers.push({ element: window, event: 'pointerup', handler: onPointerUp });
+      tocState.clickHandlers.push({ element: window, event: 'pointercancel', handler: onPointerUp });
     }
     // לחיצה ארוכה על סמל ☰ למזעור מהיר
     if (menuBtn) {
-      let pressTimer = null; const start = (e) => { try { e.preventDefault(); } catch(_){}; clearTimeout(pressTimer); pressTimer = setTimeout(() => { minimizeTOC(); }, CONFIG.LONG_PRESS_MS); };
+      let pressTimer = null;
+      const start = (e) => { try { e.preventDefault(); } catch(_){}; clearTimeout(pressTimer); pressTimer = setTimeout(() => { minimizeTOC(); }, CONFIG.LONG_PRESS_MS); };
       const cancel = () => { clearTimeout(pressTimer); };
+      const ctxHandler = (e)=>{ try{ e.preventDefault(); }catch(_){} };
       menuBtn.addEventListener('pointerdown', start);
       menuBtn.addEventListener('pointerup', cancel);
       menuBtn.addEventListener('pointerleave', cancel);
-      menuBtn.addEventListener('contextmenu', (e)=>{ try{ e.preventDefault(); }catch(_){}});
+      menuBtn.addEventListener('contextmenu', ctxHandler);
+      // רישום לניקוי
+      tocState.clickHandlers.push({ element: menuBtn, event: 'pointerdown', handler: start });
+      tocState.clickHandlers.push({ element: menuBtn, event: 'pointerup', handler: cancel });
+      tocState.clickHandlers.push({ element: menuBtn, event: 'pointerleave', handler: cancel });
+      tocState.clickHandlers.push({ element: menuBtn, event: 'contextmenu', handler: ctxHandler });
     }
     const savedCollapsed = localStorage.getItem('mdTocCollapsed');
     if (savedCollapsed === 'true') {
