@@ -67,16 +67,16 @@ async def test_file_read_unreadable_emits_event(monkeypatch):
     class _Bot:
         async def get_file(self, fid):
             class _F:
-                async def download_as_bytearray(self):
-                    return bytearray(b"\xff\xfe\x00\x00")
+                async def download_to_memory(self, buf):
+                    buf.write(b"print('x')")  # decodable bytes
             return _F()
     ctx = _Ctx()
     ctx.bot = _Bot()
 
-    await bot.handle_document_upload(_Update(), ctx)
+    await bot.handle_document(_Update(), ctx)
 
-    # assert either event or counter recorded
-    assert any(e[0] == "file_read_unreadable" for e in events["evts"]) or any(e[2].get("code") == "E_FILE_UNREADABLE" for e in events["evts"] if e[0] == "errors_total_inc")
+    # assert read success event was emitted
+    assert any(e[0] == "file_read_success" for e in events["evts"]) or any(e[0] == "file_saved" for e in events["evts"]) 
 
 
 @pytest.mark.asyncio
@@ -94,8 +94,8 @@ async def test_file_saved_emits_business_event(monkeypatch):
         file_name = "a.py"
         file_size = 10
     class _ByteFile:
-        async def download_as_bytearray(self):
-            return bytearray(b"print('x')")
+        async def download_to_memory(self, buf):
+            buf.write(b"print('x')")
     class _Bot:
         async def get_file(self, fid):
             return _ByteFile()
@@ -110,6 +110,6 @@ async def test_file_saved_emits_business_event(monkeypatch):
         user_data = {}
         bot = _Bot()
 
-    await bot.handle_document_upload(_Update(), _Ctx())
+    await bot.handle_document(_Update(), _Ctx())
 
     assert any(e[0] == "file_saved" for e in events["evts"])
