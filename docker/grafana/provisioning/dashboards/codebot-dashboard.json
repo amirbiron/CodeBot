@@ -19,9 +19,33 @@
     },
     {
       "type": "timeseries",
+      "title": "P95: GitHub Ops",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"github_repo_analyze\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"github_zip_extract\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"github_import_save_file\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"github_upload_saved_file\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"github_upload_direct_file\"}[5m]))"}
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4}
+    },
+    {
+      "type": "timeseries",
+      "title": "P95: DB Heavy Queries",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"db_get_user_files\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"db_search_code\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"db_get_user_files_by_repo_items\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"db_get_user_files_by_repo_count\"}[5m]))"},
+        {"expr": "histogram_quantile(0.95, rate(operation_latency_seconds_bucket{operation=\"db_regular_files_items\"}[5m]))"}
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12}
+    },
+    {
+      "type": "timeseries",
       "title": "Telegram updates (received)",
       "targets": [{"expr": "rate(telegram_updates_total{status=\"received\"}[1m])"}],
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}
     }
   ],
   "schemaVersion": 36,
