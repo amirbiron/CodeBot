@@ -10,12 +10,14 @@
     left: 1rem;
     z-index: 10;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.3s ease;
 }
 
-.file-card:hover .file-selection,
-.file-selection.has-selection {
+/* הצג צ'קבוקסים רק כאשר מצב בחירה מרובה פעיל */
+.multi-select-active .file-selection {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .file-checkbox {
@@ -539,7 +541,5 @@
         margin: 1rem;
     }
     
-    .file-selection {
-        opacity: 1; /* תמיד גלוי במובייל */
-    }
+    /* במובייל נשמור על אותה לוגיקה של מצב מרובה */
 }
