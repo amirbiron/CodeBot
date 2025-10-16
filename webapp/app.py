@@ -879,12 +879,16 @@ def _safe_search(user_id: int, query: str, **kwargs):
     נשתמש ב-Fallback פשוט שמבצע חיפוש substring ב-DB ישירות.
     """
     # ניסיון להשתמש במנוע המלא אם זמין
+    engine_results = None
     if search_engine:
         try:
-            return search_engine.search(user_id, query, **kwargs)
+            engine_results = search_engine.search(user_id, query, **kwargs)
+            # אם המנוע החזיר תוצאות – נחזיר אותן. אם החזיר ריק, ננסה נפילה לאחור ל-DB.
+            if isinstance(engine_results, list) and len(engine_results) > 0:
+                return engine_results
         except Exception:
             # ניפול ל-fallback הבסיסי במקרה של תקלה
-            pass
+            engine_results = None
 
     # Fallback: חיפוש בסיסי ב-MongoDB על תוכן הקבצים (code)
     try:
