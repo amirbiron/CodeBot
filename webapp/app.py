@@ -3390,27 +3390,8 @@ def public_shared_files(token: str):
     # תבנית בסיסית של רשימת קבצים ששותפו
     # שימוש ב-template קיים אם יש – אחרת נציג רשימה פשוטה דרך view_file עבור פריט בודד אינו מתאים כאן
     # לכן נשתמש ב-html פשוט בתוך אותו טמפלט בסיס
-    html = [
-        '<div class="glass-card">',
-        '<h2 class="section-title"><i class="fas fa-share-alt"></i> קבצים משותפים</h2>',
-        '<div style="display:grid;gap:1rem">'
-    ]
-    for item in view_items:
-        html.append(
-            f"<div class='glass-card' style='padding:1rem'>"
-            f"<div style='display:flex;justify-content:space-between;align-items:center'>"
-            f"<div style='display:flex;gap:.75rem;align-items:center'><span style='font-size:1.5rem'>{item['icon']}</span><strong>{item['file_name']}</strong><span class='badge'>{item['language']}</span><span class='badge'>{item['lines']} שורות</span></div>"
-            f"<div style='display:flex;gap:.5rem'>"
-            f"<a class='btn btn-secondary btn-icon' href='/download/{item['id']}'><i class='fas fa-download'></i> הורד</a>"
-            f"<a class='btn btn-secondary btn-icon' href='/file/{item['id']}'><i class='fas fa-eye'></i> צפה</a>"
-            f"</div>"
-            f"</div>"
-            f"</div>"
-        )
-    html.append('</div></div>')
-
-    return render_template('base.html')\
-        .replace('{% block content %}{% endblock %}', ''.join(html))
+    # רנדר טמפלט ייעודי כדי למנוע עמוד ריק ולתת פריסה אחידה
+    return render_template('shared_files.html', items=view_items)
 
 # Error handlers
 @app.errorhandler(404)

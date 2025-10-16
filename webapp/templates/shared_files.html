@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}קבצים משותפים - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<h1 class="page-title"><i class="fas fa-share-alt"></i> קבצים משותפים</h1>
+
+<div class="glass-card">
+  {% if items and items|length > 0 %}
+  <div style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+    {% for item in items %}
+    <div class="glass-card" style="padding:1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap: 0.75rem;">
+        <div style="display:flex; gap:.75rem; align-items:center; min-width:0;">
+          <span style="font-size:1.5rem">{{ item.icon }}</span>
+          <div style="display:flex; flex-direction:column; min-width:0;">
+            <strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.file_name }}</strong>
+            <div style="display:flex; gap:.5rem; flex-wrap:wrap; opacity:.8; font-size:.9rem;">
+              <span class="badge">{{ item.language }}</span>
+              <span class="badge">{{ item.lines }} שורות</span>
+              {% if item.size %}<span class="badge">{{ item.size }}</span>{% endif %}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:.5rem; flex-shrink:0;">
+          <a class="btn btn-secondary btn-icon" href="/download/{{ item.id }}" title="הורד">
+            <i class="fas fa-download"></i>
+            הורד
+          </a>
+          <a class="btn btn-secondary btn-icon" href="/file/{{ item.id }}" title="צפה">
+            <i class="fas fa-eye"></i>
+            צפה
+          </a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="text-align:center; padding: 2rem;">
+    <div style="font-size: 3rem; margin-bottom: 1rem;">📭</div>
+    <p>לא נמצאו קבצים עבור קישור זה.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

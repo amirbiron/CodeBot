@@ -88,7 +88,7 @@
         </form>
     </div>
     
-    <div class="results-info" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+    <div class="results-info" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
         <div>
             מציג {{ files|length }} מתוך {{ total_count }} קבצים
             {% if category_filter == 'repo' %}
@@ -112,11 +112,15 @@
             | שפה: {{ language_filter }}
             {% endif %}
         </div>
-        <div>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
             <a href="/upload" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;">
                 <i class="fas fa-plus"></i>
                 הוסף קובץ חדש
             </a>
+            <button id="multiSelectToggleBtn" type="button" class="btn btn-secondary btn-icon" title="בחירה מרובה">
+                <i class="fas fa-tasks"></i>
+                בחירה מרובה
+            </button>
         </div>
     </div>
 </div>
@@ -242,10 +246,6 @@
             נבחרו
         </div>
         <div class="toolbar-actions">
-            <a class="btn btn-secondary btn-icon" href="{{ documentation_url }}webapp/bulk-actions.html" target="_blank" title="עזרה לפעולות מרובות">
-                <i class="fas fa-book"></i>
-                Docs
-            </a>
             <button class="btn btn-icon" type="button" onclick="bulkAddToFavorites()" title="הוסף למועדפים">
                 <i class="fas fa-star"></i>
                 הוסף למועדפים
