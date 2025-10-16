@@ -3,6 +3,14 @@ Handlers
 
 תיעוד של כל ה-handlers בפרויקט.
 
+Show Command
+------------
+
+.. toctree::
+   :maxdepth: 1
+
+   show
+
 Drive Menu
 ----------
 

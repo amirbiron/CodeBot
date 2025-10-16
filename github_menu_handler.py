@@ -725,7 +725,7 @@ class GitHubMenuHandler:
                         prev_doc = db.get_latest_version(user_id, rel_path)
                         prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
                         existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
-                        # מדידת ביצוע עבור שמירה בודדת (דגימה קלה כדי לא להעמיס)
+                        # מדידת ביצוע עבור שמירה בודדת
                         with track_performance("github_import_save_file"):
                             ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:

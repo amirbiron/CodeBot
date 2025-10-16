@@ -70,6 +70,26 @@ Code Keeper Bot - תיעוד API
    webapp/api-reference
    webapp/bulk-actions
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Observability
+
+   observability
+   logging_schema
+   metrics
+   alerts
+   sentry
+   runbooks/logging-levels
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Observability – Advanced
+
+   observability/events_catalog
+   observability/error_codes
+   observability/metrics_promql
+   observability/alerts_playbook
+
 סקירה כללית
 ------------
 
