@@ -189,10 +189,16 @@ class MultiSelectManager {
     clearSelection() {
         // נקה מצב פנימי ו-UI ללא תלות במצב מרובה
         this.selectedFiles.clear();
-        // בטל סימון ב-UI מבלי לעדכן לוגיקה
+        // בטל סימון תיבות
         document.querySelectorAll('.file-checkbox:checked').forEach(checkbox => {
             checkbox.checked = false;
         });
+        // הסר הדגשה ויזואלית מכרטיסים שנבחרו
+        document.querySelectorAll('.file-card.selected').forEach(card => {
+            card.classList.remove('selected');
+        });
+        // אפס אינדקס אחרון
+        this.lastSelectedIndex = -1;
         // עדכן תצוגת סרגל הכלים ושמור מצב
         this.updateToolbar();
         this.persistSelection();
