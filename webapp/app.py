@@ -5,6 +5,7 @@ Code Keeper Bot - Web Application
 """
 
 import os
+import logging
 import hashlib
 import hmac
 import json
@@ -29,6 +30,7 @@ from pathlib import Path
 import secrets
 import threading
 import base64
+import traceback
 
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
@@ -38,6 +40,33 @@ if ROOT_DIR not in sys.path:
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
+
+# Search engine & types
+try:
+    from search_engine import search_engine, SearchType, SearchFilter, SortOrder  # type: ignore
+except Exception:
+    search_engine = None  # type: ignore
+    class _Missing:
+        pass
+    SearchType = _Missing  # type: ignore
+    SearchFilter = _Missing  # type: ignore
+    SortOrder = _Missing  # type: ignore
+
+# Optional monitoring & resilience
+try:
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest  # type: ignore
+except Exception:
+    Counter = Histogram = Gauge = generate_latest = None  # type: ignore
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential  # type: ignore
+except Exception:
+    retry = stop_after_attempt = wait_exponential = None  # type: ignore
+try:
+    import sentry_sdk  # type: ignore
+    from sentry_sdk.integrations.flask import FlaskIntegration  # type: ignore
+    _SENTRY_AVAILABLE = True
+except Exception:
+    _SENTRY_AVAILABLE = False
 # Cache (Redis) – שימוש במנהל הקאש המרכזי של הפרויקט
 try:
     from cache_manager import cache  # noqa: E402
@@ -67,6 +96,66 @@ try:
 except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
+
+# --- Search: metrics, limiter (lightweight, optional) ---
+def _no_op(*args, **kwargs):
+    return None
+
+try:
+    from flask_limiter import Limiter  # type: ignore
+    from flask_limiter.util import get_remote_address  # type: ignore
+    _LIMITER_AVAILABLE = True
+except Exception:
+    Limiter = None  # type: ignore
+    get_remote_address = lambda: request.remote_addr if request else ""  # type: ignore
+    _LIMITER_AVAILABLE = False
+
+# Prometheus metrics
+if Counter and Histogram and Gauge:
+    search_counter = Counter('search_requests_total', 'Total number of search requests', ['search_type', 'status'])
+    search_duration = Histogram('search_duration_seconds', 'Search request duration in seconds')
+    search_results_count = Histogram('search_results_count', 'Number of results returned')
+    search_cache_hits = Counter('search_cache_hits_total', 'Total number of cache hits')
+    search_cache_misses = Counter('search_cache_misses_total', 'Total number of cache misses')
+    active_indexes_gauge = Gauge('search_active_indexes', 'Number of active search indexes')
+else:
+    class _Dummy:
+        def labels(self, *a, **k): return self
+        def inc(self, *a, **k): return None
+        def observe(self, *a, **k): return None
+        def set(self, *a, **k): return None
+    search_counter = _Dummy()
+    search_duration = _Dummy()
+    search_results_count = _Dummy()
+    search_cache_hits = _Dummy()
+    search_cache_misses = _Dummy()
+    active_indexes_gauge = _Dummy()
+
+# Optional Sentry init (non-fatal if missing)
+try:
+    if _SENTRY_AVAILABLE and getattr(__import__('config'), 'config').SENTRY_DSN:  # type: ignore
+        sentry_sdk.init(  # type: ignore
+            dsn=getattr(__import__('config'), 'config').SENTRY_DSN,  # type: ignore
+            integrations=[FlaskIntegration()],  # type: ignore
+            traces_sample_rate=0.05,
+            environment=getattr(__import__('config'), 'config').ENVIRONMENT,  # type: ignore
+        )
+except Exception:
+    pass
+
+# Limiter instance (in-memory by default; safe fallback if unavailable)
+if _LIMITER_AVAILABLE:
+    try:
+        limiter = Limiter(
+            app=app,
+            key_func=(lambda: session.get('user_id') if 'user_id' in session else get_remote_address()),
+            default_limits=["200 per day", "50 per hour"],
+            storage_uri="memory://",
+        )
+    except Exception:
+        limiter = None  # type: ignore
+else:
+    limiter = None  # type: ignore
 
 # הגדרות
 MONGODB_URL = os.getenv('MONGODB_URL')
@@ -693,6 +782,336 @@ def is_admin(user_id: int) -> bool:
     admin_ids = os.getenv('ADMIN_USER_IDS', '').split(',')
     admin_ids = [int(id.strip()) for id in admin_ids if id.strip().isdigit()]
     return user_id in admin_ids
+
+
+# ===== Global Content Search API =====
+def _search_limiter_decorator(rule: str):
+    """Wrap limiter.limit if available; return no-op otherwise."""
+    if limiter is None:
+        def _wrap(fn):
+            return fn
+        return _wrap
+    try:
+        return limiter.limit(rule)  # type: ignore
+    except Exception:
+        def _wrap(fn):
+            return fn
+        return _wrap
+
+
+def _safe_retry(*dargs, **dkwargs):
+    """Wrap tenacity.retry if available, else identity decorator."""
+    if retry is None or stop_after_attempt is None or wait_exponential is None:
+        def _wrap(fn):
+            return fn
+        return _wrap
+    return retry(*dargs, **dkwargs)  # type: ignore
+
+
+def _get_search_index_count() -> int:
+    try:
+        if search_engine and hasattr(search_engine, 'indexes'):
+            return len(getattr(search_engine, 'indexes'))
+    except Exception:
+        pass
+    return 0
+
+
+# In-memory cache for search responses (bounded by TTL externally via redis cache_manager in future)
+_memory_search_cache = {}
+
+def _cache_get(uid: int, key: str):
+    try:
+        bucket = _memory_search_cache.get(uid)
+        if isinstance(bucket, dict):
+            entry = bucket.get(key)
+            if isinstance(entry, dict):
+                ts = float(entry.get('ts') or 0)
+                # TTL: 5 minutes
+                if (time.time() - ts) > 300:
+                    try:
+                        del bucket[key]
+                    except Exception:
+                        pass
+                    return None
+                return entry.get('results')
+    except Exception:
+        return None
+    return None
+
+
+def _cache_set(uid: int, key: str, value: dict):
+    try:
+        bucket = _memory_search_cache.setdefault(uid, {})
+        if isinstance(bucket, dict):
+            bucket[key] = {'results': value, 'ts': time.time()}
+    except Exception:
+        pass
+
+
+@_safe_retry(
+    stop=stop_after_attempt(3) if stop_after_attempt else None,
+    wait=wait_exponential(multiplier=1, min=1, max=8) if wait_exponential else None,
+)
+def _safe_search(user_id: int, query: str, **kwargs):
+    if not search_engine:
+        return []
+    return search_engine.search(user_id, query, **kwargs)
+
+
+@app.route('/api/search/global', methods=['POST'])
+@login_required
+@_search_limiter_decorator("30 per minute")
+def api_search_global():
+    """חיפוש גלובלי בתוכן כל הקבצים של המשתמש."""
+    start_time = time.time()
+    user_id = session['user_id']
+    try:
+        payload = request.get_json(silent=True) or {}
+        query = (payload.get('query') or '').strip()
+        if not query:
+            try:
+                search_counter.labels(search_type='invalid', status='error').inc()
+            except Exception:
+                pass
+            return jsonify({'error': 'נא להזין טקסט לחיפוש'}), 400
+        if len(query) > 500:
+            try:
+                search_counter.labels(search_type='invalid', status='error').inc()
+            except Exception:
+                pass
+            return jsonify({'error': 'השאילתה ארוכה מדי (מקסימום 500 תווים)'}), 400
+
+        search_type_str = (payload.get('search_type') or 'content').strip().lower()
+        try:
+            st_map = {
+                'content': SearchType.CONTENT,
+                'regex': SearchType.REGEX,
+                'fuzzy': SearchType.FUZZY,
+                'function': SearchType.FUNCTION,
+                'text': SearchType.TEXT,
+            }
+            search_type = st_map.get(search_type_str, SearchType.CONTENT)
+        except Exception:
+            search_type = None
+
+        # Filters
+        filter_data = payload.get('filters') or {}
+        try:
+            filters = SearchFilter(
+                languages=list(filter_data.get('languages') or []),
+                tags=list(filter_data.get('tags') or []),
+                date_from=filter_data.get('date_from'),
+                date_to=filter_data.get('date_to'),
+                min_size=filter_data.get('min_size'),
+                max_size=filter_data.get('max_size'),
+                has_functions=filter_data.get('has_functions'),
+                has_classes=filter_data.get('has_classes'),
+                file_pattern=filter_data.get('file_pattern'),
+            )
+        except Exception:
+            filters = None
+
+        # Regex validation if relevant
+        if search_type_str == 'regex':
+            # סינון בסיסי למניעת ReDoS על דפוסים מסוכנים
+            def _is_regex_safe(p: str) -> bool:
+                try:
+                    # אורך מרבי
+                    if len(p) > 200:
+                        return False
+                    # מניעת כוכב כפול על תחומים רחבים (.*.*)
+                    if re.search(r"\.(\*)[^\n]*\.(\*)", p):
+                        return False
+                    # מניעת כמתים מקוננים (דפוסים ידועים לקטסטרופה)
+                    if re.search(r"\([^)]{0,64}[+*]{1,2}\)\s*[+*]{1,2}", p):
+                        return False
+                    # כמתים מספריים גדולים
+                    for m in re.finditer(r"\{\s*(\d{2,})\s*(?:,\s*(\d+)\s*)?\}", p):
+                        lo = int(m.group(1) or 0)
+                        hi = int(m.group(2)) if m.group(2) else lo
+                        if lo > 100 or hi > 200:
+                            return False
+                    # קומפילציה בסיסית בלבד
+                    re.compile(p)
+                    return True
+                except Exception:
+                    return False
+            if not _is_regex_safe(query):
+                try:
+                    search_counter.labels(search_type='regex', status='invalid_pattern').inc()
+                except Exception:
+                    pass
+                return jsonify({'error': 'ביטוי רגולרי לא מאושר'}), 400
+
+        # Sorting
+        sort_str = (payload.get('sort') or 'relevance').strip().lower()
+        try:
+            so_map = {
+                'relevance': SortOrder.RELEVANCE,
+                'date_desc': SortOrder.DATE_DESC,
+                'date_asc': SortOrder.DATE_ASC,
+                'name_asc': SortOrder.NAME_ASC,
+                'name_desc': SortOrder.NAME_DESC,
+                'size_desc': SortOrder.SIZE_DESC,
+                'size_asc': SortOrder.SIZE_ASC,
+            }
+            sort_order = so_map.get(sort_str, SortOrder.RELEVANCE)
+        except Exception:
+            sort_order = None
+
+        # Pagination
+        try:
+            page = max(1, int(payload.get('page') or 1))
+        except Exception:
+            page = 1
+        try:
+            limit = min(100, max(1, int(payload.get('limit') or 20)))
+        except Exception:
+            limit = 20
+
+        # Simple local cache key (not redis)
+        try:
+            cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
+            cache_key = hashlib.sha256(cache_payload).hexdigest()
+        except Exception:
+            cache_key = hashlib.sha256(f"{user_id}:{search_type_str}:{page}:{limit}:{len(query)}".encode('utf-8')).hexdigest()
+
+        cached = _cache_get(user_id, cache_key)
+        if cached:
+            try:
+                search_cache_hits.inc()
+                search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+            except Exception:
+                pass
+            return jsonify(dict(cached, cached=True))
+
+        try:
+            search_cache_misses.inc()
+        except Exception:
+            pass
+
+        # Execute search
+        total_limit = min(1000, limit * page)
+        results = _safe_search(
+            user_id=user_id,
+            query=query,
+            search_type=search_type or SearchType.CONTENT,
+            filters=filters,
+            sort_order=sort_order or SortOrder.RELEVANCE,
+            limit=total_limit,
+        )
+
+        # Metrics
+        try:
+            search_results_count.observe(len(results) if isinstance(results, list) else 0)
+            active_indexes_gauge.set(_get_search_index_count())
+        except Exception:
+            pass
+
+        # Slice for page
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        page_results = results[start_idx:end_idx] if isinstance(results, list) else []
+
+        # Build response
+        def _safe_getattr(obj, name, default=None):
+            try:
+                return getattr(obj, name, default)
+            except Exception:
+                return default
+
+        # Resolve DB ids for links
+        db = get_db()
+
+        resp = {
+            'success': True,
+            'query': query,
+            'total_results': len(results) if isinstance(results, list) else 0,
+            'page': page,
+            'per_page': limit,
+            'search_time': round(time.time() - start_time, 3),
+            'cached': False,
+            'results': [
+                {
+                    'file_id': (lambda fn: (lambda doc: (str(doc.get('_id')) if isinstance(doc, dict) and doc.get('_id') else hashlib.sha256(f"{user_id}:{fn}".encode('utf-8')).hexdigest()))(
+                        (db.code_snippets.find_one({'user_id': user_id, 'file_name': fn}, sort=[('version', -1)]) if db else None)
+                    ))(_safe_getattr(r, 'file_name', '')),
+                    'file_name': _safe_getattr(r, 'file_name', ''),
+                    'language': _safe_getattr(r, 'programming_language', ''),
+                    'tags': _safe_getattr(r, 'tags', []) or [],
+                    'score': round(float(_safe_getattr(r, 'relevance_score', 0.0) or 0.0), 2),
+                    'snippet': (_safe_getattr(r, 'snippet_preview', '') or '')[:200],
+                    'highlights': _safe_getattr(r, 'highlight_ranges', []) or [],
+                    'matches': (_safe_getattr(r, 'matches', []) or [])[:5],
+                    'updated_at': (_safe_getattr(r, 'updated_at', datetime.now(timezone.utc)) or datetime.now(timezone.utc)).isoformat(),
+                    'size': len(_safe_getattr(r, 'content', '') or ''),
+                }
+                for r in page_results
+            ],
+        }
+
+        # Cache set
+        _cache_set(user_id, cache_key, resp)
+        try:
+            search_counter.labels(search_type=search_type_str, status='success').inc()
+        except Exception:
+            pass
+        return jsonify(resp)
+
+    except Exception as e:
+        try:
+            search_counter.labels(search_type='unknown', status='error').inc()
+        except Exception:
+            pass
+        try:
+            if _SENTRY_AVAILABLE:
+                sentry_sdk.capture_exception(e)  # type: ignore
+        except Exception:
+            pass
+        # אל נחשוף פרטי חריגה חוצה
+        return jsonify({'error': 'אירעה שגיאה בחיפוש'}), 500
+    finally:
+        try:
+            search_duration.observe(time.time() - start_time)
+        except Exception:
+            pass
+
+
+@app.route('/api/search/suggestions', methods=['GET'])
+@login_required
+def api_search_suggestions():
+    """הצעות השלמה אוטומטיות לחיפוש על בסיס אינדקס המנוע."""
+    try:
+        q = (request.args.get('q') or '').strip()
+        if len(q) < 2 or not search_engine:
+            return jsonify({'suggestions': []})
+        suggestions = search_engine.suggest_completions(session['user_id'], q, limit=10)
+        return jsonify({'suggestions': suggestions})
+    except Exception:
+        return jsonify({'suggestions': []})
+
+
+@app.route('/metrics')
+def metrics_endpoint():
+    """Prometheus metrics endpoint (if prometheus_client is installed)."""
+    try:
+        if generate_latest is None:
+            return Response('metrics disabled', mimetype='text/plain')
+        active_indexes_gauge.set(_get_search_index_count())
+        return Response(generate_latest(), mimetype='text/plain; charset=utf-8')
+    except Exception:
+        return Response("metrics unavailable", mimetype='text/plain', status=503)
+
+
+@app.route('/api/search/health')
+def api_search_health():
+    """בדיקת תקינות פשוטה של מנוע החיפוש (ללא גישה לנתוני משתמש)."""
+    try:
+        _ = _get_search_index_count()
+        return jsonify({'status': 'ok', 'indexes': _}), 200
+    except Exception:
+        return jsonify({'status': 'error'}), 503
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -2304,15 +2723,15 @@ def create_public_share(file_id):
 
         try:
             coll.insert_one(doc)
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'שגיאה בשמירה: {e}'}), 500
+        except Exception:
+            return jsonify({'ok': False, 'error': 'שגיאה בשמירה'}), 500
 
         # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
         base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
         return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -2583,12 +3002,12 @@ def api_toggle_favorite(file_id):
                     'updated_at': now,
                 }
             })
-        except Exception as e:
-            return jsonify({'ok': False, 'error': f'לא ניתן לעדכן מועדפים: {e}'}), 500
+        except Exception:
+            return jsonify({'ok': False, 'error': 'לא ניתן לעדכן מועדפים'}), 500
 
         return jsonify({'ok': True, 'state': new_state})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-favorite', methods=['POST'])
 @login_required
@@ -2627,8 +3046,8 @@ def api_files_bulk_favorite():
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-unfavorite', methods=['POST'])
 @login_required
@@ -2667,8 +3086,8 @@ def api_files_bulk_unfavorite():
             }
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-tag', methods=['POST'])
 @login_required
@@ -2719,8 +3138,8 @@ def api_files_bulk_tag():
             '$set': {'updated_at': now}
         })
         return jsonify({'success': True, 'updated': int(getattr(res, 'modified_count', 0))})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/create-zip', methods=['POST'])
 @login_required
@@ -2773,8 +3192,8 @@ def api_files_create_zip():
         zip_buffer.seek(0)
         ts = int(time.time())
         return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name=f'code_files_{ts}.zip')
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/create-share-link', methods=['POST'])
 @login_required
@@ -2820,8 +3239,8 @@ def api_files_create_share_link():
         base_url = (WEBAPP_URL or request.host_url.rstrip('/')).rstrip('/')
         share_url = f"{base_url}/shared/{token}"
         return jsonify({'success': True, 'share_url': share_url, 'expires_at': expires_at.isoformat(), 'token': token})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/files/bulk-delete', methods=['POST'])
 @login_required
@@ -2904,8 +3323,8 @@ def api_files_bulk_delete():
             'requested': len(unique_object_ids),
             'message': f'הקבצים הועברו לסל המחזור ל-{ttl_days} ימים'
         })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'success': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/stats')
 @login_required
@@ -3055,7 +3474,8 @@ def health():
     except Exception as e:
         health_data['database'] = 'error'
         health_data['status'] = 'unhealthy'
-        health_data['error'] = str(e)
+        # אל נחשוף פירוט חריגה
+        health_data['error'] = 'unhealthy'
     
     return jsonify(health_data)
 
@@ -3105,8 +3525,8 @@ def api_persistent_login():
             resp.delete_cookie(REMEMBER_COOKIE_NAME)
 
         return resp
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
@@ -3136,8 +3556,8 @@ def api_ui_prefs():
         except Exception:
             pass
         return resp
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
@@ -3196,7 +3616,6 @@ def api_public_stats():
     except Exception as e:
         return jsonify({
             "ok": False,
-            "error": str(e),
             "total_users": 0,
             "active_users_24h": 0,
             "total_snippets": 0,
@@ -3239,8 +3658,8 @@ def api_me():
                 'theme': prefs.get('theme')
             }
         })
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 # --- External uptime public endpoint ---
 @app.route('/api/uptime')
@@ -3257,8 +3676,8 @@ def api_uptime():
             'status_url': summary.get('status_url') or (UPTIME_STATUS_URL or None),
         }
         return jsonify(safe)
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 # --- Public share route ---
 @app.route('/share/<share_id>')
@@ -3418,8 +3837,8 @@ OPENAPI_SPEC_PATH = Path(ROOT_DIR) / 'docs' / 'openapi.yaml'
 def openapi_yaml():
     try:
         return send_file(OPENAPI_SPEC_PATH, mimetype='application/yaml')
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unavailable'}), 500
 
 @app.route('/docs')
 def swagger_docs():
