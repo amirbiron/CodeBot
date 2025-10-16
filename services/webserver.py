@@ -20,6 +20,17 @@ from html import escape as html_escape
 
 from integrations import code_sharing
 
+# Optional structured logging/event emission and error counter (fail-open)
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+try:
+    from metrics import errors_total  # type: ignore
+except Exception:  # pragma: no cover
+    errors_total = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +66,12 @@ def create_app() -> web.Application:
             try:
                 # lazy import to avoid hard dep at import time
                 from observability import emit_event  # type: ignore
-                emit_event("metrics_view_error", severity="error", error=str(e))
+                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))
+            except Exception:
+                pass
+            try:
+                if errors_total is not None:
+                    errors_total.labels(code="E_METRICS_VIEW").inc()
             except Exception:
                 pass
             return web.Response(status=500, text="metrics error")
@@ -71,7 +87,12 @@ def create_app() -> web.Application:
         except Exception as e:
             try:
                 from observability import emit_event  # type: ignore
-                emit_event("alerts_parse_error", severity="warn", error=str(e))
+                emit_event("alerts_parse_error", severity="warn", error_code="E_ALERTS_PARSE", error=str(e))
+            except Exception:
+                pass
+            try:
+                if errors_total is not None:
+                    errors_total.labels(code="E_ALERTS_PARSE").inc()
             except Exception:
                 pass
             return web.Response(status=400, text="invalid json")
@@ -84,6 +105,10 @@ def create_app() -> web.Application:
             alerts = [data]
 
         # Forward via helper (Slack/Telegram) and emit events
+        try:
+            emit_event("alert_received", severity="info", count=int(len(alerts)))
+        except Exception:
+            pass
         try:
             from alert_forwarder import forward_alerts  # type: ignore
             forward_alerts(alerts)
@@ -102,7 +127,12 @@ def create_app() -> web.Application:
             try:
                 # דווח אירוע מובנה על שגיאה בהצגת שיתוף
                 from observability import emit_event  # type: ignore
-                emit_event("share_view_error", severity="error", share_id=str(share_id), error=str(e))
+                emit_event("share_view_error", severity="error", error_code="E_SHARE_VIEW", share_id=str(share_id), error=str(e))
+            except Exception:
+                pass
+            try:
+                if errors_total is not None:
+                    errors_total.labels(code="E_SHARE_VIEW").inc()
             except Exception:
                 pass
             data = None
@@ -119,6 +149,10 @@ def create_app() -> web.Application:
         code = data.get("code", "")
         file_name = data.get("file_name", "snippet.txt")
         language = data.get("language", "text")
+        try:
+            emit_event("share_view_success", severity="info", share_id=str(share_id), file_name=str(file_name), language=str(language))
+        except Exception:
+            pass
         html = f"""
 <!DOCTYPE html>
 <html lang="he">

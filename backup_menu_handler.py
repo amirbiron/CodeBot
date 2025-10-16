@@ -333,16 +333,16 @@ class BackupMenuHandler:
 		else:
 			await query.answer("לא נתמך", show_alert=True)
 	
-	async def _create_full_backup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _create_full_backup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 		query = update.callback_query
 		user_id = query.from_user.id
 		await query.edit_message_text("⏳ יוצר גיבוי מלא...")
 		# יצירת גיבוי מלא (מייצא את כל הקבצים ממונגו לזיפ ושומר ב-GridFS/דיסק)
-		try:
-			try:
-				emit_event("backup_create_full_start", severity="info", user_id=int(user_id))
-			except Exception:
-				pass
+        try:
+            try:
+                emit_event("backup_create_full_start", severity="info", user_id=int(user_id))
+            except Exception:
+                pass
 			from io import BytesIO
 			import zipfile, json
 			from database import db
@@ -350,7 +350,7 @@ class BackupMenuHandler:
 			files = db.get_user_files(user_id, limit=10000) or []
 			backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
 			buf = BytesIO()
-			with track_performance("backup_create_full_zip"):
+            with track_performance("backup_create_full_zip"):
 				with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
 					# כתיבת תוכן הקבצים
 					for doc in files:
@@ -369,7 +369,7 @@ class BackupMenuHandler:
 					zf.writestr('metadata.json', json.dumps(metadata, indent=2))
 			buf.seek(0)
 			# שמור בהתאם למצב האחסון
-			with track_performance("backup_save_bytes"):
+            with track_performance("backup_save_bytes"):
 				backup_manager.save_backup_bytes(buf.getvalue(), metadata)
 			# שלח קובץ למשתמש
 			buf.seek(0)
@@ -392,7 +392,14 @@ class BackupMenuHandler:
 		except Exception as e:
 			logger.error(f"Failed creating/sending backup: {e}")
 			try:
-				emit_event("backup_create_full_error", severity="error", user_id=int(user_id), error=str(e))
+                # ספירת שגיאות + קוד יציב
+                try:
+                    from metrics import errors_total  # type: ignore
+                    if errors_total is not None:
+                        errors_total.labels(code="E_BACKUP_CREATE").inc()
+                except Exception:
+                    pass
+                emit_event("backup_create_full_error", severity="error", user_id=int(user_id), error_code="E_BACKUP_CREATE", error=str(e))
 			except Exception:
 				pass
 			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
@@ -665,7 +672,8 @@ class BackupMenuHandler:
 			await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
 			return
 		try:
-			results = backup_manager.restore_from_backup(user_id=user_id, backup_path=match.file_path, overwrite=True, purge=True)
+			with track_performance("backup_restore_full"):
+				results = backup_manager.restore_from_backup(user_id=user_id, backup_path=match.file_path, overwrite=True, purge=True)
 			restored = results.get('restored_files', 0)
 			errors = results.get('errors', [])
 			msg = f"✅ שוחזרו {restored} קבצים בהצלחה מגיבוי {backup_id}"
@@ -710,11 +718,12 @@ class BackupMenuHandler:
 					friendly = f"BKP zip {backup_id.replace('backup_', '')}{(' ' + emoji) if emoji else ''} - {date_str}.zip"
 			except Exception:
 				friendly = None
-			with open(match.file_path, 'rb') as f:
-				await query.message.reply_document(
-					document=InputFile(f, filename=(friendly or os.path.basename(match.file_path))),
-					caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
-				)
+			with track_performance("backup_download_zip_bytes"):
+				with open(match.file_path, 'rb') as f:
+					await query.message.reply_document(
+						document=InputFile(f, filename=(friendly or os.path.basename(match.file_path))),
+						caption=f"📦 {backup_id} — {_format_bytes(os.path.getsize(match.file_path))}"
+					)
 			# השאר בתצוגת רשימה — רענן את הרשימה
 			try:
 				await self._show_backups_list(update, context)
