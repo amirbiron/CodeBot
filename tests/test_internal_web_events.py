@@ -25,9 +25,15 @@ def test_internal_web_events_emitted(monkeypatch):
             # Call synchronously
             import asyncio
             asyncio.get_event_loop().create_task(fn(None))
+    class _Bot:
+        async def delete_my_commands(self):
+            return None
+        async def set_my_commands(self, *a, **k):  # noqa: ARG002
+            return None
+
     class _App:
         job_queue = _JobQ()
-        bot = types.SimpleNamespace()
+        bot = _Bot()
     app = _App()
 
     # Monkeypatch inside setup_bot_data scope

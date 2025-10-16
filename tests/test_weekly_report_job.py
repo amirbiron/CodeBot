@@ -31,9 +31,15 @@ def test_weekly_report_emits_and_notifies(monkeypatch):
     class _JobQ:
         def run_repeating(self, fn, interval, first, name=None):  # noqa: ARG002
             asyncio.get_event_loop().run_until_complete(fn(None))
+    class _Bot:
+        async def delete_my_commands(self):
+            return None
+        async def set_my_commands(self, *a, **k):  # noqa: ARG002
+            return None
+
     class _App:
         job_queue = _JobQ()
-        bot = types.SimpleNamespace()
+        bot = _Bot()
     app = _App()
 
     # Call setup to register and fire the job once
