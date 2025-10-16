@@ -738,7 +738,19 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
-            return redirect(url_for('login'))
+            # אם זו בקשת API או שהלקוח מצפה ל-JSON – נחזיר 401 JSON כדי שה-frontend יפנה ל-/login
+            try:
+                wants_json = (
+                    (request.path or '').startswith('/api/') or
+                    ('application/json' in (request.headers.get('Accept') or ''))
+                )
+            except Exception:
+                wants_json = False
+            if wants_json:
+                return jsonify({'error': 'נדרש להתחבר'}), 401
+            # אחרת: הפניה רגילה לעמוד ההתחברות, עם next לחזרה
+            next_url = request.full_path if request.query_string else request.path
+            return redirect(url_for('login', next=next_url))
         return f(*args, **kwargs)
     return decorated_function
 

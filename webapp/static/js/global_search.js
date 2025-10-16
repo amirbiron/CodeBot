@@ -55,7 +55,28 @@
         filters: { languages: getSelectedLanguages() }
       };
       if (!payload.filters.languages || payload.filters.languages.length === 0) delete payload.filters;
-      const res = await fetch('/api/search/global', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const res = await fetch('/api/search/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+      });
+
+      if (res.status === 401 || res.redirected) {
+        window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+        return;
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        if (/<html[\s\S]*<\/html>/i.test(text)) {
+          window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+          return;
+        }
+        throw new Error('Unexpected response from server');
+      }
+
       const data = await res.json();
       if (res.ok && data && data.success){
         displayResults(data);
@@ -152,7 +173,19 @@
 
   async function fetchSuggestions(q){
     try{
-      const res = await fetch('/api/search/suggestions?q=' + encodeURIComponent(q));
+      const res = await fetch('/api/search/suggestions?q=' + encodeURIComponent(q), {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+
+      if (res.status === 401 || res.redirected) {
+        window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+        return;
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) { hideSuggestions(); return; }
+
       const data = await res.json();
       if (data && data.suggestions && data.suggestions.length){
         showSuggestions(data.suggestions);
