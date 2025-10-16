@@ -2697,7 +2697,14 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 except Exception:
                     pass
             # להריץ אחרי שהאפליקציה התחילה, כדי להימנע מ-PTBUserWarning
-            application.job_queue.run_once(_start_web_job, when=0)
+            result = application.job_queue.run_once(_start_web_job, when=0)
+            # בסביבת טסטים, ה-run_once עשוי להחזיר create_task; נמתין לו כדי להבטיח שהאירוע יופק
+            try:
+                import asyncio as _asyncio
+                if _asyncio.isfuture(result) or _asyncio.iscoroutine(result):
+                    await result  # type: ignore[misc]
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f"⚠️ Failed to start internal web server: {e}")
             try:
