@@ -129,14 +129,14 @@ class RepoAnalyzer:
             # מדידת ביצועים כוללת לניתוח הריפו
             with track_performance("github_repo_analyze", labels={"repo": repo_full}):
                 # בדוק אם יש LICENSE
-            try:
-                license_info = repo.get_license()
-                if license_info:
-                    analysis['has_license'] = True
-                    analysis['license_type'] = license_info.license.name
-            except:
-                pass
-            
+                try:
+                    license_info = repo.get_license()
+                    if license_info:
+                        analysis['has_license'] = True
+                        analysis['license_type'] = license_info.license.name
+                except Exception:
+                    pass
+
                 # סרוק קבצים בריפו (עומק 1)
                 contents = repo.get_contents("")
                 files_analyzed = 0
