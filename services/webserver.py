@@ -1,10 +1,16 @@
 import logging
 from typing import Optional
 
-# Configure structured logging and Sentry as early as possible
+# Configure structured logging and Sentry as early as possible,
+# and install sensitive data redaction on log handlers before Sentry hooks logging.
 try:
     from observability import setup_structlog_logging, init_sentry  # type: ignore
     setup_structlog_logging("INFO")
+    try:
+        from utils import install_sensitive_filter  # type: ignore
+        install_sensitive_filter()
+    except Exception:
+        pass
     init_sentry()
 except Exception:
     # Fail-open: don't block service startup if observability init fails
