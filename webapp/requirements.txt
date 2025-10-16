@@ -16,9 +16,8 @@ pymongo==4.10.1
 # Code Highlighting
 pygments==2.17.2
 
-# Fuzzy matching (search engine)
-fuzzywuzzy==0.18.0
-python-levenshtein==0.23.0
+# Fuzzy matching (search engine) — pure Python/C++ wheels
+rapidfuzz==3.14.1
 
 # HTTP Requests (for Telegram API)
 requests==2.31.0

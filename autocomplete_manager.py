@@ -6,7 +6,7 @@ Autocomplete Manager for File Names and Tags
 import logging
 from typing import List, Dict, Set
 try:
-    from fuzzywuzzy import fuzz, process  # type: ignore
+    from rapidfuzz import fuzz, process  # type: ignore
     _HAS_FUZZY = True
 except Exception:
     _HAS_FUZZY = False
@@ -81,7 +81,7 @@ class AutocompleteManager:
             if not all_filenames:
                 return []
             
-            # חיפוש עם fuzzywuzzy
+            # חיפוש עם rapidfuzz
             matches = process.extract(
                 partial_name, 
                 all_filenames, 
@@ -91,8 +91,13 @@ class AutocompleteManager:
             
             # סינון תוצאות עם דמיון גבוה מספיק
             suggestions = []
-            for filename, score in matches:
-                if score >= self.min_similarity:
+            for entry in matches:
+                try:
+                    filename = entry[0]
+                    score = int(entry[1])
+                except Exception:
+                    continue
+                if int(score) >= self.min_similarity:
                     suggestions.append({
                         'filename': filename,
                         'score': score,
@@ -119,7 +124,7 @@ class AutocompleteManager:
             if not all_tags:
                 return []
             
-            # חיפוש עם fuzzywuzzy
+            # חיפוש עם rapidfuzz
             matches = process.extract(
                 partial_tag, 
                 all_tags, 
@@ -129,8 +134,13 @@ class AutocompleteManager:
             
             # סינון תוצאות
             suggestions = []
-            for tag, score in matches:
-                if score >= self.min_similarity:
+            for entry in matches:
+                try:
+                    tag = entry[0]
+                    score = int(entry[1])
+                except Exception:
+                    continue
+                if int(score) >= self.min_similarity:
                     suggestions.append({
                         'tag': tag,
                         'score': score,

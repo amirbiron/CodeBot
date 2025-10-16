@@ -1,12 +1,55 @@
 Testing Guide
 =============
 
-עקרונות קריטיים
-----------------
+🚀 Quickstart לטסטים
+--------------------
 
-- כל IO בטסטים יתבצע תחת ``tmp_path`` בלבד
-- שימוש ב‑``safe_rmtree`` למחיקות – אך ורק תחת ``/tmp``
-- Mocking ל‑Telegram API כדי להימנע מקריאות אמתיות
+1. הגדרת משתני סביבה (בזמן הרצה):
+
+.. code-block:: bash
+
+   export DISABLE_ACTIVITY_REPORTER=1
+   export DISABLE_DB=1
+   export BOT_TOKEN=x
+   export MONGODB_URL='mongodb://localhost:27017/test'
+
+2. התקנת תלויות טסטים וכיסוי:
+
+.. code-block:: bash
+
+   pip install -U pytest pytest-asyncio pytest-cov
+
+3. הרצות שימושיות:
+
+.. code-block:: bash
+
+   # כל הטסטים במצב שקט
+   pytest -q
+
+   # בדיקת קובץ/טסט ספציפי
+   pytest tests/test_bot_handlers_show_command_more.py::test_show_command_renders_html_and_escapes_code_and_buttons_id -q
+
+הנחיות קריטיות
+---------------
+
+- כל IO בטסטים יתבצע תחת ``tmp_path`` בלבד.
+- מחיקות יתבצעו רק תחת ``/tmp`` באמצעות wrapper בטוח.
+- מבודדים את תלות ``python-telegram-bot`` באמצעות Stubs כדי להימנע מקריאות אמתיות.
+
+טעינת Stubs לטלגרם
+-------------------
+
+כדי להריץ טסטים ללא ``python-telegram-bot``, קיימים stubs ב-``tests/_telegram_stubs.py`` והם נטענים אוטומטית דרך ``tests/conftest.py``:
+
+.. code-block:: python
+
+   # tests/conftest.py
+   import os
+   os.environ.setdefault('DISABLE_ACTIVITY_REPORTER', '1')
+   os.environ.setdefault('DISABLE_DB', '1')
+   os.environ.setdefault('BOT_TOKEN', 'x')
+   os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
+   import tests._telegram_stubs  # noqa
 
 דוגמת שימוש ב‑tmp_path
 ----------------------
@@ -19,7 +62,7 @@ Testing Guide
        assert test_file.exists()
 
 מחיקה בטוחה
------------
+------------
 
 .. code-block:: python
 
@@ -33,30 +76,20 @@ Testing Guide
            raise RuntimeError(f"Refusing to delete unsafe path: {p}")
        shutil.rmtree(p)
 
-Mocking ל‑Telegram
-------------------
+כיסוי בדיקות (pytest-cov)
+--------------------------
 
-.. code-block:: python
+- הפרויקט מגדיר ``pytest-cov`` ב-``pytest.ini``. אם חסר, התקינו: ``pip install pytest-cov``.
+- דוחות:
 
-   from unittest.mock import AsyncMock, MagicMock
-   from telegram import Update, Message, User, Chat
+.. code-block:: bash
 
-   def create_mock_update(text="test", user_id=123):
-       update = MagicMock(spec=Update)
-       update.effective_user = User(id=user_id, first_name="Test", is_bot=False)
-       update.effective_chat = Chat(id=user_id, type="private")
-       update.message = MagicMock(spec=Message)
-       update.message.text = text
-       update.message.reply_text = AsyncMock()
-       return update
+   pytest --cov=. --cov-report=term-missing --cov-report=xml
 
-   def create_mock_context():
-       context = MagicMock()
-       context.bot = MagicMock()
-       context.bot.send_message = AsyncMock()
-       context.user_data = {}
-       context.chat_data = {}
-       return context
+CI נתמך
+-------
+
+- ה‑PR חייב לעבור סטטוסים: "🔍 Code Quality & Security", "🧪 Unit Tests (3.11)", "🧪 Unit Tests (3.12)".
 
 קישורים
 -------

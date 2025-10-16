@@ -41,3 +41,6 @@ Thumbs.db
 .coverage
 htmlcov/
 coverage.xml
+
+# Cursor/agent artifacts (local only)
+.cursor/
