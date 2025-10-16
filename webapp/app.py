@@ -951,12 +951,10 @@ def _safe_search(user_id: int, query: str, **kwargs):
     # החזרת מבנה תוצאות הדומה למנוע המלא
     from types import SimpleNamespace
     results: list = []
-    # קומפילציה ל-highlight תואם Unicode: רגקס לא-רגיש לאותיות/ביטוי מקורי
+    # קומפילציה ל-highlight תואם Unicode בצורה בטוחה: תמיד escap‎e לקלט משתמש
+    # (גם במצב regex) כדי למנוע החדרת תבניות רגקס. ההדגשה היא ליטרלית בלבד.
     try:
-        if is_regex:
-            comp = re.compile(query, re.IGNORECASE | re.MULTILINE)
-        else:
-            comp = re.compile(re.escape(query), re.IGNORECASE)
+        comp = re.compile(re.escape(query), re.IGNORECASE | re.MULTILINE)
     except Exception:
         comp = None
 
