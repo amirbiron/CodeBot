@@ -487,59 +487,93 @@ class EditorManager {
   
   // טעינת תמיכת שפה - עם CDN URLs מלאים
   async getLanguageSupport(lang) {
-    // מיפוי שפות ל-CDN URLs
+    // מיפוי שפות לרשימת CDN-ים לפי סדר עדיפות
     const langMap = {
-      'python': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js',
-      'javascript': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js',
-      'html': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js',
-      'css': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js',
-      'sql': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6/dist/index.js',
-      'json': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6/dist/index.js',
-      'markdown': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js',
-      'xml': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6/dist/index.js',
-      'java': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-java@6/dist/index.js',
-      'cpp': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-cpp@6/dist/index.js',
-      'rust': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-rust@6/dist/index.js',
-      'php': 'https://cdn.jsdelivr.net/npm/@codemirror/lang-php@6/dist/index.js'
+      'python': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-python@6/dist/index.js'
+      ],
+      'javascript': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-javascript@6/dist/index.js'
+      ],
+      'html': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-html@6/dist/index.js'
+      ],
+      'css': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-css@6/dist/index.js'
+      ],
+      'sql': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-sql@6/dist/index.js'
+      ],
+      'json': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-json@6/dist/index.js'
+      ],
+      'markdown': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-markdown@6/dist/index.js'
+      ],
+      'xml': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-xml@6/dist/index.js'
+      ],
+      'java': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-java@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-java@6/dist/index.js'
+      ],
+      'cpp': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-cpp@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-cpp@6/dist/index.js'
+      ],
+      'rust': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-rust@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-rust@6/dist/index.js'
+      ],
+      'php': [
+        'https://cdn.jsdelivr.net/npm/@codemirror/lang-php@6/dist/index.js',
+        'https://unpkg.com/@codemirror/lang-php@6/dist/index.js'
+      ]
     };
-    
-    if (langMap[lang]) {
-      try {
-        // טעינת המודול מה-CDN
-        const module = await import(langMap[lang]);
-        
-        // קריאה לפונקציה המתאימה לשפה
-        switch(lang) {
-          case 'python': return module.python();
-          case 'javascript': return module.javascript();
-          case 'html': return module.html();
-          case 'css': return module.css();
-          case 'sql': return module.sql();
-          case 'json': return module.json();
-          case 'markdown': return module.markdown();
-          case 'xml': return module.xml();
-          case 'java': return module.java();
-          case 'cpp': return module.cpp();
-          case 'rust': return module.rust();
-          case 'php': return module.php();
-          default: return [];
-        }
-      } catch (e) {
-        console.warn(`Language ${lang} failed to load from CDN:`, e);
-        return [];
+    const urls = langMap[lang];
+    if (!urls) return [];
+    try {
+      const module = await this.importWithFallback(urls);
+      switch (lang) {
+        case 'python': return module.python();
+        case 'javascript': return module.javascript();
+        case 'html': return module.html();
+        case 'css': return module.css();
+        case 'sql': return module.sql();
+        case 'json': return module.json();
+        case 'markdown': return module.markdown();
+        case 'xml': return module.xml();
+        case 'java': return module.java();
+        case 'cpp': return module.cpp();
+        case 'rust': return module.rust();
+        case 'php': return module.php();
+        default: return [];
       }
+    } catch (e) {
+      console.warn(`Language ${lang} failed to load from all CDNs:`, e);
+      return [];
     }
-    return [];
   }
   
   // קבלת ערכת נושא - עם CDN URL מלא
   async getTheme(themeName) {
     if (themeName === 'dark') {
       try {
-        const module = await import('https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js');
+        const module = await this.importWithFallback([
+          'https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js',
+          'https://unpkg.com/@codemirror/theme-one-dark@6/dist/index.js'
+        ]);
         return module.oneDark;
       } catch (e) {
-        console.warn('Dark theme failed to load from CDN:', e);
+        console.warn('Dark theme failed to load from all CDNs:', e);
       }
     }
     return []; // ברירת מחדל - בהיר
@@ -637,6 +671,18 @@ class EditorManager {
       clearTimeout(timeout);
       timeout = setTimeout(later, wait);
     };
+  }
+
+  // טעינה עם Fallback ל־CDN חלופי
+  async importWithFallback(urls) {
+    for (const url of urls) {
+      try {
+        return await import(url);
+      } catch (_) {
+        // ננסה את הבא
+      }
+    }
+    throw new Error('CDN load failed');
   }
   
   // ולידציה של תוכן הקוד לאבטחה
@@ -905,6 +951,68 @@ document.addEventListener('DOMContentLoaded', async () => {
 ```html
 <!-- אותן תוספות כמו ב-edit_file.html -->
 ```
+
+### 4. Auto‑Save מקומי (ללא תלות בשרת)
+
+שומר טיוטה מקומית כל כמה שניות ומציע שחזור בביקור הבא. המפתח ממוספר לפי כתובת העמוד כדי למנוע דריסות בין קבצים שונים.
+
+```html
+<script>
+(function(){
+  const KEY = `autosave:${location.pathname}`;
+  const ta = () => document.querySelector('textarea[name="code"]');
+  const getValue = () => (window.editorManager?.getValue?.() || ta()?.value || '');
+  function safeGet(){ try { return localStorage.getItem(KEY); } catch(_) { return null; } }
+  function safeSet(v){ try { localStorage.setItem(KEY, v); } catch(_) {} }
+
+  // שמירה מחזורית עם throttle עדין
+  let last = 0;
+  setInterval(() => {
+    const now = Date.now();
+    if (now - last < 1000) return;
+    last = now;
+    const val = getValue();
+    if (val) safeSet(val);
+  }, 5000);
+
+  // שחזור טיוטה אם העורך ריק
+  window.addEventListener('DOMContentLoaded', () => {
+    const draft = safeGet();
+    const textarea = ta();
+    if (draft && textarea && !textarea.value) textarea.value = draft;
+  });
+})();
+</script>
+```
+
+### 5. התאמת גובה העורך במובייל (visualViewport)
+
+מונע דחיפת העורך מתחת למקלדת וירטואלית. עובד גם עם CodeMirror וגם עם textarea.
+
+```html
+<script>
+(function(){
+  const target = () => document.querySelector('.cm-editor') || document.querySelector('textarea[name="code"]');
+  function adjust(){
+    const vp = window.visualViewport;
+    const h = (vp && vp.height) || window.innerHeight;
+    const top = (vp && vp.offsetTop) || 0;
+    const reserved = 140; // ריווח לניווט/כותרת
+    const el = target();
+    if (!el) return;
+    el.style.maxHeight = Math.max(200, h - reserved - top) + 'px';
+  }
+  (window.visualViewport || window).addEventListener('resize', adjust);
+  window.addEventListener('orientationchange', () => setTimeout(adjust, 200));
+  window.addEventListener('focusin', adjust);
+  window.addEventListener('DOMContentLoaded', adjust);
+})();
+</script>
+```
+
+### 6. טעינת CDN עם Fallback
+
+הוספנו מתודת `importWithFallback` ודאגנו ש־`getLanguageSupport` ו־`getTheme` ינסו קודם jsDelivr ואז unpkg. כך טעינת חבילות השפה/הנושא תישאר יציבה גם ברשת לא אידיאלית.
 
 ---
 
