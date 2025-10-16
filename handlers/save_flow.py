@@ -189,11 +189,8 @@ async def long_collect_receive(update, context: ContextTypes.DEFAULT_TYPE) -> in
             await update.message.reply_text("📎 קיבלתי קובץ שאינו טקסט. שלח/י מסמך טקסט או הדבק/י את הקוד כהודעת טקסט.")
             return LONG_COLLECT
     elif update.message.text:
-        # שחזור טקסט עם סימוני Markdown שנבלעו (למשל __main__)
-        try:
-            text = TelegramUtils.extract_message_text_preserve_markdown(update.message) or ''
-        except Exception:
-            text = update.message.text or ''
+        # קלט טקסט גולמי בדיוק כפי שנשלח ע"י המשתמש, ללא הזרקת Markdown
+        text = update.message.text or ''
     else:
         await update.message.reply_text("🖼️ התקבלה הודעה שאינה טקסט. שלח/י קוד כהודעת טקסט או קובץ טקסט.")
         return LONG_COLLECT
@@ -277,11 +274,8 @@ async def long_collect_done(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def get_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # שחזור טקסט עם סימוני Markdown שנבלעו
-    try:
-        code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
-    except Exception:
-        code = update.message.text
+    # קלט טקסט גולמי כפי שנשלח ע"י המשתמש, ללא המרה ל-Markdown
+    code = update.message.text or ''
     # נרמול מוקדם כדי למנוע תווים נסתרים כבר בשלב האיסוף
     try:
         code = normalize_code(code)

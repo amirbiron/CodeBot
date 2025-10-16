@@ -1268,11 +1268,8 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.message.reply_text("❌ שגיאה בעדכון ההערה")
         return ConversationHandler.END
 
-    # שחזור טקסט עם סימוני Markdown שנבלעו (לדוגמה __main__)
-    try:
-        new_code = TelegramUtils.extract_message_text_preserve_markdown(update.message)
-    except Exception:
-        new_code = update.message.text
+    # קבלת טקסט גולמי כפי שנשלח ע"י המשתמש (ללא פרשנות Markdown)
+    new_code = update.message.text or ''
     
     # בדיקה אם מדובר בעריכת קובץ גדול
     editing_large_file = context.user_data.get('editing_large_file')
