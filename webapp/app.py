@@ -896,11 +896,10 @@ def _safe_search(user_id: int, query: str, **kwargs):
     if search_engine:
         try:
             engine_results = search_engine.search(user_id, query, **kwargs)
-            # אם המנוע החזיר תוצאות – נחזיר אותן. אם החזיר ריק, ננסה נפילה לאחור ל-DB.
-            if isinstance(engine_results, list) and len(engine_results) > 0:
-                return engine_results
+            # גם רשימה ריקה היא תוצאה תקפה ("אין תוצאות") — נחזיר כפי שהיא
+            return engine_results
         except Exception:
-            # ניפול ל-fallback הבסיסי במקרה של תקלה
+            # ניפול ל-fallback הבסיסי במקרה של תקלה בלבד
             engine_results = None
 
     # Fallback: חיפוש בסיסי ב-MongoDB על תוכן הקבצים (code)

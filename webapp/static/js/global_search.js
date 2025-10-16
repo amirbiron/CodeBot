@@ -109,7 +109,7 @@
     const pagination = $('searchPagination');
     const msg = String(message || 'אירעה שגיאה');
     if (container && info && results && pagination){
-      info.innerHTML = '<div class="alert alert-error">' + escapeHtml(msg) + '</div>';
+      info.innerHTML = '<div class="alert alert-danger">' + escapeHtml(msg) + '</div>';
       results.innerHTML = '';
       pagination.innerHTML = '';
       container.style.display = 'block';
