@@ -1,10 +1,8 @@
 name: 📚 Build Documentation (Sphinx)
 
 on:
-  pull_request:
-    branches: [ "**" ]
-  push:
-    branches: [ main ]
+  # הפעלה ידנית בלבד כדי להימנע מחפיפה עם documentation.yml
+  workflow_dispatch:
 
 jobs:
   build-docs:
@@ -22,13 +20,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            docs/requirements.txt
 
-      - name: Install dependencies
+      - name: Install dependencies (docs only)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints
-          # Install doc-specific requirements (includes sphinxcontrib-mermaid)
+          # Build docs without full project deps; conf.py mocks heavy imports
           pip install -r docs/requirements.txt || true
 
       - name: Build documentation
@@ -39,7 +39,7 @@ jobs:
           MONGODB_URL: "mongodb://localhost:27017/test"
         run: |
           cd docs
-          sphinx-build -b html . _build/html -W --keep-going
+          sphinx-build -b html . _build/html -W --keep-going -j auto
 
       - name: Upload docs artifact
         if: always()
