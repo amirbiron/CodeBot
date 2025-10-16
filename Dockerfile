@@ -4,7 +4,7 @@
 # ===================================
 
 # שלב 1: Build stage (wheel build if needed)
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 # מידע על התמונה
 LABEL maintainer="Code Keeper Bot Team"
@@ -49,7 +49,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 ######################################
 # שלב 2: Production stage (Alpine)
-FROM python:3.12-slim AS production
+FROM python:3.14-slim AS production
 
 # משתני סביבה לייצור
 ENV PYTHONUNBUFFERED=1
