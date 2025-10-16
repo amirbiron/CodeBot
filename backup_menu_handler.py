@@ -11,6 +11,22 @@ from handlers.pagination import build_pagination_row
 
 logger = logging.getLogger(__name__)
 
+# Structured logging and performance instrumentation (fail-open in tests)
+try:
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields: Any) -> None:  # type: ignore
+        return None
+
+try:
+    from metrics import track_performance  # type: ignore
+except Exception:  # pragma: no cover
+    from contextlib import contextmanager
+
+    @contextmanager
+    def track_performance(_operation: str, labels: Optional[Dict[str, str]] = None):  # type: ignore
+        yield
+
 # עזר לפורמט גודל
 
 def _format_bytes(num: int) -> str:
@@ -157,6 +173,11 @@ class BackupMenuHandler:
 			[InlineKeyboardButton("🗂 גיבויים אחרונים", callback_data="backup_list")],
 		]
 		reply_markup = InlineKeyboardMarkup(keyboard)
+		try:
+			user_id = (update.callback_query.from_user.id if update.callback_query else update.effective_user.id)
+			emit_event("backup_menu_opened", severity="info", user_id=int(user_id))
+		except Exception:
+			pass
 		await message("בחר פעולה מתפריט הגיבוי/שחזור:", reply_markup=reply_markup)
 	
 	async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -217,8 +238,16 @@ class BackupMenuHandler:
 					await self._show_backups_list(update, context)
 				else:
 					await update.callback_query.edit_message_text("❌ המחיקה נכשלה")
+				try:
+					emit_event("backup_delete_one", severity="info" if deleted else "warn", user_id=int(user_id), backup_id=str(backup_id), deleted=int(deleted))
+				except Exception:
+					pass
 			except Exception as e:
 				await update.callback_query.edit_message_text(f"❌ שגיאה במחיקה: {e}")
+				try:
+					emit_event("backup_delete_one_error", severity="error", user_id=int(user_id), backup_id=str(backup_id), error=str(e))
+				except Exception:
+					pass
 		elif data == "backup_delete_mode_on":
 			context.user_data["backup_delete_mode"] = True
 			context.user_data["backup_delete_selected"] = set()
@@ -241,7 +270,7 @@ class BackupMenuHandler:
 				await query.answer("לא נבחרו פריטים", show_alert=True)
 				return
 			# הצג מסך אימות סופי
-			txt = "האם אתה בטוח שברצונך למחוק את:"\
+			txt = "אישור מחיקה\nהאם אתה בטוח שברצונך למחוק את:"\
 				+ "\n" + "\n".join(sel[:15]) + ("\n…" if len(sel) > 15 else "")
 			kb = [
 				[InlineKeyboardButton("✅ אישור מחיקה", callback_data="backup_delete_execute")],
@@ -310,6 +339,10 @@ class BackupMenuHandler:
 		await query.edit_message_text("⏳ יוצר גיבוי מלא...")
 		# יצירת גיבוי מלא (מייצא את כל הקבצים ממונגו לזיפ ושומר ב-GridFS/דיסק)
 		try:
+			try:
+				emit_event("backup_create_full_start", severity="info", user_id=int(user_id))
+			except Exception:
+				pass
 			from io import BytesIO
 			import zipfile, json
 			from database import db
@@ -317,34 +350,51 @@ class BackupMenuHandler:
 			files = db.get_user_files(user_id, limit=10000) or []
 			backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
 			buf = BytesIO()
-			with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-				# כתיבת תוכן הקבצים
-				for doc in files:
-					name = doc.get('file_name') or f"file_{doc.get('_id')}"
-					code = doc.get('code') or ''
-					zf.writestr(name, code)
-				# מטאדטה
-				metadata = {
-					"backup_id": backup_id,
-					"user_id": user_id,
-					"created_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
-					"backup_type": "manual",
-					"include_versions": True,
-					"file_count": len(files)
-				}
-				zf.writestr('metadata.json', json.dumps(metadata, indent=2))
+			with track_performance("backup_create_full_zip"):
+				with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+					# כתיבת תוכן הקבצים
+					for doc in files:
+						name = doc.get('file_name') or f"file_{doc.get('_id')}"
+						code = doc.get('code') or ''
+						zf.writestr(name, code)
+					# מטאדטה
+					metadata = {
+						"backup_id": backup_id,
+						"user_id": user_id,
+						"created_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+						"backup_type": "manual",
+						"include_versions": True,
+						"file_count": len(files)
+					}
+					zf.writestr('metadata.json', json.dumps(metadata, indent=2))
 			buf.seek(0)
 			# שמור בהתאם למצב האחסון
-			backup_manager.save_backup_bytes(buf.getvalue(), metadata)
+			with track_performance("backup_save_bytes"):
+				backup_manager.save_backup_bytes(buf.getvalue(), metadata)
 			# שלח קובץ למשתמש
 			buf.seek(0)
 			await query.message.reply_document(
 				document=InputFile(buf, filename=f"{backup_id}.zip"),
 				caption=f"✅ גיבוי נוצר בהצלחה\nקבצים: {len(files)} | גודל: {_format_bytes(len(buf.getvalue()))}"
 			)
+			try:
+				emit_event(
+					"backup_create_full_success",
+					severity="info",
+					user_id=int(user_id),
+					backup_id=str(backup_id),
+					files_count=int(len(files)),
+					size_bytes=int(len(buf.getvalue())),
+				)
+			except Exception:
+				pass
 			await self.show_backup_menu(update, context)
 		except Exception as e:
 			logger.error(f"Failed creating/sending backup: {e}")
+			try:
+				emit_event("backup_create_full_error", severity="error", user_id=int(user_id), error=str(e))
+			except Exception:
+				pass
 			await query.edit_message_text("❌ יצירת הגיבוי נכשלה")
 	
 	async def _start_full_restore(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -358,7 +408,8 @@ class BackupMenuHandler:
 		user_id = query.from_user.id
 		await query.answer()
 		highlight_id = context.user_data.pop("backup_highlight_id", None)
-		backups = backup_manager.list_backups(user_id)
+		with track_performance("backup_list_backups"):
+			backups = backup_manager.list_backups(user_id)
 		# מציגים אך ורק קבצי ZIP השייכים למשתמש הנוכחי (סינון נעשה בשכבת השירות)
 		# יעד חזרה דינמי לפי מקור הכניסה ("📚" או GitHub)
 		zip_back_to = context.user_data.get('zip_back_to')
@@ -387,6 +438,10 @@ class BackupMenuHandler:
 			msg = "ℹ️ לא נמצאו גיבויים שמורים."
 			if current_repo:
 				msg = f"ℹ️ לא נמצאו גיבויים עבור הריפו:\n<code>{current_repo}</code>"
+			try:
+				emit_event("backup_list_empty", severity="info", user_id=int(user_id), repo=str(current_repo or ""), source=str(zip_back_to or ""))
+			except Exception:
+				pass
 			await query.edit_message_text(
 				msg,
 				reply_markup=InlineKeyboardMarkup(keyboard)
@@ -513,6 +568,10 @@ class BackupMenuHandler:
 		keyboard.append(controls_row)
 		keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data=back_cb)])
 		await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard))
+		try:
+			emit_event("backup_list_shown", severity="info", user_id=int(user_id), total=int(total), page=int(page))
+		except Exception:
+			pass
 
 	async def send_rating_prompt(self, update: Update, context: ContextTypes.DEFAULT_TYPE, backup_id: str):
 		"""שולח הודעת תיוג עם 3 כפתורים עבור גיבוי מסוים."""
