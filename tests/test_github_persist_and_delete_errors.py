@@ -84,7 +84,7 @@ async def test_github_delete_file_error_emits_and_counts(monkeypatch):
         default_branch = "main"
         full_name = "owner/repo"
         def get_contents(self, path):
-            return types.SimpleNamespace(path=path, sha="sha1", type="file")
+            return types.SimpleNamespace(path=path, sha="sha1", type="file", name=path.split('/')[-1] or 'f.txt')
         def delete_file(self, *a, **k):
             raise RuntimeError("delete-fail")
     class _GH:
