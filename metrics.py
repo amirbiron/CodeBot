@@ -27,7 +27,7 @@ errors_total = Counter("errors_total", "Total error count", ["code"]) if Counter
 operation_latency_seconds = Histogram(
     "operation_latency_seconds",
     "Operation latency in seconds",
-    ["operation"],
+    ["operation", "repo"],
 ) if Histogram else None
 telegram_updates_total = Counter(
     "telegram_updates_total",
