@@ -39,6 +39,7 @@ async def test_zip_create_error_emits_event_and_counter(monkeypatch):
     class _Query:
         data = "download_zip:"
         message = _Msg()
+        from_user = types.SimpleNamespace(id=1)
         async def edit_message_text(self, *a, **k):
             return None
         async def answer(self, *a, **k):
@@ -102,6 +103,7 @@ async def test_inline_download_error_emits_event_and_counter(monkeypatch):
     class _Query:
         data = "inline_download_file:path/to/file.txt"
         message = _Msg2()
+        from_user = types.SimpleNamespace(id=1)
         async def edit_message_text(self, *a, **k):
             return None
         async def answer(self, *a, **k):
