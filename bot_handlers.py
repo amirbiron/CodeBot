@@ -92,6 +92,7 @@ class AdvancedBotHandlers:
         # ChatOps MVP + Stage 2 commands
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("observe", self.observe_command))
+        self.application.add_handler(CommandHandler("triage", self.triage_command))
         # Observability v6 – Predictive Health
         self.application.add_handler(CommandHandler("predict", self.predict_command))
         # Observability v7 – Prediction accuracy
@@ -945,7 +946,7 @@ class AdvancedBotHandlers:
             await update.message.reply_text(f"❌ שגיאה ב-/accuracy: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""
+        """/errors – 10 השגיאות האחרונות. מקור ראשי: Sentry; Fallback: זיכרון מקומי."""
         try:
             # הרשאות: אדמינים בלבד
             try:
@@ -955,26 +956,103 @@ class AdvancedBotHandlers:
             if not self._is_admin(user_id):
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
+
             lines: list[str] = []
             used_fallback = False
-            # Try Sentry via environment – not implemented here to avoid hard dep; fallback to local buffer
+
+            # 1) Sentry-first (best-effort)
             try:
-                from observability import get_recent_errors  # type: ignore
-                recent = get_recent_errors(limit=10) or []
-                if recent:
-                    for i, er in enumerate(recent, 1):
-                        code = er.get("error_code") or "-"
-                        msg = er.get("error") or er.get("event") or ""
-                        lines.append(f"{i}. [{code}] {msg}")
-                else:
-                    used_fallback = True
+                import integrations_sentry as _sentry  # type: ignore
+                if getattr(_sentry, "is_configured", None) and _sentry.is_configured():
+                    issues = await _sentry.get_recent_issues(limit=10)
+                    if issues:
+                        for i, it in enumerate(issues, 1):
+                            sid = str(it.get("shortId") or it.get("id") or "-")
+                            title = str(it.get("title") or "")
+                            lines.append(f"{i}. [{sid}] {title}")
             except Exception:
-                used_fallback = True
+                # ignore and try fallback
+                pass
+
+            # 2) Fallback – recent errors buffer from observability
+            if not lines:
+                try:
+                    from observability import get_recent_errors  # type: ignore
+                    recent = get_recent_errors(limit=10) or []
+                    if recent:
+                        for i, er in enumerate(recent, 1):
+                            code = er.get("error_code") or "-"
+                            msg = er.get("error") or er.get("event") or ""
+                            lines.append(f"{i}. [{code}] {msg}")
+                    else:
+                        used_fallback = True
+                except Exception:
+                    used_fallback = True
+
             if used_fallback and not lines:
                 lines.append("(אין נתוני שגיאות זמינים בסביבה זו)")
             await update.message.reply_text("\n".join(["🧰 שגיאות אחרונות:"] + lines))
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/errors: {html.escape(str(e))}")
+
+    async def triage_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/triage <request_id|query> – דוח חקירה קצר + קישור ל-HTML"""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            args = context.args or []
+            query = " ".join(args).strip()
+            if not query:
+                await update.message.reply_text("ℹ️ שימוש: /triage <request_id או שאילתא>")
+                return
+
+            # איסוף נתונים דרך שירות ה-investigation (Sentry-first, best-effort)
+            result: dict = {}
+            try:
+                from services import investigation_service as inv  # type: ignore
+                result = await inv.triage(query, limit=20)
+            except Exception:
+                result = {"query": query, "timeline": [], "summary_text": ""}
+
+            summary_lines: list[str] = ["🔎 Triage", f"Query: {html.escape(query)}"]
+            text_summary = str(result.get("summary_text") or "").strip()
+            if text_summary:
+                summary_lines.append(text_summary)
+
+            # שיתוף דוח HTML מלא כ-share פנימי
+            share_url = None
+            try:
+                from integrations import code_sharing  # type: ignore
+                html_doc = str(result.get("summary_html") or "")
+                share = await code_sharing.share_code(
+                    "internal", f"triage-{query}.html", html_doc, "html", description="Triage report"
+                )
+                if isinstance(share, dict):
+                    share_url = share.get("url")
+            except Exception:
+                share_url = None
+            if share_url:
+                summary_lines.append(f"דוח מלא: {share_url}")
+
+            # קישורי Grafana (2 ראשונים)
+            try:
+                links = list(result.get("grafana_links") or [])
+                if links:
+                    glines = ", ".join(f"[{l.get('name')}]({l.get('url')})" for l in links[:2])
+                    summary_lines.append(f"Grafana: {glines}")
+            except Exception:
+                pass
+
+            await update.message.reply_text("\n".join(summary_lines), parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/triage: {html.escape(str(e))}")
 
     async def rate_limit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/rate_limit – מצב מגבלת GitHub עם התראה אם שימוש >80%"""
