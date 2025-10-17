@@ -529,14 +529,36 @@ class AdvancedSearchEngine:
     def _create_search_result(self, file_data: Dict, query: str, score: float) -> SearchResult:
         """יצירת אובייקט תוצאת חיפוש"""
         
+        # נרמול בטוח של שדות בעייתיים
+        raw_tags = file_data.get('tags')
+        safe_tags = list(raw_tags or [])
+
+        raw_version = file_data.get('version')
+        try:
+            if isinstance(raw_version, bool):  # הגן מפני True/False שמתקבלים ממונגו לעתים
+                safe_version = 1
+            elif isinstance(raw_version, (int, float)):
+                safe_version = int(raw_version)
+            elif isinstance(raw_version, str):
+                v = raw_version.strip()
+                if v.isdigit():
+                    safe_version = int(v)
+                else:
+                    # נסיון lenient: המרת מחרוזת מספרית לא שלמה (למשל "1.0")
+                    safe_version = int(float(v))
+            else:
+                safe_version = 1
+        except Exception:
+            safe_version = 1
+
         return SearchResult(
             file_name=str(file_data.get('file_name') or ''),
             content=str(file_data.get('code') or ''),
             programming_language=str(file_data.get('programming_language') or ''),
-            tags=list(file_data.get('tags', [])),
+            tags=safe_tags,
             created_at=file_data.get('created_at') or datetime.now(timezone.utc),
             updated_at=file_data.get('updated_at') or datetime.now(timezone.utc),
-            version=int(file_data.get('version') or 1),
+            version=safe_version,
             relevance_score=float(score)
         )
     
