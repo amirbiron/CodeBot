@@ -312,6 +312,87 @@ class TestBookmarksManager(unittest.TestCase):
         )
         self.assertFalse(result["ok"])
         self.assertIn("שגיאה בעדכון הצבע", result["error"])  # generic error message
+
+    # ===== Anchor-based bookmarks tests =====
+    def test_toggle_bookmark_add_anchor(self):
+        """Adding anchor-based bookmark should set synthetic line number and save anchor fields"""
+        # No existing
+        self.mock_collection.find_one.return_value = None
+        # Limits OK
+        self.mock_collection.count_documents.return_value = 0
+        # Insert OK
+        self.mock_collection.insert_one.return_value = Mock(inserted_id="anc_id")
+
+        # Mock synthetic line number mapping to be deterministic
+        with patch.object(self.manager, '_anchor_line_from_id', return_value=1_000_000_123):
+            result = self.manager.toggle_bookmark(
+                user_id=7,
+                file_id="f1",
+                file_name="README.md",
+                file_path="/docs/README.md",
+                line_number=0,  # not required for anchors
+                line_text="Heading line",
+                note="Anchor note",
+                color="green",
+                anchor_id="section-intro",
+                anchor_text="Introduction",
+                anchor_type="md_heading",
+            )
+
+        self.assertTrue(result["ok"])  # added
+        self.assertEqual(result["action"], "added")
+        # Verify insert payload contains anchor fields and synthetic line number
+        args, _ = self.mock_collection.insert_one.call_args
+        payload = args[0]
+        self.assertEqual(payload.get("anchor_id"), "section-intro")
+        self.assertEqual(payload.get("anchor_text"), "Introduction")
+        self.assertEqual(payload.get("anchor_type"), "md_heading")
+        self.assertEqual(payload.get("line_number"), 1_000_000_123)
+
+    def test_toggle_bookmark_remove_anchor(self):
+        """Toggling when anchor bookmark exists should delete it"""
+        existing = {"_id": "x1", "user_id": 7, "file_id": "f1", "anchor_id": "section-intro"}
+        self.mock_collection.find_one.return_value = existing
+
+        result = self.manager.toggle_bookmark(
+            user_id=7,
+            file_id="f1",
+            file_name="README.md",
+            file_path="/docs/README.md",
+            line_number=0,
+            anchor_id="section-intro",
+        )
+
+        self.assertTrue(result["ok"])  # removed
+        self.assertEqual(result["action"], "removed")
+        self.mock_collection.delete_one.assert_called_once_with({"_id": "x1"})
+
+    def test_update_bookmark_color_by_anchor(self):
+        self.mock_collection.update_one.return_value = Mock(modified_count=1)
+        out = self.manager.update_bookmark_color_by_anchor(1, "f1", "a1", "red")
+        self.assertTrue(out["ok"])  # success
+        args, _ = self.mock_collection.update_one.call_args
+        self.assertEqual(args[0]["anchor_id"], "a1")
+        self.assertEqual(args[1]["$set"]["color"], "red")
+
+    def test_update_bookmark_color_by_anchor_invalid(self):
+        out = self.manager.update_bookmark_color_by_anchor(1, "f1", "a1", "not-a-color")
+        self.assertFalse(out["ok"])  # invalid color
+        self.mock_collection.update_one.assert_not_called()
+
+    def test_update_bookmark_note_by_anchor(self):
+        self.mock_collection.update_one.return_value = Mock(modified_count=1)
+        out = self.manager.update_bookmark_note_by_anchor(1, "f1", "a1", "note")
+        self.assertTrue(out["ok"])  # success
+        args, _ = self.mock_collection.update_one.call_args
+        self.assertEqual(args[0]["anchor_id"], "a1")
+        self.assertEqual(args[1]["$set"]["note"], "note")
+
+    def test_delete_bookmark_by_anchor(self):
+        self.mock_collection.find_one.return_value = {"_id": "z9", "user_id": 1, "file_id": "f1", "anchor_id": "a1"}
+        out = self.manager.delete_bookmark_by_anchor(1, "f1", "a1")
+        self.assertTrue(out["ok"])  # deleted
+        self.mock_collection.delete_one.assert_called_once_with({"_id": "z9"})
     
     def test_delete_bookmark(self):
         """Test deleting a specific bookmark"""
