@@ -269,7 +269,10 @@ def _predict_cross(
     horizon_sec: int,
 ) -> Trend:
     try:
-        pts = list(points)
+        # Focus trend estimation on recent window equal to prediction horizon
+        # to better reflect current direction (reduces influence of stale data).
+        cutoff = now_ts - float(horizon_sec)
+        pts = [p for p in list(points) if p[0] >= cutoff] or list(points)
         if _MODEL_MODE == "exp_smoothing":
             slope_min, intercept = _exp_weighted_regression(pts, _HALFLIFE_MINUTES)
         else:

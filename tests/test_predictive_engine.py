@@ -91,11 +91,18 @@ def test_adaptive_feedback_accuracy_and_halflife_tuning(monkeypatch, tmp_path):
     assert pe._HALFLIFE_MIN_MIN <= pe._HALFLIFE_MINUTES <= pe._HALFLIFE_MIN_MAX
 
 
-    # Now seed a decreasing latency pattern and verify negative slope
+    # Now seed a decreasing latency pattern (recent) and verify negative slope
     for i in range(12):
-        pe.note_observation(error_rate_percent=2.0, latency_seconds=3.0 - i * 0.2, memory_usage_percent=20.0, ts=base + (25 + i) * 60)
+        # Start after feedback window, ensure decreasing and within last 15m window
+        pe.note_observation(
+            error_rate_percent=2.0,
+            latency_seconds=3.0 - i * 0.2,
+            memory_usage_percent=20.0,
+            ts=base + (60 + i) * 60,
+        )
 
-    trends = pe.evaluate_predictions(now_ts=base + 40 * 60, horizon_seconds=15 * 60)
+    # Evaluate near the last sample; horizon 15m focuses trend on recent points
+    trends = pe.evaluate_predictions(now_ts=base + 72 * 60, horizon_seconds=15 * 60)
     lat_trend = [t for t in trends if t.metric == "latency_seconds"][0]
     assert lat_trend.slope_per_minute < 0
     assert lat_trend.predicted_cross_ts is None
