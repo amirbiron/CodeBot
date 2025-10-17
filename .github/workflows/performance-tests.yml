@@ -49,6 +49,12 @@ jobs:
         run: |
           echo "Running all performance tests (if any)..."
           pytest -v -o addopts="" -m performance || echo "No performance tests found or none collected."
+      - name: Collect test durations (default)
+        if: always() && (github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light')))
+        run: |
+          echo "Collecting durations for all performance tests..."
+          pytest -o addopts="" -m performance --durations=0 --json-report --json-report-file=durations.json || true
+          cat durations.json | jq '.summary.durations' > durations-summary.json || echo '{}' > durations-summary.json
 
       # כאשר ה‑PR הוא draft ומתויג perf-light: להריץ רק קלים
       - name: Run LIGHT performance tests (draft + perf-light)
@@ -58,3 +64,21 @@ jobs:
         run: |
           echo "Running light performance tests (if any)..."
           pytest -v -o addopts="" -m performance || echo "No performance tests found or none collected."
+      - name: Collect test durations (light)
+        if: always() && (github.event_name == 'pull_request' && github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light'))
+        env:
+          ONLY_LIGHT_PERF: '1'
+        run: |
+          echo "Collecting durations for light performance tests..."
+          pytest -o addopts="" -m performance --durations=0 --json-report --json-report-file=durations.json || true
+          cat durations.json | jq '.summary.durations' > durations-summary.json || echo '{}' > durations-summary.json
+
+      - name: Upload durations artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-durations-${{ github.run_id }}
+          path: |
+            durations.json
+            durations-summary.json
+          if-no-files-found: warn
