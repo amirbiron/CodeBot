@@ -16,7 +16,7 @@ class FileBookmark:
     file_id: str                     # MongoDB ObjectId של הקובץ
     file_name: str                   # שם הקובץ לחיפוש מהיר
     file_path: str                   # נתיב הקובץ המלא
-    line_number: int                 # מספר השורה (1-based)
+    line_number: int                 # מספר השורה (1-based). במקרה של עוגן (Markdown/HTML) יכול להיות 0
     
     # Content preview
     line_text_preview: str = ""     # 100 התווים הראשונים של השורה
@@ -25,6 +25,11 @@ class FileBookmark:
     # User content
     note: str = ""                   # הערת המשתמש (עד 500 תווים)
     color: str = "yellow"            # צבע הסימנייה (yellow/red/green/blue)
+    
+    # Anchor-based bookmarks (Markdown/HTML)
+    anchor_id: str = ""              # מזהה עוגן ייחודי בתוך המסמך (id של כותרת למשל)
+    anchor_text: str = ""            # טקסט תיאורי לעוגן (למשל כותרת)
+    anchor_type: str = ""            # סוג העוגן: 'md_heading'/'html_id' וכד'. ריק כשמבוסס שורה
     
     # Sync metadata
     file_hash: str = ""              # SHA256 של הקובץ בזמן היצירה
@@ -60,6 +65,13 @@ class FileBookmark:
             "updated_at": self.updated_at,
             "last_accessed": self.last_accessed
         }
+        # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
+        if (self.anchor_id or "").strip():
+            data["anchor_id"] = self.anchor_id
+            if self.anchor_text:
+                data["anchor_text"] = self.anchor_text
+            if self.anchor_type:
+                data["anchor_type"] = self.anchor_type
         
         if self._id:
             data["_id"] = self._id
@@ -93,6 +105,9 @@ class FileBookmark:
             code_context=data.get("code_context", ""),
             note=data.get("note", ""),
             color=data.get("color", "yellow"),
+            anchor_id=data.get("anchor_id", ""),
+            anchor_text=data.get("anchor_text", ""),
+            anchor_type=data.get("anchor_type", ""),
             file_hash=data.get("file_hash", ""),
             valid=data.get("valid", True),
             sync_status=data.get("sync_status", "synced"),

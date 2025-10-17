@@ -38,6 +38,18 @@
     opacity: 1 !important;
 }
 
+/* כותרות/אלמנטים מסומנים בעוגן במצבי Markdown/HTML */
+#md-content h1.bookmarked,
+#md-content h2.bookmarked,
+#md-content h3.bookmarked,
+#md-content h4.bookmarked,
+#md-content h5.bookmarked,
+#md-content h6.bookmarked,
+iframe .bookmarked {
+    position: relative;
+    background: linear-gradient(90deg, var(--bookmark-yellow) 3px, transparent 3px);
+}
+
 /* Indicators */
 .linenos span.bookmarked,
 .linenodiv a.bookmarked,

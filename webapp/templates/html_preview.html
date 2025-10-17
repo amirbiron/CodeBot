@@ -131,6 +131,55 @@
   }
 })();
 
+// הזרקת מערכת סימניות בסיסית למסגרת ה-iframe כאשר מדובר ב-HTML עם ids
+(function(){
+  try {
+    const frame = document.getElementById('previewFrame');
+    if (!frame) return;
+    frame.addEventListener('load', function(){
+      // אין לנו same-origin בתוך sandbox, לכן נזריק מאזין לתוך הדף עצמו באמצעות script inline
+      try {
+        const js = `(() => {
+          try {
+            document.addEventListener('click', function(e){
+              var el = e.target && e.target.closest && e.target.closest('[id]');
+              if (!el) return;
+              var id = el.id || '';
+              if (!id) return;
+              var txt = (el.textContent||'').trim().slice(0,200);
+              try { parent.postMessage({ type: 'html-anchor-click', anchorId: id, anchorText: txt }, '*'); } catch(_) {}
+            }, { capture: true });
+          } catch(_) {}
+        })();`;
+        // נסיון כתיבה דרך contentWindow.eval; אם נחסם, נתעלם בשקט
+        try { frame.contentWindow && frame.contentWindow.eval && frame.contentWindow.eval(js); } catch(_) {}
+      } catch(_) {}
+    });
+    // קבל מסרים מה-iframe והפעל toggle סימנייה עוגן
+    window.addEventListener('message', function(ev){
+      try {
+        const data = ev.data || {};
+        if (data && data.type === 'html-anchor-click' && data.anchorId) {
+          if (window.bookmarkManager && window.bookmarkManager.api && typeof window.bookmarkManager.api.toggleBookmarkAnchor === 'function') {
+            window.bookmarkManager.api.toggleBookmarkAnchor(String(data.anchorId), String(data.anchorText||''), 'html_id', undefined, '')
+              .then((result)=>{
+                // רענון מצב קיים (טעינה מחדש מהשרת) – מינימלי: עדכון ספירה ופאנל
+                if (result && result.ok) {
+                  try { window.bookmarkManager.loadBookmarks(); } catch(_) {}
+                  try {
+                    if (result.action === 'added') window.bookmarkManager.ui.showNotification('סימנייה נוספה לעוגן', 'success');
+                    if (result.action === 'removed') window.bookmarkManager.ui.showNotification('סימנייה הוסרה', 'info');
+                  } catch(_) {}
+                }
+              })
+              .catch(()=>{ try { window.bookmarkManager.ui.showError('שגיאה בסימון עוגן'); } catch(_) {} });
+          }
+        }
+      } catch(_) {}
+    });
+  } catch(_) {}
+})();
+
 // חזרה אחורה שמכבדת את היסטוריית הניווט במסך אחד בלבד
 function goBack(ev){
   try { if (ev) ev.preventDefault(); } catch(e){}
@@ -151,5 +200,6 @@ function goBack(ev){
   return false;
 }
 </script>
+{% include 'bookmarks_snippet.html' %}
 {% endblock %}
 
