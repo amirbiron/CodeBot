@@ -498,6 +498,7 @@
         transform: none;
         padding: 1rem;
         border-radius: 15px;
+        max-width: calc(100% - 2rem);
     }
     
     .bulk-actions-toolbar.hidden {
@@ -542,4 +543,25 @@
     }
     
     /* במובייל נשמור על אותה לוגיקה של מצב מרובה */
+}
+
+/* הבטחה שכפתור הטוגל "בחירה מרובה" לא יחרוג שמאלה */
+#multiSelectToggleBtn {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* כאשר הכפתורים בשורת הפעולות עטופים, מנע גלישה שמאלה */
+.results-info > div + div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+@media (max-width: 480px) {
+    #multiSelectToggleBtn {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
 }

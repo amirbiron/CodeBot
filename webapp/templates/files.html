@@ -18,7 +18,7 @@
           <input type="text" id="globalSearchInput" class="form-control" placeholder="חפש טקסט/קוד בכל הקבצים..." style="flex:1; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;" autocomplete="off">
           <button class="btn btn-primary" id="searchBtn" onclick="performGlobalSearch()"><i class="fas fa-search"></i> חפש</button>
         </div>
-        <div id="searchSuggestions" class="list-group position-absolute w-100" style="z-index: 1000; display: none;"></div>
+        <div id="searchSuggestions" class="list-group position-absolute w-100" style="z-index: 1000; display: none; left: 0; right: 0; max-width: 100vw;"></div>
       </div>
       <div class="col-md-4" style="min-width: 180px;">
         <div class="filter-container" style="display:flex; gap:0.5rem; flex-wrap: wrap;">
@@ -168,12 +168,12 @@
             | שפה: {{ language_filter }}
             {% endif %}
         </div>
-        <div style="display:flex; gap:0.5rem; align-items:center;">
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap; min-width:0;">
             <a href="/upload" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;">
                 <i class="fas fa-plus"></i>
                 הוסף קובץ חדש
             </a>
-            <button id="multiSelectToggleBtn" type="button" class="btn btn-secondary btn-icon" title="בחירה מרובה">
+            <button id="multiSelectToggleBtn" type="button" class="btn btn-secondary btn-icon" title="בחירה מרובה" style="min-width:0;">
                 <i class="fas fa-tasks"></i>
                 בחירה מרובה
             </button>
@@ -446,6 +446,11 @@
         align-items: flex-start;
     }
 }
+</style>
+<style>
+/* קשיחות נוספת לצד ימין/שמאל – למנוע גלילה אופקית של שורות פעולה */
+.results-info { overflow-x: hidden; }
+.results-info > div { min-width: 0; }
 </style>
 <div id="bottom"></div>
 {% endblock %}
