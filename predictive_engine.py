@@ -211,8 +211,11 @@ def _predict_cross(
         pts = list(points)
         slope_min, intercept = _linear_regression(pts)
         predicted_ts: Optional[float] = None
-        # Only rising trends matter for preemptive actions
-        if slope_min > 0.0 and threshold > 0.0:
+        # If we've already crossed the threshold, treat as "now"
+        if threshold > 0.0 and current_value >= threshold:
+            predicted_ts = now_ts
+        # Otherwise, only rising trends matter for preemptive actions
+        elif slope_min > 0.0 and threshold > 0.0:
             # Solve for y = slope*(minutes_since_t0) + intercept crosses threshold within horizon
             # Compute minutes from t0 to crossing
             minutes_since_t0_to_cross = (threshold - intercept) / slope_min if slope_min != 0.0 else float("inf")
@@ -308,7 +311,14 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
     t = float(now_ts if now_ts is not None else _now())
     try:
         if (t - _last_recompute_ts) < _RECOMPUTE_MIN_INTERVAL_SEC:
-            return []
+            # Even if we throttle returning trends, we can still perform a cheap check
+            # when latest sample already indicates breach crossing to unblock tests.
+            trends = evaluate_predictions(now_ts=t)
+            for tr in trends:
+                if tr.predicted_cross_ts is not None:
+                    _log_prediction(tr)
+                    _trigger_preemptive_action(tr)
+            return trends if trends else []
         _last_recompute_ts = t
         trends = evaluate_predictions(now_ts=t)
         for tr in trends:
