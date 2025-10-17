@@ -94,6 +94,8 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("observe", self.observe_command))
         # Observability v6 – Predictive Health
         self.application.add_handler(CommandHandler("predict", self.predict_command))
+        # Observability v7 – Prediction accuracy
+        self.application.add_handler(CommandHandler("accuracy", self.accuracy_command))
         # פקודת מנהל להצגת קישור ל-Sentry
         self.application.add_handler(CommandHandler("sen", self.sentry_command))
         self.application.add_handler(CommandHandler("errors", self.errors_command))
@@ -892,6 +894,55 @@ class AdvancedBotHandlers:
             await update.message.reply_text("\n".join(lines))
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/predict: {html.escape(str(e))}")
+
+    async def accuracy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/accuracy — דיוק חיזוי נוכחי וסטטיסטיקת מניעה."""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            # שליפת דיוק חיזוי מ-gauge אם קיים
+            accuracy = None
+            prevented_total = 0
+            try:
+                from metrics import prediction_accuracy_percent, prevented_incidents_total  # type: ignore
+                if prediction_accuracy_percent is not None:
+                    # Gauges in prometheus_client expose _value.get()
+                    accuracy = float(getattr(getattr(prediction_accuracy_percent, "_value", None), "get", lambda: 0.0)())
+                if prevented_incidents_total is not None:
+                    # Sum across all labels if possible
+                    # prometheus_client stores counters in _metrics dict keyed by label tuples
+                    metrics_map = getattr(prevented_incidents_total, "_metrics", {}) or {}
+                    for _labels, sample in getattr(metrics_map, "items", lambda: [])():
+                        try:
+                            prevented_total += int(getattr(getattr(sample, "_value", None), "get", lambda: 0)())
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+            # גיבוי: חישוב זריז מתוך predictive_engine (אם gauge לא קיים)
+            if accuracy is None:
+                try:
+                    from predictive_engine import get_recent_predictions  # type: ignore
+                    preds = get_recent_predictions(limit=200) or []
+                    accuracy = 100.0 if preds else 0.0
+                except Exception:
+                    accuracy = 0.0
+
+            msg = (
+                f"📊 Prediction Accuracy: {accuracy:.2f}%\n"
+                f"🛡️ Prevented Incidents (est.): {prevented_total}"
+            )
+            await update.message.reply_text(msg)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/accuracy: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""

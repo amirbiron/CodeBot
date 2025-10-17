@@ -1,4 +1,4 @@
-# Smart Observability v6 – Predictive Health & Self‑Healing
+# Smart Observability v7 – Predictive Health & Adaptive Feedback
 
 ## חיבור Grafana → Telegram (Webhook)
 
@@ -28,29 +28,54 @@
   - `adaptive_current_error_rate_percent`
   - `adaptive_current_latency_avg_seconds`
 
-## Predictive Health (v6)
+## Predictive Health (v7)
 
 - קובץ: `predictive_engine.py`
 - המנוע שומר חלון נגלל של מדדים: `error_rate_percent`, `latency_seconds`, `memory_usage_percent`.
-- לכל מדד מבוצעת רגרסיה לינארית פשוטה על פני זמן (בדקות) לחישוב שיפוע מגמה.
+- חיזוי מבוסס Exponential Smoothing (משוקלל אקספוננציאלית), עם נפילה לרגרסיה לינארית במקרה הצורך.
+- לולאת Feedback אדפטיבית: השוואת תחזיות לאירועים בפועל והטמעת הדיוק חזרה למודל (טיונינג של halflife).
 - אם החיזוי מראה שעוד בתוך 15 דקות יהיה חצייה של הסף האדפטיבי/קבוע – נוצרת תחזית אירוע (Predictive Incident) ונרשמת ב-`data/predictions_log.json`.
 - מופעלות פעולות מניעה (Preemptive Actions):
   - עליה בלטנציה → `cache.clear_stale()` (ניקוי עדין, נפילה ל-`clear_all` אם צריך)
   - עליה בזיכרון → `gc.collect()` + אזהרה בלוג
   - עליה ב-Error Rate → ניסיון restart מבוקר של worker יחיד (לוג בלבד בסביבת dev)
 - כל פעולה נרשמת בלוג כאירוע `PREDICTIVE_ACTION_TRIGGERED`.
+- ניקוי אוטומטי: תחזיות ישנות (מעל 24 שעות) נמחקות באופן אוטומטי מקובץ `predictions_log.json`.
 
 ### ChatOps
 
 - `/predict` – מציג תחזיות ל-3 שעות הקרובות, כולל חיווי מגמה: 🔴 עליה, 🟢 ירידה, ⚪ יציב.
 - `/incidents` – נוסף סעיף "תחזיות פעילות" המציג מספר תחזיות אחרונות.
+- `/accuracy` – מציג דיוק חיזוי נוכחי (%) ומספר אירועים שנמנעו (הערכה).
 
-## Grafana – Predicted vs Actual Incidents
+## Grafana – Accuracy & Prevention Panels
 
-- נוספו מטריקות Prometheus:
+- מטריקות Prometheus:
   - `predicted_incidents_total{metric="..."}`
   - `actual_incidents_total{metric="..."}`
-- הדשבורד עודכן עם גרף "Predicted vs Actual Incidents" המשווה בקצב לשעה (`increase()` על 1h).
+  - `prediction_accuracy_percent` (Gauge) – מציג את דיוק החיזוי ב-% לחלון אחרון (~24h)
+  - `prevented_incidents_total{metric="..."}` – סך הערכות לאירועים שנמנעו בעקבות פעולות מניעה
+- פאנלים מומלצים ב-Grafana:
+  - "Prediction Accuracy (%)" – SingleStat/Gauge על `prediction_accuracy_percent`
+  - "Prevented Incidents Timeline" – גרף קצב לפי שעה: `increase(prevented_incidents_total[1h])`
+  - "Predicted vs Actual Incidents" – השוואה בקצב: `increase(predicted_incidents_total[1h])` מול `increase(actual_incidents_total[1h])`
+
+### תרשים זרימת Feedback Loop
+
+```
+Samples (status, latency) → Adaptive Thresholds (mean+3σ)
+         ↓                              ↑
+   Sliding Windows                Thresholds Snapshot
+         ↓                              │
+ Exponential Smoothing  ─────►  Prediction (horizon)
+         │                              │
+         ├─► Preemptive Actions         │
+         │                              │
+      Predictions Log ──────►  Compare with Incidents (24h)
+                                   │
+                                   ├─► Update Accuracy Gauge
+                                   └─► Tune Halflife (↑ when noisy, ↓ when misses)
+```
 
 ## Auto‑Remediation (v5)
 
