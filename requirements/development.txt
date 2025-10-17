@@ -13,7 +13,7 @@ freezegun==1.2.2
 black==23.11.0
 flake8==6.1.0
 isort==5.13.2
-mypy==1.7.1
+mypy==1.18.2
 bandit==1.7.5
 safety>=3.0.0
 ruff
