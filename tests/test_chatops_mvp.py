@@ -46,6 +46,12 @@ async def test_status_command_outputs_basic_health(monkeypatch):
     import cache_manager as cm
     monkeypatch.setattr(cm.cache, "is_enabled", False, raising=False)
 
+    # Force DB check to a deterministic result (False) to avoid real connections
+    import bot_handlers as bh
+    async def _db_false():
+        return False
+    monkeypatch.setattr(bh, "check_db_connection", _db_false, raising=False)
+
     await adv.status_command(upd, ctx)
 
     out = "\n".join(upd.message.texts)
@@ -125,14 +131,11 @@ async def test_status_command_emojis_and_components(monkeypatch):
     # Admin
     os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
 
-    # Mock DB list_indexes to succeed
-    import types as _t
-    class _Coll:
-        def list_indexes(self):
-            return []
-    db_fake = _t.SimpleNamespace(collection=_Coll())
-    import database as _dbm
-    monkeypatch.setattr(_dbm, "db", db_fake, raising=False)
+    # Mock DB check to succeed (new behavior uses check_db_connection)
+    import bot_handlers as bh
+    async def _ok():
+        return True
+    monkeypatch.setattr(bh, "check_db_connection", _ok)
 
     # Mock Redis enabled
     import cache_manager as cm
