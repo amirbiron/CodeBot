@@ -98,6 +98,8 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("rate_limit", self.rate_limit_command))
         self.application.add_handler(CommandHandler("uptime", self.uptime_command))
         self.application.add_handler(CommandHandler("alerts", self.alerts_command))
+        # Observability v5 – incident memory
+        self.application.add_handler(CommandHandler("incidents", self.incidents_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -792,6 +794,34 @@ class AdvancedBotHandlers:
             await update.message.reply_text("\n".join(lines))
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/alerts: {html.escape(str(e))}")
+
+    async def incidents_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/incidents – 5 התקלות האחרונות (שם, זמן, טיפול)"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+            try:
+                from remediation_manager import get_incidents  # type: ignore
+                items = get_incidents(limit=5) or []
+            except Exception:
+                items = []
+            if not items:
+                await update.message.reply_text("ℹ️ אין תקלות מתועדות")
+                return
+            lines = ["🧠 תקלות אחרונות:"]
+            for i, it in enumerate(items[-5:], 1):
+                name = str(it.get('name') or 'incident')
+                ts = str(it.get('ts') or '')
+                action = str(it.get('response_action') or '-')
+                lines.append(f"{i}. {name} — {ts} — action: {action}")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/incidents: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""

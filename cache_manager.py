@@ -157,6 +157,33 @@ class CacheManager:
             logger.warning(f"invalidate_user_cache failed for user {user_id}: {e}")
         logger.info(f"נמחקו {total_deleted} ערכי cache עבור משתמש {user_id}")
         return total_deleted
+
+    def clear_all(self) -> int:
+        """ניקוי כל המטמון באופן מבוקר.
+
+        - אם Redis מושבת – מחזיר 0.
+        - אם Redis פעיל – מוחק את כל המפתחות באמצעות SCAN+DEL (best-effort).
+        """
+        if not self.is_enabled:
+            return 0
+        deleted = 0
+        try:
+            client = self.redis_client
+            if hasattr(client, 'scan_iter'):
+                for k in client.scan_iter(match='*', count=500):
+                    try:
+                        deleted += int(client.delete(k) or 0)
+                    except Exception:
+                        continue
+            else:
+                # Fallback: keys + delete
+                keys = client.keys('*')
+                if keys:
+                    deleted = int(client.delete(*keys) or 0)
+        except Exception as e:
+            logger.warning(f"clear_all failed: {e}")
+        logger.info(f"ניקוי cache מלא: {deleted} מפתחות נמחקו")
+        return deleted
     
     def get_stats(self) -> Dict[str, Any]:
         """סטטיסטיקות cache"""
