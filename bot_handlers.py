@@ -92,10 +92,12 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
         # חיפוש
         self.application.add_handler(CommandHandler("search", self.search_command))
-        # ChatOps MVP commands
+        # ChatOps MVP + Stage 2 commands
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("errors", self.errors_command))
         self.application.add_handler(CommandHandler("rate_limit", self.rate_limit_command))
+        self.application.add_handler(CommandHandler("uptime", self.uptime_command))
+        self.application.add_handler(CommandHandler("alerts", self.alerts_command))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -634,6 +636,55 @@ class AdvancedBotHandlers:
             await update.message.reply_text(text)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/status: {html.escape(str(e))}")
+
+    async def uptime_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/uptime – אחוז זמינות כולל לפי metrics"""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+            try:
+                from metrics import get_uptime_percentage  # type: ignore
+                uptime = float(get_uptime_percentage())
+            except Exception:
+                uptime = 100.0
+            await update.message.reply_text(f"⏱️ Uptime: {uptime:.2f}%")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/uptime: {html.escape(str(e))}")
+
+    async def alerts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/alerts – הצג 5 ההתראות האחרונות מהמערכת הפנימית"""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+            try:
+                from internal_alerts import get_recent_alerts  # type: ignore
+                items = get_recent_alerts(limit=5) or []
+            except Exception:
+                items = []
+            if not items:
+                await update.message.reply_text("ℹ️ אין התראות אחרונות")
+                return
+            lines = ["🚨 התראות אחרונות:"]
+            for i, a in enumerate(items, 1):
+                name = str(a.get('name') or 'alert')
+                sev = str(a.get('severity') or 'info').upper()
+                summary = str(a.get('summary') or '')
+                lines.append(f"{i}. [{sev}] {name} – {summary}")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/alerts: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""

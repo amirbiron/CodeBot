@@ -19,6 +19,7 @@ except Exception:
 
 from aiohttp import web
 import json
+import time
 try:
     # Correlation for web requests
     from observability import generate_request_id, bind_request_id  # type: ignore
@@ -28,10 +29,16 @@ except Exception:  # pragma: no cover
     def bind_request_id(_rid: str) -> None:  # type: ignore
         return None
 try:
-    from metrics import metrics_endpoint_bytes, metrics_content_type
+    from metrics import (
+        metrics_endpoint_bytes,
+        metrics_content_type,
+        record_request_outcome,
+    )
 except Exception:  # pragma: no cover
     metrics_endpoint_bytes = lambda: b""  # type: ignore
     metrics_content_type = lambda: "text/plain; charset=utf-8"  # type: ignore
+    def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
+        return None
 from html import escape as html_escape
 
 from integrations import code_sharing
@@ -55,6 +62,7 @@ def create_app() -> web.Application:
     @web.middleware
     async def _request_id_mw(request: web.Request, handler):
         req_id = generate_request_id() or ""
+        start = time.perf_counter()
         try:
             bind_request_id(req_id)
         except Exception:
@@ -64,6 +72,13 @@ def create_app() -> web.Application:
         try:
             if hasattr(response, "headers") and req_id:
                 response.headers["X-Request-ID"] = req_id
+        except Exception:
+            pass
+        # Update unified request metrics (best-effort)
+        try:
+            duration = max(0.0, float(time.perf_counter() - start))
+            status = int(getattr(response, "status", 0) or 0)
+            record_request_outcome(status, duration)
         except Exception:
             pass
         return response

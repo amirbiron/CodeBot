@@ -27,6 +27,11 @@ except Exception:  # pragma: no cover
 
 SCHEMA_VERSION = "1.0"
 
+# Custom log level for anomalies
+ANOMALY_LEVEL_NUM = 35  # between WARNING(30) and ERROR(40)
+if not hasattr(logging, "ANOMALY"):
+    logging.addLevelName(ANOMALY_LEVEL_NUM, "ANOMALY")
+
 # Guard to avoid double Sentry initialization in multi-import scenarios
 _SENTRY_INIT_DONE = False
 
@@ -180,6 +185,10 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
         logger.warning(**fields)
+    elif severity == "anomaly":
+        # Structlog does not expose custom levels directly; enrich and log as warning with level hint
+        fields["level"] = "ANOMALY"
+        logger.warning(**fields)
     else:
         logger.info(**fields)
 
@@ -234,3 +243,13 @@ def get_recent_errors(limit: int = 10) -> list[Dict[str, Any]]:
         return list(_RECENT_ERRORS)[-limit:]
     except Exception:
         return []
+
+
+def emit_anomaly(name: str, **fields: Any) -> None:
+    """Utility to emit an ANOMALY-level event consistently across services."""
+    try:
+        fields = dict(fields or {})
+        fields.setdefault("event", str(name))
+        emit_event(str(name), severity="anomaly", **fields)
+    except Exception:
+        return
