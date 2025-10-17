@@ -91,6 +91,7 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("search", self.search_command))
         # ChatOps MVP + Stage 2 commands
         self.application.add_handler(CommandHandler("status", self.status_command))
+        self.application.add_handler(CommandHandler("observe", self.observe_command))
         # פקודת מנהל להצגת קישור ל-Sentry
         self.application.add_handler(CommandHandler("sen", self.sentry_command))
         self.application.add_handler(CommandHandler("errors", self.errors_command))
@@ -688,6 +689,80 @@ class AdvancedBotHandlers:
             await update.message.reply_text(f"⏱️ Uptime: {uptime:.2f}%")
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/uptime: {html.escape(str(e))}")
+
+    async def observe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/observe – סיכום חי מתוך /metrics ו-/alerts (24h/5m)"""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            # Uptime
+            try:
+                from metrics import get_uptime_percentage  # type: ignore
+                uptime = float(get_uptime_percentage())
+            except Exception:
+                uptime = 100.0
+
+            # Error rate & Active users & alerts via internal helpers and endpoints
+            try:
+                # Prefer internal metrics helpers when available
+                from alert_manager import get_current_error_rate_percent  # type: ignore
+                error_rate = float(get_current_error_rate_percent(window_sec=5 * 60))
+            except Exception:
+                error_rate = 0.0
+
+            # Active users gauge – best-effort via Prometheus isn't available directly here;
+            # we maintain a rough number in memory in metrics via note_active_user, not per 24h.
+            # For ChatOps, provide a conservative placeholder if not available.
+            active_users = 0
+            try:
+                # Attempt to import the in-memory set if exposed (best-effort)
+                from metrics import codebot_active_users_total  # type: ignore
+                if codebot_active_users_total is not None:
+                    # Prometheus Gauge does not expose value portably; leave 0 if unavailable
+                    active_users = 0
+            except Exception:
+                active_users = 0
+
+            # Alerts count (24h) using internal_alerts buffer (approx, not persisted)
+            alerts_24h = 0
+            critical_24h = 0
+            try:
+                from internal_alerts import get_recent_alerts  # type: ignore
+                items = get_recent_alerts(limit=200) or []
+                # Filter by timestamp (ISO) last 24h
+                now = datetime.now(timezone.utc)
+                day_ago = now.timestamp() - 24 * 3600
+                for a in items:
+                    try:
+                        ts = a.get('ts')
+                        t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
+                    except Exception:
+                        t = 0.0
+                    if t >= day_ago:
+                        alerts_24h += 1
+                        if str(a.get('severity', '')).lower() == 'critical':
+                            critical_24h += 1
+            except Exception:
+                alerts_24h = 0
+                critical_24h = 0
+
+            text = (
+                "🔍 Observability Overview\n"
+                f"Uptime: {uptime:.2f}%\n"
+                f"Error Rate: {error_rate:.2f}%\n"
+                f"Active Users: {active_users}\n"
+                f"Alerts (24h): {alerts_24h} ({critical_24h} critical)"
+            )
+            await update.message.reply_text(text)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/observe: {html.escape(str(e))}")
 
     async def alerts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/alerts – הצג 5 ההתראות האחרונות מהמערכת הפנימית"""

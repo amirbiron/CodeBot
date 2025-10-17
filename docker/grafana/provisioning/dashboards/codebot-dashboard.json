@@ -43,9 +43,21 @@
     },
     {
       "type": "timeseries",
+      "title": "Adaptive Error Rate Threshold",
+      "targets": [
+        {"expr": "adaptive_current_error_rate_percent"},
+        {"expr": "adaptive_error_rate_threshold_percent"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20}
+    },
+    {
+      "type": "timeseries",
       "title": "Telegram updates (received)",
       "targets": [{"expr": "rate(telegram_updates_total{status=\"received\"}[1m])"}],
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20}
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28}
     }
   ],
   "schemaVersion": 36,
