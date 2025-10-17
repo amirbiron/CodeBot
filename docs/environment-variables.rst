@@ -139,8 +139,38 @@
      - -
      - ``redis://localhost:6379``
      - Bot
+   * - ``REDIS_CONNECT_TIMEOUT``
+     - Timeout התחברות ל-Redis (שניות)
+     - לא
+     - ``5`` (או ``1`` ב-``SAFE_MODE``)
+     - ``2``
+     - Bot/WebApp
+   * - ``REDIS_SOCKET_TIMEOUT``
+     - Timeout קריאת שקע ל-Redis (שניות)
+     - לא
+     - ``5`` (או ``1`` ב-``SAFE_MODE``)
+     - ``2``
+     - Bot/WebApp
    * - ``CACHE_ENABLED``
      - הפעלת קאש פנימי
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``CACHE_CLEAR_BUDGET_SECONDS``
+     - תקציב זמן לניקוי קאש (מונע תקיעה ב-Redis)
+     - לא
+     - ``1`` ל-``clear_stale``; ``2`` ל-``clear_all``
+     - ``1``
+     - Bot/WebApp
+   * - ``DISABLE_CACHE_MAINTENANCE``
+     - דילוג על פעולות ניקוי קאש (לוג בלבד)
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``DISABLE_PREEMPTIVE_ACTIONS``
+     - דילוג על פעולות מנע (PHE) כמו ניקוי קאש
      - לא
      - ``false``
      - ``true``

@@ -180,6 +180,30 @@
    CACHE_SEARCH_RESULTS = True
    CACHE_STATISTICS = True
 
+**עמידות לתקלות Redis ו-SAFE_MODE:**
+
+- ניתן לקבוע timeouts ללקוח Redis דרך משתני סביבה:
+
+  .. code-block:: bash
+
+     REDIS_CONNECT_TIMEOUT=5   # או 1 כאשר SAFE_MODE=1
+     REDIS_SOCKET_TIMEOUT=5    # או 1 כאשר SAFE_MODE=1
+
+- פעולות ניקוי הקאש מוגבלות בזמן כדי שלא יחסמו את השרת אם Redis איטי/קפוא:
+
+  .. code-block:: bash
+
+     CACHE_CLEAR_BUDGET_SECONDS=1  # עבור clear_stale (ברירת מחדל 1)
+     # clear_all משתמש בברירת מחדל 2 שניות
+
+- ניתן לדלג לחלוטין על פעולות ניקוי/מנע ולרשום לוג בלבד:
+
+  .. code-block:: bash
+
+     DISABLE_CACHE_MAINTENANCE=1
+     DISABLE_PREEMPTIVE_ACTIONS=1
+     SAFE_MODE=1  # מפעיל ברירות מחדל שמרניות ודילוגים בטוחים
+
 הגדרות אבטחה
 -------------
 
