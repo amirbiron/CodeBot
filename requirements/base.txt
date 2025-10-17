@@ -88,7 +88,7 @@ slowapi==0.1.9
 rapidfuzz==3.14.1
 
 # CLI Tools
-rich==13.7.0
+rich==14.2.0
 typer==0.9.0
 
 # Resilience utilities
