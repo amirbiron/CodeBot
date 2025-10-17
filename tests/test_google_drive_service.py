@@ -1,17 +1,21 @@
 import io
 import json
 from types import SimpleNamespace
+from importlib import import_module
+from datetime import datetime, timezone
 
 import pytest
 
 
 def _import_module_fresh(module_name: str):
+    """Import the exact module (not just the top-level package)."""
     import sys
     sys.modules.pop(module_name, None)
-    return __import__(module_name)
+    # import_module returns the actual submodule object
+    return import_module(module_name)
 
 
-def _fixed_now(dt):
+def _fixed_now_iso_str(dt: str):
     class _DT:
         @staticmethod
         def isoformat():
@@ -44,8 +48,8 @@ def test_compute_subpath_variants(monkeypatch):
 def test_compute_friendly_name_increments_and_flags(monkeypatch):
     gds = _import_module_fresh("services.google_drive_service")
 
-    # freeze date
-    monkeypatch.setattr(gds, "_now_utc", lambda: _fixed_now("26-08-2025"), raising=True)
+    # freeze date string used by compute_friendly_name
+    monkeypatch.setattr(gds, "_date_str_ddmmyyyy", lambda: "26-08-2025", raising=True)
     # control version counter
     seq = {"zip:CodeBot": 6}
     def _next(user_id, key):
@@ -83,8 +87,8 @@ def test_poll_device_token_pending_error_and_success(monkeypatch):
     assert isinstance(res, dict) and res.get("error") == "access_denied"
 
     # success path
-    fixed = _fixed_now("2025-08-26T12:00:00+00:00")
-    monkeypatch.setattr(gds, "_now_utc", lambda: fixed, raising=True)
+    fixed_dt = datetime(2025, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(gds, "_now_utc", lambda: fixed_dt, raising=True)
     monkeypatch.setattr(gds, "requests", SimpleNamespace(post=lambda *a, **k: _fake_response(200, {"access_token": "x", "expires_in": 3600, "scope": "s"})))
     res = gds.poll_device_token("dc")
     assert isinstance(res, dict) and res.get("access_token") == "x" and "expiry" in res
