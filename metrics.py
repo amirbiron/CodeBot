@@ -160,6 +160,14 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
             _ERR_TIMESTAMPS.append(_time.time())
         _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
+        # Feed adaptive thresholds module (best-effort)
+        try:
+            from alert_manager import note_request, check_and_emit_alerts  # type: ignore
+            note_request(int(status_code), float(duration_seconds))
+            # Evaluate breaches occasionally (cheap; internal cooldowns apply)
+            check_and_emit_alerts()
+        except Exception:
+            pass
     except Exception:
         # Fail-open: observability must never crash business logic
         return
@@ -225,6 +233,52 @@ def get_uptime_percentage() -> float:
         return 100.0
     ok_ratio = max(0.0, min(1.0, 1.0 - (failed / total)))
     return round(ok_ratio * 100.0, 2)
+
+
+# --- Adaptive thresholds gauges (optional; consumed by alert_manager) ---
+try:  # define lazily to keep import-time optional
+    adaptive_error_rate_threshold_percent = Gauge(
+        "adaptive_error_rate_threshold_percent",
+        "Adaptive threshold for error rate percent (mean+3*sigma over 3h)",
+    ) if Gauge else None
+    adaptive_latency_threshold_seconds = Gauge(
+        "adaptive_latency_threshold_seconds",
+        "Adaptive threshold for average latency seconds (mean+3*sigma over 3h)",
+    ) if Gauge else None
+    adaptive_current_error_rate_percent = Gauge(
+        "adaptive_current_error_rate_percent",
+        "Current error rate percent (rolling 5m)",
+    ) if Gauge else None
+    adaptive_current_latency_avg_seconds = Gauge(
+        "adaptive_current_latency_avg_seconds",
+        "Current average latency seconds (rolling 5m)",
+    ) if Gauge else None
+except Exception:
+    adaptive_error_rate_threshold_percent = None  # type: ignore
+    adaptive_latency_threshold_seconds = None  # type: ignore
+    adaptive_current_error_rate_percent = None  # type: ignore
+    adaptive_current_latency_avg_seconds = None  # type: ignore
+
+
+def set_adaptive_observability_gauges(
+    *,
+    error_rate_threshold_percent: Optional[float] = None,
+    latency_threshold_seconds: Optional[float] = None,
+    current_error_rate_percent: Optional[float] = None,
+    current_latency_avg_seconds: Optional[float] = None,
+) -> None:
+    """Update adaptive observability gauges. No-ops if gauges unavailable."""
+    try:
+        if adaptive_error_rate_threshold_percent is not None and error_rate_threshold_percent is not None:
+            adaptive_error_rate_threshold_percent.set(max(0.0, float(error_rate_threshold_percent)))
+        if adaptive_latency_threshold_seconds is not None and latency_threshold_seconds is not None:
+            adaptive_latency_threshold_seconds.set(max(0.0, float(latency_threshold_seconds)))
+        if adaptive_current_error_rate_percent is not None and current_error_rate_percent is not None:
+            adaptive_current_error_rate_percent.set(max(0.0, float(current_error_rate_percent)))
+        if adaptive_current_latency_avg_seconds is not None and current_latency_avg_seconds is not None:
+            adaptive_current_latency_avg_seconds.set(max(0.0, float(current_latency_avg_seconds)))
+    except Exception:
+        return
 
 
 # --- Business metrics helpers (logged via structlog + optional counter) ---
