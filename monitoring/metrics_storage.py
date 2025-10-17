@@ -5,6 +5,7 @@ Design goals:
 - Fail-open: never break app flow if DB unavailable or pymongo missing
 - No import-time DB connections; initialize lazily on first flush
 - Use environment variables only (avoid importing config to prevent cycles)
+- Memory-safety in misconfiguration: drop/cap buffer when storage unavailable
 
 Environment variables:
 - METRICS_DB_ENABLED: "true/1/yes" to enable DB writes (default: false)
@@ -13,6 +14,7 @@ Environment variables:
 - METRICS_COLLECTION: Collection name (default: service_metrics)
 - METRICS_BATCH_SIZE: Batch size threshold (default: 50)
 - METRICS_FLUSH_INTERVAL_SEC: Time-based flush threshold (default: 5 seconds)
+- METRICS_MAX_BUFFER: Max queued items in memory (default: 5000)
 """
 from __future__ import annotations
 
@@ -48,6 +50,13 @@ _init_failed = False
 _buf: deque[Dict[str, Any]] = deque()
 _lock = Lock()
 _last_flush_ts: float = 0.0
+
+
+def _max_buffer_size() -> int:
+    try:
+        return max(1, int(os.getenv("METRICS_MAX_BUFFER", "5000") or "5000"))
+    except Exception:
+        return 5000
 
 
 def _get_collection():  # pragma: no cover - exercised indirectly
@@ -103,7 +112,15 @@ def _get_collection():  # pragma: no cover - exercised indirectly
 
 def _flush_locked(now_ts: float) -> None:
     coll = _get_collection()
-    if coll is None or not _buf:
+    if coll is None:
+        # If initialization failed permanently, clear buffer to prevent leaks
+        if _init_failed:
+            try:
+                _buf.clear()
+            except Exception:
+                pass
+        return
+    if not _buf:
         return
     # Pop a batch while holding the lock; on failure, push back
     batch_size = int(os.getenv("METRICS_BATCH_SIZE", "50") or "50")
@@ -151,6 +168,10 @@ def enqueue_request_metric(
     """
     if not _enabled():
         return
+    # If initialization was deemed impossible (pymongo missing / bad URL),
+    # drop new items immediately to uphold fail-open semantics.
+    if _init_failed:
+        return
     try:
         doc: Dict[str, Any] = {
             "ts": datetime.now(timezone.utc),
@@ -167,7 +188,17 @@ def enqueue_request_metric(
                 doc[k] = v
 
         with _lock:
+            # Re-check under lock to avoid races
+            if _init_failed:
+                return
             _buf.append(doc)
+            # Cap buffer to prevent unbounded growth under persistent failures
+            try:
+                max_buf = _max_buffer_size()
+                while len(_buf) > max_buf:
+                    _buf.popleft()
+            except Exception:
+                pass
             # Size-based flush threshold
             batch_size = int(os.getenv("METRICS_BATCH_SIZE", "50") or "50")
             if len(_buf) >= max(1, batch_size):

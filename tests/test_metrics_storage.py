@@ -14,6 +14,7 @@ def _set_env(monkeypatch, **env):
         "METRICS_COLLECTION",
         "METRICS_BATCH_SIZE",
         "METRICS_FLUSH_INTERVAL_SEC",
+        "METRICS_MAX_BUFFER",
     ]
     for k in keys:
         if k in env and env[k] is not None:
@@ -157,3 +158,29 @@ def test_metrics_storage_batch_insert_failure_emits_event(monkeypatch):
     ms.flush(force=True)
 
     assert any(e[0] == "metrics_db_batch_insert_error" for e in events)
+
+
+def test_metrics_storage_caps_buffer_when_unavailable(monkeypatch):
+    # Unavailable storage: enabled but missing URL, small max buffer
+    _set_env(
+        monkeypatch,
+        METRICS_DB_ENABLED="true",
+        MONGODB_URL=None,
+        METRICS_MAX_BUFFER="3",
+    )
+    events = []
+    _install_observability_stub(monkeypatch, events)
+    _install_fake_pymongo(monkeypatch)  # import ok; but URL missing causes init fail
+
+    ms = _import_fresh_metrics_storage(monkeypatch)
+    # enqueue more than cap; since init fails, items should be dropped, not retained
+    for i in range(10):
+        ms.enqueue_request_metric(200, 0.01 * i, request_id=str(i))
+    # force flush to trigger buffer clear path under failure
+    ms.flush(force=True)
+    # Import module's internal buffer for white-box check
+    # (best-effort; if not accessible, test passes based on no exceptions)
+    buf = getattr(ms, "_buf", None)
+    if buf is not None:
+        # Either cleared or capped at most to METRICS_MAX_BUFFER
+        assert len(buf) <= 3
