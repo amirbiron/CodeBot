@@ -985,15 +985,25 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     (function enhanceMarkdownContainers() {
       try {
         if (!container) return;
-        function findClosing(startP) {
-          let end = startP.nextElementSibling;
-          while (end) {
-            if (end.tagName === 'P' && (end.textContent || '').trim() === ':::') break;
-            end = end.nextElementSibling;
+        const OPEN_RE = /^:{3,}\s*(details|note|tip|warning|danger|info|success|question|example|quote|experimental|deprecated|todo|abstract)\b/i;
+        const CLOSE_RE = /^:{3,}\s*$/;
+        function isOpenMarker(p){ return p && p.tagName === 'P' && OPEN_RE.test((p.textContent || '').trim()); }
+        function isCloseMarker(p){ return p && p.tagName === 'P' && CLOSE_RE.test((p.textContent || '').trim()); }
+        function findMatchingClose(startP) {
+          let depth = 0;
+          let cursor = startP.nextElementSibling;
+          while (cursor) {
+            if (isOpenMarker(cursor)) depth += 1;
+            else if (isCloseMarker(cursor)) {
+              if (depth === 0) return cursor;
+              depth -= 1;
+            }
+            cursor = cursor.nextElementSibling;
           }
-          return end || null;
+          return null;
         }
         function extractBetween(startP, endP) {
+          if (!endP) return null;
           const frag = document.createDocumentFragment();
           let cur = startP.nextSibling;
           while (cur && cur !== endP) { const next = cur.nextSibling; frag.appendChild(cur); cur = next; }
@@ -1006,9 +1016,10 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           while (node) {
             if (node.tagName === 'P') {
               const text = (node.textContent || '').trim();
-              let m = text.match(/^:::\s*details\s*(.*)$/i);
+              let m = text.match(/^:{3,}\s*details\s*(.*)$/i);
               if (m) {
-                const endP = findClosing(node);
+                const endP = findMatchingClose(node);
+                if (!endP) { node = node.nextElementSibling; continue; }
                 const frag = extractBetween(node, endP);
                 const details = document.createElement('details'); details.className = 'markdown-details';
                 const summary = document.createElement('summary'); summary.className = 'markdown-summary'; summary.textContent = m[1] ? m[1].trim() : 'לחץ להצגה';
@@ -1021,10 +1032,12 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
                 node = details;
                 changed = true;
               } else {
-                m = text.match(/^:::\s*(note|tip|warning|danger|info|success|question|example|quote|experimental|deprecated|todo|abstract)\s*(.*)$/i);
+                m = text.match(/^:{3,}\s*(note|tip|warning|danger|info|success|question|example|quote|experimental|deprecated|todo|abstract)\s*(.*)$/i);
                 if (m) {
                   const type = m[1].toLowerCase(); const titleTxt = (m[2] || '').trim() || defaultTitle(type);
-                  const endP = findClosing(node); const frag = extractBetween(node, endP);
+                  const endP = findMatchingClose(node);
+                  if (!endP) { node = node.nextElementSibling; continue; }
+                  const frag = extractBetween(node, endP);
                   const wrap = document.createElement('div'); wrap.className = 'admonition admonition-' + type;
                   const title = document.createElement('div'); title.className = 'admonition-title'; title.textContent = titleTxt;
                   const content = document.createElement('div'); content.className = 'admonition-content'; content.appendChild(frag);
