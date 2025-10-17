@@ -106,7 +106,12 @@ class BackoffState:
                     self._cached = BackoffInfo(enabled=False)
             # Auto-deactivate if expired
             if self._cached.expires_at and datetime.now(timezone.utc) >= self._cached.expires_at:
+                # Auto-disable and persist so restart/refresh won't re-enable
                 self._cached.enabled = False
+                try:
+                    self._save_to_db(self._cached)
+                except Exception:
+                    pass
             return self._cached
 
     def enable(self, *, reason: str = "", ttl_minutes: Optional[int] = None) -> BackoffInfo:

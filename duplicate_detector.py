@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List
 
 
 def _iter_files(base: Path, includes: List[str]) -> Iterable[Path]:
@@ -20,9 +20,24 @@ def _iter_files(base: Path, includes: List[str]) -> Iterable[Path]:
                 yield p
 
 
+def _split_norm_lines(text: str) -> List[str]:
+    """Split text into normalized lines with trailing blanks removed.
+
+    - Convert CRLF/CR to LF
+    - Rstrip trailing spaces on each line
+    - Drop trailing empty lines so a trailing newline does not change content
+    """
+    s = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in s.split("\n")]
+    # Remove trailing empty lines
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
 def _norm_content(text: str) -> str:
-    # Normalize newlines and strip trailing spaces; exact match otherwise
-    return "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"))
+    # Normalize content using the split helper above
+    return "\n".join(_split_norm_lines(text))
 
 
 def scan_duplicates(base_path: str, *, includes: List[str], min_lines: int = 5, max_files: int = 500) -> Dict[str, List[str]]:
@@ -50,8 +65,9 @@ def scan_duplicates(base_path: str, *, includes: List[str], min_lines: int = 5, 
             text = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        lines = text.count("\n") + 1 if text else 0
-        if lines < max(1, int(min_lines or 1)):
+        # Count effective lines after normalization (ignoring trailing blanks)
+        eff_lines = len(_split_norm_lines(text)) if text else 0
+        if eff_lines < max(1, int(min_lines or 1)):
             continue
         norm = _norm_content(text)
         h = hashlib.sha1(norm.encode("utf-8")).hexdigest()
