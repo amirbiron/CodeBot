@@ -170,10 +170,11 @@ class AdvancedBotHandlers:
         
         # בצע הימלטות לתוכן הקוד כדי למנוע שגיאות
         escaped_code = html.escape(original_code)
+        language_html = html.escape(language)
 
         # עטוף את הקוד הנקי בתגיות <pre><code> שטלגרם תומך בהן
         response_text = f"""<b>File:</b> <code>{html.escape(str(file_data.get('file_name', file_name)))}</code>
-<b>Language:</b> {language}
+<b>Language:</b> {language_html}
 
 <pre><code>{escaped_code}</code></pre>
 """
