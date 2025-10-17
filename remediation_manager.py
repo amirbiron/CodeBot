@@ -254,13 +254,11 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
         if recurring:
             # Bump via alert_manager.bump_threshold if available (updates internal state),
             # and also refresh Prometheus gauges for visibility in tests
-            bumped = False
             try:
                 from alert_manager import bump_threshold  # type: ignore
                 bump_threshold(kind=str(metric), factor=1.2)
-                bumped = True
             except Exception:
-                bumped = False
+                pass
             # Always update gauges too to satisfy environments that only observe gauges
             try:
                 from metrics import set_adaptive_observability_gauges  # type: ignore
@@ -272,11 +270,13 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
                     snap_lat = float(snap.get("latency_seconds", {}).get("threshold", 0.0) or 0.0)
                 except Exception:
                     snap_err = snap_lat = None
-                # If we couldn't read snapshot, approximate bump for the specific metric
-                if str(metric) == "error_rate_percent" and (snap_err is None or snap_err <= 0.0):
-                    snap_err = float(threshold) * 1.2 if float(threshold) > 0.0 else None
-                if str(metric) == "latency_seconds" and (snap_lat is None or snap_lat <= 0.0):
-                    snap_lat = float(threshold) * 1.2 if float(threshold) > 0.0 else None
+                # Always bump by factor 1.2 on recurring, using snapshot if available, else fall back to current threshold
+                if str(metric) == "error_rate_percent":
+                    base = snap_err if (snap_err is not None and snap_err > 0.0) else float(threshold)
+                    snap_err = (base * 1.2) if base and base > 0.0 else None
+                if str(metric) == "latency_seconds":
+                    base = snap_lat if (snap_lat is not None and snap_lat > 0.0) else float(threshold)
+                    snap_lat = (base * 1.2) if base and base > 0.0 else None
                 set_adaptive_observability_gauges(
                     error_rate_threshold_percent=snap_err if str(metric) == "error_rate_percent" else None,
                     latency_threshold_seconds=snap_lat if str(metric) == "latency_seconds" else None,
