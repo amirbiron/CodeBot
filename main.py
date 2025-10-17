@@ -618,7 +618,7 @@ class CodeKeeperBot:
                 .post_init(setup_bot_data)
                 .build()
             )
-        except Exception:
+        except Exception as _e1:
             dummy_token = os.getenv("DUMMY_BOT_TOKEN", "dummy_token")
             # נסה לבנות ללא persistence/post_init כדי לעקוף Updater פנימי
             try:
@@ -628,13 +628,14 @@ class CodeKeeperBot:
                     .defaults(Defaults(parse_mode=ParseMode.HTML))
                     .build()
                 )
-            except Exception:
+            except Exception as _e2:
                 # בנאי ידני מינימלי: אובייקט עם הממשקים הדרושים לטסטים/סביבות חסרות
                 class _MiniApp:
                     def __init__(self):
                         self.handlers = []
                         self.bot_data = {}
                         self._error_handlers = []
+                        self._stop_flag = False
                         class _JobQ:
                             def run_once(self, *a, **k):
                                 return None
@@ -645,10 +646,25 @@ class CodeKeeperBot:
                         return None
                     def add_error_handler(self, *a, **k):
                         self._error_handlers.append((a, k))
+                    def stop(self):
+                        self._stop_flag = True
                     def run_polling(self, *a, **k):
-                        # Fallback שקט: אין polling אמיתי; מאפשר start ללא קריסה
+                        # Fallback: בסביבת טסטים נחזור מיד; בפרודקשן נשמור את התהליך חי
+                        import os as _os
+                        if "PYTEST_CURRENT_TEST" in _os.environ:
+                            return None
+                        import time as _time
+                        while not getattr(self, "_stop_flag", False):
+                            _time.sleep(1.0)
                         return None
                 self.application = _MiniApp()
+                try:
+                    logger.warning(
+                        "Using _MiniApp fallback (Application.builder failed). errors: real=%s | dummy=%s",
+                        str(_e1), str(_e2)
+                    )
+                except Exception:
+                    pass
         # התקנת מתאם קורלציה לפני רישום שאר ה-handlers
         try:
             self._install_correlation_layer()
@@ -2647,7 +2663,11 @@ class CodeKeeperBot:
 def signal_handler(signum, frame):
     """טיפול בסיגנלי עצירה"""
     logger.info(f"התקבל סיגנל {signum}, עוצר את הבוט...")
-    sys.exit(0)
+    # אל תזמן exit מיידי כדי לא להטריגר ריסטארט; הנח ל-main לסיים בניקוי
+    try:
+        setattr(signal_handler, "_got_signal", True)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Helper to register the basic command handlers with the Application instance.
@@ -2776,9 +2796,15 @@ def main() -> None:
             import asyncio as _asyncio
             if _inspect.isawaitable(_run_result):
                 _asyncio.run(_run_result)
-        except Exception:
-            # לא לחסום את הכיבוי החינני במקרה של סביבה חלקית
-            pass
+        except KeyboardInterrupt:
+            # עצירה יזומה — נזרום ל-finally לניקוי מסודר
+            logger.info("KeyboardInterrupt received; stopping bot gracefully…")
+        except SystemExit:
+            # יציאה יזומה ממקומות אחרים — אפשר להמשיך ל-finally
+            logger.info("SystemExit raised; performing graceful cleanup…")
+        except Exception as _e:
+            # אל תגרום ל-exit — דווח שגיאה והמשך לניקוי כדי למנוע לופ ריסטארט
+            logger.error(f"Polling loop error (non-fatal): {_e}", exc_info=True)
         
     except Exception as e:
         logger.error(f"שגיאה: {e}")
