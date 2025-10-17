@@ -17,6 +17,25 @@ except Exception:  # pragma: no cover - observability not always available in te
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
 
+# Optional DB-backed metrics storage (fail-open stubs if unavailable)
+try:  # pragma: no cover
+    from monitoring.metrics_storage import (
+        enqueue_request_metric as _db_enqueue_request_metric,
+        flush as _db_metrics_flush,
+    )  # type: ignore
+except Exception:  # pragma: no cover
+    def _db_enqueue_request_metric(status_code: int, duration_seconds: float, *, request_id: str | None = None, extra=None):  # type: ignore
+        return None
+    def _db_metrics_flush(force: bool = False) -> None:  # type: ignore
+        return None
+
+# Best-effort access to current structlog contextvars for correlation
+try:  # pragma: no cover
+    from structlog.contextvars import get_contextvars as _get_structlog_ctx  # type: ignore
+except Exception:  # pragma: no cover
+    def _get_structlog_ctx():  # type: ignore
+        return {}
+
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 except Exception:  # pragma: no cover - prometheus optional in some envs
@@ -202,6 +221,14 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
             _ERR_TIMESTAMPS.append(_time.time())
         _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
+        # Dual-write: enqueue request metrics to DB (best-effort, batched)
+        try:
+            ctx = _get_structlog_ctx() or {}
+            req_id = ctx.get("request_id") if isinstance(ctx, dict) else None
+            rid = str(req_id) if req_id else None
+            _db_enqueue_request_metric(int(status_code), float(duration_seconds), request_id=rid)
+        except Exception:
+            pass
         # Feed adaptive thresholds module (best-effort)
         try:
             from alert_manager import note_request, check_and_emit_alerts  # type: ignore

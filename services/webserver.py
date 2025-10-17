@@ -243,11 +243,11 @@ def create_app() -> web.Application:
         return web.Response(text=html, content_type="text/html")
 
     app.router.add_get("/health", health)
-    # Alias for k8s/Render conventions (opt-in via env)
+    # Always expose /healthz alias for platform probes
     try:
-        if str(os.getenv("ENABLE_HEALTHZ_ALIAS", "")).lower() in {"1", "true", "yes"}:
-            app.router.add_get("/healthz", health)
+        app.router.add_get("/healthz", health)
     except Exception:
+        # Ignore if already registered
         pass
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
