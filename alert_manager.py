@@ -305,9 +305,12 @@ def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, An
 
     try:
         if emit_internal_alert is not None:
+            # internal_alerts will forward critical alerts via alert_manager.forward_critical_alert
+            # to avoid duplicate dispatches, do not call _notify_critical_external when this path is taken
             emit_internal_alert(name=name, severity="critical", summary=summary, **details)
-        # Always ensure critical delivery to sinks and local log
-        _notify_critical_external(name=name, summary=summary, details=details)
+        else:
+            # Fallback: ensure external delivery directly
+            _notify_critical_external(name=name, summary=summary, details=details)
     except Exception:
         # Still attempt external sinks for visibility
         try:
