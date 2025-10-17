@@ -96,7 +96,7 @@ def test_adaptive_feedback_accuracy_and_halflife_tuning(monkeypatch, tmp_path):
         # Start after feedback window, ensure decreasing and within last 15m window
         pe.note_observation(
             error_rate_percent=2.0,
-            latency_seconds=3.0 - i * 0.2,
+            latency_seconds=3.0 - i * 0.25,
             memory_usage_percent=20.0,
             ts=base + (60 + i) * 60,
         )

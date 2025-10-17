@@ -281,7 +281,7 @@ def _predict_cross(
         # If we've already crossed the threshold, treat as "now"
         if threshold > 0.0 and current_value >= threshold:
             predicted_ts = now_ts
-        # Otherwise, only rising trends matter for preemptive actions
+        # Otherwise, only rising trends matter for preemptive actions and predictions
         elif slope_min > 0.0 and threshold > 0.0:
             # Solve for y = slope*(minutes_since_t0) + intercept crosses threshold within horizon
             # Compute minutes from t0 to crossing
