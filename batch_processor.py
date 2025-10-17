@@ -91,10 +91,14 @@ class BatchProcessor:
                     
                     try:
                         result = future.result()
-                        # קבע הצלחה לוגית לפי תוצאת הפונקציה (למשל is_valid)
+                        # קבע הצלחה לוגית לפי תוצאת הפונקציה
+                        # is_valid => אמת/שקר; שדה error => כישלון מפורש
                         success_flag = True
-                        if isinstance(result, dict) and ('is_valid' in result):
-                            success_flag = bool(result.get('is_valid'))
+                        if isinstance(result, dict):
+                            if 'is_valid' in result:
+                                success_flag = bool(result.get('is_valid'))
+                            elif 'error' in result:
+                                success_flag = False
                         job.results[file_name] = {
                             'success': success_flag,
                             'result': result
