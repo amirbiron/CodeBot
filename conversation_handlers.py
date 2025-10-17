@@ -171,10 +171,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
-try:
-    reporter.report_activity(user_id)
-except Exception:
-    pass
+    try:
+        reporter.report_activity(user_id)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 HELP_PAGES = [
