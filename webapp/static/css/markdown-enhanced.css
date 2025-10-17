@@ -108,6 +108,28 @@
 .admonition-success { border-color: #1a7f37; background: #dafbe1; }
 .admonition-success .admonition-title { background: #aceebb; color: #116329; }
 
+/* סוגים נוספים */
+.admonition-question { border-color: #8250df; background: #f5f0ff; }
+.admonition-question .admonition-title { background: #e6dcfd; color: #5e3db3; }
+
+.admonition-example { border-color: #1f6feb; background: #ddf4ff; }
+.admonition-example .admonition-title { background: #b6e3ff; color: #0550ae; }
+
+.admonition-quote { border-color: #57606a; background: #f6f8fa; }
+.admonition-quote .admonition-title { background: #eaeef2; color: #24292f; }
+
+.admonition-experimental { border-color: #bf8700; background: #fff1b6; }
+.admonition-experimental .admonition-title { background: #ffe08a; color: #7d5b00; }
+
+.admonition-deprecated { border-color: #8b949e; background: #f2f2f2; }
+.admonition-deprecated .admonition-title { background: #e6e6e6; color: #555; }
+
+.admonition-todo { border-color: #0969da; background: #e7f5ff; }
+.admonition-todo .admonition-title { background: #cfe8ff; color: #0550ae; }
+
+.admonition-abstract { border-color: #6e7781; background: #eef2f7; }
+.admonition-abstract .admonition-title { background: #dce3ea; color: #374151; }
+
 /* === אנימציות === */
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-10px); }

@@ -959,7 +959,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     if (window.markdownitAnchor) md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
-    if (window.markdownitAdmonition) { try { md.use(window.markdownitAdmonition, { types: ['note','tip','warning','danger','info','success'] }); } catch(_) {} }
+    if (window.markdownitAdmonition) { try { md.use(window.markdownitAdmonition, { types: ['note','tip','warning','danger','info','success','question','example','quote','experimental','deprecated','todo','abstract'] }); } catch(_) {} }
     if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
 
     // רינדור ראשוני
@@ -999,7 +999,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           while (cur && cur !== endP) { const next = cur.nextSibling; frag.appendChild(cur); cur = next; }
           return frag;
         }
-        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',info:'מידע',success:'הצלחה'}; return m[type]||type; }
+        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',info:'מידע',success:'הצלחה',question:'שאלה',example:'דוגמה',quote:'ציטוט',experimental:'ניסוי',deprecated:'לא מומלץ',todo:'לעשות',abstract:'תקציר'}; return m[type]||type; }
         function transformIn(root) {
           let changed = false;
           let node = root.firstElementChild;
@@ -1021,7 +1021,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
                 node = details;
                 changed = true;
               } else {
-                m = text.match(/^:::\s*(note|tip|warning|danger|info|success)\s*(.*)$/i);
+                m = text.match(/^:::\s*(note|tip|warning|danger|info|success|question|example|quote|experimental|deprecated|todo|abstract)\s*(.*)$/i);
                 if (m) {
                   const type = m[1].toLowerCase(); const titleTxt = (m[2] || '').trim() || defaultTitle(type);
                   const endP = findClosing(node); const frag = extractBetween(node, endP);
