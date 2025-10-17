@@ -12,6 +12,7 @@ import atexit
 
 # חיבור MongoDB גלובלי יחיד לכל האפליקציה
 _client = None  # type: ignore
+_owns_client = False  # האם המודול יצר את הלקוח בעצמו
 
 def get_mongo_client(mongodb_uri: str):
     """החזרת מופע MongoClient יחיד (singleton) לכל האפליקציה.
@@ -22,15 +23,27 @@ def get_mongo_client(mongodb_uri: str):
     if not _HAS_PYMONGO:
         raise RuntimeError("pymongo not available")
     if _client is None:
-        # שימוש ב-timezone מודע כדי לשמור אחידות זמנים במסד
-        _client = MongoClient(mongodb_uri, tz_aware=True, tzinfo=timezone.utc)
+        # אם כבר קיים לקוח במסד הנתונים המרכזי – נמחזר אותו, כדי למנוע כפילויות
+        try:
+            from database import db as _db  # import דינמי כדי להימנע מייבוא מעגלי בזמן טעינה
+            existing = getattr(_db, "client", None)
+        except Exception:
+            existing = None
+        if existing is not None:
+            # שימוש בלקוח קיים של המערכת (לא אנחנו יוצרים/סוגרים)
+            _client = existing
+            globals()["_owns_client"] = False
+        else:
+            # יצירת לקוח משלנו עם timezone-aware
+            _client = MongoClient(mongodb_uri, tz_aware=True, tzinfo=timezone.utc)
+            globals()["_owns_client"] = True
     return _client
 
 def close_mongo_client() -> None:
     """סגירת החיבור הגלובלי בבטחה בזמן כיבוי השירות."""
     global _client
     try:
-        if _client is not None:
+        if _client is not None and globals().get("_owns_client", False):
             _client.close()
     finally:
         _client = None

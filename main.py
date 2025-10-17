@@ -65,7 +65,7 @@ from bot_handlers import AdvancedBotHandlers  # still used by legacy code
 from bot_handlers import set_activity_reporter as set_bh_activity_reporter
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
 from conversation_handlers import set_activity_reporter as set_ch_activity_reporter
-from activity_reporter import create_reporter, SimpleActivityReporter
+# ייבוא דחוי של ה-activity_reporter בתוך ה-run-time בלבד כדי למנוע יצירת חיבורים בזמן import
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
@@ -664,12 +664,22 @@ class CodeKeeperBot:
                         return None
                 created_reporter = _NoopReporter()
             else:
-                # יצירה בטוחה: SimpleActivityReporter מטפל בחוסר pymongo בסביבה
-                created_reporter = create_reporter(
-                    mongodb_uri=mongodb_uri,
-                    service_id=service_id,
-                    service_name="CodeBot",
-                )
+                # ייבוא בזמן ריצה בלבד כדי למנוע יצירת לקוח Mongo בזמן import במודולים אחרים
+                try:
+                    from activity_reporter import create_reporter  # noqa: WPS433 (runtime import by design)
+                except Exception:
+                    # אם המודול לא זמין/נכשל — עבור ל-noop
+                    class _NoopReporter:
+                        def report_activity(self, user_id):
+                            return None
+                    created_reporter = _NoopReporter()
+                else:
+                    # יצירה בטוחה: SimpleActivityReporter מטפל בחוסר pymongo בסביבה
+                    created_reporter = create_reporter(
+                        mongodb_uri=mongodb_uri,
+                        service_id=service_id,
+                        service_name="CodeBot",
+                    )
             # עדכון גלובלי במודול זה
             global reporter
             reporter = created_reporter
