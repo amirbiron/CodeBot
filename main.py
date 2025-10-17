@@ -440,19 +440,22 @@ def ensure_lock_indexes() -> None:
         except Exception:
             pass
 
-def cleanup_mongo_lock():
+def cleanup_mongo_lock() -> bool:
     """
     מנקה את נעילת MongoDB בעת יציאה מהתוכנית.
+    
+    Returns:
+        bool: True אם הניקוי בוצע ללא שגיאה לוגית/חיבור, False אם כשל (למשל client סגור)
     
     Note:
         פונקציה זו נרשמת עם atexit ורצה אוטומטית בסיום התוכנית
     """
     try:
-        # If DB client is not available, skip quietly
+        # If DB client is not available, skip quietly (נחשב כהצלחה — אין מה לנקות)
         try:
             if 'db' in globals() and getattr(db, "client", None) is None:
                 logger.debug("Mongo client not available during lock cleanup; skipping.")
-                return
+                return True
         except Exception:
             pass
 
@@ -465,18 +468,22 @@ def cleanup_mongo_lock():
                 emit_event("lock_released", severity="info", pid=pid)
             except Exception:
                 pass
+        # גם אם לא נמחק — הניקוי idempotent; נחשב כהצלחה
+        return True
     except pymongo.errors.InvalidOperation:
         logger.warning("Mongo client already closed; skipping lock cleanup.")
         try:
             emit_event("lock_cleanup_skipped_client_closed", severity="warn")
         except Exception:
             pass
+        return False
     except Exception as e:
         logger.error(f"Error while releasing MongoDB lock: {e}", exc_info=True)
         try:
             emit_event("lock_release_error", severity="error", error=str(e))
         except Exception:
             pass
+        return False
 
 def manage_mongo_lock():
     """
@@ -2623,14 +2630,16 @@ class CodeKeeperBot:
         except Exception:
             already_done = False
         if not already_done:
+            success = False
             try:
-                cleanup_mongo_lock()
+                success = bool(cleanup_mongo_lock())
             except Exception:
-                pass
-            try:
-                setattr(self, "_lock_cleanup_done", True)
-            except Exception:
-                pass
+                success = False
+            if success:
+                try:
+                    setattr(self, "_lock_cleanup_done", True)
+                except Exception:
+                    pass
         db.close()
         
         logger.info("הבוט נעצר.")
