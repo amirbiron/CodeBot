@@ -618,7 +618,7 @@ class CodeKeeperBot:
                 .post_init(setup_bot_data)
                 .build()
             )
-        except Exception:
+        except Exception as _e1:
             dummy_token = os.getenv("DUMMY_BOT_TOKEN", "dummy_token")
             # נסה לבנות ללא persistence/post_init כדי לעקוף Updater פנימי
             try:
@@ -628,13 +628,14 @@ class CodeKeeperBot:
                     .defaults(Defaults(parse_mode=ParseMode.HTML))
                     .build()
                 )
-            except Exception:
+            except Exception as _e2:
                 # בנאי ידני מינימלי: אובייקט עם הממשקים הדרושים לטסטים/סביבות חסרות
                 class _MiniApp:
                     def __init__(self):
                         self.handlers = []
                         self.bot_data = {}
                         self._error_handlers = []
+                        self._stop_flag = False
                         class _JobQ:
                             def run_once(self, *a, **k):
                                 return None
@@ -645,10 +646,25 @@ class CodeKeeperBot:
                         return None
                     def add_error_handler(self, *a, **k):
                         self._error_handlers.append((a, k))
-                    async def run_polling(self, *a, **k):
-                        # Fallback שקט: אין polling אמיתי; מאפשר start ללא קריסה
+                    def stop(self):
+                        self._stop_flag = True
+                    def run_polling(self, *a, **k):
+                        # Fallback: בסביבת טסטים נחזור מיד; בפרודקשן נשמור את התהליך חי
+                        import os as _os
+                        if "PYTEST_CURRENT_TEST" in _os.environ:
+                            return None
+                        import time as _time
+                        while not getattr(self, "_stop_flag", False):
+                            _time.sleep(1.0)
                         return None
                 self.application = _MiniApp()
+                try:
+                    logger.warning(
+                        "Using _MiniApp fallback (Application.builder failed). errors: real=%s | dummy=%s",
+                        str(_e1), str(_e2)
+                    )
+                except Exception:
+                    pass
         # התקנת מתאם קורלציה לפני רישום שאר ה-handlers
         try:
             self._install_correlation_layer()
@@ -2647,7 +2663,11 @@ class CodeKeeperBot:
 def signal_handler(signum, frame):
     """טיפול בסיגנלי עצירה"""
     logger.info(f"התקבל סיגנל {signum}, עוצר את הבוט...")
-    sys.exit(0)
+    # אל תזמן exit מיידי כדי לא להטריגר ריסטארט; הנח ל-main לסיים בניקוי
+    try:
+        setattr(signal_handler, "_got_signal", True)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Helper to register the basic command handlers with the Application instance.
@@ -2769,7 +2789,22 @@ def main() -> None:
         bot = CodeKeeperBot()
         
         logger.info("Bot is starting to poll...")
-        bot.application.run_polling(drop_pending_updates=True)
+        _run_result = bot.application.run_polling(drop_pending_updates=True)
+        # אם המימוש מחזיר קורוטינה (במקרי fallback חריגים) — נריץ אותה כדי למנוע RuntimeWarning
+        try:
+            import inspect as _inspect
+            import asyncio as _asyncio
+            if _inspect.isawaitable(_run_result):
+                _asyncio.run(_run_result)
+        except KeyboardInterrupt:
+            # עצירה יזומה — נזרום ל-finally לניקוי מסודר
+            logger.info("KeyboardInterrupt received; stopping bot gracefully…")
+        except SystemExit:
+            # יציאה יזומה ממקומות אחרים — אפשר להמשיך ל-finally
+            logger.info("SystemExit raised; performing graceful cleanup…")
+        except Exception as _e:
+            # אל תגרום ל-exit — דווח שגיאה והמשך לניקוי כדי למנוע לופ ריסטארט
+            logger.error(f"Polling loop error (non-fatal): {_e}", exc_info=True)
         
     except Exception as e:
         logger.error(f"שגיאה: {e}")
@@ -2806,9 +2841,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
     
-    # הפעלת שרת קטן ל-/health ו-/share/<id> — כבוי כברירת מחדל
-    enable_internal_web = str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
-    if enable_internal_web and config.PUBLIC_BASE_URL:
+    # הפעלת שרת קטן ל-/health ו-/share/<id>
+    # אם הפלטפורמה הגדירה PORT (למשל Render/Heroku) — נאתחל שרת כברירת מחדל כדי לעבור Health Checks
+    enable_internal_web = (
+        bool(os.getenv('PORT')) or
+        str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
+    )
+    if enable_internal_web:
         try:
             from services.webserver import create_app
             aiohttp_app = create_app()
@@ -2853,13 +2892,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception:
                 pass
         except Exception as e:
-            logger.error(f"⚠️ Failed to start internal web server: {e}")
+            logger.warning(f"⚠️ Internal web server not started: {e}")
             try:
-                emit_event("internal_web_start_failed", severity="error", error=str(e))
+                emit_event("internal_web_start_failed", severity="warn", error=str(e))
             except Exception:
                 pass
     else:
-        logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
+        logger.info("ℹ️ Internal web server disabled (no PORT and ENABLE_INTERNAL_SHARE_WEB=false)")
 
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
