@@ -158,6 +158,9 @@ async def test_sen_command_derives_from_dsn_and_org(monkeypatch):
     upd = _Update()
     ctx = _Context()
     os.environ['ADMIN_USER_IDS'] = str(upd.effective_user.id)
+    # ודא שאין קישור דאשבורד מפורש שמאפיל על הגזירה מ-DSN/ORG
+    monkeypatch.delenv('SENTRY_DASHBOARD_URL', raising=False)
+    monkeypatch.delenv('SENTRY_PROJECT_URL', raising=False)
     os.environ['SENTRY_DSN'] = 'https://abc123@o123.ingest.sentry.io/1'
     os.environ['SENTRY_ORG'] = 'myorg'
     try:
