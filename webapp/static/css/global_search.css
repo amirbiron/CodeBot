@@ -93,14 +93,15 @@
 }
 
 /* עיגון הסוגסטיות לאיזור תיבת החיפוש */
+.search-and-filters .col-lg-8,
 .search-and-filters .col-md-8{
   position:relative; /* כדי שה-#searchSuggestions יתמקם ביחס לעמודה */
   flex:1 1 65%;
   min-width:300px;
   max-width:100%;
-  min-width:0;
 }
 
+.search-and-filters .col-lg-4,
 .search-and-filters .col-md-4{
   flex:1 1 30%;
   min-width:250px;
@@ -128,8 +129,10 @@
 /* עזור לבקרים לא "לברוח" שמאלה במסכים צרים */
 @media (max-width: 768px){
   .search-and-filters .filters-row{ flex-direction:column; align-items:stretch; }
+  .search-and-filters .col-lg-8,
+  .search-and-filters .col-lg-4,
   .search-and-filters .col-md-8,
-  .search-and-filters .col-md-4{ flex:1 1 100%; width:100%; max-width:100%; }
+  .search-and-filters .col-md-4{ flex:1 1 100%; width:100%; max-width:100%; min-width:0; }
   .search-and-filters .input-group{ flex-wrap:nowrap; }
   #globalSearchInput{ min-width:0; }
   .filter-container{ justify-content:center; margin-top:0.5rem; }
