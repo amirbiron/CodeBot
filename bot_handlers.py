@@ -1595,11 +1595,16 @@ class AdvancedBotHandlers:
         await update.message.reply_text("\n".join(msg) or "🔍 חיפוש", parse_mode=ParseMode.MARKDOWN)
 
     def _is_admin(self, user_id: int) -> bool:
-        """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS"""
+        """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS (או מודול permissions אם קיים)."""
+        try:
+            if callable(_perm_is_admin):
+                return bool(_perm_is_admin(int(user_id)))
+        except Exception:
+            pass
         try:
             raw = os.getenv('ADMIN_USER_IDS', '')
             ids = [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
-            return user_id in ids
+            return int(user_id) in ids
         except Exception:
             return False
 

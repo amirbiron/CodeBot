@@ -53,6 +53,18 @@
 - `/incidents` – נוסף סעיף "תחזיות פעילות" המציג מספר תחזיות אחרונות.
 - `/accuracy` – מציג דיוק חיזוי נוכחי (%) ומספר אירועים שנמנעו (הערכה).
 
+### הרשאות ChatOps ו-Rate Limit
+
+- פקודות רגישות (למשל: `/errors`, `/triage`, `/rate_limit`, `/enable_backoff`, `/disable_backoff`) מוגבלות למנהלים בלבד.
+- הגדירו אדמינים דרך ENV: `ADMIN_USER_IDS="123,456"`.
+- ניתן להגביל הפעלה לצ'אטים ספציפיים דרך ENV: `ALLOWED_CHAT_IDS="-100123,-100456"`.
+- Rate-limit עדין לפקודות רגישות: קירור ברירת מחדל 5 שניות בין הפעלות לאותו משתמש. ניתן לשינוי דרך `SENSITIVE_COMMAND_COOLDOWN_SEC`.
+
+### Grafana – ייבוא דשבורד לדוגמה
+
+- קובץ דשבורד לדוגמה קיים ב-`docs/grafana_dashboard.json`.
+- ייבוא ל-Grafana: Dashboards → Import → העלו את הקובץ ובחרו מקור נתונים Prometheus.
+
 ## Grafana – Accuracy & Prevention Panels
 
 - מטריקות Prometheus:

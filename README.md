@@ -181,6 +181,14 @@ nano .env
 ```env
 BOT_TOKEN=your_bot_token_here
 MONGODB_URL=mongodb://localhost:27017/code_keeper_bot
+
+# Admins & Chat restrictions (אופציונלי)
+# מנהלים רשאים להריץ פקודות ChatOps רגישות (/errors, /triage, /rate_limit ...)
+ADMIN_USER_IDS=123456789,987654321
+# ניתן לאפשר הפעלה רק בצ'אטים מסוימים (השאירו ריק כדי לא להגביל)
+ALLOWED_CHAT_IDS=-1001234567890
+# Rate limit עדין לפקודות רגישות (שניות)
+SENSITIVE_COMMAND_COOLDOWN_SEC=5
 ```
 
 ### 4. הגדרות אינטגרציה (אופציונלי)
@@ -421,6 +429,15 @@ if __name__ == "__main__":
 |-------|-------|---------|
 | `/analyze` | ניתוח מתקדם | `/analyze script.py` |
 | `/validate` | בדיקת תחביר | `/validate script.py` |
+
+### ChatOps (מנהלים בלבד)
+| פקודה | תיאור |
+|-------|-------|
+| `/status` | בדיקות בריאות בסיסיות |
+| `/errors` | שגיאות אחרונות (Sentry תחילה, עם Fallback) |
+| `/triage` | דוח חקירה מקוצר + קישורי Grafana |
+| `/rate_limit` | מצב Rate Limit של GitHub |
+| `/enable_backoff` / `/disable_backoff` | שליטת Backoff ל-GitHub |
 | `/minify` | דחיסת קוד | `/minify script.js` |
 
 ## 🔍 דוגמאות שימוש
