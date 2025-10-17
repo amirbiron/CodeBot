@@ -58,6 +58,26 @@ business_events_total = (
     else None
 )
 
+# Observability v6: predicted vs actual incidents counters
+predicted_incidents_total = (
+    Counter(
+        "predicted_incidents_total",
+        "Count of predictive incidents detected",
+        ["metric"],
+    )
+    if Counter
+    else None
+)
+actual_incidents_total = (
+    Counter(
+        "actual_incidents_total",
+        "Count of actual critical incidents",
+        ["metric"],
+    )
+    if Counter
+    else None
+)
+
 # --- CodeBot Stage 2: Unified service metrics ---
 # Visible in both Flask and AIOHTTP services under /metrics
 codebot_active_users_total = Gauge("codebot_active_users_total", "Number of active users recently") if Gauge else None
@@ -166,6 +186,14 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
             note_request(int(status_code), float(duration_seconds))
             # Evaluate breaches occasionally (cheap; internal cooldowns apply)
             check_and_emit_alerts()
+        except Exception:
+            pass
+        # Feed Predictive Health Engine (best-effort, throttled internally)
+        try:
+            from predictive_engine import note_observation, maybe_recompute_and_preempt  # type: ignore
+            # Allow predictive engine to sample current snapshot without explicit values
+            note_observation()
+            maybe_recompute_and_preempt()
         except Exception:
             pass
     except Exception:

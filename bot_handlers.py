@@ -92,6 +92,8 @@ class AdvancedBotHandlers:
         # ChatOps MVP + Stage 2 commands
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(CommandHandler("observe", self.observe_command))
+        # Observability v6 – Predictive Health
+        self.application.add_handler(CommandHandler("predict", self.predict_command))
         # פקודת מנהל להצגת קישור ל-Sentry
         self.application.add_handler(CommandHandler("sen", self.sentry_command))
         self.application.add_handler(CommandHandler("errors", self.errors_command))
@@ -810,18 +812,86 @@ class AdvancedBotHandlers:
                 items = get_incidents(limit=5) or []
             except Exception:
                 items = []
-            if not items:
-                await update.message.reply_text("ℹ️ אין תקלות מתועדות")
-                return
             lines = ["🧠 תקלות אחרונות:"]
-            for i, it in enumerate(items[-5:], 1):
+            if not items:
+                lines.append("(אין תקלות מתועדות)")
+            for i, it in enumerate((items[-5:] if items else []), 1):
                 name = str(it.get('name') or 'incident')
                 ts = str(it.get('ts') or '')
                 action = str(it.get('response_action') or '-')
                 lines.append(f"{i}. {name} — {ts} — action: {action}")
+            # הרחבה: תחזיות פעילות (Observability v6)
+            try:
+                from predictive_engine import get_recent_predictions  # type: ignore
+                preds = get_recent_predictions(limit=3) or []
+            except Exception:
+                preds = []
+            lines.append("\n🔮 תחזיות פעילות:")
+            if not preds:
+                lines.append("(אין תחזיות פעילות)")
+            else:
+                for j, p in enumerate(preds[-3:], 1):
+                    metric = str(p.get('metric') or '-')
+                    when = str(p.get('predicted_cross_ts') or p.get('predicted_cross_at') or '-')
+                    lines.append(f"{j}. {metric} → {when}")
             await update.message.reply_text("\n".join(lines))
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/incidents: {html.escape(str(e))}")
+
+    async def predict_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/predict – תחזית תקלות ל-3 שעות הקרובות עם חיווי מגמות."""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+            try:
+                from predictive_engine import evaluate_predictions  # type: ignore
+            except Exception:
+                await update.message.reply_text("ℹ️ מנוע חיזוי אינו זמין בסביבה זו")
+                return
+            horizon = 3 * 60 * 60  # 3h
+            trends = evaluate_predictions(horizon_seconds=horizon) or []
+            if not trends:
+                await update.message.reply_text("🔮 אין נתונים מספיקים לחיזוי כרגע")
+                return
+            def _dir_emoji(slope: float) -> str:
+                try:
+                    if slope > 1e-6:
+                        return "🔴"  # עליה
+                    if slope < -1e-6:
+                        return "🟢"  # ירידה
+                    return "⚪"      # יציב
+                except Exception:
+                    return "⚪"
+            lines: list[str] = ["🔮 Predictive Health – 3h"]
+            for tr in trends:
+                try:
+                    metric = getattr(tr, 'metric', '-')
+                    slope = float(getattr(tr, 'slope_per_minute', 0.0) or 0.0)
+                    current = float(getattr(tr, 'current_value', 0.0) or 0.0)
+                    thr = float(getattr(tr, 'threshold', 0.0) or 0.0)
+                    cross_ts = getattr(tr, 'predicted_cross_ts', None)
+                    emoji = _dir_emoji(slope)
+                    base = f"{emoji} {metric}: curr={current:.3f} thr={thr:.3f} slope/min={slope:.4f}"
+                    if cross_ts:
+                        try:
+                            from datetime import datetime, timezone
+                            dt = datetime.fromtimestamp(float(cross_ts), timezone.utc)
+                            when = dt.strftime('%H:%M UTC')
+                            base += f" → חצייה צפויה ב-{when}"
+                        except Exception:
+                            base += " → חצייה צפויה"
+                    lines.append(base)
+                except Exception:
+                    continue
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/predict: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/errors – 10 השגיאות האחרונות. Fallback: זיכרון מקומי מה-logger"""
