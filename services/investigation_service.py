@@ -46,7 +46,10 @@ def _grafana_links_for_request(request_id: str) -> List[Dict[str, str]]:
 
 def _summarize_timeline_text(timeline: List[Dict[str, Any]], limit: int = 10) -> str:
     lines: List[str] = []
-    for i, item in enumerate(timeline[: max(1, limit)], 1):
+    # כבד במדויק את ה-limit, כולל מקרה של 0
+    if limit <= 0:
+        return ""
+    for i, item in enumerate(timeline[: limit], 1):
         ts = str(item.get("timestamp") or item.get("ts") or "")
         message = str(item.get("message") or item.get("title") or "")
         lines.append(f"{i}. {ts} – {message}")

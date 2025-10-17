@@ -31,13 +31,19 @@ class _Session:
                 {"id": "1", "shortId": "S-1", "title": "Boom", "permalink": "https://s/1", "lastSeen": "2025-01-01", "firstSeen": "2025-01-01"}
             ])
         if "organizations/org1/events" in url:
-            return _Resp(200, [
-                {"eventID": "e1", "timestamp": "2025-01-01T00:00:00Z", "projectSlug": "proj", "message": "Err msg", "permalink": "https://s/e1"}
-            ])
+            # New behavior expects an object with data array
+            return _Resp(200, {
+                "data": [
+                    {"eventID": "e1", "timestamp": "2025-01-01T00:00:00Z", "projectSlug": "proj", "message": "Err msg", "permalink": "https://s/e1"}
+                ],
+                "meta": {"count": 1}
+            })
         if "/issues/123/events" in url:
-            return _Resp(200, [
-                {"eventID": "e1", "dateCreated": "2025-01-01T00:00:00Z", "message": "Hello", "permalink": "https://s/e1"}
-            ])
+            return _Resp(200, {
+                "data": [
+                    {"eventID": "e1", "dateCreated": "2025-01-01T00:00:00Z", "message": "Hello", "permalink": "https://s/e1"}
+                ]
+            })
         return _Resp(404, {})
 
 

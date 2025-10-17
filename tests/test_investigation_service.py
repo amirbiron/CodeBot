@@ -34,3 +34,10 @@ async def test_triage_builds_timeline_and_html(monkeypatch):
 def test_render_triage_html_minimal():
     doc = inv.render_triage_html({"query": "x", "timeline": [], "grafana_links": []})
     assert "אין אירועים" in doc or "</table>" in doc
+
+
+def test_summarize_zero_limit_returns_empty():
+    out = inv._summarize_timeline_text([
+        {"timestamp": "2025-01-01", "message": "a"}
+    ], limit=0)
+    assert out == ""

@@ -102,6 +102,9 @@ async def search_events(query: str, limit: int = 20) -> List[Dict[str, Any]]:
     if project:
         params["project"] = project
     data = await _get(f"organizations/{org}/events/", params=params)
+    # Sentry returns an object with a "data" array; support both shapes defensively
+    if isinstance(data, dict):
+        data = data.get("data")
     if not isinstance(data, list):
         return []
     results: List[Dict[str, Any]] = []
@@ -142,6 +145,8 @@ async def get_issue_events(issue_id: str, limit: int = 20) -> List[Dict[str, Any
     if not issue_id:
         return []
     data = await _get(f"issues/{issue_id}/events/", params={"limit": max(1, min(100, int(limit or 20)))})
+    if isinstance(data, dict):
+        data = data.get("data")
     if not isinstance(data, list):
         return []
     results: List[Dict[str, Any]] = []
