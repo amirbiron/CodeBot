@@ -29,7 +29,7 @@ async def test_backoff_state_persist_and_reload(monkeypatch):
     # Stub DB
     users = _NoopUsers()
     db_ns = types.SimpleNamespace(db=types.SimpleNamespace(users=users))
-    monkeypatch.setattr("database", "db", db_ns, raising=False)
+    monkeypatch.setattr("database.db", db_ns, raising=False)
 
     st = bs.BackoffState()
     assert st.get().enabled is False
@@ -52,7 +52,7 @@ def test_backoff_state_expiry(monkeypatch):
 
     users = _NoopUsers()
     db_ns = types.SimpleNamespace(db=types.SimpleNamespace(users=users))
-    monkeypatch.setattr("database", "db", db_ns, raising=False)
+    monkeypatch.setattr("database.db", db_ns, raising=False)
 
     st = bs.BackoffState()
     # Enable with negative TTL -> expired soon

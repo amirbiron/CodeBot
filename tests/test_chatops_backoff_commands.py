@@ -49,7 +49,8 @@ async def test_enable_disable_backoff_admin(monkeypatch):
         def disable(self, **k):
             return _Info(False)
     import bot_handlers as bh
-    monkeypatch.setattr(bh, "services", types.SimpleNamespace(github_backoff_state=_State()))
+    # Patch the module-level import used inside the functions to point to our state directly
+    bh.services = types.SimpleNamespace(github_backoff_state=_State())  # type: ignore[attr-defined]
 
     upd = _Update(uid=1)
     ctx = _Context(args=["10"])  # ttl

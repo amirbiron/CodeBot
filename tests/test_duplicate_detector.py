@@ -14,8 +14,9 @@ def test_scan_duplicates_exact_match(tmp_path: Path):
     b.write_text(content + "\n")  # trailing newline difference -> normalized
 
     res = scan_duplicates(str(d), includes=["**/*.py"], min_lines=1, max_files=10)
-    # Expect both files grouped under same hash
-    assert any(set(v) == {"a.py", str(Path("sub") / "b.py")} for v in res.values())
+    # Expect both files grouped under same hash (order not guaranteed)
+    expected = {"a.py", str(Path("sub") / "b.py")}
+    assert any(set(v) == expected or set(map(str, v)) == expected for v in res.values())
 
 
 def test_scan_duplicates_respects_min_lines(tmp_path: Path):
@@ -23,6 +24,6 @@ def test_scan_duplicates_respects_min_lines(tmp_path: Path):
     (d / "a.py").write_text("print(1)\n")
     (d / "b.py").write_text("print(1)\n")
 
-    # With min_lines=2 no duplicates should appear
+    # With min_lines=2 no duplicates should appear (each file has 1 line)
     res = scan_duplicates(str(d), includes=["*.py"], min_lines=2, max_files=10)
     assert res == {}
