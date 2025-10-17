@@ -917,6 +917,8 @@ const CDN = {
   mdAnchor: 'https://cdn.jsdelivr.net/npm/markdown-it-anchor@8.6.7/dist/markdown-it-anchor.min.js',
   mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
   mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
+  mdContainer: 'https://cdn.jsdelivr.net/npm/markdown-it-container@3.0.0/dist/markdown-it-container.min.js',
+  mdAdmonition: 'https://cdn.jsdelivr.net/npm/markdown-it-admonition@1.0.4/dist/markdown-it-admonition.min.js',
   hljs: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
   hljsCss: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css',
   katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
@@ -938,6 +940,8 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     try { await loadScript(CDN.mdAnchor); } catch(_){}
     try { await loadScript(CDN.mdFootnote); } catch(_){}
     try { await loadScript(CDN.mdTocDone); } catch(_){}
+    try { await loadScript(CDN.mdContainer); } catch(_){}
+    try { await loadScript(CDN.mdAdmonition); } catch(_){}
     try { await loadScript(CDN.hljs); } catch(_){}
     try { await loadScript(CDN.katexJs); } catch(_){}
     try { await loadScript(CDN.katexAuto); } catch(_){}
@@ -955,6 +959,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     if (window.markdownitAnchor) md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
+    if (window.markdownitAdmonition) { try { md.use(window.markdownitAdmonition, { types: ['note','tip','warning','danger','info','success'] }); } catch(_) {} }
     if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
 
     // רינדור ראשוני
@@ -975,6 +980,72 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         else if (seen.has(h.id)) { h.id = gen(txt); } else { seen.add(h.id); }
       });
     } catch(_) {}
+
+    // המרה של ::: details ו-::: admonitions ל-HTML בטוח לאחר הרינדור
+    (function enhanceMarkdownContainers() {
+      try {
+        if (!container) return;
+        function findClosing(startP) {
+          let end = startP.nextElementSibling;
+          while (end) {
+            if (end.tagName === 'P' && (end.textContent || '').trim() === ':::') break;
+            end = end.nextElementSibling;
+          }
+          return end || null;
+        }
+        function extractBetween(startP, endP) {
+          const frag = document.createDocumentFragment();
+          let cur = startP.nextSibling;
+          while (cur && cur !== endP) { const next = cur.nextSibling; frag.appendChild(cur); cur = next; }
+          return frag;
+        }
+        function defaultTitle(type){ const m={note:'הערה',tip:'טיפ',warning:'אזהרה',danger:'סכנה',info:'מידע',success:'הצלחה'}; return m[type]||type; }
+        function transformIn(root) {
+          let changed = false;
+          let node = root.firstElementChild;
+          while (node) {
+            if (node.tagName === 'P') {
+              const text = (node.textContent || '').trim();
+              let m = text.match(/^:::\s*details\s*(.*)$/i);
+              if (m) {
+                const endP = findClosing(node);
+                const frag = extractBetween(node, endP);
+                const details = document.createElement('details'); details.className = 'markdown-details';
+                const summary = document.createElement('summary'); summary.className = 'markdown-summary'; summary.textContent = m[1] ? m[1].trim() : 'לחץ להצגה';
+                const content = document.createElement('div'); content.className = 'details-content'; content.appendChild(frag);
+                details.appendChild(summary); details.appendChild(content);
+                const parent = node.parentNode; parent.replaceChild(details, node);
+                if (endP && endP.parentNode) endP.parentNode.removeChild(endP);
+                // עבד רקורסיבית בתוך התוכן, לתמיכה בקינון
+                try { transformIn(content); } catch(_) {}
+                node = details;
+                changed = true;
+              } else {
+                m = text.match(/^:::\s*(note|tip|warning|danger|info|success)\s*(.*)$/i);
+                if (m) {
+                  const type = m[1].toLowerCase(); const titleTxt = (m[2] || '').trim() || defaultTitle(type);
+                  const endP = findClosing(node); const frag = extractBetween(node, endP);
+                  const wrap = document.createElement('div'); wrap.className = 'admonition admonition-' + type;
+                  const title = document.createElement('div'); title.className = 'admonition-title'; title.textContent = titleTxt;
+                  const content = document.createElement('div'); content.className = 'admonition-content'; content.appendChild(frag);
+                  wrap.appendChild(title); wrap.appendChild(content);
+                  const parent = node.parentNode; parent.replaceChild(wrap, node);
+                  if (endP && endP.parentNode) endP.parentNode.removeChild(endP);
+                  try { transformIn(content); } catch(_) {}
+                  node = wrap;
+                  changed = true;
+                }
+              }
+            }
+            node = node.nextElementSibling;
+          }
+          return changed;
+        }
+        // הרץ עד שלא נשארים בלוקים לעיבוד (מגן מלולאות אינסופיות ע"י מקסימום איטרציות)
+        let guard = 0;
+        while (transformIn(container) && guard < 10) { guard++; }
+      } catch(_) {}
+    })();
 
     // הדגשת תחביר לאחר הרינדור: הדגשה ממוקדת בתוך #md-content בלבד
     try {

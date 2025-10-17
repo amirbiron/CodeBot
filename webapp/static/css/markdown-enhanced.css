@@ -1,0 +1,137 @@
+/* ============================================
+   עיצוב משופר לקטעים מתקפלים וכרטיסיות הסבר
+   ============================================ */
+
+/* === משתנים גלובליים === */
+:root {
+  --details-border: #e1e4e8;
+  --details-bg: #ffffff;
+  --details-hover: #f6f8fa;
+  --summary-color: #24292e;
+  --admonition-radius: 8px;
+  --animation-speed: 0.3s;
+}
+
+/* === קטעים מתקפלים === */
+.markdown-details {
+  margin: 1rem 0;
+  border: 1px solid var(--details-border);
+  border-radius: 8px;
+  background: var(--details-bg);
+  overflow: hidden;
+  transition: box-shadow var(--animation-speed) ease;
+}
+
+.markdown-details[open] {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+}
+
+.markdown-summary {
+  padding: 0.75rem 1rem;
+  background: linear-gradient(to right, #f8f9fa, transparent);
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--summary-color);
+  display: flex;
+  align-items: center;
+  transition: background-color var(--animation-speed) ease;
+  position: relative;
+}
+
+.markdown-summary:hover {
+  background: var(--details-hover);
+}
+
+.markdown-summary::before {
+  content: '▶';
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.8em;
+  transition: transform var(--animation-speed) ease;
+  color: #586069;
+}
+
+.markdown-details[open] .markdown-summary::before {
+  transform: rotate(90deg);
+}
+
+.markdown-summary::-webkit-details-marker { display: none; }
+
+.details-content {
+  padding: 1rem;
+  border-top: 1px solid var(--details-border);
+  animation: slideDown var(--animation-speed) ease-out;
+}
+
+/* === כרטיסיות הסבר === */
+.admonition {
+  margin: 1.25rem 0;
+  border-radius: var(--admonition-radius);
+  overflow: hidden;
+  border-right: 4px solid;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.admonition-title {
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admonition-content {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.admonition-content > *:first-child { margin-top: 0; }
+.admonition-content > *:last-child { margin-bottom: 0; }
+
+/* סוגים */
+.admonition-note { border-color: #0969da; background: #ddf4ff; }
+.admonition-note .admonition-title { background: #b6e3ff; color: #0550ae; }
+
+.admonition-tip { border-color: #1a7f37; background: #dafbe1; }
+.admonition-tip .admonition-title { background: #aceebb; color: #116329; }
+
+.admonition-warning { border-color: #9a6700; background: #fff8c5; }
+.admonition-warning .admonition-title { background: #ffec99; color: #7d4e00; }
+
+.admonition-danger { border-color: #cf222e; background: #ffebe9; }
+.admonition-danger .admonition-title { background: #ffcecb; color: #a40e26; }
+
+.admonition-info { border-color: #0969da; background: #ddf4ff; }
+.admonition-info .admonition-title { background: #b6e3ff; color: #0550ae; }
+
+.admonition-success { border-color: #1a7f37; background: #dafbe1; }
+.admonition-success .admonition-title { background: #aceebb; color: #116329; }
+
+/* === אנימציות === */
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* === RTL === */
+[dir="rtl"] .admonition { border-right: none; border-left: 4px solid; }
+[dir="rtl"] .markdown-summary::before { margin-left: 0; margin-right: 0.5rem; }
+
+/* === מובייל === */
+@media (max-width: 768px) {
+  .markdown-details, .admonition { margin: 0.75rem -0.5rem; border-radius: 0; }
+  .admonition-content, .details-content { padding: 0.75rem; }
+}
+
+/* === מצב כהה === */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --details-border: #30363d;
+    --details-bg: #0d1117;
+    --details-hover: #161b22;
+    --summary-color: #c9d1d9;
+  }
+  .markdown-details { background: var(--details-bg); }
+  .admonition-content { background: rgba(0, 0, 0, 0.3); color: #c9d1d9; }
+}
