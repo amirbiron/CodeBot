@@ -2905,6 +2905,37 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     try:
         async def _weekly_admin_report(context: ContextTypes.DEFAULT_TYPE):
             try:
+                # אפשר לכבות בדוחות שבועיים לחלוטין דרך ENV
+                if str(os.getenv("DISABLE_WEEKLY_REPORTS", "")).lower() in {"1", "true", "yes"}:
+                    return
+
+                # מנגנון השתקה שבועי (idempotent): שלח פעם אחת לכל שבוע קלנדרי
+                should_send = True
+                try:
+                    from datetime import datetime, timezone as _tz
+                    from database import db as _dbm  # type: ignore
+                    db_obj = getattr(_dbm, 'db', None)
+                    is_noop_db = (getattr(db_obj, 'name', '') == 'noop_db') if db_obj is not None else True
+                    if not is_noop_db and db_obj is not None:
+                        admin_reports = getattr(db_obj, 'admin_reports', None)
+                        if admin_reports is not None:
+                            now = datetime.now(_tz.utc)
+                            iso = now.isocalendar()
+                            week_key = f"{iso[0]}-{iso[1]:02d}"
+                            res = admin_reports.update_one(
+                                {"_id": "weekly_admin_report", "week_key": {"$ne": week_key}},
+                                {"$set": {"week_key": week_key, "last_sent_at": now}},
+                                upsert=True,
+                            )
+                            modified = int(getattr(res, 'modified_count', 0) or 0)
+                            upserted = getattr(res, 'upserted_id', None)
+                            should_send = bool(modified or upserted)
+                except Exception:
+                    # במקרה של כשל בגייטינג, נמשיך לשלוח (עדיף דיווח על כפילות מאשר איבוד דיווח)
+                    should_send = True
+                if not should_send:
+                    return
+
                 total_users = 0
                 active_week = 0
                 try:

@@ -30,6 +30,8 @@ def test_weekly_report_emits_and_notifies(monkeypatch):
     # Build app with job_queue that triggers immediately
     class _JobQ:
         def run_repeating(self, fn, interval, first, name=None):  # noqa: ARG002
+            # Trigger twice to simulate duplicate scheduling; gate should block second send
+            asyncio.get_event_loop().run_until_complete(fn(None))
             asyncio.get_event_loop().run_until_complete(fn(None))
     class _Bot:
         async def delete_my_commands(self):
@@ -47,3 +49,5 @@ def test_weekly_report_emits_and_notifies(monkeypatch):
 
     assert any(e[0] == "weekly_report_sent" for e in captured["evts"])  # event emitted
     assert notified["msgs"] and "📊 דו" in notified["msgs"][0]
+    # Ensure only one notification was sent despite two triggers
+    assert len(notified["msgs"]) == 1
