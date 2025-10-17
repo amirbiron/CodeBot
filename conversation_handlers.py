@@ -17,7 +17,16 @@ from telegram.ext import (
 )
 from database import DatabaseManager
 from file_manager import backup_manager
-from activity_reporter import create_reporter
+# Reporter מוזרק בזמן ריצה כדי להימנע מפתיחת חיבור בעת import
+class _NoopReporter:
+    def report_activity(self, user_id):
+        return None
+
+reporter = _NoopReporter()
+
+def set_activity_reporter(new_reporter):
+    global reporter
+    reporter = new_reporter or _NoopReporter()
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional, Dict, cast
@@ -103,11 +112,7 @@ MAIN_KEYBOARD = [
     ["☁️ Google Drive", "ℹ️ הסבר על הבוט"]
 ]
 
-reporter = create_reporter(
-    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-    service_id="srv-d29d72adbo4c73bcuep0",
-    service_name="CodeBot"
-)
+# ה-reporters יוגדרו ב-main בזמן ריצה
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle /start and show the main menu."""
@@ -153,7 +158,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
             )
-            reporter.report_activity(user_id)
+            try:
+                reporter.report_activity(user_id)
+            except Exception:
+                pass
             return ConversationHandler.END
     except Exception:
         # אם משהו נכשל ביצירת קישור — נמשיך לזרימת ברירת המחדל
@@ -163,7 +171,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
     keyboard = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     await update.message.reply_text(welcome_text, reply_markup=keyboard)
-    reporter.report_activity(user_id)
+    try:
+        reporter.report_activity(user_id)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 HELP_PAGES = [
@@ -414,7 +425,10 @@ async def start_repo_zip_import(update: Update, context: ContextTypes.DEFAULT_TY
         "🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.",
         reply_markup=cancel_markup
     )
-    reporter.report_activity(update.effective_user.id)
+    try:
+        reporter.report_activity(update.effective_user.id)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 async def start_zip_create_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -433,7 +447,10 @@ async def start_zip_create_flow(update: Update, context: ContextTypes.DEFAULT_TY
         "כשתסיים/י, לחצ/י 'סיום' וניצור עבורך ZIP מוכן.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    reporter.report_activity(update.effective_user.id)
+    try:
+        reporter.report_activity(update.effective_user.id)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -527,7 +544,10 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
     
-    reporter.report_activity(user_id)
+    try:
+        reporter.report_activity(user_id)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 async def show_large_files_direct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -553,7 +573,10 @@ async def show_github_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     github_handler = context.bot_data['github_handler']
     await github_handler.github_menu_command(update, context)
-    reporter.report_activity(update.effective_user.id)
+    try:
+        reporter.report_activity(update.effective_user.id)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 
@@ -583,7 +606,10 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             "בחר/י דרך להצגת הקבצים:",
             reply_markup=reply_markup
         )
-        reporter.report_activity(update.effective_user.id)
+        try:
+            reporter.report_activity(update.effective_user.id)
+        except Exception:
+            pass
     except Exception as e:
         # אל תרשום ERROR אם זו רק הודעה שלא השתנתה
         msg = str(e)
@@ -672,7 +698,10 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 if "message is not modified" not in str(br).lower():
                     raise
             
-        reporter.report_activity(user_id)
+        try:
+            reporter.report_activity(user_id)
+        except Exception:
+            pass
         
     except Exception as e:
         logger.error(f"Error in show_regular_files_callback: {e}")

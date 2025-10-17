@@ -24,7 +24,16 @@ from services import code_service as code_processor
 from config import config
 from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
-from activity_reporter import create_reporter
+# Reporter מוזרק בזמן ריצה כדי למנוע יצירה בזמן import
+class _NoopReporter:
+    def report_activity(self, user_id):
+        return None
+
+reporter = _NoopReporter()
+
+def set_activity_reporter(new_reporter):
+    global reporter
+    reporter = new_reporter or _NoopReporter()
 import json
 try:
     import aiohttp  # for GitHub rate limit check
@@ -34,18 +43,6 @@ except Exception:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 import os as _os
-_DISABLE_REPORTER = bool(int((_os.getenv("DISABLE_ACTIVITY_REPORTER", "0") or "0").strip() or 0))
-if _DISABLE_REPORTER:
-    class _NoopReporter:
-        def report_activity(self, user_id):
-            return None
-    reporter = _NoopReporter()
-else:
-    reporter = create_reporter(
-        mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-        service_id="srv-d29d72adbo4c73bcuep0",
-        service_name="CodeBot"
-    )
 
 class AdvancedBotHandlers:
     """פקודות מתקדמות של הבוט"""
