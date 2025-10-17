@@ -2815,9 +2815,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception as e:
         logger.error(f"⚠️ Error setting admin commands: {e}")
     
-    # הפעלת שרת קטן ל-/health ו-/share/<id> — כבוי כברירת מחדל
-    enable_internal_web = str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
-    if enable_internal_web and config.PUBLIC_BASE_URL:
+    # הפעלת שרת קטן ל-/health ו-/share/<id>
+    # אם הפלטפורמה הגדירה PORT (למשל Render/Heroku) — נאתחל שרת כברירת מחדל כדי לעבור Health Checks
+    enable_internal_web = (
+        bool(os.getenv('PORT')) or
+        str(os.getenv('ENABLE_INTERNAL_SHARE_WEB', 'false')).lower() == 'true'
+    )
+    if enable_internal_web:
         try:
             from services.webserver import create_app
             aiohttp_app = create_app()
@@ -2862,13 +2866,13 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception:
                 pass
         except Exception as e:
-            logger.error(f"⚠️ Failed to start internal web server: {e}")
+            logger.warning(f"⚠️ Internal web server not started: {e}")
             try:
-                emit_event("internal_web_start_failed", severity="error", error=str(e))
+                emit_event("internal_web_start_failed", severity="warn", error=str(e))
             except Exception:
                 pass
     else:
-        logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
+        logger.info("ℹ️ Internal web server disabled (no PORT and ENABLE_INTERNAL_SHARE_WEB=false)")
 
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
