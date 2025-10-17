@@ -1,11 +1,13 @@
 """
-Predictive Health Engine (Observability v6)
+Predictive Health Engine (Observability v7)
 
 - Maintains sliding window for metrics: error_rate_percent, latency_seconds, memory_usage_percent
-- Computes simple linear regression trend per metric
+- Exponential smoothing (EW-Regression) for trend estimation, fallback to linear regression
+- Adaptive Feedback Loop: compare predictions vs actuals and adjust smoothing reactiveness
 - If forecast crosses adaptive threshold within horizon (default 15 minutes), logs a predictive incident
 - Predictive incidents are appended to data/predictions_log.json (JSONL)
 - Optionally triggers preemptive actions (cache clear, GC, controlled restart) and logs PREDICTIVE_ACTION_TRIGGERED
+- Auto-cleanup for predictions older than 24h
 
 This module is intentionally best-effort and fail-open. It should never raise.
 """
@@ -14,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Deque, Dict, List, Optional, Tuple
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 import time
@@ -33,13 +35,17 @@ except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
 
-# Prometheus counters are optional
+# Prometheus counters/gauges are optional
 try:  # pragma: no cover - metrics optional in some environments
     from metrics import business_events_total  # noqa: F401
     from metrics import errors_total  # noqa: F401
     from metrics import Counter  # type: ignore
+    from metrics import prediction_accuracy_percent as _accuracy_gauge  # type: ignore
+    from metrics import prevented_incidents_total as _prevented_ctr  # type: ignore
 except Exception:  # pragma: no cover
     Counter = None  # type: ignore
+    _accuracy_gauge = None  # type: ignore
+    _prevented_ctr = None  # type: ignore
 
 try:  # expose counters if prometheus_client available via metrics module
     from metrics import (  # type: ignore
@@ -58,6 +64,7 @@ except Exception:  # pragma: no cover
 
 _DATA_DIR = os.path.join("data")
 _PREDICTIONS_FILE = os.path.join(_DATA_DIR, "predictions_log.json")
+_INCIDENTS_FILE = os.path.join(_DATA_DIR, "incidents_log.json")
 
 # Sliding windows store up to 4 hours to give more context but filter by horizon
 _MAX_WINDOW_SEC = 4 * 60 * 60
@@ -71,6 +78,19 @@ _values_latency: Deque[Tuple[float, float]] = deque(maxlen=240)
 _values_memory: Deque[Tuple[float, float]] = deque(maxlen=240)
 
 _last_recompute_ts: float = 0.0
+
+# v7 – model refinement & feedback configuration
+_MODEL_MODE = os.getenv("PREDICTIVE_MODEL", "exp_smoothing").lower()
+_HALFLIFE_MINUTES: float = float(os.getenv("PREDICTIVE_HALFLIFE_MINUTES", "30") or 30.0)
+_HALFLIFE_MIN_MIN = 5.0
+_HALFLIFE_MIN_MAX = 120.0
+_FEEDBACK_MIN_INTERVAL_SEC = int(os.getenv("PREDICTIVE_FEEDBACK_INTERVAL_SEC", "300") or 300)
+_CLEANUP_INTERVAL_SEC = int(os.getenv("PREDICTIVE_CLEANUP_INTERVAL_SEC", "3600") or 3600)
+_MAX_PREDICTION_AGE_SEC = int(os.getenv("PREDICTION_MAX_AGE_SECONDS", "86400") or 86400)
+
+_last_feedback_ts: float = 0.0
+_last_cleanup_ts: float = 0.0
+_counted_prevented_ids: set[str] = set()
 
 
 @dataclass
@@ -120,6 +140,45 @@ def _linear_regression(points: List[Tuple[float, float]]) -> Tuple[float, float]
         # intercept with respect to minute-axis origin at t0
         intercept = (sum_y - slope * sum_x) / n
         # Convert intercept back to absolute time origin: y = slope*(t_minute - 0) + intercept
+        return float(slope), float(intercept)
+    except Exception:
+        return 0.0, 0.0
+
+
+def _exp_weighted_regression(points: List[Tuple[float, float]], halflife_minutes: float) -> Tuple[float, float]:
+    """Exponentially-weighted linear regression.
+
+    Returns (slope_per_minute, intercept) like _linear_regression but uses
+    exponential weights so that recent observations matter more.
+    halflife_minutes controls weight decay (~0.5 weight every halflife).
+    """
+    try:
+        if not points:
+            return 0.0, 0.0
+        if len(points) == 1:
+            return 0.0, float(points[0][1])
+        t0 = float(points[0][0])
+        xs = [((p[0] - t0) / 60.0) for p in points]
+        ys = [float(p[1]) for p in points]
+        # Compute weights with exponential decay by age (in minutes)
+        halflife = max(_HALFLIFE_MIN_MIN, min(_HALFLIFE_MIN_MAX, float(halflife_minutes or 30.0)))
+        if halflife <= 0.0:
+            halflife = 30.0
+        # w = 0.5 ** (age / halflife)
+        ages = [float(xs[-1] - x) for x in xs]
+        ws = [pow(0.5, (age / halflife)) for age in ages]
+        Sw = sum(ws)
+        if Sw <= 0.0:
+            return 0.0, ys[-1]
+        Sx = sum(w * x for w, x in zip(ws, xs))
+        Sy = sum(w * y for w, y in zip(ws, ys))
+        Sxx = sum(w * x * x for w, x in zip(ws, xs))
+        Sxy = sum(w * x * y for w, x, y in zip(ws, xs, ys))
+        denom = (Sw * Sxx - Sx * Sx)
+        if denom == 0.0:
+            return 0.0, ys[-1]
+        slope = (Sw * Sxy - Sx * Sy) / denom
+        intercept = (Sy - slope * Sx) / Sw
         return float(slope), float(intercept)
     except Exception:
         return 0.0, 0.0
@@ -210,13 +269,19 @@ def _predict_cross(
     horizon_sec: int,
 ) -> Trend:
     try:
-        pts = list(points)
-        slope_min, intercept = _linear_regression(pts)
+        # Focus trend estimation on recent window equal to prediction horizon
+        # to better reflect current direction (reduces influence of stale data).
+        cutoff = now_ts - float(horizon_sec)
+        pts = [p for p in list(points) if p[0] >= cutoff] or list(points)
+        if _MODEL_MODE == "exp_smoothing":
+            slope_min, intercept = _exp_weighted_regression(pts, _HALFLIFE_MINUTES)
+        else:
+            slope_min, intercept = _linear_regression(pts)
         predicted_ts: Optional[float] = None
         # If we've already crossed the threshold, treat as "now"
         if threshold > 0.0 and current_value >= threshold:
             predicted_ts = now_ts
-        # Otherwise, only rising trends matter for preemptive actions
+        # Otherwise, only rising trends matter for preemptive actions and predictions
         elif slope_min > 0.0 and threshold > 0.0:
             # Solve for y = slope*(minutes_since_t0) + intercept crosses threshold within horizon
             # Compute minutes from t0 to crossing
@@ -270,6 +335,46 @@ def _append_prediction_record(record: Dict[str, Any]) -> None:
         return
 
 
+def _cleanup_old_predictions(now_ts: Optional[float] = None) -> None:
+    """Remove predictions older than configured max age from JSONL file.
+
+    Best-effort: rewrites the file in place under data/ only.
+    """
+    try:
+        t = float(now_ts if now_ts is not None else _now())
+        global _last_cleanup_ts
+        if (t - _last_cleanup_ts) < float(_CLEANUP_INTERVAL_SEC):
+            return
+        _last_cleanup_ts = t
+        if not os.path.exists(_PREDICTIONS_FILE):
+            return
+        cutoff_iso = datetime.fromtimestamp(t - float(_MAX_PREDICTION_AGE_SEC), timezone.utc)
+        # Read all lines and keep only recent ones
+        kept: List[str] = []
+        with open(_PREDICTIONS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                s = (line or "").strip()
+                if not s:
+                    continue
+                try:
+                    obj = json.loads(s)
+                    ts_str = obj.get("ts")
+                    if not ts_str:
+                        continue
+                    ts_dt = datetime.fromisoformat(str(ts_str))
+                    if ts_dt >= cutoff_iso:
+                        kept.append(json.dumps(obj, ensure_ascii=False))
+                except Exception:
+                    continue
+        # Write back safely to the same file under data/
+        _ensure_dirs()
+        with open(_PREDICTIONS_FILE, "w", encoding="utf-8") as out:
+            for k in kept:
+                out.write(k + "\n")
+    except Exception:
+        return
+
+
 def _log_prediction(trend: Trend) -> None:
     try:
         rec = {
@@ -304,6 +409,23 @@ def _safe_uuid() -> str:
         return ""
 
 
+def reset_state_for_tests() -> None:
+    """Clear in-memory state for unit tests (not for production use)."""
+    try:
+        _values_error_rate.clear()
+        _values_latency.clear()
+        _values_memory.clear()
+        global _last_recompute_ts, _last_feedback_ts, _last_cleanup_ts
+        _last_recompute_ts = 0.0
+        _last_feedback_ts = 0.0
+        _last_cleanup_ts = 0.0
+        global _HALFLIFE_MINUTES
+        _HALFLIFE_MINUTES = float(os.getenv("PREDICTIVE_HALFLIFE_MINUTES", "30") or 30.0)
+        _counted_prevented_ids.clear()
+    except Exception:
+        return
+
+
 def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
     """Throttled evaluation. If any metric predicted to breach within horizon, trigger preemptive actions.
 
@@ -323,6 +445,9 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
                 continue
             _log_prediction(tr)
             _trigger_preemptive_action(tr)
+        # Maintenance: cleanup old predictions and run feedback loop
+        _cleanup_old_predictions(now_ts=t)
+        _feedback_loop(now_ts=t)
     except Exception:
         return []
     else:
@@ -393,6 +518,144 @@ def get_recent_predictions(limit: int = 5) -> List[Dict[str, Any]]:
         return items[-limit:]
     except Exception:
         return []
+
+
+def _load_actual_incidents(limit: int = 200) -> List[Dict[str, Any]]:
+    try:
+        if not os.path.exists(_INCIDENTS_FILE):
+            return []
+        items: List[Dict[str, Any]] = []
+        with open(_INCIDENTS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                s = (line or "").strip()
+                if not s:
+                    continue
+                try:
+                    items.append(json.loads(s))
+                except Exception:
+                    continue
+        return items[-limit:]
+    except Exception:
+        return []
+
+
+def _feedback_loop(now_ts: Optional[float] = None) -> None:
+    """Adaptive feedback: compare recent predictions to actual incidents.
+
+    - Compute precision over recent window (~24h) and export prediction_accuracy_percent gauge.
+    - If many false positives observed, increase halflife (less reactive). If many misses (actuals without prior predictions),
+      decrease halflife (more reactive). Bounds are enforced.
+    - Update prevented_incidents_total based on correlation between predictions and lack of subsequent incidents.
+    """
+    try:
+        t = float(now_ts if now_ts is not None else _now())
+        global _last_feedback_ts, _HALFLIFE_MINUTES
+        if (t - _last_feedback_ts) < float(_FEEDBACK_MIN_INTERVAL_SEC):
+            return
+        _last_feedback_ts = t
+
+        # Load recent horizon of predictions and incidents (24h)
+        preds = get_recent_predictions(limit=1000)
+        incidents = _load_actual_incidents(limit=1000)
+        if not preds:
+            # No predictions; set accuracy to 100 if also no incidents, else 0
+            if _accuracy_gauge is not None:
+                acc = 100.0 if not incidents else 0.0
+                try:
+                    _accuracy_gauge.set(acc)
+                except Exception:
+                    pass
+            return
+
+        cutoff = datetime.fromtimestamp(t - float(_MAX_PREDICTION_AGE_SEC), timezone.utc)
+        recent_preds = [p for p in preds if _safe_parse_dt(p.get("ts")) and _safe_parse_dt(p.get("ts")) >= cutoff]
+        recent_incs = [i for i in incidents if _safe_parse_dt(i.get("ts")) and _safe_parse_dt(i.get("ts")) >= cutoff]
+
+        # Match predictions to incidents by metric and time window (prediction within 30m before incident)
+        matched_pred_ids: set[str] = set()
+        matched_inc_ids: set[str] = set()
+        for inc in recent_incs:
+            inc_ts = _safe_parse_dt(inc.get("ts"))
+            inc_metric = str(inc.get("metric") or "")
+            if not inc_ts or not inc_metric:
+                continue
+            for p in recent_preds:
+                if p.get("prediction_id") in matched_pred_ids:
+                    continue
+                if str(p.get("metric") or "") != inc_metric:
+                    continue
+                # If prediction timestamp is within 30m before incident or immediate
+                p_ts = _safe_parse_dt(p.get("ts"))
+                if not p_ts:
+                    continue
+                delta = (inc_ts - p_ts).total_seconds()
+                if 0.0 <= delta <= 1800.0:
+                    matched_pred_ids.add(str(p.get("prediction_id")))
+                    matched_inc_ids.add(str(inc.get("incident_id", "")))
+                    break
+
+        true_positives = len(matched_pred_ids)
+        total_predictions = len(recent_preds)
+        precision = (true_positives / total_predictions) * 100.0 if total_predictions > 0 else 0.0
+        if _accuracy_gauge is not None:
+            try:
+                _accuracy_gauge.set(round(max(0.0, min(100.0, precision)), 2))
+            except Exception:
+                pass
+
+        # Adaptive halflife tuning
+        # If precision < 50% and predictions are many -> too sensitive, increase halflife by 20%
+        # If incidents exist without matches (misses) and predictions few -> not sensitive enough, decrease by 20%
+        pred_many = total_predictions >= 10
+        misses = max(0, len(recent_incs) - len(matched_inc_ids))
+        adjust = None
+        if pred_many and precision < 50.0:
+            adjust = 1.2
+        elif misses >= 3 and total_predictions <= 5:
+            adjust = 1.0 / 1.2
+        if adjust is not None:
+            try:
+                _HALFLIFE_MINUTES = max(_HALFLIFE_MIN_MIN, min(_HALFLIFE_MIN_MAX, _HALFLIFE_MINUTES * float(adjust)))
+            except Exception:
+                pass
+
+        # Prevented incidents heuristic: predictions for which no incident occurred within 45m afterwards
+        for p in recent_preds:
+            pid = str(p.get("prediction_id") or "")
+            if not pid or pid in _counted_prevented_ids:
+                continue
+            p_ts = _safe_parse_dt(p.get("ts"))
+            metric = str(p.get("metric") or "")
+            if not p_ts or not metric:
+                continue
+            horizon_after = p_ts + timedelta(minutes=45)
+            occurred = False
+            for inc in recent_incs:
+                inc_ts = _safe_parse_dt(inc.get("ts"))
+                if not inc_ts:
+                    continue
+                if str(inc.get("metric") or "") != metric:
+                    continue
+                if p_ts <= inc_ts <= horizon_after:
+                    occurred = True
+                    break
+            if not occurred and _prevented_ctr is not None:
+                try:
+                    _prevented_ctr.labels(metric=metric).inc()
+                    _counted_prevented_ids.add(pid)
+                except Exception:
+                    pass
+    except Exception:
+        return
+
+
+def _safe_parse_dt(dt_str: Optional[str]) -> Optional[datetime]:
+    try:
+        if not dt_str:
+            return None
+        return datetime.fromisoformat(str(dt_str))
+    except Exception:
+        return None
 
 
 def get_trend_snapshot() -> Dict[str, Dict[str, Any]]:

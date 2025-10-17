@@ -78,6 +78,28 @@ actual_incidents_total = (
     else None
 )
 
+# Observability v7: Feedback & Prevention
+# Gauge for prediction accuracy over a recent window (e.g., 24h)
+prediction_accuracy_percent = (
+    Gauge(
+        "prediction_accuracy_percent",
+        "Prediction accuracy percent over recent window",
+    )
+    if Gauge
+    else None
+)
+
+# Counter for prevented incidents over time (labeled by metric)
+prevented_incidents_total = (
+    Counter(
+        "prevented_incidents_total",
+        "Count of incidents likely prevented by preemptive actions",
+        ["metric"],
+    )
+    if Counter
+    else None
+)
+
 # --- CodeBot Stage 2: Unified service metrics ---
 # Visible in both Flask and AIOHTTP services under /metrics
 codebot_active_users_total = Gauge("codebot_active_users_total", "Number of active users recently") if Gauge else None
