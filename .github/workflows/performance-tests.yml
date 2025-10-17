@@ -1,6 +1,8 @@
 name: "⚡ Performance Tests"
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
@@ -17,3 +19,38 @@ jobs:
           echo "🔥 Running performance tests..."
           # Place your load-testing tool invocation here (e.g., k6, locust)
           # k6 run performance/load-test.js
+
+  python-performance:
+    name: "🐍 PyTest Performance"
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements/*.txt
+
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/development.txt
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/development.txt -c constraints.txt
+          pip check || true
+
+      # ברירת מחדל: להריץ הכל (כולל heavy)
+      - name: Run ALL performance tests (default)
+        if: github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light'))
+        run: pytest -v -o addopts="" -m performance
+
+      # כאשר ה‑PR הוא draft ומתויג perf-light: להריץ רק קלים
+      - name: Run LIGHT performance tests (draft + perf-light)
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light')
+        env:
+          ONLY_LIGHT_PERF: '1'
+        run: pytest -v -o addopts="" -m performance
