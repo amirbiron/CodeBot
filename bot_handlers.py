@@ -91,6 +91,8 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("search", self.search_command))
         # ChatOps MVP + Stage 2 commands
         self.application.add_handler(CommandHandler("status", self.status_command))
+        # פקודת מנהל להצגת קישור ל-Sentry
+        self.application.add_handler(CommandHandler("sen", self.sentry_command))
         self.application.add_handler(CommandHandler("errors", self.errors_command))
         self.application.add_handler(CommandHandler("rate_limit", self.rate_limit_command))
         self.application.add_handler(CommandHandler("uptime", self.uptime_command))
@@ -589,15 +591,8 @@ class AdvancedBotHandlers:
             if not self._is_admin(user_id):
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
-            # DB status
-            db_ok = False
-            try:
-                from database import db as _db
-                # No-op DB returns empty list; treat as OK in test/doc envs
-                _ = list(getattr(_db, 'collection', None).list_indexes()) if getattr(_db, 'collection', None) else []
-                db_ok = True
-            except Exception:
-                db_ok = False
+            # DB status - בדיקת פינג אמיתית ל-MongoDB
+            db_ok = await check_db_connection()
 
             # Redis status
             redis_ok = False
@@ -633,6 +628,46 @@ class AdvancedBotHandlers:
             await update.message.reply_text(text)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/status: {html.escape(str(e))}")
+
+    async def sentry_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/sen – מחזיר קישור ל-Sentry (מנהלים בלבד)"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            # עדיפות ל-ENV ישיר של קישור דאשבורד
+            dashboard = os.getenv("SENTRY_DASHBOARD_URL") or os.getenv("SENTRY_PROJECT_URL")
+            dsn = os.getenv("SENTRY_DSN") or ""
+            url = None
+            if dashboard:
+                url = dashboard
+            else:
+                # ננסה לגזור דומיין מה-DSN (ללא זליגת סודות)
+                host = None
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(dsn)
+                    host = (parsed.hostname or '').replace('ingest.', '') if parsed.hostname else None
+                except Exception:
+                    host = None
+                org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+                if host and org:
+                    url = f"https://{host}/organizations/{org}/issues/"
+                elif host:
+                    url = f"https://{host}/"
+
+            if not url:
+                await update.message.reply_text("ℹ️ Sentry לא מוגדר בסביבה זו.")
+                return
+            safe_url = html.escape(url)
+            await update.message.reply_text(f"🔗 Sentry: {safe_url}", parse_mode=ParseMode.HTML)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/sen: {html.escape(str(e))}")
 
     async def uptime_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/uptime – אחוז זמינות כולל לפי metrics"""
@@ -1840,3 +1875,58 @@ class AdvancedBotHandlers:
         await query.message.reply_document(document=InputFile(io.BytesIO(file_data['code'].encode('utf-8')), filename=f"{file_name}"))
 
 # פקודות נוספות ייוצרו בהמשך...
+
+
+async def check_db_connection() -> bool:
+    """בדיקת חיבור אמיתית ל-MongoDB באמצעות פקודת ping.
+
+    לוגיקה:
+    - טוען URI מה-ENV (MONGODB_URL/REPORTER_MONGODB_URL/REPORTER_MONGODB_URI)
+    - מנסה תחילה Motor (אסינכרוני) עם await
+    - נפילה ל-PyMongo (סינכרוני) אם Motor לא זמין
+    - מחזיר True רק אם ping הצליח בפועל
+    """
+    try:
+        mongodb_uri = (
+            os.getenv('REPORTER_MONGODB_URL')
+            or os.getenv('REPORTER_MONGODB_URI')
+            or os.getenv('MONGODB_URL')
+            or ""
+        )
+        if not mongodb_uri:
+            logger.debug("MongoDB URI missing (MONGODB_URL not configured)")
+            return False
+
+        # Motor (עדיף אסינכרוני)
+        try:
+            import motor.motor_asyncio as _motor  # type: ignore
+            client = _motor.AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            try:
+                await client.admin.command('ping')
+                return True
+            finally:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+        except Exception as motor_err:
+            logger.debug(f"Motor ping failed; falling back to PyMongo: {motor_err}")
+
+        # PyMongo (סינכרוני)
+        try:
+            from pymongo import MongoClient  # type: ignore
+            client2 = MongoClient(mongodb_uri, serverSelectionTimeoutMS=3000)
+            try:
+                client2.admin.command('ping')
+                return True
+            finally:
+                try:
+                    client2.close()
+                except Exception:
+                    pass
+        except Exception as pym_err:
+            logger.debug(f"PyMongo ping failed: {pym_err}")
+            return False
+    except Exception as e:
+        logger.debug(f"Unexpected error during DB check: {e}")
+        return False
