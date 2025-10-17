@@ -10,11 +10,11 @@
   <div style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
     {% for item in items %}
     <div class="glass-card" style="padding:1rem;">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap: 0.75rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap: 0.75rem; flex-wrap: wrap;">
         <div style="display:flex; gap:.75rem; align-items:center; min-width:0;">
           <span style="font-size:1.5rem">{{ item.icon }}</span>
           <div style="display:flex; flex-direction:column; min-width:0;">
-            <strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ item.file_name }}</strong>
+            <strong title="{{ item.file_name }}" style="display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; max-width:100%;">{{ item.file_name }}</strong>
             <div style="display:flex; gap:.5rem; flex-wrap:wrap; opacity:.8; font-size:.9rem;">
               <span class="badge">{{ item.language }}</span>
               <span class="badge">{{ item.lines }} שורות</span>
