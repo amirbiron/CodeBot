@@ -157,18 +157,23 @@ class AdvancedBotHandlers:
             )
             return
         
-        # קבל את הקוד המקורי (הפונקציה highlight_code תחזיר אותו כפי שהוא)
-        original_code = code_processor.highlight_code(
-            file_data['code'],
-            file_data['programming_language']
-        )
+        # קבל את הקוד המקורי בבטחה; ודא שתמיד יש מחרוזת קוד
+        code_raw = str((file_data.get('code') or ""))
+        language = str((file_data.get('programming_language') or ""))
+        try:
+            # highlight_code עשוי להחזיר מחרוזת ריקה במקרי קצה — ניפול חזרה לקוד המקורי
+            original_code = code_processor.highlight_code(code_raw, language)
+        except Exception:
+            original_code = code_raw
+        if not isinstance(original_code, str) or original_code == "":
+            original_code = code_raw
         
         # בצע הימלטות לתוכן הקוד כדי למנוע שגיאות
         escaped_code = html.escape(original_code)
 
         # עטוף את הקוד הנקי בתגיות <pre><code> שטלגרם תומך בהן
-        response_text = f"""<b>File:</b> <code>{html.escape(file_data['file_name'])}</code>
-<b>Language:</b> {file_data['programming_language']}
+        response_text = f"""<b>File:</b> <code>{html.escape(str(file_data.get('file_name', file_name)))}</code>
+<b>Language:</b> {language}
 
 <pre><code>{escaped_code}</code></pre>
 """
