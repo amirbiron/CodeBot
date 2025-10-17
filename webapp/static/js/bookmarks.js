@@ -581,10 +581,17 @@ class BookmarkManager {
             const cached = this.offline.getCachedBookmarks(this.fileId);
             if (cached.length > 0) {
                 cached.forEach(bm => {
-                    this.bookmarks.set(bm.line_number, bm);
-                    this.ui.addBookmarkIndicator(bm.line_number, bm.color || this.defaultColor);
+                    const key = (bm.anchor_id ? `a:${bm.anchor_id}` : bm.line_number);
+                    this.bookmarks.set(key, bm);
+                    if (bm.anchor_id) {
+                        this.ui.addAnchorIndicatorById(bm.anchor_id, bm.color || this.defaultColor);
+                    } else {
+                        this.ui.addBookmarkIndicator(bm.line_number, bm.color || this.defaultColor);
+                    }
                 });
-                
+
+                this.ui.updateCount(this.bookmarks.size);
+                this.ui.refreshPanel(Array.from(this.bookmarks.values()));
                 this.ui.showNotification('טעינה ממטמון מקומי', 'warning');
             }
         }
