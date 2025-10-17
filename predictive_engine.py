@@ -100,8 +100,10 @@ def _linear_regression(points: List[Tuple[float, float]]) -> Tuple[float, float]
     points: list of (ts_seconds, value)
     """
     try:
-        if len(points) < 2:
-            return 0.0, float(points[-1][1]) if points else (0.0)  # type: ignore[return-value]
+        if not points:
+            return 0.0, 0.0
+        if len(points) == 1:
+            return 0.0, float(points[0][1])
         # Convert to minutes relative to first point to improve conditioning
         t0 = float(points[0][0])
         xs = [((p[0] - t0) / 60.0) for p in points]
@@ -311,8 +313,8 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
     t = float(now_ts if now_ts is not None else _now())
     try:
         if (t - _last_recompute_ts) < _RECOMPUTE_MIN_INTERVAL_SEC:
-            # Throttled: avoid side effects (logging/actions) to prevent thrashing.
-            # Actions will run at most once per interval when the throttle elapses.
+            # Throttled: avoid side effects and also skip heavy computations.
+            # Return empty and let the next interval do work once.
             return []
         _last_recompute_ts = t
         trends = evaluate_predictions(now_ts=t)
@@ -321,6 +323,8 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
                 continue
             _log_prediction(tr)
             _trigger_preemptive_action(tr)
+        # Advance the recompute timestamp after performing side effects to prevent duplicates
+        _last_recompute_ts = t
         return trends
     except Exception:
         return []
