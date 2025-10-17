@@ -28,11 +28,19 @@ try:  # optional dependency
 except Exception:  # pragma: no cover
     requests = None  # type: ignore
 
-try:
-    from observability import emit_event  # type: ignore
-except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
-        return None
+def _emit_event(event: str, severity: str = "info", **fields) -> None:
+    """Dynamic event emitter to honor test-time monkeypatching.
+
+    Imports observability at call-time so stubs in sys.modules are respected.
+    """
+    try:
+        from importlib import import_module
+        obs = import_module('observability')
+        fn = getattr(obs, 'emit_event', None)
+        if callable(fn):
+            fn(event, severity=severity, **fields)
+    except Exception:
+        return
 
 # Optional cache manager for remediation
 try:
@@ -123,7 +131,7 @@ def _grafana_annotate(text: str) -> None:
 def _restart_service(name: str) -> bool:
     # Placeholder: in this project we don't manage processes; emit event only
     try:
-        emit_event("service_restart_attempt", severity="warn", service=str(name))
+        _emit_event("service_restart_attempt", severity="warn", service=str(name))
         return True
     except Exception:
         return False
@@ -142,7 +150,7 @@ def _clear_internal_cache() -> bool:
                     _cache.delete_pattern("*")  # type: ignore[call-arg]
                 except Exception:
                     pass
-        emit_event("cache_clear_attempt", severity="warn")
+        _emit_event("cache_clear_attempt", severity="warn")
         return True
     except Exception:
         return False
@@ -155,7 +163,7 @@ def _reconnect_mongodb() -> bool:
             mgr = DatabaseManager()
             # Touch db attribute to initialize
             _ = getattr(mgr, "db", None)
-        emit_event("mongodb_reconnect_attempt", severity="warn")
+        _emit_event("mongodb_reconnect_attempt", severity="warn")
         return True
     except Exception:
         return False
@@ -241,10 +249,7 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
         }
 
         _write_incident(record)
-        try:
-            emit_event("AUTO_REMEDIATION_EXECUTED", severity="error", incident_id=incident_id, name=str(name))
-        except Exception:
-            pass
+        _emit_event("AUTO_REMEDIATION_EXECUTED", severity="error", incident_id=incident_id, name=str(name))
 
         try:
             _grafana_annotate(f"{name} — action={action} recurring={recurring}")
@@ -252,35 +257,34 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
             pass
 
         if recurring:
-            # Bump via alert_manager.bump_threshold if available (updates internal state),
-            # and also refresh Prometheus gauges for visibility in tests
+            # Capture pre-bump snapshot to avoid double-bump when exporting gauges
+            before_err = before_lat = None
+            try:
+                from alert_manager import get_thresholds_snapshot  # type: ignore
+                snap_before = get_thresholds_snapshot() or {}
+                before_err = float(snap_before.get("error_rate_percent", {}).get("threshold", 0.0) or 0.0)
+                before_lat = float(snap_before.get("latency_seconds", {}).get("threshold", 0.0) or 0.0)
+            except Exception:
+                before_err = before_lat = None
+
+            # Bump internal thresholds by 1.2x
             try:
                 from alert_manager import bump_threshold  # type: ignore
                 bump_threshold(kind=str(metric), factor=1.2)
             except Exception:
                 pass
-            # Always update gauges too to satisfy environments that only observe gauges
+
+            # Export gauges that reflect exactly one bump (no double multiplication)
             try:
                 from metrics import set_adaptive_observability_gauges  # type: ignore
-                snap_err = snap_lat = None
-                try:
-                    from alert_manager import get_thresholds_snapshot  # type: ignore
-                    snap = get_thresholds_snapshot() or {}
-                    snap_err = float(snap.get("error_rate_percent", {}).get("threshold", 0.0) or 0.0)
-                    snap_lat = float(snap.get("latency_seconds", {}).get("threshold", 0.0) or 0.0)
-                except Exception:
-                    snap_err = snap_lat = None
-                # Always bump by factor 1.2 on recurring, using snapshot if available, else fall back to current threshold
                 if str(metric) == "error_rate_percent":
-                    base = snap_err if (snap_err is not None and snap_err > 0.0) else float(threshold)
-                    snap_err = (base * 1.2) if base and base > 0.0 else None
-                if str(metric) == "latency_seconds":
-                    base = snap_lat if (snap_lat is not None and snap_lat > 0.0) else float(threshold)
-                    snap_lat = (base * 1.2) if base and base > 0.0 else None
-                set_adaptive_observability_gauges(
-                    error_rate_threshold_percent=snap_err if str(metric) == "error_rate_percent" else None,
-                    latency_threshold_seconds=snap_lat if str(metric) == "latency_seconds" else None,
-                )
+                    base = before_err if (before_err and before_err > 0.0) else float(threshold)
+                    new_val = (base * 1.2) if base and base > 0.0 else None
+                    set_adaptive_observability_gauges(error_rate_threshold_percent=new_val)
+                elif str(metric) == "latency_seconds":
+                    base = before_lat if (before_lat and before_lat > 0.0) else float(threshold)
+                    new_val = (base * 1.2) if base and base > 0.0 else None
+                    set_adaptive_observability_gauges(latency_threshold_seconds=new_val)
             except Exception:
                 pass
 
