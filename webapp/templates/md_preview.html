@@ -959,7 +959,17 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     if (window.markdownitAnchor) md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
-    if (window.markdownitAdmonition) { try { md.use(window.markdownitAdmonition, { types: ['note','tip','warning','danger','info','success','question','example','quote','experimental','deprecated','todo','abstract'] }); } catch(_) {} }
+    // תמיכה גם בשמות גלובליים שונים של התוסף (markdown-it-admonition)
+    (function(){
+      try {
+        const admonitionPlugin = (window.markdownitAdmonition || window.markdownItAdmonition);
+        if (admonitionPlugin) {
+          md.use(admonitionPlugin, {
+            types: ['note','tip','warning','danger','info','success','question','example','quote','experimental','deprecated','todo','abstract']
+          });
+        }
+      } catch(_) {}
+    })();
     if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
 
     // רינדור ראשוני
@@ -981,7 +991,7 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
       });
     } catch(_) {}
 
-    // המרה של ::: details ו-::: admonitions ל-HTML בטוח לאחר הרינדור
+    // המרה של ::: details / ::: admonitions / ??? ו-!!! ל-HTML בטוח לאחר הרינדור
     (function enhanceMarkdownContainers() {
       try {
         if (!container) return;
@@ -989,10 +999,14 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         const CLOSE_RE = /^:{3,}\s*$/;
         const Q_OPEN_RE = /^\?{3,}\s*([+\-])?\s*(?:details|note|tip|warning|danger|info|success|question|example|quote|experimental|deprecated|todo|abstract)?\b/i;
         const Q_CLOSE_RE = /^\?{3,}\s*$/;
+        const B_OPEN_RE = /^!{3,}\s*([a-z]+)?\s*(.*)$/i; // !!! type? title?
+        const B_CLOSE_RE = /^!{3,}\s*$/;
         function isOpenMarker(p){ return p && p.tagName === 'P' && OPEN_RE.test((p.textContent || '').trim()); }
         function isCloseMarker(p){ return p && p.tagName === 'P' && CLOSE_RE.test((p.textContent || '').trim()); }
         function isQOpenMarker(p){ return p && p.tagName === 'P' && Q_OPEN_RE.test((p.textContent || '').trim()); }
         function isQCloseMarker(p){ return p && p.tagName === 'P' && Q_CLOSE_RE.test((p.textContent || '').trim()); }
+        function isBOpenMarker(p){ return p && p.tagName === 'P' && B_OPEN_RE.test((p.textContent || '').trim()); }
+        function isBCloseMarker(p){ return p && p.tagName === 'P' && B_CLOSE_RE.test((p.textContent || '').trim()); }
         function findMatchingClose(startP) {
           let depth = 0;
           let cursor = startP.nextElementSibling;
@@ -1012,6 +1026,19 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
           while (cursor) {
             if (isQOpenMarker(cursor)) depth += 1;
             else if (isQCloseMarker(cursor)) {
+              if (depth === 0) return cursor;
+              depth -= 1;
+            }
+            cursor = cursor.nextElementSibling;
+          }
+          return null;
+        }
+        function findMatchingBClose(startP) {
+          let depth = 0;
+          let cursor = startP.nextElementSibling;
+          while (cursor) {
+            if (isBOpenMarker(cursor)) depth += 1;
+            else if (isBCloseMarker(cursor)) {
               if (depth === 0) return cursor;
               depth -= 1;
             }
@@ -1083,6 +1110,25 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
                     try { transformIn(content); } catch(_) {}
                     node = details;
                     changed = true;
+                  } else {
+                    // !!! blocks: !!! [type?] [title?] ... !!!
+                    m = text.match(/^!{3,}\s*([a-z]+)?\s*(.*)$/i);
+                    if (m) {
+                      const type = (m[1] || 'note').toLowerCase();
+                      const titleTxt = (m[2] || '').trim() || defaultTitle(type);
+                      const endP = findMatchingBClose(node);
+                      if (!endP) { node = node.nextElementSibling; continue; }
+                      const frag = extractBetween(node, endP);
+                      const wrap = document.createElement('div'); wrap.className = 'admonition admonition-' + type;
+                      const title = document.createElement('div'); title.className = 'admonition-title'; title.textContent = titleTxt;
+                      const content = document.createElement('div'); content.className = 'admonition-content'; content.appendChild(frag);
+                      wrap.appendChild(title); wrap.appendChild(content);
+                      const parent = node.parentNode; parent.replaceChild(wrap, node);
+                      if (endP && endP.parentNode) endP.parentNode.removeChild(endP);
+                      try { transformIn(content); } catch(_) {}
+                      node = wrap;
+                      changed = true;
+                    }
                   }
                 }
               }
