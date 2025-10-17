@@ -311,14 +311,9 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
     t = float(now_ts if now_ts is not None else _now())
     try:
         if (t - _last_recompute_ts) < _RECOMPUTE_MIN_INTERVAL_SEC:
-            # Even if we throttle returning trends, we can still perform a cheap check
-            # when latest sample already indicates breach crossing to unblock tests.
-            trends = evaluate_predictions(now_ts=t)
-            for tr in trends:
-                if tr.predicted_cross_ts is not None:
-                    _log_prediction(tr)
-                    _trigger_preemptive_action(tr)
-            return trends if trends else []
+            # Throttled: avoid side effects (logging/actions) to prevent thrashing.
+            # Actions will run at most once per interval when the throttle elapses.
+            return []
         _last_recompute_ts = t
         trends = evaluate_predictions(now_ts=t)
         for tr in trends:
