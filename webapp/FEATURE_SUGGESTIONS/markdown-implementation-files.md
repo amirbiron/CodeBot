@@ -465,7 +465,7 @@ npm start
 
 // עיבוד והצגה
 console.log('🚀 בודק עיבוד Markdown...\n');
-console.log('='.'repeat(50));
+console.log('='.repeat(50));
 
 const html = md.render(testContent);
 
@@ -523,7 +523,7 @@ Object.entries(features).forEach(([feature, supported]) => {
 });
 
 console.log('\n💡 טיפ: פתח את הקובץ בדפדפן לבדיקה ויזואלית');
-console.log('='.'repeat(50));
+console.log('='.repeat(50));
 ```
 
 ## 📄 קובץ 5: דוגמת שימוש - webapp/docs/example.md
