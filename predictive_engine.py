@@ -323,11 +323,12 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
                 continue
             _log_prediction(tr)
             _trigger_preemptive_action(tr)
-        # Advance the recompute timestamp after performing side effects to prevent duplicates
-        _last_recompute_ts = t
-        return trends
     except Exception:
         return []
+    else:
+        # Advance only when full evaluation completed without uncaught errors
+        _last_recompute_ts = t
+        return trends
 
 
 def _trigger_preemptive_action(tr: Trend) -> None:
