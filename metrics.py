@@ -287,14 +287,19 @@ def _update_derived_metrics_on_scrape() -> None:
     """Update counters/gauges that depend on time at scrape."""
     global _LAST_UPTIME_SCRAPE_TS
     now = _time.time()
+    delta: float = 0.0
     try:
         if codebot_uptime_seconds_total is not None:
             delta = max(0.0, float(now - _LAST_UPTIME_SCRAPE_TS))
             if delta > 0.0:
                 codebot_uptime_seconds_total.inc(delta)
-        _LAST_UPTIME_SCRAPE_TS = now
     except Exception:
+        # swallow increment errors but still advance timestamp below
         pass
+    finally:
+        # Always advance the last scrape timestamp to avoid over-counting next time
+        # even if the increment failed above.
+        _LAST_UPTIME_SCRAPE_TS = now
     _update_error_rate_gauge()
 
 
