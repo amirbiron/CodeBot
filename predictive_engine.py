@@ -334,6 +334,14 @@ def maybe_recompute_and_preempt(now_ts: Optional[float] = None) -> List[Trend]:
 def _trigger_preemptive_action(tr: Trend) -> None:
     try:
         action = None
+        # דילוג מוחלט על פעולות מנע אם SAFE_MODE/דגל ביטול פעיל
+        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on") or \
+           str(os.getenv("DISABLE_PREEMPTIVE_ACTIONS", "")).lower() in ("1", "true", "yes", "y", "on"):
+            try:
+                emit_event("PREDICTIVE_ACTION_SKIPPED", severity="info", metric=tr.metric, reason="safe_mode")
+            except Exception:
+                pass
+            return
         if tr.metric == "latency_seconds":
             # Clear stale cache (fallback to clear_all when unknown)
             try:
