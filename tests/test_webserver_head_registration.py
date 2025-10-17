@@ -12,8 +12,8 @@ async def test_routes_register_once_without_head_conflicts():
     try:
         # collecting route names/methods ensures no duplicates (HEAD will be auto-provided by aiohttp once)
         routes = [(r.method, r.resource.canonical) for r in app.router.routes()]
-        # there should be exactly one GET per path we register
-        get_health = [r for r in routes if r[0] == 'GET' and '/health' in r[1]]
+        # there should be exactly one GET for '/health' (don't match '/healthz')
+        get_health = [r for r in routes if r[0] == 'GET' and r[1] == '/health']
         get_metrics = [r for r in routes if r[0] == 'GET' and '/metrics' in r[1]]
         get_share = [r for r in routes if r[0] == 'GET' and '/share/' in r[1]]
         assert len(get_health) == 1

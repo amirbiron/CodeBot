@@ -66,6 +66,12 @@ class BotConfig:
     DRIVE_ADD_HASH: bool = False
     # נרמול קוד לפני שמירה (הסרה/ניקוי תווים נסתרים)
     NORMALIZE_CODE_ON_SAVE: bool = True
+
+    # Metrics DB (optional dual-write)
+    METRICS_DB_ENABLED: bool = False
+    METRICS_COLLECTION: str = "service_metrics"
+    METRICS_BATCH_SIZE: int = 50
+    METRICS_FLUSH_INTERVAL_SEC: int = 5
     
     def __post_init__(self):
         if self.SUPPORTED_LANGUAGES is None:
@@ -107,6 +113,10 @@ def load_config() -> BotConfig:
         BOT_LABEL=os.getenv('BOT_LABEL', 'CodeBot'),
         DRIVE_ADD_HASH=os.getenv('DRIVE_ADD_HASH', 'false').lower() == 'true',
         NORMALIZE_CODE_ON_SAVE=os.getenv('NORMALIZE_CODE_ON_SAVE', 'true').lower() == 'true',
+        METRICS_DB_ENABLED=os.getenv('METRICS_DB_ENABLED', 'false').lower() in {'1','true','yes','on'},
+        METRICS_COLLECTION=os.getenv('METRICS_COLLECTION', 'service_metrics'),
+        METRICS_BATCH_SIZE=int(os.getenv('METRICS_BATCH_SIZE', '50') or '50'),
+        METRICS_FLUSH_INTERVAL_SEC=int(os.getenv('METRICS_FLUSH_INTERVAL_SEC', '5') or '5'),
         MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
         MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
         MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '30')),
