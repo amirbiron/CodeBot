@@ -186,7 +186,7 @@ services:
 #    - Name: code-keeper-bot
 #    - Region: Oregon (או הקרוב אליך)
 #    - Branch: main
-#    - Build Command: pip install -r requirements.txt
+#    - Build Command: pip install -r requirements/production.txt
 #    - Start Command: python main.py
 
 # שלב 2: הגדר משתני סביבה

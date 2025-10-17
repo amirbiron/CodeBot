@@ -31,7 +31,7 @@
 1. **התקן את החבילות:**
 ```bash
 cd webapp
-pip install -r requirements.txt
+pip install -r ../requirements/production.txt
 ```
 
 2. **צור קובץ .env:**
@@ -66,7 +66,7 @@ http://localhost:5000
 1. **צור Web Service חדש ב-Render:**
    - Name: `code-keeper-webapp`
    - Environment: Python
-   - Build Command: `cd webapp && pip install -r requirements.txt`
+   - Build Command: `cd webapp && pip install -r ../requirements/production.txt`
    - Start Command: `cd webapp && gunicorn app:app --bind 0.0.0.0:$PORT`
 
 2. **הגדר משתני סביבה:**
@@ -146,7 +146,7 @@ webapp/
 **פתרון:** ודא שהתקנת את כל החבילות:
 ```bash
 cd webapp
-pip install -r requirements.txt
+pip install -r ../requirements/production.txt
 ```
 
 ### שגיאת חיבור ל-MongoDB

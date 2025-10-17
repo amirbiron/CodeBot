@@ -49,14 +49,15 @@
 
 ### שלב 1: הוספת Dependencies וImports
 
-**קובץ:** `webapp/requirements.txt`
+**קובץ:** `requirements/production.txt`
 
 **הוספת תלויות נוספות:**
 ```txt
+# הוסף ל-requirements/production.txt אם לא קיים
 flask-limiter==3.5.0  # Rate limiting
-tenacity==8.2.3  # Retry logic
-prometheus-client==0.19.0  # Metrics
-sentry-sdk[flask]==1.39.1  # Error monitoring (אופציונלי)
+tenacity==9.1.2  # Retry logic (מיושר לריפו)
+prometheus-client==0.20.0  # Metrics (מיושר לריפו)
+sentry-sdk[flask]==1.39.2  # Error monitoring (מיושר לריפו)
 ```
 
 **קובץ:** `webapp/app.py`
