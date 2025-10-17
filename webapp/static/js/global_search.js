@@ -118,21 +118,35 @@
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  function renderCard(r){
+  function renderCard(r) {
     const highlighted = highlightSnippet(r.snippet, r.highlights);
-    const icon = fileIcon(r.language||'');
+    const icon = fileIcon(r.language || '');
+
+    // מבנה כרטיס מעודכן – ממורכז ורספונסיבי, עם טיפול בגלישת טקסט
     return (
-      '<div class="search-result-card mb-3 p-3 border rounded" style="background:white;color:#111;">' +
-        '<div class="d-flex justify-content-between align-items-start">' +
-          '<div class="flex-grow-1">' +
-            '<h6 class="mb-1">' + icon + ' <a href="/file/' + r.file_id + '" target="_blank">' + escapeHtml(r.file_name||'') + '</a>' +
-            ' <span class="badge badge-secondary ml-2">' + escapeHtml(r.language||'') + '</span></h6>' +
-            '<div class="code-snippet bg-light p-2 rounded"><pre class="mb-0"><code>' + highlighted + '</code></pre></div>' +
-          '</div>' +
-          '<div class="text-right ml-3 small text-muted">' +
-            '<div>ציון: ' + (r.score ?? 0) + '</div>' +
-            '<div>גודל: ' + humanSize(r.size||0) + '</div>' +
-            '<div>עדכון: ' + formatDate(r.updated_at) + '</div>' +
+      '<div class="search-result-card glass-card">' +
+        '<div class="card-body">' +
+          '<div class="result-header d-flex justify-content-between align-items-start">' +
+            '<div class="result-content flex-grow-1" style="min-width: 0;">' +
+              '<h6 class="result-title mb-2">' +
+                icon + ' <a href="/file/' + r.file_id + '" target="_blank" class="text-truncate d-inline-block" style="max-width: calc(100% - 50px);">' +
+                escapeHtml(r.file_name || '') +
+                '</a>' +
+                ' <span class="badge badge-secondary ml-2">' + escapeHtml(r.language || '') + '</span>' +
+              '</h6>' +
+              '<div class="code-snippet-wrapper">' +
+                '<div class="code-snippet bg-light p-3 rounded">' +
+                  '<pre class="mb-0"><code>' + highlighted + '</code></pre>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="result-meta text-right ml-3 flex-shrink-0">' +
+              '<div class="small text-muted">' +
+                '<div>ציון: ' + (r.score ?? 0).toFixed(2) + '</div>' +
+                '<div>גודל: ' + humanSize(r.size || 0) + '</div>' +
+                '<div>עדכון: ' + formatDate(r.updated_at) + '</div>' +
+              '</div>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>'

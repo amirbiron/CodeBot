@@ -10,46 +10,77 @@
 <h1 class="page-title">הקבצים שלי</h1>
 
 <!-- חיפוש גלובלי בתוכן -->
-<div class="glass-card search-and-filters" style="margin-bottom: 1rem;">
-  <div class="card-body" style="padding: 0;">
-    <div class="row filters-row" style="align-items: center; gap: 0.5rem;">
-      <div class="col-md-8" style="flex: 1; min-width: 260px;">
-        <div class="input-group" style="display: flex; gap: 0.5rem;">
-          <input type="text" id="globalSearchInput" class="form-control" placeholder="חפש טקסט/קוד בכל הקבצים..." style="flex:1; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;" autocomplete="off">
-          <button class="btn btn-primary" id="searchBtn" onclick="performGlobalSearch()"><i class="fas fa-search"></i> חפש</button>
+<div class="container-fluid px-3">
+  <div class="glass-card search-and-filters">
+    <div class="card-body">
+      <div class="row filters-row">
+        <!-- עמודת החיפוש -->
+        <div class="col-lg-8 col-md-12 mb-3 mb-lg-0">
+          <div class="input-group">
+            <input type="text" 
+                   id="globalSearchInput" 
+                   class="form-control form-control-lg" 
+                   placeholder="חפש טקסט/קוד בכל הקבצים..." 
+                   autocomplete="off">
+            <div class="input-group-append">
+              <button class="btn btn-primary btn-lg" 
+                      id="searchBtn" 
+                      onclick="performGlobalSearch()"
+                      type="button">
+                <i class="fas fa-search"></i> חפש
+              </button>
+            </div>
+          </div>
+          <div id="searchSuggestions" 
+               class="list-group" 
+               style="display: none;">
+          </div>
         </div>
-        <div id="searchSuggestions" class="list-group position-absolute w-100" style="z-index: 1000; display: none; left: 0; right: 0; max-width: 100vw;"></div>
-      </div>
-      <div class="col-md-4" style="min-width: 180px;">
-        <div class="filter-container" style="display:flex; gap:0.5rem; flex-wrap: wrap;">
-          <select id="searchType" class="filter-select" style="padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-            <option value="content" selected>תוכן</option>
-            <option value="text">טקסט</option>
-            <option value="regex">Regex</option>
-            <option value="fuzzy">מטושטש</option>
-            <option value="function">פונקציות</option>
-          </select>
-          <select id="resultsPerPage" class="filter-select" style="padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-            <option value="10">10</option>
-            <option value="20" selected>20</option>
-            <option value="50">50</option>
-          </select>
-          <select id="sortOrder" class="filter-select" style="padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-            <option value="relevance" selected>רלוונטיות</option>
-            <option value="date_desc">תאריך ↓</option>
-            <option value="date_asc">תאריך ↑</option>
-            <option value="name_asc">שם</option>
-            <option value="size_desc">גודל</option>
-          </select>
-          <select id="filterLanguages" multiple class="filter-select" style="padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-            {% for lang in languages %}
-              {% if lang %}<option value="{{ lang }}">{{ lang }}</option>{% endif %}
-            {% endfor %}
-          </select>
+
+        <!-- עמודת הפילטרים -->
+        <div class="col-lg-4 col-md-12">
+          <div class="filter-container d-flex gap-2 flex-wrap justify-content-lg-end justify-content-center">
+            <select id="searchType" class="form-control form-control-sm" style="width: auto;">
+              <option value="content" selected>תוכן</option>
+              <option value="text">טקסט</option>
+              <option value="regex">Regex</option>
+              <option value="fuzzy">מטושטש</option>
+              <option value="function">פונקציות</option>
+            </select>
+
+            <select id="resultsPerPage" class="form-control form-control-sm" style="width: auto;">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+            </select>
+
+            <select id="sortOrder" class="form-control form-control-sm" style="width: auto;">
+              <option value="relevance" selected>רלוונטיות</option>
+              <option value="date_desc">תאריך ↓</option>
+              <option value="date_asc">תאריך ↑</option>
+              <option value="name_asc">שם</option>
+              <option value="size_desc">גודל</option>
+            </select>
+
+            <select id="filterLanguages" 
+                    multiple 
+                    class="form-control form-control-sm" 
+                    style="width: auto; min-width: 120px;">
+              {% for lang in languages %}
+                {% if lang %}
+                  <option value="{{ lang }}">{{ lang }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
         </div>
       </div>
     </div>
   </div>
+</div>
+
+<!-- תוצאות החיפוש -->
+<div class="container-fluid px-3">
   <div id="searchResultsContainer" style="display:none; margin-top: 1rem;">
     <div class="card" style="background: rgba(255,255,255,0.08); border-radius: 12px;">
       <div class="card-header d-flex justify-content-between align-items-center" style="padding: 0.75rem 1rem;">
