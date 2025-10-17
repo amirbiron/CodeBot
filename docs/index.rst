@@ -50,6 +50,7 @@ Code Keeper Bot - תיעוד API
 
    examples
    testing
+   performance-tests
    ci-cd
    conversation-handlers
    troubleshooting
