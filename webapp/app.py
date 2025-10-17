@@ -1373,6 +1373,36 @@ def healthz():
         return jsonify({"status": "error"}), 503
 
 
+# --- Observability v3 JSON endpoints ---
+@app.route('/alerts')
+def alerts_get():
+    """התראות אחרונות בפורמט JSON לשימוש בלוחות Grafana (JSON API)."""
+    try:
+        from internal_alerts import get_recent_alerts  # type: ignore
+    except Exception:
+        return jsonify({"alerts": []})
+    try:
+        limit = int((request.args.get('limit') or '10').strip())
+    except Exception:
+        limit = 10
+    limit = max(1, min(100, limit))
+    items = get_recent_alerts(limit=limit) or []
+    return jsonify({"alerts": items})
+
+
+@app.route('/uptime')
+def uptime_get():
+    """סטטוס זמינות ממוצעת וזמן ריצה של התהליך במונחי metrics."""
+    try:
+        from metrics import get_uptime_percentage, get_process_uptime_seconds  # type: ignore
+        return jsonify({
+            'uptime_percent': float(get_uptime_percentage()),
+            'process_uptime_seconds': float(get_process_uptime_seconds()),
+        })
+    except Exception:
+        return jsonify({'uptime_percent': 100.0, 'process_uptime_seconds': 0.0})
+
+
 @app.route('/api/search/health')
 def api_search_health():
     """בדיקת תקינות פשוטה של מנוע החיפוש (ללא גישה לנתוני משתמש)."""

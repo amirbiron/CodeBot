@@ -26,6 +26,9 @@ except Exception:  # pragma: no cover - prometheus optional in some envs
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"  # type: ignore
 
 # Core metrics (names chosen to be generic and reusable)
+# Process start time used for uptime derivation
+_PROCESS_START_TS: float = _time.time()
+_LAST_UPTIME_SCRAPE_TS: float = _PROCESS_START_TS
 errors_total = Counter("errors_total", "Total error count", ["code"]) if Counter else None
 operation_latency_seconds = (
     Histogram(
@@ -66,6 +69,22 @@ codebot_avg_response_time_seconds = Gauge("codebot_avg_response_time_seconds", "
 
 # Internal helper: total requests for uptime calculation (not externally required but useful)
 codebot_requests_total = Counter("codebot_requests_total", "Total HTTP requests processed") if Counter else None
+
+# --- Stage 3 (Observability v3): Advanced derived metrics ---
+# Monotonic counter approximating total process uptime seconds.
+codebot_uptime_seconds_total = Counter("codebot_uptime_seconds_total", "Total process uptime in seconds") if Counter else None
+# Total alerts observed, labeled by source and severity for PromQL filtering.
+codebot_alerts_total = (
+    Counter(
+        "codebot_alerts_total",
+        "Total alerts processed (internal + webhook)",
+        ["source", "severity"],
+    )
+    if Counter
+    else None
+)
+# Instantaneous HTTP error rate percentage in the current process.
+codebot_error_rate_percent = Gauge("codebot_error_rate_percent", "Instantaneous HTTP error rate percentage") if Gauge else None
 
 # In-memory assistance structures (fail-open, best-effort)
 _ACTIVE_USERS: set[int] = set()
@@ -108,6 +127,11 @@ def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):
 
 
 def metrics_endpoint_bytes() -> bytes:
+    try:
+        _update_derived_metrics_on_scrape()
+    except Exception:
+        # Never break metrics endpoint on derivation issues
+        pass
     return generate_latest()
 
 
@@ -159,6 +183,7 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
             codebot_failed_requests_total.inc()
             _ERR_TIMESTAMPS.append(_time.time())
         _update_ewma(float(duration_seconds))
+        _update_error_rate_gauge()
         _maybe_trigger_anomaly()
     except Exception:
         # Fail-open: observability must never crash business logic
@@ -225,6 +250,57 @@ def get_uptime_percentage() -> float:
         return 100.0
     ok_ratio = max(0.0, min(1.0, 1.0 - (failed / total)))
     return round(ok_ratio * 100.0, 2)
+
+
+def get_process_uptime_seconds() -> float:
+    """Return the approximate process uptime in seconds.
+
+    This does not require scraping; based on a monotonic clock since import.
+    """
+    try:
+        return max(0.0, float(_time.time() - _PROCESS_START_TS))
+    except Exception:
+        return 0.0
+
+
+def _update_error_rate_gauge() -> None:
+    """Recompute and set the error rate gauge based on request counters."""
+    try:
+        if codebot_error_rate_percent is None:
+            return
+        try:
+            total = float(codebot_requests_total._value.get()) if codebot_requests_total is not None else 0.0  # type: ignore[attr-defined]
+            failed = float(codebot_failed_requests_total._value.get()) if codebot_failed_requests_total is not None else 0.0  # type: ignore[attr-defined]
+        except Exception:
+            total = 0.0
+            failed = 0.0
+        if total <= 0.0:
+            rate = 0.0
+        else:
+            rate = max(0.0, min(100.0, (failed / total) * 100.0))
+        codebot_error_rate_percent.set(rate)
+    except Exception:
+        return
+
+
+def _update_derived_metrics_on_scrape() -> None:
+    """Update counters/gauges that depend on time at scrape."""
+    global _LAST_UPTIME_SCRAPE_TS
+    now = _time.time()
+    delta: float = 0.0
+    try:
+        if codebot_uptime_seconds_total is not None:
+            delta = max(0.0, float(now - _LAST_UPTIME_SCRAPE_TS))
+            if delta > 0.0:
+                codebot_uptime_seconds_total.inc(delta)
+    except Exception:
+        # swallow increment errors but still advance timestamp below
+        pass
+    finally:
+        # Always advance the last scrape timestamp to avoid over-counting next time
+        # even if the increment failed above.
+        _LAST_UPTIME_SCRAPE_TS = now
+    _update_error_rate_gauge()
 
 
 # --- Business metrics helpers (logged via structlog + optional counter) ---

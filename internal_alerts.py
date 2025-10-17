@@ -30,6 +30,12 @@ except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
 
+# Optional Prometheus counter for alerts volume (fail-open)
+try:  # pragma: no cover - optional at runtime
+    from metrics import codebot_alerts_total  # type: ignore
+except Exception:  # pragma: no cover
+    codebot_alerts_total = None  # type: ignore
+
 # Optional sink forwarder (Slack/Telegram) – used when available
 try:
     from alert_forwarder import forward_alerts  # type: ignore
@@ -82,6 +88,13 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         if details:
             rec["details"] = {k: (str(v) if not isinstance(v, (int, float, bool)) else v) for k, v in details.items()}
         _ALERTS.append(rec)
+
+        # Increment Prometheus counter (labeled by source/severity)
+        try:
+            if codebot_alerts_total is not None:
+                codebot_alerts_total.labels(source="internal", severity=str(severity or "info")).inc()
+        except Exception:
+            pass
 
         # Emit structured log/event as well
         emit_event("internal_alert", severity=str(severity), name=str(name), summary=str(summary))
