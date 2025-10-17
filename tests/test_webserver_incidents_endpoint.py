@@ -31,4 +31,3 @@ async def test_webserver_incidents_endpoint(tmp_path, monkeypatch):
                 assert isinstance(data.get('incidents'), list)
     finally:
         await runner.cleanup()
-}
