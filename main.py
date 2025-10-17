@@ -645,7 +645,7 @@ class CodeKeeperBot:
                         return None
                     def add_error_handler(self, *a, **k):
                         self._error_handlers.append((a, k))
-                    async def run_polling(self, *a, **k):
+                    def run_polling(self, *a, **k):
                         # Fallback שקט: אין polling אמיתי; מאפשר start ללא קריסה
                         return None
                 self.application = _MiniApp()
@@ -2769,7 +2769,16 @@ def main() -> None:
         bot = CodeKeeperBot()
         
         logger.info("Bot is starting to poll...")
-        bot.application.run_polling(drop_pending_updates=True)
+        _run_result = bot.application.run_polling(drop_pending_updates=True)
+        # אם המימוש מחזיר קורוטינה (במקרי fallback חריגים) — נריץ אותה כדי למנוע RuntimeWarning
+        try:
+            import inspect as _inspect
+            import asyncio as _asyncio
+            if _inspect.isawaitable(_run_result):
+                _asyncio.run(_run_result)
+        except Exception:
+            # לא לחסום את הכיבוי החינני במקרה של סביבה חלקית
+            pass
         
     except Exception as e:
         logger.error(f"שגיאה: {e}")
