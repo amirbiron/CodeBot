@@ -2617,11 +2617,20 @@ class CodeKeeperBot:
         await self.application.stop()
         await self.application.shutdown()
         
-        # שחרור נעילה וסגירת חיבור למסד נתונים
+        # שחרור נעילה וסגירת חיבור למסד נתונים (מוגן מכפלות)
         try:
-            cleanup_mongo_lock()
+            already_done = getattr(self, "_lock_cleanup_done", False)
         except Exception:
-            pass
+            already_done = False
+        if not already_done:
+            try:
+                cleanup_mongo_lock()
+            except Exception:
+                pass
+            try:
+                setattr(self, "_lock_cleanup_done", True)
+            except Exception:
+                pass
         db.close()
         
         logger.info("הבוט נעצר.")
