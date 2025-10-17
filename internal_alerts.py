@@ -86,23 +86,35 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         # Emit structured log/event as well
         emit_event("internal_alert", severity=str(severity), name=str(name), summary=str(summary))
 
-        # Prefer alert_forwarder when available; otherwise Telegram fallback
-        try:
-            if forward_alerts is not None:
-                alert = {
-                    "status": "firing",
-                    "labels": {"alertname": str(name or "InternalAlert"), "severity": str(severity or "warn")},
-                    "annotations": {"summary": str(summary or "")},
-                }
-                forward_alerts([alert])
-            else:
-                _send_telegram(_format_text(name, severity, summary, details))
-        except Exception:
-            # Never break on sinks; try fallback Telegram
+        # For critical alerts – use alert_manager for Telegram + Grafana annotations with dispatch log
+        if str(severity).lower() == "critical":
             try:
-                _send_telegram(_format_text(name, severity, summary, details))
+                from alert_manager import forward_critical_alert  # type: ignore
+                forward_critical_alert(name=str(name), summary=str(summary), **(details or {}))
             except Exception:
-                pass
+                # Fallback to Telegram only
+                try:
+                    _send_telegram(_format_text(name, severity, summary, details))
+                except Exception:
+                    pass
+        else:
+            # Prefer alert_forwarder when available; otherwise Telegram fallback
+            try:
+                if forward_alerts is not None:
+                    alert = {
+                        "status": "firing",
+                        "labels": {"alertname": str(name or "InternalAlert"), "severity": str(severity or "warn")},
+                        "annotations": {"summary": str(summary or "")},
+                    }
+                    forward_alerts([alert])
+                else:
+                    _send_telegram(_format_text(name, severity, summary, details))
+            except Exception:
+                # Never break on sinks; try fallback Telegram
+                try:
+                    _send_telegram(_format_text(name, severity, summary, details))
+                except Exception:
+                    pass
     except Exception:
         return
 
