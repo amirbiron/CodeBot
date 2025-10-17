@@ -118,28 +118,48 @@ class SearchIndex:
             files = db.get_user_files(user_id, limit=10000)
             
             for file_data in files:
-                file_key = f"{user_id}:{file_data['file_name']}"
-                content = file_data['code'].lower()
-                
+                # גישה בטוחה לשדות שעלולים להיות חסרים במסמכים ישנים/חלקיים
+                file_name_value = str(file_data.get('file_name') or '').strip()
+                if not file_name_value:
+                    # אין טעם לאנדקס רשומה ללא שם קובץ
+                    continue
+
+                file_key = f"{user_id}:{file_name_value}"
+
+                code_text: str = str(file_data.get('code') or '')
+                content_lower = code_text.lower()
+
                 # אינדקס מילים
-                words = re.findall(r'\b\w+\b', content)
+                words = re.findall(r'\b\w+\b', content_lower)
                 for word in set(words):
-                    if len(word) >= 2:  # רק מילים של 2+ תווים
+                    if len(word) >= 2:
                         self.word_index[word].add(file_key)
-                
-                # אינדקס פונקציות
-                functions = code_processor.extract_functions(
-                    file_data['code'], file_data['programming_language']
-                )
-                for func in functions:
-                    self.function_index[func['name'].lower()].add(file_key)
-                
+
+                # אינדקס פונקציות (best-effort)
+                try:
+                    language_for_parse = str(file_data.get('programming_language') or '').strip()
+                    functions = code_processor.extract_functions(code_text, language_for_parse)
+                    for func in functions:
+                        func_name = str(func.get('name') or '').lower()
+                        if func_name:
+                            self.function_index[func_name].add(file_key)
+                except Exception:
+                    # אל נעצור אינדוקס בגלל שגיאה בזיהוי פונקציות
+                    pass
+
                 # אינדקס שפות
-                self.language_index[file_data['programming_language']].add(file_key)
-                
+                language_value = str(file_data.get('programming_language') or '').strip()
+                if language_value:
+                    self.language_index[language_value].add(file_key)
+
                 # אינדקס תגיות
-                for tag in file_data.get('tags', []):
-                    self.tag_index[tag.lower()].add(file_key)
+                try:
+                    for tag in list(file_data.get('tags') or []):
+                        tag_value = str(tag or '').lower().strip()
+                        if tag_value:
+                            self.tag_index[tag_value].add(file_key)
+                except Exception:
+                    pass
         
         self.last_update = datetime.now(timezone.utc)
         logger.info(f"אינדקס נבנה: {len(self.word_index)} מילים, {len(self.function_index)} פונקציות")
@@ -306,7 +326,7 @@ class AdvancedSearchEngine:
         results = []
         
         for file_data in files:
-            content = file_data['code']
+            content = str(file_data.get('code') or '')
             matches = list(compiled_pattern.finditer(content))
             
             if matches:
@@ -336,13 +356,19 @@ class AdvancedSearchEngine:
         
         for file_data in files:
             # חיפוש מטושטש בשם הקובץ
-            name_ratio = fuzz.partial_ratio(query.lower(), file_data['file_name'].lower())
+            name_value = str(file_data.get('file_name') or '')
+            name_ratio = fuzz.partial_ratio(query.lower(), name_value.lower())
             
             # חיפוש מטושטש בתוכן
-            content_ratio = fuzz.partial_ratio(query.lower(), file_data['code'].lower())
+            content_value = str(file_data.get('code') or '')
+            content_ratio = fuzz.partial_ratio(query.lower(), content_value.lower())
             
             # חיפוש מטושטש בתגיות
-            tags_text = ' '.join(file_data.get('tags', []))
+            try:
+                tags_list = [str(t or '') for t in (file_data.get('tags') or [])]
+            except Exception:
+                tags_list = []
+            tags_text = ' '.join(tags_list)
             tags_ratio = fuzz.partial_ratio(query.lower(), tags_text.lower())
             
             # ניקוד משולב
@@ -390,15 +416,16 @@ class AdvancedSearchEngine:
         query_lower = query.lower()
         
         for file_data in files:
-            content = file_data['code']
-            content_lower = content.lower()
+            content_value = str(file_data.get('code') or '')
+            content_lower = content_value.lower()
             
             # ספירת הופעות
             occurrences = content_lower.count(query_lower)
             
             if occurrences > 0:
                 # חישוב ניקוד לפי תדירות ואורך המסמך
-                score = min(occurrences / (len(content) / 1000), 10.0)
+                denom = max(1, len(content_value))
+                score = min(occurrences / (denom / 1000), 10.0)
                 
                 result = self._create_search_result(file_data, query, score)
                 
@@ -406,8 +433,8 @@ class AdvancedSearchEngine:
                 preview_start = content_lower.find(query_lower)
                 if preview_start >= 0:
                     start = max(0, preview_start - 50)
-                    end = min(len(content), preview_start + len(query) + 50)
-                    result.snippet_preview = content[start:end]
+                    end = min(len(content_value), preview_start + len(query) + 50)
+                    result.snippet_preview = content_value[start:end]
                     
                     # סימון המילה שנמצאה
                     relative_start = preview_start - start
@@ -502,15 +529,37 @@ class AdvancedSearchEngine:
     def _create_search_result(self, file_data: Dict, query: str, score: float) -> SearchResult:
         """יצירת אובייקט תוצאת חיפוש"""
         
+        # נרמול בטוח של שדות בעייתיים
+        raw_tags = file_data.get('tags')
+        safe_tags = list(raw_tags or [])
+
+        raw_version = file_data.get('version')
+        try:
+            if isinstance(raw_version, bool):  # הגן מפני True/False שמתקבלים ממונגו לעתים
+                safe_version = 1
+            elif isinstance(raw_version, (int, float)):
+                safe_version = int(raw_version)
+            elif isinstance(raw_version, str):
+                v = raw_version.strip()
+                if v.isdigit():
+                    safe_version = int(v)
+                else:
+                    # נסיון lenient: המרת מחרוזת מספרית לא שלמה (למשל "1.0")
+                    safe_version = int(float(v))
+            else:
+                safe_version = 1
+        except Exception:
+            safe_version = 1
+
         return SearchResult(
-            file_name=file_data['file_name'],
-            content=file_data['code'],
-            programming_language=file_data['programming_language'],
-            tags=file_data.get('tags', []),
-            created_at=file_data['created_at'],
-            updated_at=file_data['updated_at'],
-            version=file_data['version'],
-            relevance_score=score
+            file_name=str(file_data.get('file_name') or ''),
+            content=str(file_data.get('code') or ''),
+            programming_language=str(file_data.get('programming_language') or ''),
+            tags=safe_tags,
+            created_at=file_data.get('created_at') or datetime.now(timezone.utc),
+            updated_at=file_data.get('updated_at') or datetime.now(timezone.utc),
+            version=safe_version,
+            relevance_score=float(score)
         )
     
     def suggest_completions(self, user_id: int, partial_query: str, limit: int = 10) -> List[str]:
