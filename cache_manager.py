@@ -6,6 +6,7 @@ Advanced Cache Manager with Redis
 import json
 import logging
 import os
+import time
 from functools import wraps
 from typing import Any, Dict, List, Optional, Union
 try:
@@ -38,13 +39,20 @@ class CacheManager:
                 logger.info("Redis אינו מוגדר - Cache מושבת")
                 return
             
+            # כיבוד timeouts מה-ENV, עם ברירות מחדל שמרניות ב-SAFE_MODE
+            safe_mode = str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on")
+            connect_timeout_env = os.getenv("REDIS_CONNECT_TIMEOUT")
+            socket_timeout_env = os.getenv("REDIS_SOCKET_TIMEOUT")
+            socket_connect_timeout = float(connect_timeout_env if connect_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
+            socket_timeout = float(socket_timeout_env if socket_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
+
             self.redis_client = redis.from_url(
                 redis_url,
                 decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
+                socket_connect_timeout=socket_connect_timeout,
+                socket_timeout=socket_timeout,
                 retry_on_timeout=True,
-                health_check_interval=30
+                health_check_interval=30,
             )
             
             # בדיקת חיבור
@@ -169,12 +177,19 @@ class CacheManager:
         deleted = 0
         try:
             client = self.redis_client
+            # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
+            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "2"))
+            deadline = time.time() + max(0.0, budget_seconds)
             if hasattr(client, 'scan_iter'):
                 for k in client.scan_iter(match='*', count=500):
+                    if time.time() > deadline:
+                        break
                     try:
                         deleted += int(client.delete(k) or 0)
                     except Exception:
-                        continue
+                        pass
+                    if time.time() > deadline:
+                        break
             else:
                 # Fallback: keys + delete
                 keys = client.keys('*')
@@ -196,13 +211,31 @@ class CacheManager:
         """
         if not self.is_enabled:
             return 0
+
+        # דילוג בטוח במצב SAFE_MODE או אם ביקשו לבטל תחזוקת קאש
+        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on") or \
+           str(os.getenv("DISABLE_CACHE_MAINTENANCE", "")).lower() in ("1", "true", "yes", "y", "on"):
+            logger.info("SAFE_MODE/disable flag פעיל — דילוג על clear_stale")
+            return 0
         deleted = 0
         scanned = 0
         try:
             client = self.redis_client
+            # בדיקת חיות מהירה כדי להיכשל מוקדם
+            try:
+                _ = client.ping()
+            except Exception:
+                logger.warning("clear_stale: Redis לא מגיב — דילוג על הניקוי")
+                return 0
+
+            # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
+            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "1"))
+            deadline = time.time() + max(0.0, budget_seconds)
             # עדיפות ל-scan_iter כדי להימנע מ-blocking
             if hasattr(client, 'scan_iter') and hasattr(client, 'ttl'):
                 for k in client.scan_iter(match='*', count=500):
+                    if time.time() > deadline:
+                        break
                     scanned += 1
                     try:
                         ttl = int(client.ttl(k))
@@ -214,7 +247,8 @@ class CacheManager:
                             deleted += int(client.delete(k) or 0)
                         except Exception:
                             pass
-                    if scanned >= int(max_scan):
+                    # הפסקה כשעברנו את מכסת הסריקות או התקציב
+                    if scanned >= int(max_scan) or time.time() > deadline:
                         break
             else:
                 # Fallback זהיר: אל תמחק גורף אם אין יכולות TTL/SCAN

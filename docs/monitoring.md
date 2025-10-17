@@ -42,6 +42,11 @@
 - כל פעולה נרשמת בלוג כאירוע `PREDICTIVE_ACTION_TRIGGERED`.
 - ניקוי אוטומטי: תחזיות ישנות (מעל 24 שעות) נמחקות באופן אוטומטי מקובץ `predictions_log.json`.
 
+### SAFE_MODE ודילוג על פעולות מנע
+
+- כאשר `SAFE_MODE=1` או `DISABLE_PREEMPTIVE_ACTIONS=1` — פעולות המנע לא ירוצו, ויירשם אירוע `PREDICTIVE_ACTION_SKIPPED`.
+- ניקוי הקאש (`clear_stale`/`clear_all`) מוגבל בתקציב זמן (`CACHE_CLEAR_BUDGET_SECONDS`) כדי למנוע תקיעות במקרה ש-Redis אינו מגיב.
+
 ### ChatOps
 
 - `/predict` – מציג תחזיות ל-3 שעות הקרובות, כולל חיווי מגמה: 🔴 עליה, 🟢 ירידה, ⚪ יציב.
