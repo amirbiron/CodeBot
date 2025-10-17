@@ -1,4 +1,4 @@
-# Smart Observability v5 – Auto‑Remediation & Incident Memory
+# Smart Observability v6 – Predictive Health & Self‑Healing
 
 ## חיבור Grafana → Telegram (Webhook)
 
@@ -28,7 +28,31 @@
   - `adaptive_current_error_rate_percent`
   - `adaptive_current_latency_avg_seconds`
 
-## Auto‑Remediation
+## Predictive Health (v6)
+
+- קובץ: `predictive_engine.py`
+- המנוע שומר חלון נגלל של מדדים: `error_rate_percent`, `latency_seconds`, `memory_usage_percent`.
+- לכל מדד מבוצעת רגרסיה לינארית פשוטה על פני זמן (בדקות) לחישוב שיפוע מגמה.
+- אם החיזוי מראה שעוד בתוך 15 דקות יהיה חצייה של הסף האדפטיבי/קבוע – נוצרת תחזית אירוע (Predictive Incident) ונרשמת ב-`data/predictions_log.json`.
+- מופעלות פעולות מניעה (Preemptive Actions):
+  - עליה בלטנציה → `cache.clear_stale()` (ניקוי עדין, נפילה ל-`clear_all` אם צריך)
+  - עליה בזיכרון → `gc.collect()` + אזהרה בלוג
+  - עליה ב-Error Rate → ניסיון restart מבוקר של worker יחיד (לוג בלבד בסביבת dev)
+- כל פעולה נרשמת בלוג כאירוע `PREDICTIVE_ACTION_TRIGGERED`.
+
+### ChatOps
+
+- `/predict` – מציג תחזיות ל-3 שעות הקרובות, כולל חיווי מגמה: 🔴 עליה, 🟢 ירידה, ⚪ יציב.
+- `/incidents` – נוסף סעיף "תחזיות פעילות" המציג מספר תחזיות אחרונות.
+
+## Grafana – Predicted vs Actual Incidents
+
+- נוספו מטריקות Prometheus:
+  - `predicted_incidents_total{metric="..."}`
+  - `actual_incidents_total{metric="..."}`
+- הדשבורד עודכן עם גרף "Predicted vs Actual Incidents" המשווה בקצב לשעה (`increase()` על 1h).
+
+## Auto‑Remediation (v5)
 
 - קובץ: `remediation_manager.py`
 - בהתראה קריטית המערכת:
@@ -67,6 +91,7 @@
 - `/alerts` (GET) – JSON של ההתראות האחרונות לצרכי ChatOps/דשבורד
 - `/incidents` (GET) – JSON של היסטוריית התקלות (Incident Memory)
 - `/alerts` (POST) – Webhook של Alertmanager (קיים)
+ - `/predict` (ChatOps) – סיכום תחזיות וטרנדים
 
 ## טיפים
 

@@ -184,6 +184,45 @@ class CacheManager:
             logger.warning(f"clear_all failed: {e}")
         logger.info(f"ניקוי cache מלא: {deleted} מפתחות נמחקו")
         return deleted
+
+    def clear_stale(self, max_scan: int = 1000, ttl_seconds_threshold: int = 60) -> int:
+        """מחיקת מפתחות שכבר עומדים לפוג ("stale") בצורה עדינה.
+
+        היגיון:
+        - אם Redis מושבת – החזר 0.
+        - סריקה מדורגת (SCAN) של עד max_scan מפתחות.
+        - מחיקה רק למפתחות עם TTL חיובי קטן מ-ttl_seconds_threshold, או TTL שלילי המציין שאינו קיים.
+        - לא מוחקים מפתחות ללא TTL (ttl == -1) כדי להימנע מפגיעה בקאש ארוך-חיים.
+        """
+        if not self.is_enabled:
+            return 0
+        deleted = 0
+        scanned = 0
+        try:
+            client = self.redis_client
+            # עדיפות ל-scan_iter כדי להימנע מ-blocking
+            if hasattr(client, 'scan_iter') and hasattr(client, 'ttl'):
+                for k in client.scan_iter(match='*', count=500):
+                    scanned += 1
+                    try:
+                        ttl = int(client.ttl(k))
+                    except Exception:
+                        ttl = -2  # התייחסות כמפתח לא קיים/פג
+                    # מחיקה רק אם TTL קצר (<= threshold) או לא קיים (-2)
+                    if ttl == -2 or (ttl >= 0 and ttl <= int(ttl_seconds_threshold)):
+                        try:
+                            deleted += int(client.delete(k) or 0)
+                        except Exception:
+                            pass
+                    if scanned >= int(max_scan):
+                        break
+            else:
+                # Fallback זהיר: אל תמחק גורף אם אין יכולות TTL/SCAN
+                return 0
+        except Exception as e:
+            logger.warning(f"clear_stale failed: {e}")
+        logger.info(f"ניקוי cache עדין (stale): נסרקו {scanned} / נמחקו {deleted}")
+        return deleted
     
     def get_stats(self) -> Dict[str, Any]:
         """סטטיסטיקות cache"""
