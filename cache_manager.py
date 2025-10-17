@@ -182,10 +182,12 @@ class CacheManager:
             deadline = time.time() + max(0.0, budget_seconds)
             if hasattr(client, 'scan_iter'):
                 for k in client.scan_iter(match='*', count=500):
+                    if time.time() > deadline:
+                        break
                     try:
                         deleted += int(client.delete(k) or 0)
                     except Exception:
-                        continue
+                        pass
                     if time.time() > deadline:
                         break
             else:
@@ -232,6 +234,8 @@ class CacheManager:
             # עדיפות ל-scan_iter כדי להימנע מ-blocking
             if hasattr(client, 'scan_iter') and hasattr(client, 'ttl'):
                 for k in client.scan_iter(match='*', count=500):
+                    if time.time() > deadline:
+                        break
                     scanned += 1
                     try:
                         ttl = int(client.ttl(k))
