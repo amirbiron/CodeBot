@@ -38,6 +38,11 @@ from config import config
 from file_manager import backup_manager
 from utils import TelegramUtils
 try:
+    # Optional backoff state
+    from services import github_backoff_state  # type: ignore
+except Exception:  # pragma: no cover
+    github_backoff_state = None  # type: ignore
+try:
     from observability import emit_event  # type: ignore
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
@@ -365,6 +370,16 @@ class GitHubMenuHandler:
 
                 return False
 
+            # Respect global backoff switch: if active, warn once and proceed (gate elsewhere)
+            try:
+                if github_backoff_state is not None and github_backoff_state.get().is_active():
+                    msg = "⚠️ Backoff פעיל – ייתכנו השהיות בין קריאות API"
+                    if hasattr(update_or_query, "answer"):
+                        await update_or_query.answer(msg, show_alert=False)
+                    else:
+                        await update_or_query.message.reply_text(msg)
+            except Exception:
+                pass
             return True
         except Exception as e:
             logger.error(f"Error checking rate limit: {e}")
@@ -377,15 +392,19 @@ class GitHubMenuHandler:
             return True  # במקרה של שגיאה, נמשיך בכל זאת
 
     async def apply_rate_limit_delay(self, user_id: int):
-        """מוסיף השהייה בין בקשות API"""
+        """מוסיף השהייה בין בקשות API; מכבד מצב Backoff גלובלי."""
+        base_delay = 2.0
+        try:
+            if github_backoff_state is not None and github_backoff_state.get().is_active():
+                # Increase delay under backoff to reduce pressure
+                base_delay = 5.0
+        except Exception:
+            pass
         current_time = time.time()
-        last_call = self.last_api_call.get(user_id, 0)
-
-        # אם עברו פחות מ-2 שניות מהבקשה האחרונה, נחכה
+        last_call = self.last_api_call.get(user_id, 0.0)
         time_since_last = current_time - last_call
-        if time_since_last < 2:
-            await asyncio.sleep(2 - time_since_last)
-
+        if time_since_last < base_delay:
+            await asyncio.sleep(base_delay - time_since_last)
         self.last_api_call[user_id] = time.time()
 
     def get_user_token(self, user_id: int) -> Optional[str]:
