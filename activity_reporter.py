@@ -8,6 +8,35 @@ except Exception:
     MongoClient = None  # type: ignore
     _HAS_PYMONGO = False
 from datetime import datetime, timezone
+import atexit
+
+# חיבור MongoDB גלובלי יחיד לכל האפליקציה
+_client = None  # type: ignore
+
+def get_mongo_client(mongodb_uri: str):
+    """החזרת מופע MongoClient יחיד (singleton) לכל האפליקציה.
+
+    בכל קריאה מחזיר את אותו אובייקט, ויוצר רק בפעם הראשונה.
+    """
+    global _client
+    if not _HAS_PYMONGO:
+        raise RuntimeError("pymongo not available")
+    if _client is None:
+        # שימוש ב-timezone מודע כדי לשמור אחידות זמנים במסד
+        _client = MongoClient(mongodb_uri, tz_aware=True, tzinfo=timezone.utc)
+    return _client
+
+def close_mongo_client() -> None:
+    """סגירת החיבור הגלובלי בבטחה בזמן כיבוי השירות."""
+    global _client
+    try:
+        if _client is not None:
+            _client.close()
+    finally:
+        _client = None
+
+# סגירה אוטומטית ביציאה מהתהליך
+atexit.register(close_mongo_client)
 
 try:
     from metrics import note_active_user  # type: ignore
@@ -25,7 +54,8 @@ class SimpleActivityReporter:
         try:
             if not _HAS_PYMONGO:
                 raise RuntimeError("pymongo not available")
-            self.client = MongoClient(mongodb_uri, tz_aware=True, tzinfo=timezone.utc)
+            # שימוש ב-singleton של MongoClient כדי למנוע חיבורים מרובים
+            self.client = get_mongo_client(mongodb_uri)
             self.db = self.client["render_bot_monitor"]
             self.service_id = service_id
             self.service_name = service_name or service_id
