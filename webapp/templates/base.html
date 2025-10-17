@@ -173,6 +173,10 @@
             padding: 2rem 0;
             min-height: calc(100vh - 80px);
         }
+        /* מרווח מובנה בין בלוקי חיפוש/פילטרים כדי למנוע התנגשות ויזואלית */
+        .search-and-filters { display: flex; flex-direction: column; gap: 16px; }
+        .filters-row { display: flex; gap: 12px; }
+        .filter-container { margin-top: 16px; }
         
         .glass-card {
             background: var(--glass);

@@ -838,4 +838,25 @@ function goBack(ev){
     } catch(_) {}
 })();
 </script>
+<script>
+// התאמת גודל הכותרת: מצמצם פונט הדרגתי עד שנכנס במסגרת (עם tooltip)
+(function(){
+    try {
+        var el = document.querySelector('.file-title');
+        if (!el) return;
+        if (!el.getAttribute('title')) {
+            el.setAttribute('title', el.textContent || '');
+        }
+        var sizeRem = 1.5; // תואם ל-CSS
+        var minRem = 1.1;  // מינימום סביר
+        el.style.fontSize = sizeRem + 'rem';
+        var guard = 0;
+        while (guard < 15 && el.scrollWidth > el.clientWidth && sizeRem > minRem) {
+            sizeRem -= 0.1;
+            el.style.fontSize = sizeRem.toFixed(2) + 'rem';
+            guard++;
+        }
+    } catch(_) {}
+})();
+</script>
 {% endblock %}

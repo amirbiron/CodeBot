@@ -10,9 +10,9 @@
 <h1 class="page-title">הקבצים שלי</h1>
 
 <!-- חיפוש גלובלי בתוכן -->
-<div class="glass-card" style="margin-bottom: 1rem;">
+<div class="glass-card search-and-filters" style="margin-bottom: 1rem;">
   <div class="card-body" style="padding: 0;">
-    <div class="row" style="align-items: center; gap: 0.5rem;">
+    <div class="row filters-row" style="align-items: center; gap: 0.5rem;">
       <div class="col-md-8" style="flex: 1; min-width: 260px;">
         <div class="input-group" style="display: flex; gap: 0.5rem;">
           <input type="text" id="globalSearchInput" class="form-control" placeholder="חפש טקסט/קוד בכל הקבצים..." style="flex:1; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;" autocomplete="off">
@@ -21,7 +21,7 @@
         <div id="searchSuggestions" class="list-group position-absolute w-100" style="z-index: 1000; display: none;"></div>
       </div>
       <div class="col-md-4" style="min-width: 180px;">
-        <div style="display:flex; gap:0.5rem; flex-wrap: wrap;">
+        <div class="filter-container" style="display:flex; gap:0.5rem; flex-wrap: wrap;">
           <select id="searchType" class="filter-select" style="padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
             <option value="content" selected>תוכן</option>
             <option value="text">טקסט</option>
@@ -236,10 +236,10 @@
         </div>
         <div style="display: flex; justify-content: space-between; align-items: start;">
             <div style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
-                    <span style="font-size: 2rem;">{{ file.icon }}</span>
-                    <div>
-                        <h3 style="margin: 0; font-size: 1.25rem;">{{ file.file_name }}</h3>
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; min-width:0;">
+                    <span style="font-size: 2rem; flex:0 0 auto;">{{ file.icon }}</span>
+                    <div style="min-width:0;">
+                        <h3 title="{{ file.file_name }}" style="margin: 0; font-size: 1.25rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; word-break:break-word; max-width:100%;">{{ file.file_name }}</h3>
                         <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
                             <span class="badge">{{ file.language }}</span>
                             <span style="opacity: 0.7; font-size: 0.9rem;">{{ file.lines }} שורות</span>
@@ -271,18 +271,18 @@
                 </div>
             </div>
             
-            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start;">
-                <div style="display: flex; gap: 0.5rem;">
-                    <a href="/file/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="צפה">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; flex-shrink:0;">
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="צפה">
                         <i class="fas fa-eye"></i>
                     </a>
-                    <a href="/download/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="הורד">
+                    <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="הורד">
                         <i class="fas fa-download"></i>
                     </a>
                 </div>
                 {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
                 <div>
-                    <a href="/html/{{ file.id }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">
+                    <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="תצוגת דפדפן">
                         🌐
                     </a>
                 </div>
