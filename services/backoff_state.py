@@ -78,7 +78,8 @@ class BackoffState:
                     }
                 }
             }
-            users.update_one({"_id": "__global_state"}, {"$set": payload}, upsert=True)
+            # Persist under the same key used by _load_from_db
+            users.update_one({"_id": "__global_state__"}, {"$set": payload}, upsert=True)
         except Exception:
             # Non-fatal: remain with memory cache
             pass
