@@ -101,6 +101,9 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("sen", self.sentry_command))
         self.application.add_handler(CommandHandler("errors", self.errors_command))
         self.application.add_handler(CommandHandler("rate_limit", self.rate_limit_command))
+        # GitHub Backoff controls (admins)
+        self.application.add_handler(CommandHandler("enable_backoff", self.enable_backoff_command))
+        self.application.add_handler(CommandHandler("disable_backoff", self.disable_backoff_command))
         self.application.add_handler(CommandHandler("uptime", self.uptime_command))
         self.application.add_handler(CommandHandler("alerts", self.alerts_command))
         # Observability v5 – incident memory
@@ -158,18 +161,24 @@ class AdvancedBotHandlers:
             )
             return
         
-        # קבל את הקוד המקורי (הפונקציה highlight_code תחזיר אותו כפי שהוא)
-        original_code = code_processor.highlight_code(
-            file_data['code'],
-            file_data['programming_language']
-        )
+        # קבל את הקוד המקורי בבטחה; ודא שתמיד יש מחרוזת קוד
+        code_raw = str((file_data.get('code') or ""))
+        language = str((file_data.get('programming_language') or ""))
+        try:
+            # highlight_code עשוי להחזיר מחרוזת ריקה במקרי קצה — ניפול חזרה לקוד המקורי
+            original_code = code_processor.highlight_code(code_raw, language)
+        except Exception:
+            original_code = code_raw
+        if not isinstance(original_code, str) or original_code == "":
+            original_code = code_raw
         
         # בצע הימלטות לתוכן הקוד כדי למנוע שגיאות
         escaped_code = html.escape(original_code)
+        language_html = html.escape(language)
 
         # עטוף את הקוד הנקי בתגיות <pre><code> שטלגרם תומך בהן
-        response_text = f"""<b>File:</b> <code>{html.escape(file_data['file_name'])}</code>
-<b>Language:</b> {file_data['programming_language']}
+        response_text = f"""<b>File:</b> <code>{html.escape(str(file_data.get('file_name', file_name)))}</code>
+<b>Language:</b> {language_html}
 
 <pre><code>{escaped_code}</code></pre>
 """
@@ -1087,6 +1096,58 @@ class AdvancedBotHandlers:
             await update.message.reply_text(msg)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/rate_limit: {html.escape(str(e))}")
+
+    async def enable_backoff_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/enable_backoff – הפעלת Backoff גלובלי (מנהלים בלבד)"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+            ttl_min = None
+            if context.args:
+                try:
+                    ttl_min = int(context.args[0])
+                except Exception:
+                    ttl_min = None
+            reason = "manual"
+            try:
+                from services import github_backoff_state as _state
+                if _state is None:
+                    await update.message.reply_text("ℹ️ Backoff לא זמין בסביבה זו")
+                    return
+                info = _state.enable(reason=reason, ttl_minutes=ttl_min)
+                ttl_text = f", יפוג בעוד {ttl_min} דק'" if ttl_min else ""
+                await update.message.reply_text(f"🟡 הופעל Backoff GitHub (סיבה: {info.reason}{ttl_text})")
+            except Exception as e:
+                await update.message.reply_text(f"❌ שגיאה בהפעלת Backoff: {html.escape(str(e))}")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/enable_backoff: {html.escape(str(e))}")
+
+    async def disable_backoff_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/disable_backoff – כיבוי Backoff גלובלי (מנהלים בלבד)"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+            try:
+                from services import github_backoff_state as _state
+                if _state is None:
+                    await update.message.reply_text("ℹ️ Backoff לא זמין בסביבה זו")
+                    return
+                info = _state.disable(reason="manual")
+                await update.message.reply_text("🟢 Backoff כובה")
+            except Exception as e:
+                await update.message.reply_text(f"❌ שגיאה בכיבוי Backoff: {html.escape(str(e))}")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/disable_backoff: {html.escape(str(e))}")
 
     def _progress_bar(self, percentage: int, width: int = 20) -> str:
         try:
