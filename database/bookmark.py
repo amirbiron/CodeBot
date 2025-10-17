@@ -57,9 +57,6 @@ class FileBookmark:
             "code_context": self.code_context[:500],            # הגבלה ל-500 תווים
             "note": self.note[:500],                            # הגבלה ל-500 תווים
             "color": self.color,
-            "anchor_id": self.anchor_id,
-            "anchor_text": self.anchor_text,
-            "anchor_type": self.anchor_type,
             "file_hash": self.file_hash,
             "valid": self.valid,
             "sync_status": self.sync_status,
@@ -68,6 +65,13 @@ class FileBookmark:
             "updated_at": self.updated_at,
             "last_accessed": self.last_accessed
         }
+        # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
+        if (self.anchor_id or "").strip():
+            data["anchor_id"] = self.anchor_id
+            if self.anchor_text:
+                data["anchor_text"] = self.anchor_text
+            if self.anchor_type:
+                data["anchor_type"] = self.anchor_type
         
         if self._id:
             data["_id"] = self._id

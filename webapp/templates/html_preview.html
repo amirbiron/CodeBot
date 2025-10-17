@@ -137,18 +137,22 @@
     const frame = document.getElementById('previewFrame');
     if (!frame) return;
     frame.addEventListener('load', function(){
+      // אין לנו same-origin בתוך sandbox, לכן נזריק מאזין לתוך הדף עצמו באמצעות script inline
       try {
-        const doc = frame.contentDocument || frame.contentWindow?.document;
-        if (!doc) return;
-        // האזן לקליקים על אלמנטים בעלי id כדי לתמוך בסימניות עוגן
-        doc.addEventListener('click', function(e){
-          const el = e.target.closest('[id]');
-          if (!el) return;
-          // שלח אירוע לחלון האב עם פרטי העוגן
-          const id = el.id || '';
-          if (!id) return;
-          window.postMessage({ type: 'html-anchor-click', anchorId: id, anchorText: (el.textContent||'').trim().slice(0,200) }, '*');
-        });
+        const js = `(() => {
+          try {
+            document.addEventListener('click', function(e){
+              var el = e.target && e.target.closest && e.target.closest('[id]');
+              if (!el) return;
+              var id = el.id || '';
+              if (!id) return;
+              var txt = (el.textContent||'').trim().slice(0,200);
+              try { parent.postMessage({ type: 'html-anchor-click', anchorId: id, anchorText: txt }, '*'); } catch(_) {}
+            }, { capture: true });
+          } catch(_) {}
+        })();`;
+        // נסיון כתיבה דרך contentWindow.eval; אם נחסם, נתעלם בשקט
+        try { frame.contentWindow && frame.contentWindow.eval && frame.contentWindow.eval(js); } catch(_) {}
       } catch(_) {}
     });
     // קבל מסרים מה-iframe והפעל toggle סימנייה עוגן
