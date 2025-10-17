@@ -236,6 +236,31 @@ def get_current_avg_latency_seconds(window_sec: int = 300) -> float:
         return 0.0
 
 
+def bump_threshold(kind: str, factor: float = 1.2) -> None:
+    """Multiply the current adaptive threshold by a factor and refresh gauges (best-effort)."""
+    try:
+        thr = _thresholds.get(kind)
+        if not thr:
+            return
+        current = float(thr.threshold or 0.0)
+        if current <= 0.0:
+            return
+        thr.threshold = current * float(factor)
+        thr.updated_at_ts = _now()
+        try:
+            cur_err = get_current_error_rate_percent(window_sec=5 * 60)
+            cur_lat = get_current_avg_latency_seconds(window_sec=5 * 60)
+        except Exception:
+            cur_err = None
+            cur_lat = None
+        if kind == "error_rate_percent":
+            _update_gauges(thr.threshold, None, cur_err, cur_lat)
+        elif kind == "latency_seconds":
+            _update_gauges(None, thr.threshold, cur_err, cur_lat)
+    except Exception:
+        return
+
+
 def get_thresholds_snapshot() -> Dict[str, Dict[str, float]]:
     """Return the latest thresholds for external consumers/tests."""
     out: Dict[str, Dict[str, float]] = {}
@@ -298,6 +323,25 @@ def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, An
     if (now_ts - last) < _COOLDOWN_SEC:
         return
     _last_alert_ts[key] = now_ts
+    # Auto-remediation & incident logging (best-effort)
+    try:
+        from remediation_manager import handle_critical_incident  # type: ignore
+        try:
+            if key == "error_rate_percent":
+                current_val = float(details.get("current_percent", 0.0) or 0.0)
+            elif key == "latency_seconds":
+                current_val = float(details.get("current_seconds", 0.0) or 0.0)
+            else:
+                current_val = 0.0
+        except Exception:
+            current_val = 0.0
+        try:
+            thr_val = float(_thresholds.get(key, _MetricThreshold()).threshold or 0.0)
+        except Exception:
+            thr_val = 0.0
+        handle_critical_incident(name=name, metric=key, value=current_val, threshold=thr_val, details=details)
+    except Exception:
+        pass
     try:
         from internal_alerts import emit_internal_alert  # type: ignore
     except Exception:

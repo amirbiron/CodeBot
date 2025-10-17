@@ -1,4 +1,4 @@
-# Smart Observability v4 – מדריך חיבורים
+# Smart Observability v5 – Auto‑Remediation & Incident Memory
 
 ## חיבור Grafana → Telegram (Webhook)
 
@@ -14,18 +14,44 @@
   - `GRAFANA_URL` (למשל: https://grafana.example.com)
   - `GRAFANA_API_TOKEN` (Bearer Token עם הרשאות כתיבה ל-Annotations)
 - בעת התראה קריטית נשלחת גם Annotation ל-`/api/annotations` עם טקסט: `<name>: <summary>`.
+- בעת Auto‑Remediation מתווסף Annotation נוסף עם הפעולה שבוצעה.
 
 ## Adaptive Thresholds (ספים דינמיים)
 
 - המודול `alert_manager.py` שומר חלון נגלל של 3 שעות של דגימות בקשות (סטטוס/לטנציה).
 - אחת ל-5 דקות מתבצע חישוב סטטיסטי:
   - `threshold = mean + 3*sigma` עבור error rate (%) ו-latency (sec).
-- במקרה חריגה בחלון 5 דקות נשלחת התראה `critical` לטלגרם ולגרפנה.
+- במקרה חריגה בחלון 5 דקות נשלחת התראה `critical` לטלגרם ולגרפנה, ונקרא מנגנון Auto‑Remediation.
 - המטריקות הבאות זמינות ב-/metrics:
   - `adaptive_error_rate_threshold_percent`
   - `adaptive_latency_threshold_seconds`
   - `adaptive_current_error_rate_percent`
   - `adaptive_current_latency_avg_seconds`
+
+## Auto‑Remediation
+
+- קובץ: `remediation_manager.py`
+- בהתראה קריטית המערכת:
+  - מתעדת אירוע ל־`data/incidents_log.json` (JSON Lines)
+  - מפעילה פעולה בהתאם לסוג:
+    - High Error Rate → ניסיון restart לשירות (רישום בלבד בסביבה זו)
+    - High Latency → ניקוי cache פנימי
+    - DB Connection Errors → ניסיון פתיחה מחודשת ל‑MongoDB
+  - כותבת `AUTO_REMEDIATION_EXECUTED` ללוג עם `incident_id`
+  - מוסיפה Grafana Annotation עם פירוט הפעולה
+
+### Incident Memory
+
+- היסטוריה נשמרת ב־`data/incidents_log.json`.
+- ממשקי צפייה:
+  - ChatOps: `/incidents` – מציג 5 תקלות אחרונות
+  - API: `GET /incidents` – מחזיר JSON של היסטוריית אירועים (limit)
+
+### Feedback Loop לאירועים חוזרים
+
+- אם אותה בעיה חוזרת תוך פחות מ־15 דקות:
+  - מעלה את הסף האדפטיבי פי `1.2`
+  - מסמן `recurring_issue: true` בלוג
 
 ## ChatOps – /observe
 
@@ -39,6 +65,7 @@
 
 - `/metrics` – נתוני Prometheus
 - `/alerts` (GET) – JSON של ההתראות האחרונות לצרכי ChatOps/דשבורד
+- `/incidents` (GET) – JSON של היסטוריית התקלות (Incident Memory)
 - `/alerts` (POST) – Webhook של Alertmanager (קיים)
 
 ## טיפים

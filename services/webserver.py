@@ -166,6 +166,23 @@ def create_app() -> web.Application:
             items = []
         return web.json_response({"alerts": items})
 
+    async def incidents_get_view(request: web.Request) -> web.Response:
+        """Return incident history as JSON.
+
+        Query params:
+        - limit: int (default 20)
+        """
+        try:
+            limit = int(request.query.get("limit", "20"))
+        except Exception:
+            limit = 20
+        try:
+            from remediation_manager import get_incidents  # type: ignore
+            items = get_incidents(limit=max(1, min(200, limit))) or []
+        except Exception:
+            items = []
+        return web.json_response({"incidents": items})
+
     async def share_view(request: web.Request) -> web.Response:
         share_id = request.match_info.get("share_id", "")
         try:
@@ -235,6 +252,7 @@ def create_app() -> web.Application:
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/alerts", alerts_get_view)
+    app.router.add_get("/incidents", incidents_get_view)
     app.router.add_get("/share/{share_id}", share_view)
 
     return app
