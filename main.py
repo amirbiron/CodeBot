@@ -62,8 +62,10 @@ from rate_limiter import RateLimiter
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
+from bot_handlers import set_activity_reporter as set_bh_activity_reporter
 from conversation_handlers import MAIN_KEYBOARD, get_save_conversation_handler
-from activity_reporter import create_reporter
+from conversation_handlers import set_activity_reporter as set_ch_activity_reporter
+from activity_reporter import create_reporter, SimpleActivityReporter
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
@@ -148,12 +150,8 @@ logging.getLogger("httpx").setLevel(logging.ERROR)  # רק שגיאות קריט
 logging.getLogger("telegram.ext.Updater").setLevel(logging.ERROR)
 logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
 
-# יצירת אובייקט reporter גלובלי
-reporter = create_reporter(
-    mongodb_uri=(os.getenv('REPORTER_MONGODB_URL') or os.getenv('REPORTER_MONGODB_URI') or config.MONGODB_URL),
-    service_id=os.getenv('REPORTER_SERVICE_ID', 'srv-d29d72adbo4c73bcuep0'),
-    service_name="CodeBot"
-)
+# Reporter יווצר ויוזרק בזמן ריצה לאחר בניית האפליקציה והקונפיג
+reporter = None  # type: ignore
 
 # ===== עזר: שליחת הודעת אדמין =====
 def get_admin_ids() -> list[int]:
@@ -649,6 +647,49 @@ class CodeKeeperBot:
             self._install_correlation_layer()
         except Exception:
             pass
+
+        # יצירת והזרקת Activity Reporter בזמן ריצה (מונע חיבורים מרובים בזמן import)
+        try:
+            mongodb_uri = (
+                os.getenv('REPORTER_MONGODB_URL')
+                or os.getenv('REPORTER_MONGODB_URI')
+                or getattr(config, 'MONGODB_URL', None)
+            )
+            service_id = os.getenv('REPORTER_SERVICE_ID', getattr(config, 'BOT_LABEL', 'CodeBot'))
+            # תמיכה בנטרול דיווח פעילות דרך ENV
+            disable_reporter = bool(int((os.getenv('DISABLE_ACTIVITY_REPORTER', '0') or '0').strip() or 0))
+            if disable_reporter:
+                class _NoopReporter:
+                    def report_activity(self, user_id):
+                        return None
+                created_reporter = _NoopReporter()
+            else:
+                # יצירה בטוחה: SimpleActivityReporter מטפל בחוסר pymongo בסביבה
+                created_reporter = create_reporter(
+                    mongodb_uri=mongodb_uri,
+                    service_id=service_id,
+                    service_name="CodeBot",
+                )
+            # עדכון גלובלי במודול זה
+            global reporter
+            reporter = created_reporter
+            # הזרקה למודולים שתלויים ב-report_activity
+            try:
+                set_bh_activity_reporter(created_reporter)
+            except Exception:
+                pass
+            try:
+                set_ch_activity_reporter(created_reporter)
+            except Exception:
+                pass
+            try:
+                from refactor_handlers import set_activity_reporter as set_rh_activity_reporter
+                set_rh_activity_reporter(created_reporter)
+            except Exception:
+                pass
+        except Exception:
+            # בסביבות CI/טסטים, אל נכשיל את הבנייה
+            reporter = None  # type: ignore
 
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
@@ -1173,7 +1214,8 @@ class CodeKeeperBot:
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת עזרה מפורטת"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
         response = """
 📚 <b>רשימת הפקודות המלאה:</b>
@@ -1220,7 +1262,8 @@ class CodeKeeperBot:
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
         user_id = update.effective_user.id
         
@@ -1268,7 +1311,8 @@ class CodeKeeperBot:
     
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת רשימת הקטעים של המשתמש"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
         files = db.get_user_files(user_id, limit=20)
@@ -1306,7 +1350,8 @@ class CodeKeeperBot:
     
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
         user_id = update.effective_user.id
         
@@ -1399,7 +1444,8 @@ class CodeKeeperBot:
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש או מנהל"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         user_id = update.effective_user.id
         
@@ -2198,7 +2244,8 @@ class CodeKeeperBot:
                 else:
                     await update.message.reply_text("❌ שגיאה בשמירת הקובץ")
             
-            reporter.report_activity(user_id)
+            if reporter is not None:
+                reporter.report_activity(user_id)
             
         except Exception as e:
             logger.error(f"שגיאה בטיפול בקובץ: {e}")
@@ -2212,7 +2259,8 @@ class CodeKeeperBot:
     
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בהודעות טקסט (קוד פוטנציאלי)"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
         user_id = update.effective_user.id
         text = update.message.text
@@ -2349,7 +2397,8 @@ class CodeKeeperBot:
     
     async def _save_code_snippet(self, update: Update, context: ContextTypes.DEFAULT_TYPE, code: str):
         """שמירה בפועל של קטע קוד"""
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         saving_data = context.user_data.pop('saving_file')
         
         if len(code) > config.MAX_CODE_SIZE:
@@ -2587,7 +2636,8 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         # שמור משתמש במסד נתונים (INSERT OR IGNORE)
         db_manager.save_user(user_id, username)
         
-        reporter.report_activity(user_id)
+        if reporter is not None:
+            reporter.report_activity(user_id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         
         # בדיקה אם המשתמש הגיע מה-Web App או רוצה להוסיף קובץ
@@ -2655,7 +2705,8 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         )
 
     async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):  # noqa: D401
-        reporter.report_activity(update.effective_user.id)
+        if reporter is not None:
+            reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         await update.message.reply_text(
             "ℹ️ השתמש ב/start כדי להתחיל.\n\n"

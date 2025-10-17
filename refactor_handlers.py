@@ -21,18 +21,27 @@ from refactoring_engine import (
     RefactorType,
     RefactorProposal,
 )
-from activity_reporter import create_reporter
+from typing import Protocol
+
+# הזרקת reporter בזמן ריצה כדי להימנע מיצירה בזמן import
+class _ReporterProto(Protocol):
+    def report_activity(self, user_id: int) -> None: ...
+
+class _NoopReporter:
+    def report_activity(self, user_id: int) -> None:
+        return None
+
+reporter: _ReporterProto = _NoopReporter()
+
+def set_activity_reporter(new_reporter: _ReporterProto) -> None:
+    global reporter
+    reporter = new_reporter or _NoopReporter()
 from config import config
 from utils import TelegramUtils
 
 logger = logging.getLogger(__name__)
 
-# Reporter לפעילות
-reporter = create_reporter(
-    mongodb_uri=config.MONGODB_URL,
-    service_id=config.BOT_LABEL,
-    service_name="CodeBot",
-)
+# reporter יוגדר ב-main בזמן ריצה דרך set_activity_reporter
 
 
 class RefactorHandlers:
