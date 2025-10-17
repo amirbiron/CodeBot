@@ -131,6 +131,51 @@
   }
 })();
 
+// הזרקת מערכת סימניות בסיסית למסגרת ה-iframe כאשר מדובר ב-HTML עם ids
+(function(){
+  try {
+    const frame = document.getElementById('previewFrame');
+    if (!frame) return;
+    frame.addEventListener('load', function(){
+      try {
+        const doc = frame.contentDocument || frame.contentWindow?.document;
+        if (!doc) return;
+        // האזן לקליקים על אלמנטים בעלי id כדי לתמוך בסימניות עוגן
+        doc.addEventListener('click', function(e){
+          const el = e.target.closest('[id]');
+          if (!el) return;
+          // שלח אירוע לחלון האב עם פרטי העוגן
+          const id = el.id || '';
+          if (!id) return;
+          window.postMessage({ type: 'html-anchor-click', anchorId: id, anchorText: (el.textContent||'').trim().slice(0,200) }, '*');
+        });
+      } catch(_) {}
+    });
+    // קבל מסרים מה-iframe והפעל toggle סימנייה עוגן
+    window.addEventListener('message', function(ev){
+      try {
+        const data = ev.data || {};
+        if (data && data.type === 'html-anchor-click' && data.anchorId) {
+          if (window.bookmarkManager && window.bookmarkManager.api && typeof window.bookmarkManager.api.toggleBookmarkAnchor === 'function') {
+            window.bookmarkManager.api.toggleBookmarkAnchor(String(data.anchorId), String(data.anchorText||''), 'html_id', undefined, '')
+              .then((result)=>{
+                // רענון מצב קיים (טעינה מחדש מהשרת) – מינימלי: עדכון ספירה ופאנל
+                if (result && result.ok) {
+                  try { window.bookmarkManager.loadBookmarks(); } catch(_) {}
+                  try {
+                    if (result.action === 'added') window.bookmarkManager.ui.showNotification('סימנייה נוספה לעוגן', 'success');
+                    if (result.action === 'removed') window.bookmarkManager.ui.showNotification('סימנייה הוסרה', 'info');
+                  } catch(_) {}
+                }
+              })
+              .catch(()=>{ try { window.bookmarkManager.ui.showError('שגיאה בסימון עוגן'); } catch(_) {} });
+          }
+        }
+      } catch(_) {}
+    });
+  } catch(_) {}
+})();
+
 // חזרה אחורה שמכבדת את היסטוריית הניווט במסך אחד בלבד
 function goBack(ev){
   try { if (ev) ev.preventDefault(); } catch(e){}
@@ -151,5 +196,6 @@ function goBack(ev){
   return false;
 }
 </script>
+{% include 'bookmarks_snippet.html' %}
 {% endblock %}
 

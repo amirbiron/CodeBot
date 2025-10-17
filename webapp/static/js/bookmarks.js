@@ -59,6 +59,12 @@ class BookmarkManager {
             codeContainer.addEventListener('contextmenu', (e) => this.handleCodeClick(e));
             codeContainer.addEventListener('mouseover', (e) => this.handleCodeHover(e));
         }
+        // תמיכה בתצוגת Markdown: הוספת סימנייה על כותרות עם id
+        const mdContainer = document.getElementById('md-content');
+        if (mdContainer) {
+            mdContainer.addEventListener('click', (e) => this.handleMarkdownClick(e));
+            mdContainer.addEventListener('contextmenu', (e) => this.handleMarkdownClick(e));
+        }
         
         // Event delegation לפאנל
         const panel = document.getElementById('bookmarksPanel');
@@ -198,6 +204,98 @@ class BookmarkManager {
             await this.toggleBookmark(lineNumber);
         }
     }
+
+    async handleMarkdownClick(event) {
+        // לחיצה על כותרת H1..H6 בעלת id — סימון עוגן
+        const heading = event.target.closest('#md-content h1[id], #md-content h2[id], #md-content h3[id], #md-content h4[id], #md-content h5[id], #md-content h6[id]');
+        if (!heading) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const anchorId = heading.id || '';
+        if (!anchorId) return;
+        const anchorText = (heading.textContent || '').trim().substring(0, 200);
+        const lineNumber = 0; // עוגן אינו תלוי מספר שורה
+
+        // בחירת צבע דרך קליק ימני
+        if (event.button === 2 || event.type === 'contextmenu') {
+            this.ui.showInlineColorMenu(heading, (color) => {
+                this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', color)
+                    .then((result) => {
+                        if (result && result.ok) {
+                            // עדכון מפה וזיהוי UI
+                            const key = `a:${anchorId}`;
+                            if (result.action === 'added') {
+                                const bm = Object.assign({}, result.bookmark, { line_number: 0 });
+                                this.bookmarks.set(key, bm);
+                                this.ui.addAnchorIndicator(heading, color);
+                                this.ui.showNotification('סימנייה נוספה לכותרת', 'success');
+                            } else if (result.action === 'removed') {
+                                this.bookmarks.delete(key);
+                                this.ui.removeAnchorIndicator(heading);
+                                this.ui.showNotification('סימנייה הוסרה', 'info');
+                            }
+                            this.ui.updateCount(this.getBookmarkCount());
+                            this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                        } else if (result && result.error) {
+                            this.ui.showError(result.error);
+                        }
+                    })
+                    .catch(() => this.ui.showError('שגיאה בשמירת הסימנייה'));
+            });
+            return;
+        }
+
+        // Shift+Click – הערה על העוגן
+        if (event.shiftKey) {
+            const note = prompt('הוסף/ערוך הערה לסימנייה (כותרת):', '');
+            if (note === null) return;
+            try {
+                const result = await this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', this.defaultColor, note);
+                if (result.ok) {
+                    const key = `a:${anchorId}`;
+                    if (result.action === 'added') {
+                        const bm = Object.assign({}, result.bookmark, { line_number: 0 });
+                        this.bookmarks.set(key, bm);
+                        this.ui.addAnchorIndicator(heading, result.bookmark?.color || this.defaultColor);
+                    } else if (result.action === 'removed') {
+                        this.bookmarks.delete(key);
+                        this.ui.removeAnchorIndicator(heading);
+                    }
+                    this.ui.updateCount(this.getBookmarkCount());
+                    this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                } else {
+                    this.ui.showError(result.error || 'שגיאה בשמירת הסימנייה');
+                }
+            } catch (_) {
+                this.ui.showError('שגיאה בשמירת הסימנייה');
+            }
+            return;
+        }
+
+        // קליק רגיל – toggle עוגן
+        try {
+            const result = await this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', this.defaultColor);
+            const key = `a:${anchorId}`;
+            if (result.ok) {
+                if (result.action === 'added') {
+                    const bm = Object.assign({}, result.bookmark, { line_number: 0 });
+                    this.bookmarks.set(key, bm);
+                    this.ui.addAnchorIndicator(heading, result.bookmark?.color || this.defaultColor);
+                    this.ui.showNotification('סימנייה נוספה לכותרת', 'success');
+                } else if (result.action === 'removed') {
+                    this.bookmarks.delete(key);
+                    this.ui.removeAnchorIndicator(heading);
+                    this.ui.showNotification('סימנייה הוסרה', 'info');
+                }
+                this.ui.updateCount(this.getBookmarkCount());
+                this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+            } else {
+                this.ui.showError(result.error || 'שגיאה בשמירת הסימנייה');
+            }
+        } catch (e) {
+            this.ui.showError('שגיאה בשמירת הסימנייה');
+        }
+    }
     
     handleCodeHover(event) {
         const lineNumEl = event.target.closest(
@@ -221,7 +319,8 @@ class BookmarkManager {
         // לחיצה על סימנייה
         const bookmarkItem = event.target.closest('.bookmark-item');
         if (bookmarkItem) {
-            const lineNumber = parseInt(bookmarkItem.dataset.lineNumber);
+            const anchorId = bookmarkItem.dataset.anchorId || '';
+            const lineNumber = parseInt(bookmarkItem.dataset.lineNumber || '0');
             // בחירת צבע
             const swatch = event.target.closest('.color-swatch');
             if (swatch) {
@@ -229,13 +328,20 @@ class BookmarkManager {
                 const color = swatch.dataset.color;
                 try {
                     // Optimistic UI: עדכן מיד
-                    this.ui.setBookmarkColor(lineNumber, color);
-                    const result = await this.api.updateColor(lineNumber, color);
+                    if (anchorId) {
+                        this.ui.setAnchorColor(anchorId, color);
+                    } else {
+                        this.ui.setBookmarkColor(lineNumber, color);
+                    }
+                    const result = anchorId
+                        ? await this.api.updateColorAnchor(anchorId, color)
+                        : await this.api.updateColor(lineNumber, color);
                     if (result.ok) {
-                        const bm = this.bookmarks.get(lineNumber);
+                        const key = anchorId ? `a:${anchorId}` : lineNumber;
+                        const bm = this.bookmarks.get(key);
                         if (bm) {
                             bm.color = color;
-                            this.bookmarks.set(lineNumber, bm);
+                            this.bookmarks.set(key, bm);
                         }
                         this.ui.refreshPanel(Array.from(this.bookmarks.values()));
                         this.ui.showNotification('הצבע עודכן', 'success');
@@ -251,19 +357,66 @@ class BookmarkManager {
             // לחיצה על כפתור מחיקה
             if (event.target.closest('.delete-btn')) {
                 event.stopPropagation();
-                await this.deleteBookmark(lineNumber);
+                if (anchorId) {
+                    const result = await this.api.deleteBookmarkAnchor(anchorId);
+                    if (result && result.ok) {
+                        this.bookmarks.delete(`a:${anchorId}`);
+                        this.ui.removeAnchorIndicatorById(anchorId);
+                        this.ui.updateCount(this.getBookmarkCount());
+                        this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                        this.ui.showNotification('סימנייה נמחקה', 'info');
+                    } else {
+                        this.ui.showError('שגיאה במחיקת הסימנייה');
+                    }
+                } else {
+                    await this.deleteBookmark(lineNumber);
+                }
                 return;
             }
             
             // לחיצה על כפתור עריכה
             if (event.target.closest('.edit-btn')) {
                 event.stopPropagation();
-                await this.promptForNote(lineNumber);
+                if (anchorId) {
+                    const existingNote = (this.bookmarks.get(`a:${anchorId}`)?.note) || '';
+                    const note = prompt('הוסף/ערוך הערה לסימנייה:', existingNote);
+                    if (note === null) return;
+                    try {
+                        const result = await this.api.updateNoteAnchor(anchorId, note);
+                        if (result && result.ok) {
+                            const key = `a:${anchorId}`;
+                            const bm = this.bookmarks.get(key);
+                            if (bm) { bm.note = note; this.bookmarks.set(key, bm); }
+                            this.ui.refreshPanel(Array.from(this.bookmarks.values()));
+                            this.ui.showNotification('ההערה נשמרה', 'success');
+                        } else {
+                            this.ui.showError('שגיאה בשמירת ההערה');
+                        }
+                    } catch(_){ this.ui.showError('שגיאה בשמירת ההערה'); }
+                } else {
+                    await this.promptForNote(lineNumber);
+                }
                 return;
             }
             
             // לחיצה על הסימנייה - גלול לשורה
-            this.scrollToLine(lineNumber);
+            if (anchorId) {
+                // נסה במרתף הדף, ואם לא – בתוך ה-iframe של תצוגת HTML
+                const el = document.getElementById(anchorId);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    this.ui.addAnchorIndicator(el);
+                } else {
+                    try {
+                        const frame = document.getElementById('previewFrame');
+                        const doc = frame && (frame.contentDocument || frame.contentWindow?.document);
+                        const inside = doc && doc.getElementById(anchorId);
+                        if (inside) inside.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } catch(_) {}
+                }
+            } else {
+                this.scrollToLine(lineNumber);
+            }
         }
         
         // כפתור ניקוי כל הסימניות
@@ -408,8 +561,13 @@ class BookmarkManager {
             
             if (result.ok) {
                 result.bookmarks.forEach(bm => {
-                    this.bookmarks.set(bm.line_number, bm);
-                    this.ui.addBookmarkIndicator(bm.line_number, bm.color || 'yellow');
+                    const key = (bm.anchor_id ? `a:${bm.anchor_id}` : bm.line_number);
+                    this.bookmarks.set(key, bm);
+                    if (bm.anchor_id) {
+                        this.ui.addAnchorIndicatorById(bm.anchor_id, bm.color || this.defaultColor);
+                    } else {
+                        this.ui.addBookmarkIndicator(bm.line_number, bm.color || 'yellow');
+                    }
                 });
                 
                 this.ui.updateCount(this.bookmarks.size);
@@ -430,6 +588,10 @@ class BookmarkManager {
                 this.ui.showNotification('טעינה ממטמון מקומי', 'warning');
             }
         }
+    }
+
+    getBookmarkCount() {
+        return this.bookmarks.size;
     }
     
     scrollToLine(lineNumber) {
@@ -572,6 +734,18 @@ class BookmarkAPI {
         if (color) body.color = color;
         return this.retryableRequest('POST', `/${this.fileId}/toggle`, body);
     }
+
+    async toggleBookmarkAnchor(anchorId, anchorText = '', anchorType = 'md_heading', color = undefined, note = '') {
+        const body = {
+            line_number: 0,
+            anchor_id: anchorId,
+            anchor_text: anchorText,
+            anchor_type: anchorType,
+            note: note
+        };
+        if (color) body.color = color;
+        return this.retryableRequest('POST', `/${this.fileId}/toggle`, body);
+    }
     
     async getFileBookmarks() {
         return this.retryableRequest('GET', `/${this.fileId}`);
@@ -582,15 +756,32 @@ class BookmarkAPI {
             note: note
         });
     }
+    async updateNoteAnchor(anchorId, note) {
+        return this.retryableRequest('PUT', `/${this.fileId}/0/note`, {
+            note: note,
+            anchor_id: anchorId
+        });
+    }
     
     async updateColor(lineNumber, color) {
         return this.retryableRequest('PUT', `/${this.fileId}/${lineNumber}/color`, {
             color
         });
     }
+    async updateColorAnchor(anchorId, color) {
+        return this.retryableRequest('PUT', `/${this.fileId}/0/color`, {
+            color,
+            anchor_id: anchorId
+        });
+    }
     
     async deleteBookmark(lineNumber) {
         return this.retryableRequest('DELETE', `/${this.fileId}/${lineNumber}`);
+    }
+    async deleteBookmarkAnchor(anchorId) {
+        // שימוש בפרמטר שאילתה כדי להבדיל
+        const path = `/${this.fileId}/0?anchor_id=${encodeURIComponent(anchorId)}`;
+        return this.retryableRequest('DELETE', path);
     }
     
     async clearFileBookmarks() {
@@ -926,6 +1117,77 @@ class BookmarkUI {
             lineElement.appendChild(icon);
         }
     }
+
+    addAnchorIndicator(element, color = 'yellow') {
+        try {
+            element.classList.add('bookmarked');
+            element.setAttribute('data-bookmark-color', color);
+            if (!element.querySelector('.bookmark-icon')) {
+                const icon = document.createElement('span');
+                icon.className = 'bookmark-icon';
+                icon.innerHTML = '🔖';
+                // הצמדת האייקון לימין הכותרת
+                icon.style.marginInlineStart = '8px';
+                element.appendChild(icon);
+            }
+        } catch (_) {}
+    }
+
+    removeAnchorIndicator(element) {
+        try {
+            element.classList.remove('bookmarked');
+            element.removeAttribute('data-bookmark-color');
+            const icon = element.querySelector('.bookmark-icon');
+            if (icon) icon.remove();
+        } catch (_) {}
+    }
+
+    addAnchorIndicatorById(anchorId, color = 'yellow') {
+        try {
+            const el = document.getElementById(anchorId);
+            if (el) { this.addAnchorIndicator(el, color); return; }
+            const frame = document.getElementById('previewFrame');
+            const doc = frame && (frame.contentDocument || frame.contentWindow?.document);
+            const inside = doc && doc.getElementById(anchorId);
+            if (inside) {
+                // הוסף מחלקה ואייקון בתוך ה-iframe
+                inside.classList.add('bookmarked');
+                // אייקון זעיר בצד ימין של האלמנט (פשוט)
+                if (!inside.querySelector('.bookmark-icon')) {
+                    const icon = doc.createElement('span');
+                    icon.className = 'bookmark-icon';
+                    icon.textContent = '🔖';
+                    inside.appendChild(icon);
+                }
+            }
+        } catch(_) {}
+    }
+
+    removeAnchorIndicatorById(anchorId) {
+        try {
+            const el = document.getElementById(anchorId);
+            if (el) this.removeAnchorIndicator(el);
+            const frame = document.getElementById('previewFrame');
+            const doc = frame && (frame.contentDocument || frame.contentWindow?.document);
+            const inside = doc && doc.getElementById(anchorId);
+            if (inside) {
+                inside.classList.remove('bookmarked');
+                const icon = inside.querySelector('.bookmark-icon');
+                if (icon) icon.remove();
+            }
+        } catch(_) {}
+    }
+
+    setAnchorColor(anchorId, color) {
+        try {
+            const el = document.getElementById(anchorId);
+            if (el) el.setAttribute('data-bookmark-color', color);
+            const frame = document.getElementById('previewFrame');
+            const doc = frame && (frame.contentDocument || frame.contentWindow?.document);
+            const inside = doc && doc.getElementById(anchorId);
+            if (inside) inside.setAttribute('data-bookmark-color', color);
+        } catch(_) {}
+    }
     
     removeBookmarkIndicator(lineNumber) {
         const lineElement = document.querySelector(
@@ -972,14 +1234,19 @@ class BookmarkUI {
             return;
         }
         
-        // מיין לפי מספר שורה
-        bookmarks.sort((a, b) => a.line_number - b.line_number);
+        // מיין לפי מספר שורה (anchors עם שורה סינתטית ענקית יהיו בסוף)
+        bookmarks.sort((a, b) => (a.line_number || 0) - (b.line_number || 0));
         
-        listContainer.innerHTML = bookmarks.map(bm => `
-            <div class="bookmark-item" data-line-number="${bm.line_number}" data-color="${bm.color || 'yellow'}">
+        listContainer.innerHTML = bookmarks.map(bm => {
+            const isAnchor = !!(bm.anchor_id);
+            const title = isAnchor ? (bm.anchor_text || `#${bm.anchor_id}`) : `שורה ${bm.line_number}`;
+            const subtitle = isAnchor ? (bm.line_text_preview || '') : (bm.line_text_preview || '');
+            const attrs = isAnchor ? `data-anchor-id="${this.escapeHtml(bm.anchor_id)}"` : `data-line-number="${bm.line_number}"`;
+            return `
+            <div class="bookmark-item" ${attrs} data-color="${bm.color || 'yellow'}">
                 <div class="bookmark-content">
-                    <span class="line-number">שורה ${bm.line_number}</span>
-                    <span class="line-preview">${this.escapeHtml(bm.line_text_preview || '')}</span>
+                    <span class="line-number">${this.escapeHtml(title)}</span>
+                    <span class="line-preview">${this.escapeHtml(subtitle)}</span>
                     ${bm.note ? `<span class="bookmark-note">${this.escapeHtml(bm.note)}</span>` : ''}
                 </div>
                 <div class="bookmark-actions">
@@ -991,8 +1258,8 @@ class BookmarkUI {
                     <button class="edit-btn" title="ערוך הערה">✏️</button>
                     <button class="delete-btn" title="מחק סימנייה">🗑️</button>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
     
     togglePanel() {

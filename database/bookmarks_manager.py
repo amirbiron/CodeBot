@@ -55,6 +55,13 @@ class BookmarksManager:
                     unique=True,
                     name="unique_user_file_line"
                 ),
+                # אינדקס ייחודי לסימניות עוגן (sparse כדי לא לכפות ייחודיות כשאין עוגן)
+                IndexModel(
+                    [("user_id", ASCENDING), ("file_id", ASCENDING), ("anchor_id", ASCENDING)],
+                    unique=True,
+                    name="unique_user_file_anchor",
+                    sparse=True
+                ),
                 # אינדקס לחיפוש מהיר לפי משתמש וקובץ
                 IndexModel(
                     [("user_id", ASCENDING), ("file_id", ASCENDING)],
@@ -94,7 +101,11 @@ class BookmarksManager:
                        line_number: int,
                        line_text: str = "",
                        note: str = "",
-                       color: str = "yellow") -> Dict[str, Any]:
+                       color: str = "yellow",
+                       *,
+                       anchor_id: Optional[str] = None,
+                       anchor_text: Optional[str] = None,
+                       anchor_type: Optional[str] = None) -> Dict[str, Any]:
         """
         הוספה/הסרה של סימנייה (toggle)
         
@@ -108,18 +119,26 @@ class BookmarksManager:
         """
         try:
             # ולידציה
-            if line_number <= 0:
+            # line_number יכול להיות 0 כאשר מדובר בעוגן (Markdown/HTML)
+            if line_number is None:
+                return {"ok": False, "action": "error", "error": "line_number חסר"}
+            if line_number < 0:
+                return {"ok": False, "action": "error", "error": "מספר שורה לא תקין"}
+            # ללא עוגן – נדרוש מספר שורה תקין (>0)
+            if not anchor_id and line_number == 0:
                 return {"ok": False, "action": "error", "error": "מספר שורה לא תקין"}
             
             if len(note) > MAX_NOTE_LENGTH:
                 note = note[:MAX_NOTE_LENGTH]
             
             # בדיקה אם הסימנייה קיימת
-            existing = self.collection.find_one({
-                "user_id": user_id,
-                "file_id": file_id,
-                "line_number": line_number
-            })
+            # ייחודיות: עבור סימניות עוגן – הזיהוי לפי anchor_id; אחרת לפי line_number
+            find_query: Dict[str, Any] = {"user_id": user_id, "file_id": file_id}
+            if anchor_id:
+                find_query.update({"anchor_id": anchor_id})
+            else:
+                find_query.update({"line_number": line_number})
+            existing = self.collection.find_one(find_query)
             
             if existing:
                 # הסרת סימנייה קיימת
@@ -144,6 +163,10 @@ class BookmarksManager:
             # חישוב hash של הקובץ
             file_hash = self._calculate_file_hash(file_id)
             
+            # אם מדובר בעוגן – קבע מספר שורה סינתטי יציב לפי ה-id כדי למנוע התנגשות עם הסימניות הקיימות
+            if anchor_id and (not line_number or line_number <= 0):
+                line_number = self._anchor_line_from_id(anchor_id)
+            
             # יצירת סימנייה חדשה
             bookmark = FileBookmark(
                 user_id=user_id,
@@ -154,6 +177,9 @@ class BookmarksManager:
                 line_text_preview=line_text[:100] if line_text else "",
                 note=note,
                 color=color,
+                anchor_id=(anchor_id or ""),
+                anchor_text=(anchor_text or ""),
+                anchor_type=(anchor_type or ""),
                 file_hash=file_hash
             )
             
@@ -682,11 +708,82 @@ class BookmarksManager:
             "line_text_preview": bookmark.line_text_preview,
             "note": bookmark.note,
             "color": bookmark.color,
+            "anchor_id": getattr(bookmark, 'anchor_id', ''),
+            "anchor_text": getattr(bookmark, 'anchor_text', ''),
+            "anchor_type": getattr(bookmark, 'anchor_type', ''),
             "valid": bookmark.valid,
             "sync_status": bookmark.sync_status,
             "created_at": bookmark.created_at.isoformat() if bookmark.created_at else None,
             "updated_at": bookmark.updated_at.isoformat() if bookmark.updated_at else None
         }
+
+    # ===== עזר לעוגנים =====
+    def _anchor_line_from_id(self, anchor_id: str) -> int:
+        """המרת עוגן למספר שורה סינתטי, עם היסט גדול כדי שלא יתנגש במספרי שורות אמיתיים."""
+        try:
+            import hashlib as _hl
+            h = _hl.sha256((anchor_id or "").encode("utf-8")).digest()
+            n = int.from_bytes(h[:8], "big") % 900_000_000
+            return 1_000_000_000 + n
+        except Exception:
+            return 1_000_000_000
+
+    # ===== עדכונים/מחיקות לפי עוגן =====
+    def update_bookmark_color_by_anchor(self,
+                                        user_id: int,
+                                        file_id: str,
+                                        anchor_id: str,
+                                        color: str) -> Dict[str, Any]:
+        try:
+            color_norm = (color or '').lower()
+            if color_norm not in VALID_COLORS:
+                return {"ok": False, "error": "צבע לא תקין"}
+            result = self.collection.update_one(
+                {"user_id": user_id, "file_id": file_id, "anchor_id": anchor_id},
+                {"$set": {"color": color_norm, "updated_at": datetime.now(timezone.utc)}}
+            )
+            if result.modified_count > 0:
+                self._track_event(user_id, "color_updated", file_id, self._anchor_line_from_id(anchor_id), {"color": color_norm, "anchor_id": anchor_id})
+                return {"ok": True, "message": "הצבע עודכן", "color": color_norm}
+            return {"ok": False, "error": "הסימנייה לא נמצאה"}
+        except Exception as e:
+            logger.error(f"Error updating anchor bookmark color: {e}")
+            return {"ok": False, "error": "שגיאה בעדכון הצבע"}
+
+    def update_bookmark_note_by_anchor(self,
+                                       user_id: int,
+                                       file_id: str,
+                                       anchor_id: str,
+                                       note: str) -> Dict[str, Any]:
+        try:
+            if len(note) > MAX_NOTE_LENGTH:
+                note = note[:MAX_NOTE_LENGTH]
+            result = self.collection.update_one(
+                {"user_id": user_id, "file_id": file_id, "anchor_id": anchor_id},
+                {"$set": {"note": note, "updated_at": datetime.now(timezone.utc)}}
+            )
+            if result.modified_count > 0:
+                self._track_event(user_id, "note_updated", file_id, self._anchor_line_from_id(anchor_id))
+                return {"ok": True, "message": "ההערה עודכנה"}
+            return {"ok": False, "error": "הסימנייה לא נמצאה"}
+        except Exception as e:
+            logger.error(f"Error updating anchor bookmark note: {e}")
+            return {"ok": False, "error": "שגיאה בעדכון ההערה"}
+
+    def delete_bookmark_by_anchor(self,
+                                  user_id: int,
+                                  file_id: str,
+                                  anchor_id: str) -> Dict[str, Any]:
+        try:
+            doc = self.collection.find_one({"user_id": user_id, "file_id": file_id, "anchor_id": anchor_id})
+            if not doc:
+                return {"ok": False, "error": "הסימנייה לא נמצאה"}
+            self.collection.delete_one({"_id": doc["_id"]})
+            self._track_event(user_id, "deleted", file_id, self._anchor_line_from_id(anchor_id))
+            return {"ok": True, "message": "הסימנייה נמחקה"}
+        except Exception as e:
+            logger.error(f"Error deleting anchor bookmark: {e}")
+            return {"ok": False, "error": "שגיאה במחיקת הסימנייה"}
     
     # ==================== Analytics Methods ====================
     

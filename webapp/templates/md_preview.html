@@ -960,6 +960,21 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
+    try {
+      // השלם מזהי עוגן חסרים והסר כפילויות כדי שסימניות על כותרות יעבדו יציב
+      const seen = new Set();
+      const gen = (t) => {
+        const s = (t || '').toLowerCase().trim().replace(/[^a-z0-9א-ת\-\s]/gi, '').replace(/\s+/g, '-');
+        let base = s || 'section'; let k = base; let i = 2;
+        while (seen.has(k) || document.getElementById(k)) { k = base + '-' + (i++); }
+        seen.add(k); return k;
+      };
+      Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6')).forEach(h => {
+        const txt = (h.textContent || '').trim();
+        if (!h.id) { h.id = gen(txt); }
+        else if (seen.has(h.id)) { h.id = gen(txt); } else { seen.add(h.id); }
+      });
+    } catch(_) {}
 
     // הדגשת תחביר לאחר הרינדור: הדגשה ממוקדת בתוך #md-content בלבד
     try {
@@ -1679,5 +1694,6 @@ function goBackToFile(ev){
   } catch(_) { }
 })();
 </script>
+{% if not is_public %}{% include 'bookmarks_snippet.html' %}{% endif %}
 {% endblock %}
 

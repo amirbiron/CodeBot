@@ -108,13 +108,30 @@ def toggle_bookmark(file_id):
         user_id = session['user_id']
         data = request.get_json()
         
-        # ולידציה
-        if not data or 'line_number' not in data:
-            return jsonify({'ok': False, 'error': 'Missing line_number'}), 400
-        
-        line_number = data.get('line_number')
-        if not isinstance(line_number, int) or line_number <= 0:
-            return jsonify({'ok': False, 'error': 'Invalid line_number'}), 400
+        # ולידציה: עיגון לפי מספר שורה או לפי anchor_id
+        if not data:
+            return jsonify({'ok': False, 'error': 'Missing request body'}), 400
+
+        anchor_id = (data.get('anchor_id') or '').strip()
+        anchor_text = (data.get('anchor_text') or '').strip()
+        anchor_type = (data.get('anchor_type') or '').strip()
+
+        if anchor_id:
+            # במצב עוגן – line_number יכול להיות 0/None
+            try:
+                line_number = int(data.get('line_number') or 0)
+            except Exception:
+                line_number = 0
+            if len(anchor_id) > 256:
+                anchor_id = anchor_id[:256]
+            if len(anchor_text) > 256:
+                anchor_text = anchor_text[:256]
+        else:
+            if 'line_number' not in data:
+                return jsonify({'ok': False, 'error': 'Missing line_number'}), 400
+            line_number = data.get('line_number')
+            if not isinstance(line_number, int) or line_number <= 0:
+                return jsonify({'ok': False, 'error': 'Invalid line_number'}), 400
         
         # סניטציה של קלט
         line_text = sanitize_input(data.get('line_text', ''), 100)
@@ -142,7 +159,10 @@ def toggle_bookmark(file_id):
             line_number=line_number,
             line_text=line_text,
             note=note,
-            color=color
+            color=color,
+            anchor_id=(anchor_id or None),
+            anchor_text=(anchor_text or None),
+            anchor_type=(anchor_type or None)
         )
         
         return jsonify(result)
@@ -254,8 +274,12 @@ def update_bookmark_note(file_id, line_number):
         
         note = sanitize_input(data['note'], 500)
         
+        anchor_id = (data.get('anchor_id') or '').strip()
         bm_manager = get_bookmarks_manager()
-        result = bm_manager.update_bookmark_note(user_id, file_id, line_number, note)
+        if anchor_id:
+            result = bm_manager.update_bookmark_note_by_anchor(user_id, file_id, anchor_id, note)
+        else:
+            result = bm_manager.update_bookmark_note(user_id, file_id, line_number, note)
         
         return jsonify(result)
         
@@ -279,8 +303,12 @@ def update_bookmark_color(file_id, line_number):
         if color not in MODEL_VALID_COLORS:
             return jsonify({'ok': False, 'error': 'Invalid color'}), 400
 
+        anchor_id = (data.get('anchor_id') or '').strip()
         bm_manager = get_bookmarks_manager()
-        result = bm_manager.update_bookmark_color(user_id, file_id, line_number, color)
+        if anchor_id:
+            result = bm_manager.update_bookmark_color_by_anchor(user_id, file_id, anchor_id, color)
+        else:
+            result = bm_manager.update_bookmark_color(user_id, file_id, line_number, color)
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error updating bookmark color: {e}")
@@ -294,8 +322,12 @@ def delete_bookmark(file_id, line_number):
     try:
         user_id = session['user_id']
         
+        anchor_id = (request.args.get('anchor_id') or '').strip()
         bm_manager = get_bookmarks_manager()
-        result = bm_manager.delete_bookmark(user_id, file_id, line_number)
+        if anchor_id:
+            result = bm_manager.delete_bookmark_by_anchor(user_id, file_id, anchor_id)
+        else:
+            result = bm_manager.delete_bookmark(user_id, file_id, line_number)
         
         return jsonify(result)
         
