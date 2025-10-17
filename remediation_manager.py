@@ -249,6 +249,13 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
         }
 
         _write_incident(record)
+        # Increment actual incidents counter for Grafana 'Predicted vs Actual'
+        try:
+            from metrics import actual_incidents_total  # type: ignore
+            if actual_incidents_total is not None:
+                actual_incidents_total.labels(metric=str(metric)).inc()
+        except Exception:
+            pass
         _emit_event("AUTO_REMEDIATION_EXECUTED", severity="error", incident_id=incident_id, name=str(name))
 
         try:

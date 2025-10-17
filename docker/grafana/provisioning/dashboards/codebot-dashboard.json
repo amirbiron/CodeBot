@@ -55,9 +55,18 @@
     },
     {
       "type": "timeseries",
+      "title": "Predicted vs Actual Incidents",
+      "targets": [
+        {"expr": "sum by(metric) (increase(predicted_incidents_total[1h]))"},
+        {"expr": "sum by(metric) (increase(actual_incidents_total[1h]))"}
+      ],
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28}
+    },
+    {
+      "type": "timeseries",
       "title": "Telegram updates (received)",
       "targets": [{"expr": "rate(telegram_updates_total{status=\"received\"}[1m])"}],
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28}
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36}
     }
   ],
   "schemaVersion": 36,
