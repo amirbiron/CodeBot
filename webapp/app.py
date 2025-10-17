@@ -1234,40 +1234,6 @@ def api_search_global():
         except Exception:
             limit = 20
 
-        # Early DB availability guard (optional resilience)
-        _db_probe = None
-        try:
-            _db_probe = get_db()
-        except Exception:
-            _db_probe = None
-        if _db_probe is None:
-            try:
-                emit_event(
-                    "search_db_unavailable",
-                    severity="warning",
-                    request_id=request_id if 'request_id' in locals() else "",
-                    user_id=int(user_id),
-                )
-            except Exception:
-                pass
-            # Respond gracefully without crashing
-            resp = {
-                'success': True,
-                'query': query,
-                'total_results': 0,
-                'page': page,
-                'per_page': limit,
-                'search_time': round(time.time() - start_time, 3),
-                'cached': False,
-                'results': [],
-                'error': 'Database unavailable',
-            }
-            try:
-                search_counter.labels(search_type=search_type_str, status='db_unavailable').inc()
-            except Exception:
-                pass
-            return jsonify(resp)
-
         # Simple local cache key (not redis)
         try:
             cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
