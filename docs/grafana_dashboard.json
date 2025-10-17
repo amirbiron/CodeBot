@@ -1,0 +1,95 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "9.5.0" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "9.5.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "2.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Error Rate (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "codebot_error_rate_percent",
+          "legendFormat": "error_rate"
+        },
+        {
+          "refId": "B",
+          "expr": "(1 - rate(codebot_failed_requests_total[5m]) / clamp_min(rate(codebot_requests_total[5m]), 1)) * 100",
+          "legendFormat": "error_rate_from_counters"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Avg Response Time (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "codebot_avg_response_time_seconds", "legendFormat": "avg_rt" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Uptime (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - rate(codebot_failed_requests_total[5m]) / clamp_min(rate(codebot_requests_total[5m]), 1)) * 100",
+          "legendFormat": "uptime_percent"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Active Users",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "codebot_active_users_total", "legendFormat": "active_users" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "table",
+      "title": "Alerts (JSON)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "9.5.0",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "simpod-json-datasource", "uid": "json-api" },
+          "format": "table",
+          "jsonPath": "alerts",
+          "url": "/alerts"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["codebot", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "CodeBot – Observability v3",
+  "uid": null,
+  "version": 1
+}

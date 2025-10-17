@@ -147,6 +147,20 @@ def create_app() -> web.Application:
             # Soft-fail; already logged by helper as needed
             pass
 
+        # Update Prometheus counter for alerts
+        try:
+            from metrics import codebot_alerts_total  # type: ignore
+            if codebot_alerts_total is not None:
+                for a in alerts:
+                    sev = "info"
+                    try:
+                        sev = str(((a or {}).get("labels") or {}).get("severity") or (a.get("severity") if isinstance(a, dict) else "info") or "info")
+                    except Exception:
+                        sev = "info"
+                    codebot_alerts_total.labels(source="webhook", severity=sev).inc()
+        except Exception:
+            pass
+
         return web.json_response({"status": "ok", "forwarded": len(alerts)})
 
     async def share_view(request: web.Request) -> web.Response:
@@ -217,7 +231,38 @@ def create_app() -> web.Application:
         pass
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
+    
+    async def alerts_get_view(request: web.Request) -> web.Response:
+        """Return recent alerts as JSON for Grafana table panels."""
+        try:
+            from internal_alerts import get_recent_alerts  # type: ignore
+        except Exception:
+            return web.json_response({"alerts": []})
+        try:
+            limit_str = request.query.get("limit", "10")
+            limit = max(1, min(100, int(limit_str)))
+        except Exception:
+            limit = 10
+        items = get_recent_alerts(limit=limit) or []
+        return web.json_response({"alerts": items})
+
+    async def uptime_view(request: web.Request) -> web.Response:
+        """Return average uptime percentage and availability data."""
+        try:
+            from metrics import get_uptime_percentage, get_process_uptime_seconds  # type: ignore
+        except Exception:
+            return web.json_response({"uptime_percent": 100.0, "process_uptime_seconds": 0.0})
+        try:
+            return web.json_response({
+                "uptime_percent": float(get_uptime_percentage()),
+                "process_uptime_seconds": float(get_process_uptime_seconds()),
+            })
+        except Exception:
+            return web.json_response({"uptime_percent": 100.0, "process_uptime_seconds": 0.0})
     app.router.add_get("/share/{share_id}", share_view)
+    # Observability v3 JSON endpoints for Grafana
+    app.router.add_get("/alerts", alerts_get_view)
+    app.router.add_get("/uptime", uptime_view)
 
     return app
 

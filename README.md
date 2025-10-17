@@ -755,15 +755,27 @@ python main.py
 - **דחיסה חכמה** - חיסכון במקום
 
 ### ניטור
-```bash
-# סטטיסטיקות בזמן אמת
-python -c "
-from database import db
-from utils import get_memory_usage
-print('קבצים במערכת:', db.collection.count_documents({}))
-print('זיכרון:', get_memory_usage())
-"
-```
+
+#### Prometheus + Grafana (Observability v3)
+
+- **/metrics**: תצוגת מדדים בפורמט Prometheus.
+- **/alerts**: JSON של התראות אחרונות לשימוש ב-Grafana (JSON API).
+- **/uptime**: זמינות ממוצעת וזמן ריצה של התהליך.
+
+חיבור מהיר:
+
+1) הגדרת Datasource ל-Prometheus (URL הסביבה שלכם).
+
+2) התקנת תוסף JSON API (Simpod) ב-Grafana והגדרת datasource עם בסיס ` / `.
+
+3) ייבוא הדשבורד מ-`docs/grafana_dashboard.json`.
+
+שאילתות שימושיות:
+- Error Rate: `(1 - rate(codebot_failed_requests_total[5m]) / clamp_min(rate(codebot_requests_total[5m]), 1)) * 100`
+- Avg Response: `codebot_avg_response_time_seconds`
+- Active Users: `codebot_active_users_total`
+
+למידע נוסף ראו `docs/monitoring.md`.
 
 ### 🔁 עדכוני תלויות ומיזוג אוטומטי
 - Dependabot יוצר PRs לעדכוני pip אחת לשבוע.
