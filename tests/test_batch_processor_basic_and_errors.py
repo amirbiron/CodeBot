@@ -49,16 +49,12 @@ async def test_validate_batch_tool_timeouts_and_missing(monkeypatch):
             return {"code": "print('x')\n", "programming_language": "python"}
     monkeypatch.setattr(db_mod, 'db', _DB(), raising=True)
 
-    # monkeypatch _run_local_cmd inside module to simulate timeouts and missing tools
+    # monkeypatch subprocess.run only to simulate "tool not found" for most tools
     import batch_processor as bpm
-    def fake_run(args_list, cwd, timeout_sec=20):
-        tool = args_list[0]
-        if tool in ("flake8", "mypy"):
-            return {"returncode": 124, "output": "Timeout"}
-        if tool in ("bandit", "black", "pylint", "isort", "radon", "eslint", "tsc", "prettier", "shellcheck", "yamllint", "hadolint", "jq", "semgrep"):
-            return {"returncode": 127, "output": "Tool not installed"}
-        return {"returncode": 0, "output": "ok"}
-    monkeypatch.setattr(bpm, "subprocess", types.SimpleNamespace(run=lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError())), raising=True)
+    def _fake_run(args_list, cwd=None, capture_output=True, text=True, timeout=20):
+        # Simulate command not found for any tool
+        raise FileNotFoundError()
+    monkeypatch.setattr(bpm.subprocess, "run", _fake_run, raising=True)
 
     job_id = await bp.batch_processor.validate_files_batch(9, ["x.py"]) 
     for _ in range(200):
