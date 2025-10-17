@@ -3,7 +3,7 @@
 - **מטרה**: להפעיל/לבדוק את ה‑WebApp ואת ה‑API מהר, בבטחה וללא ניחושים.
 
 - **איך מתחילים מהר**:
-  - התקינו תלויות: `cd webapp && pip install -r requirements.txt`.
+  - התקינו תלויות: `cd webapp && pip install -r ../requirements/production.txt`.
   - צרו קובץ קונפיג: `cp webapp/.env.example webapp/.env` ועדכנו ערכים.
   - הריצו מקומית: `python webapp/app.py` וגלשו ל‑`http://localhost:5000`.
   - מסמכי API: `http://localhost:5000/docs` (Swagger) או `http://localhost:5000/redoc`.

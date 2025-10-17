@@ -5,7 +5,7 @@ Troubleshooting Guide
 --------------
 
 ``ModuleNotFoundError: No module named 'telegram'``
-  - התקן תלויות: ``pip install -r requirements.txt``
+  - התקן תלויות: ``pip install -r requirements/production.txt``
 
 ``ServerSelectionTimeoutError: No servers available``
   - בדוק שה‑MongoDB רץ
