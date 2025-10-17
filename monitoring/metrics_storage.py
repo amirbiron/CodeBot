@@ -49,7 +49,7 @@ _collection = None  # type: ignore
 _init_failed = False
 _buf: deque[Dict[str, Any]] = deque()
 _lock = Lock()
-_last_flush_ts: float = 0.0
+_last_flush_ts: float = time.time()
 
 
 def _max_buffer_size() -> int:
