@@ -53,6 +53,20 @@ except Exception:
     SearchFilter = _Missing  # type: ignore
     SortOrder = _Missing  # type: ignore
 
+# Structured logging (optional and safe-noop fallbacks)
+try:
+    from observability import emit_event, bind_request_id, generate_request_id  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+    def bind_request_id(request_id: str) -> None:  # type: ignore
+        return None
+    def generate_request_id() -> str:  # type: ignore
+        try:
+            return str(int(time.time() * 1000))[-8:]
+        except Exception:
+            return ""
+
 # Optional monitoring & resilience
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY  # type: ignore
@@ -1101,6 +1115,13 @@ def api_search_global():
     start_time = time.time()
     user_id = session['user_id']
     try:
+        # בקשות חיפוש מזוהות ע"י request_id לתחקור קל יותר
+        try:
+            request_id = generate_request_id()  # type: ignore[name-defined]
+            bind_request_id(request_id)  # type: ignore[name-defined]
+        except Exception:
+            request_id = ""
+
         payload = request.get_json(silent=True) or {}
         query = (payload.get('query') or '').strip()
         if not query:
@@ -1227,6 +1248,20 @@ def api_search_global():
                 search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
             except Exception:
                 pass
+            # לוג פגיעה בקאש
+            try:
+                emit_event(
+                    "search_response",
+                    severity="info",
+                    request_id=request_id if 'request_id' in locals() else "",
+                    user_id=int(user_id),
+                    results_count=int(cached.get('total_results', 0)),
+                    page_results=int(len((cached.get('results') or []))),
+                    duration_ms=int(round((time.time() - start_time) * 1000)),
+                    cache_hit=True,
+                )
+            except Exception:
+                pass
             return jsonify(dict(cached, cached=True))
 
         try:
@@ -1245,6 +1280,24 @@ def api_search_global():
             sort_order=(sort_order if enums_ok else None),
             limit=total_limit,
         )
+
+        # לוג אינפורמטיבי על החיפוש שבוצע (ללא הדלפת תוכן השאילתה)
+        try:
+            emit_event(
+                "search_request",
+                severity="info",
+                request_id=request_id,
+                user_id=int(user_id),
+                query_length=int(len(query)),
+                search_type=str(search_type_str),
+                sort=str(sort_str),
+                page=int(page),
+                limit=int(limit),
+                total_limit=int(total_limit),
+                used_engine=bool(enums_ok),
+            )
+        except Exception:
+            pass
 
         # Metrics
         try:
@@ -1304,9 +1357,35 @@ def api_search_global():
             search_counter.labels(search_type=search_type_str, status='success').inc()
         except Exception:
             pass
+
+        # לוג סיכום
+        try:
+            emit_event(
+                "search_response",
+                severity="info",
+                request_id=request_id,
+                user_id=int(user_id),
+                results_count=int(resp.get('total_results', 0)),
+                page_results=int(len(resp.get('results') or [])),
+                duration_ms=int(round((time.time() - start_time) * 1000)),
+                cache_hit=False,
+            )
+        except Exception:
+            pass
         return jsonify(resp)
 
     except Exception as e:
+        # לוג שגיאה מובנה עבור תחקור
+        try:
+            emit_event(
+                "search_error",
+                severity="error",
+                request_id=request_id if 'request_id' in locals() else "",
+                user_id=int(user_id),
+                error=str(e),
+            )
+        except Exception:
+            pass
         try:
             search_counter.labels(search_type='unknown', status='error').inc()
         except Exception:
