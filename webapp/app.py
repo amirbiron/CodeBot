@@ -123,6 +123,7 @@ try:
     _LIMITER_AVAILABLE = True
 except Exception:
     Limiter = None  # type: ignore
+    # fall back to a simple remote address accessor if limiter not installed
     get_remote_address = lambda: request.remote_addr if request else ""  # type: ignore
     _LIMITER_AVAILABLE = False
 
