@@ -69,6 +69,7 @@ async def test_stop_calls_cleanup_once_and_sets_flag(monkeypatch):
     calls = {'n': 0}
     def _cleanup_stub():
         calls['n'] += 1
+        return True  # סימולציה של ניקוי מוצלח כדי שיסומן הדגל
     monkeypatch.setattr(mod, 'cleanup_mongo_lock', _cleanup_stub, raising=False)
 
     # החלפת db באובייקט שמכיל close

@@ -12,13 +12,30 @@ async def test_stop_retries_when_first_cleanup_failed(monkeypatch):
     import main as mod
     importlib.reload(mod)
 
-    # מימוש Application מינימלי כפי בשאר הטסטים
+    # מימוש Application מינימלי כפי בשאר הטסטים, כולל handlers/add_handler
     class _MiniApp:
         def __init__(self):
             class _Updater:
                 async def stop(self):
                     return None
             self.updater = _Updater()
+            self.handlers = []
+            self.bot_data = {}
+            self._error_handlers = []
+            class _JobQ:
+                def run_once(self, *a, **k):
+                    return None
+            self.job_queue = _JobQ()
+
+        def add_handler(self, *a, **k):
+            self.handlers.append((a, k))
+
+        def remove_handler(self, *a, **k):
+            return None
+
+        def add_error_handler(self, *a, **k):
+            self._error_handlers.append((a, k))
+
         async def stop(self):
             return None
         async def shutdown(self):
