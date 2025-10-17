@@ -13,7 +13,7 @@ async def test_stop_calls_cleanup_once_and_sets_flag(monkeypatch):
     import main as mod
     importlib.reload(mod)
 
-    # בנאי Application מינימלי עם updater ומטודות עצירה אסינכרוניות
+    # בנאי Application מינימלי עם updater, handlers ומטודות עצירה אסינכרוניות
     class _MiniApp:
         def __init__(self):
             class _Updater:
@@ -24,8 +24,26 @@ async def test_stop_calls_cleanup_once_and_sets_flag(monkeypatch):
             self.updater = _Updater()
             self.stopped_called = False
             self.shutdown_called = False
+            self.handlers = []
+            self.bot_data = {}
+            self._error_handlers = []
+            class _JobQ:
+                def run_once(self, *a, **k):
+                    return None
+            self.job_queue = _JobQ()
+
+        def add_handler(self, *a, **k):
+            self.handlers.append((a, k))
+
+        def remove_handler(self, *a, **k):
+            return None
+
+        def add_error_handler(self, *a, **k):
+            self._error_handlers.append((a, k))
+
         async def stop(self):  # noqa: D401
             self.stopped_called = True
+
         async def shutdown(self):  # noqa: D401
             self.shutdown_called = True
 
