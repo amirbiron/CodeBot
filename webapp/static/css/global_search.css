@@ -1,3 +1,66 @@
-#searchSuggestions{max-height:300px;overflow-y:auto;}
-.search-result-card .code-snippet{font-family:Consolas,Monaco,'Courier New',monospace;font-size:13px;max-height:240px;overflow:auto}
-.search-result-card mark{background:#ffeb3b;color:#000;padding:0 2px;border-radius:2px}
+#searchSuggestions{
+  max-height:300px;
+  overflow-y:auto;
+  position:absolute; /* עיגון לתיבת הקלט כדי שלא "יברח" שמאלה */
+  top:calc(100% + 6px);
+  left:0; right:0;
+}
+
+/* כרטיס תוצאת חיפוש – רחב וממורכז ~95% מרוחב המסך */
+.search-result-card{
+  width:min(95vw, 100%);
+  margin:0.75rem auto; /* מרכז אופקית */
+  box-sizing:border-box;
+  overflow-wrap:anywhere; /* שבירת טקסט חכמה */
+  word-break:break-word;
+}
+
+.search-result-card h6,
+.search-result-card h6 a{
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+.search-result-card .code-snippet{
+  font-family:Consolas,Monaco,'Courier New',monospace;
+  font-size:13px;
+  max-height:240px;
+  overflow:auto;
+}
+
+/* לרוב קוד הוא LTR – למנוע שבירה מוזרה ב-RTL */
+.search-result-card pre{
+  white-space:pre-wrap; /* אפשר שבירת שורות */
+  word-break:break-word;
+  overflow-wrap:anywhere;
+  direction:ltr;
+  text-align:left;
+}
+
+.search-result-card mark{
+  background:#ffeb3b;
+  color:#000;
+  padding:0 2px;
+  border-radius:2px
+}
+
+/* ייצוב פריסת בקרי החיפוש במובייל */
+.search-and-filters .filters-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+}
+
+/* עיגון הסוגסטיות לאיזור תיבת החיפוש */
+.search-and-filters .col-md-8{
+  position:relative; /* כדי שה-#searchSuggestions יתמקם ביחס לעמודה */
+  min-width:0;
+}
+
+/* עזור לבקרים לא "לברוח" שמאלה במסכים צרים */
+@media (max-width: 768px){
+  .search-and-filters .filters-row{ justify-content:center; gap:8px; }
+  .search-and-filters .col-md-8,
+  .search-and-filters .col-md-4{ flex:1 1 100%; }
+}
