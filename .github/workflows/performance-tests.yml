@@ -7,6 +7,12 @@ on:
     - cron: '0 4 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
 jobs:
   performance-test:
     name: "🚀 Load Testing"
@@ -92,32 +98,31 @@ jobs:
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let top = '';
             let threshold = null;
+            let percentile = 90;
             try {
               const raw = fs.readFileSync('durations.json', 'utf8');
               const data = JSON.parse(raw);
               const durations = (data.summary && data.summary.durations) || [];
-              // Load last threshold from log if present
-              try {
-                const log = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY || '', 'utf8');
-                const m = /Heavy threshold auto-calculated: ([0-9.]+)s \(P(\d+)\)/.exec(log);
-                if (m) threshold = parseFloat(m[1]);
-              } catch(e) {}
+              // Compute dynamic percentile threshold (default P90) from current run
+              const times = durations.map(d => (d.seconds || 0)).filter(x => x > 0).sort((a,b)=>a-b);
+              percentile = parseFloat(process.env.PERF_HEAVY_PERCENTILE || '90');
+              if (times.length > 0) {
+                const rank = Math.ceil((percentile/100) * times.length);
+                threshold = times[Math.max(0, Math.min(rank-1, times.length-1))];
+              }
               // durations entries are like: { "test": "nodeid", "seconds": 0.123 }
               durations.sort((a,b) => (b.seconds||0) - (a.seconds||0));
-              const topN = durations.slice(0, 10).map((d, i) => ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s`).join('\n');
-              if (topN) {
-                // add warning icon for entries exceeding threshold
-                const lines = durations.slice(0,10).map((d,i)=>{
-                  const warn = (threshold && d.seconds && d.seconds >= threshold) ? ' ⚠️' : '';
-                  return ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s${warn}`;
-                }).join('\n');
-                top = `\n\n### Top slow tests\n\n${lines}`;
-              }
+              const lines = durations.slice(0, 10).map((d, i) => {
+                const warn = (threshold && d.seconds && d.seconds >= threshold) ? ' ⚠️' : '';
+                return ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s${warn}`;
+              }).join('\n');
+              if (lines) top = `\n\n### Top slow tests\n\n${lines}`;
             } catch (e) {
               // ignore missing/invalid file
             }
 
-            const body = `## ⏱️ Performance report\n\n- Run: ${runUrl}\n- Artifact: perf-durations-${context.runId}${top}`;
+            const prefix = threshold ? `Heavy threshold auto-calculated: ${threshold.toFixed(3)}s (P${percentile})\n\n` : '';
+            const body = `## ⏱️ Performance report\n\n${prefix}- Run: ${runUrl}\n- Artifact: perf-durations-${context.runId}${top}`;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
