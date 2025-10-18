@@ -1,0 +1,42 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "בוט טלגרם חכם ומתקדם לשמירה, ניהול ושיתוף קטעי קוד בצורה מסודרת ונוחה.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build-md": "node ./webapp/static_build/build-md-preview.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amirbiron/CodeBot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/amirbiron/CodeBot/issues"
+  },
+  "homepage": "https://github.com/amirbiron/CodeBot#readme",
+  "type": "module",
+  "devDependencies": {
+    "esbuild": "^0.25.11"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.25",
+    "markdown-it": "^14.1.0",
+    "markdown-it-admonition": "^1.0.4",
+    "markdown-it-anchor": "^9.2.0",
+    "markdown-it-container": "^4.0.0",
+    "markdown-it-emoji": "^3.0.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "markdown-it-toc-done-right": "^4.2.0",
+    "mermaid": "^11.12.0"
+  }
+}
