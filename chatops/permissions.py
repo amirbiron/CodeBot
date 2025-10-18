@@ -29,9 +29,29 @@ def get_admin_user_ids() -> Set[int]:
     return _parse_int_set(os.getenv("ADMIN_USER_IDS", ""))
 
 
+def _get_bool_env(name: str, default: bool = False) -> bool:
+    val = str(os.getenv(name, "")).strip().lower()
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
 def is_admin(user_id: int) -> bool:
+    """Return True if user is admin.
+
+    Behavior when ADMIN_USER_IDS is empty:
+    - By default (secure), no user is considered admin
+    - If CHATOPS_ALLOW_ALL_IF_NO_ADMINS=1, treat empty allowlist as no restriction (all users admin)
+    """
     try:
-        return int(user_id) in get_admin_user_ids()
+        admins = get_admin_user_ids()
+        if not admins:
+            if _get_bool_env("CHATOPS_ALLOW_ALL_IF_NO_ADMINS", False):
+                return True
+            return False
+        return int(user_id) in admins
     except Exception:
         return False
 
