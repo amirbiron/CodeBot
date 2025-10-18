@@ -48,7 +48,7 @@ jobs:
         if: github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light'))
         run: |
           echo "Running all performance tests (if any)..."
-          pytest -v -o addopts="" -m performance || echo "No performance tests found or none collected."
+          pytest -v -o addopts="" -m performance --perf-heavy-percentile=90 || echo "No performance tests found or none collected."
       - name: Collect test durations (default)
         if: always() && (github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light')))
         run: |
@@ -63,7 +63,7 @@ jobs:
           ONLY_LIGHT_PERF: '1'
         run: |
           echo "Running light performance tests (if any)..."
-          pytest -v -o addopts="" -m performance || echo "No performance tests found or none collected."
+          pytest -v -o addopts="" -m performance --perf-heavy-percentile=90 || echo "No performance tests found or none collected."
       - name: Collect test durations (light)
         if: always() && (github.event_name == 'pull_request' && github.event.pull_request.draft && contains(join(github.event.pull_request.labels.*.name, ','), 'perf-light'))
         env:
@@ -91,15 +91,27 @@ jobs:
             const fs = require('fs');
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let top = '';
+            let threshold = null;
             try {
               const raw = fs.readFileSync('durations.json', 'utf8');
               const data = JSON.parse(raw);
               const durations = (data.summary && data.summary.durations) || [];
+              // Load last threshold from log if present
+              try {
+                const log = fs.readFileSync(process.env.GITHUB_STEP_SUMMARY || '', 'utf8');
+                const m = /Heavy threshold auto-calculated: ([0-9.]+)s \(P(\d+)\)/.exec(log);
+                if (m) threshold = parseFloat(m[1]);
+              } catch(e) {}
               // durations entries are like: { "test": "nodeid", "seconds": 0.123 }
               durations.sort((a,b) => (b.seconds||0) - (a.seconds||0));
               const topN = durations.slice(0, 10).map((d, i) => ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s`).join('\n');
               if (topN) {
-                top = `\n\n### Top slow tests\n\n${topN}`;
+                // add warning icon for entries exceeding threshold
+                const lines = durations.slice(0,10).map((d,i)=>{
+                  const warn = (threshold && d.seconds && d.seconds >= threshold) ? ' ⚠️' : '';
+                  return ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s${warn}`;
+                }).join('\n');
+                top = `\n\n### Top slow tests\n\n${lines}`;
               }
             } catch (e) {
               // ignore missing/invalid file
