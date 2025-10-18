@@ -1,9 +1,17 @@
 name: "⚡ Performance Tests"
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
 
 jobs:
   performance-test:
@@ -17,3 +25,149 @@ jobs:
           echo "🔥 Running performance tests..."
           # Place your load-testing tool invocation here (e.g., k6, locust)
           # k6 run performance/load-test.js
+
+  python-performance:
+    name: "🐍 PyTest Performance"
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements/*.txt
+
+      - name: 📦 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/development.txt
+          pip freeze | sort > constraints.txt
+          pip install -r requirements/development.txt -c constraints.txt
+          pip check || true
+
+      # ברירת מחדל: להריץ הכל (כולל heavy)
+      - name: Run ALL performance tests (default)
+        if: github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light'))
+        run: |
+          echo "Running all performance tests (if any)..."
+          pytest -v -o addopts="" -m performance --perf-heavy-percentile=90 || echo "No performance tests found or none collected."
+      - name: Collect test durations (default)
+        if: always() && (github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light')))
+        run: |
+          echo "Collecting durations for all performance tests..."
+          pytest -o addopts="" -m performance --durations=0 --json-report --json-report-file=durations.json || true
+          cat durations.json | jq '.summary.durations' > durations-summary.json || echo '{}' > durations-summary.json
+
+      # כאשר ה‑PR הוא draft ומתויג perf-light: להריץ רק קלים
+      - name: Run LIGHT performance tests (draft + perf-light)
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light')
+        env:
+          ONLY_LIGHT_PERF: '1'
+        run: |
+          echo "Running light performance tests (if any)..."
+          pytest -v -o addopts="" -m performance --perf-heavy-percentile=90 || echo "No performance tests found or none collected."
+      - name: Collect test durations (light)
+        if: always() && (github.event_name == 'pull_request' && github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light'))
+        env:
+          ONLY_LIGHT_PERF: '1'
+        run: |
+          echo "Collecting durations for light performance tests..."
+          pytest -o addopts="" -m performance --durations=0 --json-report --json-report-file=durations.json || true
+          cat durations.json | jq '.summary.durations' > durations-summary.json || echo '{}' > durations-summary.json
+
+      - name: Upload durations artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-durations-${{ github.run_id }}
+          path: |
+            durations.json
+            durations-summary.json
+          if-no-files-found: warn
+
+      - name: Comment PR with performance report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let top = '';
+            let threshold = null;
+            let percentile = 90;
+            let artifactUrl = '';
+            try {
+              const raw = fs.readFileSync('durations.json', 'utf8');
+              const data = JSON.parse(raw);
+              const durations = (data.summary && data.summary.durations) || [];
+              // Compute dynamic percentile threshold (default P90) from current run
+              const times = durations.map(d => (d.seconds || 0)).filter(x => x > 0).sort((a,b)=>a-b);
+              percentile = parseFloat(process.env.PERF_HEAVY_PERCENTILE || '90');
+              if (times.length > 0) {
+                const rank = Math.ceil((percentile/100) * times.length);
+                threshold = times[Math.max(0, Math.min(rank-1, times.length-1))];
+              }
+              // durations entries are like: { "test": "nodeid", "seconds": 0.123 }
+              durations.sort((a,b) => (b.seconds||0) - (a.seconds||0));
+              const lines = durations.slice(0, 10).map((d, i) => {
+                const warn = (threshold && d.seconds && d.seconds >= threshold) ? ' ⚠️' : '';
+                return ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s${warn}`;
+              }).join('\n');
+              if (lines) top = `\n\n### Top slow tests\n\n${lines}`;
+              if (!lines) top = `\n\n_(No performance test durations collected. Mark tests with \`@pytest.mark.performance\`.)_`;
+            } catch (e) {
+              // ignore missing/invalid file
+              top = `\n\n_(No performance test durations collected. Mark tests with \`@pytest.mark.performance\`.)_`;
+            }
+
+            // Try to link directly to the artifact
+            try {
+              const arts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+              });
+              const art = arts.data.artifacts.find(a => a.name && a.name.startsWith('perf-durations-')) || arts.data.artifacts[0];
+              if (art) {
+                artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/artifacts/${art.id}`;
+              }
+            } catch(e) {}
+
+            const prefix = threshold ? `Heavy threshold auto-calculated: ${threshold.toFixed(3)}s (P${percentile})\n\n` : '';
+            const artLine = artifactUrl ? `- Artifact: [perf-durations](${artifactUrl})` : `- Artifact: perf-durations-${context.runId}`;
+            const body = `## ⏱️ Performance report\n\n${prefix}- Run: ${runUrl}\n${artLine}${top}`;
+            // Write to job summary as well
+            try {
+              await core.summary
+                .addHeading('⏱️ Performance report')
+                .addRaw(prefix)
+                .addRaw(`- Run: ${runUrl}\n${artLine}\n`)
+                .addRaw(top ? `\n${top}\n` : '\n(No durations collected)\n')
+                .write();
+            } catch (e) {}
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body && c.body.includes('Performance report'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

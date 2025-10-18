@@ -91,6 +91,40 @@ CI נתמך
 
 - ה‑PR חייב לעבור סטטוסים: "🔍 Code Quality & Security", "🧪 Unit Tests (3.11)", "🧪 Unit Tests (3.12)".
 
+בדיקות ביצועים (Performance)
+-----------------------------
+
+- מרקרים:
+
+  .. code-block:: ini
+
+     [pytest]
+     markers =
+         performance: בדיקות ביצועים
+         heavy: טסטים כבדים (מדולגים כשמבקשים רק קלים)
+
+- הרצות מקומיות:
+
+  .. code-block:: bash
+
+     # הכל
+     pytest -q -m performance
+
+     # רק קלים
+     ONLY_LIGHT_PERF=1 pytest -q -m performance
+
+- CI:
+  - ברירת מחדל מריץ הכל.
+  - PR Draft + תווית ``perf-light`` מריץ רק קלים.
+  - זמני ריצה נשמרים כארטיפקטים: ``durations.json``, ``durations-summary.json``.
+
+- דוחות/מדידות:
+
+  .. code-block:: bash
+
+     pytest -m performance --durations=0 --json-report --json-report-file=durations.json
+     cat durations.json | jq '.summary.durations' > durations-summary.json
+
 קישורים
 -------
 
