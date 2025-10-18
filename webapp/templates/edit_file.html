@@ -38,7 +38,8 @@
     </div>
     <div>
       <label>קוד</label>
-      <textarea name="code" rows="18" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value }}</textarea>
+      <textarea id="codeTextArea" name="code" rows="18" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value }}</textarea>
+      <div id="cmContainer"></div>
     </div>
     <div style="display: flex; gap: 1rem;">
       <button type="submit" class="btn btn-primary btn-icon"><i class="fas fa-save"></i> שמור גרסה חדשה</button>
@@ -46,5 +47,181 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* עורך CodeMirror – פריסה בסיסית ונראות מותאמת לאפליקציה */
+  #cmContainer { width: 100%; }
+  .cm-editor {
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px;
+    background: rgba(0,0,0,0.25);
+    color: white;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    direction: ltr;
+  }
+  .cm-editor .cm-content { min-height: 360px; }
+  .cm-editor.cm-focused { outline: 2px solid rgba(255,255,255,0.25); }
+  .cm-gutters { background: transparent; border: none; color: rgba(255,255,255,0.6); }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script type="module">
+(async function initEditor(){
+  try {
+    const textarea = document.getElementById('codeTextArea');
+    const container = document.getElementById('cmContainer');
+    if (!textarea || !container) return;
+
+    // הסתרת textarea ושמירתו לטובת שליחת הטופס
+    textarea.style.display = 'none';
+
+    // טעינת מודולים של CodeMirror 6 מ-CDN
+    const [statePkg, viewPkg, commandsPkg, langCorePkg, searchPkg, autocompletePkg] = await Promise.all([
+      import('https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js'),
+      import('https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/index.js'),
+      import('https://cdn.jsdelivr.net/npm/@codemirror/commands@6/dist/index.js'),
+      import('https://cdn.jsdelivr.net/npm/@codemirror/language@6/dist/index.js'),
+      import('https://cdn.jsdelivr.net/npm/@codemirror/search@6/dist/index.js'),
+      import('https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/dist/index.js')
+    ]);
+
+    const { EditorState, Compartment } = statePkg;
+    const { EditorView, keymap, lineNumbers, highlightActiveLineGutter, drawSelection, dropCursor, highlightSpecialChars, rectangularSelection, crosshairCursor, highlightActiveLine } = viewPkg;
+    const { defaultKeymap, history, historyKeymap } = commandsPkg;
+    const { bracketMatching, foldGutter, foldKeymap } = langCorePkg;
+    const { searchKeymap, highlightSelectionMatches } = searchPkg;
+    const { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } = autocompletePkg;
+
+    // קונפיגורציית שפה דינמית
+    const languageCompartment = new Compartment();
+
+    async function loadLanguageExtension(lang) {
+      const l = String(lang || '').toLowerCase();
+      try {
+        if (l === 'python' || l === 'py') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js');
+          return m.python();
+        }
+        if (l === 'typescript' || l === 'ts') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js');
+          return m.javascript({ typescript: true, jsx: true });
+        }
+        if (l === 'javascript' || l === 'js' || l === 'node') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js');
+          return m.javascript({ jsx: true });
+        }
+        if (l === 'html' || l === 'htm') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js');
+          return m.html();
+        }
+        if (l === 'css' || l === 'scss' || l === 'sass' || l === 'less') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js');
+          return m.css();
+        }
+        if (l === 'markdown' || l === 'md') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js');
+          return m.markdown();
+        }
+        if (l === 'sql') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6/dist/index.js');
+          return m.sql();
+        }
+        if (l === 'json') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6/dist/index.js');
+          return m.json();
+        }
+        if (l === 'xml') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6/dist/index.js');
+          return m.xml();
+        }
+        if (l === 'java') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-java@6/dist/index.js');
+          return m.java();
+        }
+        if (l === 'cpp' || l === 'c++' || l === 'cxx') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-cpp@6/dist/index.js');
+          return m.cpp();
+        }
+        if (l === 'rust' || l === 'rs') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-rust@6/dist/index.js');
+          return m.rust();
+        }
+        if (l === 'php') {
+          const m = await import('https://cdn.jsdelivr.net/npm/@codemirror/lang-php@6/dist/index.js');
+          return m.php();
+        }
+      } catch (_) { /* ignore */ }
+      return [];
+    }
+
+    const baseExtensions = [
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      highlightSpecialChars(),
+      history(),
+      drawSelection(),
+      dropCursor(),
+      rectangularSelection(),
+      crosshairCursor(),
+      highlightActiveLine(),
+      keymap.of([
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...searchKeymap,
+        ...completionKeymap,
+        ...closeBracketsKeymap,
+        ...foldKeymap,
+      ]),
+      autocompletion(),
+      closeBrackets(),
+      bracketMatching(),
+      foldGutter(),
+      highlightSelectionMatches(),
+      languageCompartment.of([]),
+      EditorView.updateListener.of((update) => {
+        // ניתן להשתמש לסנכרון חי אם נרצה; בשלב זה נסנכרן רק בשמירה
+      })
+    ];
+
+    const startState = EditorState.create({
+      doc: textarea.value || '',
+      extensions: baseExtensions
+    });
+
+    const view = new EditorView({ state: startState, parent: container });
+
+    // קביעת שפה התחלתית לפי הבחירה הנוכחית/נתוני השרת
+    const langSelect = document.querySelector('select[name="language"]');
+    const initialLang = (langSelect && langSelect.value) || '{{ (file.language or "text")|lower }}';
+    try {
+      const langExt = await loadLanguageExtension(initialLang);
+      if (langExt) view.dispatch({ effects: languageCompartment.reconfigure(langExt) });
+    } catch(_) {}
+
+    if (langSelect) {
+      langSelect.addEventListener('change', async () => {
+        try {
+          const ext = await loadLanguageExtension(langSelect.value);
+          view.dispatch({ effects: languageCompartment.reconfigure(ext || []) });
+        } catch(_) {}
+      });
+    }
+
+    // סנכרון בשמירה
+    const form = textarea.closest('form');
+    if (form) {
+      form.addEventListener('submit', function(){
+        try { textarea.value = view.state.doc.toString(); } catch(_) {}
+      });
+    }
+  } catch (e) {
+    // אם נכשל — פשוט נשאיר את textarea
+    console.error('CodeMirror init failed', e);
+  }
+})();
+</script>
 {% endblock %}
 
