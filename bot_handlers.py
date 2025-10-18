@@ -40,6 +40,28 @@ try:
 except Exception:  # pragma: no cover
     aiohttp = None  # type: ignore
 
+# ChatOps helpers: sensitive command throttling and permissions integration
+try:
+    from chatops.ratelimit import limit_sensitive  # type: ignore
+except Exception:  # pragma: no cover
+    def limit_sensitive(_name: str):  # type: ignore
+        def _decorator(fn):
+            return fn
+        return _decorator
+
+try:
+    from chatops.permissions import (
+        admin_required,
+        chat_allowlist_required,
+        is_admin as _perm_is_admin,
+    )  # type: ignore
+except Exception:  # pragma: no cover
+    _perm_is_admin = None  # type: ignore
+    def admin_required(fn):  # type: ignore
+        return fn
+    def chat_allowlist_required(fn):  # type: ignore
+        return fn
+
 logger = logging.getLogger(__name__)
 
 import os as _os
@@ -90,24 +112,57 @@ class AdvancedBotHandlers:
         # חיפוש
         self.application.add_handler(CommandHandler("search", self.search_command))
         # ChatOps MVP + Stage 2 commands
-        self.application.add_handler(CommandHandler("status", self.status_command))
-        self.application.add_handler(CommandHandler("observe", self.observe_command))
-        self.application.add_handler(CommandHandler("triage", self.triage_command))
+        self.application.add_handler(CommandHandler(
+            "status",
+            chat_allowlist_required(admin_required(self.status_command))
+        ))
+        self.application.add_handler(CommandHandler(
+            "observe",
+            chat_allowlist_required(admin_required(self.observe_command))
+        ))
+        self.application.add_handler(CommandHandler(
+            "triage",
+            chat_allowlist_required(admin_required(limit_sensitive("triage")(self.triage_command)))
+        ))
         # Observability v6 – Predictive Health
         self.application.add_handler(CommandHandler("predict", self.predict_command))
         # Observability v7 – Prediction accuracy
         self.application.add_handler(CommandHandler("accuracy", self.accuracy_command))
         # פקודת מנהל להצגת קישור ל-Sentry
-        self.application.add_handler(CommandHandler("sen", self.sentry_command))
-        self.application.add_handler(CommandHandler("errors", self.errors_command))
-        self.application.add_handler(CommandHandler("rate_limit", self.rate_limit_command))
+        self.application.add_handler(CommandHandler(
+            "sen",
+            chat_allowlist_required(admin_required(self.sentry_command))
+        ))
+        self.application.add_handler(CommandHandler(
+            "errors",
+            chat_allowlist_required(admin_required(limit_sensitive("errors")(self.errors_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "rate_limit",
+            chat_allowlist_required(admin_required(limit_sensitive("rate_limit")(self.rate_limit_command)))
+        ))
         # GitHub Backoff controls (admins)
-        self.application.add_handler(CommandHandler("enable_backoff", self.enable_backoff_command))
-        self.application.add_handler(CommandHandler("disable_backoff", self.disable_backoff_command))
-        self.application.add_handler(CommandHandler("uptime", self.uptime_command))
-        self.application.add_handler(CommandHandler("alerts", self.alerts_command))
+        self.application.add_handler(CommandHandler(
+            "enable_backoff",
+            chat_allowlist_required(admin_required(limit_sensitive("enable_backoff")(self.enable_backoff_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "disable_backoff",
+            chat_allowlist_required(admin_required(limit_sensitive("disable_backoff")(self.disable_backoff_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "uptime",
+            chat_allowlist_required(admin_required(self.uptime_command))
+        ))
+        self.application.add_handler(CommandHandler(
+            "alerts",
+            chat_allowlist_required(admin_required(self.alerts_command))
+        ))
         # Observability v5 – incident memory
-        self.application.add_handler(CommandHandler("incidents", self.incidents_command))
+        self.application.add_handler(CommandHandler(
+            "incidents",
+            chat_allowlist_required(admin_required(self.incidents_command))
+        ))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -1595,11 +1650,16 @@ class AdvancedBotHandlers:
         await update.message.reply_text("\n".join(msg) or "🔍 חיפוש", parse_mode=ParseMode.MARKDOWN)
 
     def _is_admin(self, user_id: int) -> bool:
-        """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS"""
+        """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS (או מודול permissions אם קיים)."""
+        try:
+            if callable(_perm_is_admin):
+                return bool(_perm_is_admin(int(user_id)))
+        except Exception:
+            pass
         try:
             raw = os.getenv('ADMIN_USER_IDS', '')
             ids = [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
-            return user_id in ids
+            return int(user_id) in ids
         except Exception:
             return False
 
