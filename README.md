@@ -782,6 +782,33 @@ print('זיכרון:', get_memory_usage())
 "
 ```
 
+### 🔬 Performance tests
+
+- **הרצה מקומית**
+  - הכל: `pytest -q -m performance`
+  - רק קלים: `ONLY_LIGHT_PERF=1 pytest -q -m performance`
+
+- **סימון טסטים**
+  ```python
+  # קל (ברירת מחדל לטסטי ביצועים)
+  pytestmark = [pytest.mark.performance]
+
+  # כבד (מריצים כברירת מחדל, אך יוחרגו ב‑Draft+perf-light)
+  pytestmark = [pytest.mark.performance, pytest.mark.heavy]
+  ```
+
+- **CI / GitHub Actions**
+  - ברירת מחדל: מריץ את כל טסטי ה‑performance.
+  - PR במצב Draft עם תווית `perf-light`: מריץ רק קלים (`ONLY_LIGHT_PERF=1`).
+  - זמני ריצה נשמרים כארטיפקטים: `durations.json`, `durations-summary.json`.
+
+- **דוחות וזמני ריצה**
+  ```bash
+  pytest -m performance --durations=0 --json-report --json-report-file=durations.json
+  cat durations.json | jq '.summary.durations' > durations-summary.json
+  ```
+
+
 ### 🔁 עדכוני תלויות ומיזוג אוטומטי
 - Dependabot יוצר PRs לעדכוני pip אחת לשבוע.
 - ה-CI מוסיף בדיקה בשם "✅ Branch Protection Gate" כדי לסמן בכלל ההגנה של `main`.
