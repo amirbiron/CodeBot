@@ -90,9 +90,10 @@ jobs:
           if-no-files-found: warn
 
       - name: Comment PR with performance report
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -123,6 +124,15 @@ jobs:
 
             const prefix = threshold ? `Heavy threshold auto-calculated: ${threshold.toFixed(3)}s (P${percentile})\n\n` : '';
             const body = `## ⏱️ Performance report\n\n${prefix}- Run: ${runUrl}\n- Artifact: perf-durations-${context.runId}${top}`;
+            // Write to job summary as well
+            try {
+              await core.summary
+                .addHeading('⏱️ Performance report')
+                .addRaw(prefix)
+                .addRaw(`- Run: ${runUrl}\n- Artifact: perf-durations-${context.runId}\n`)
+                .addRaw(top ? `\n${top}\n` : '\n(No durations collected)\n')
+                .write();
+            } catch (e) {}
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
