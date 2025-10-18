@@ -914,6 +914,24 @@ const BUNDLE = {
   css: "{{ url_for('static', filename='css/md_preview.bundle.css') }}"
 };
 
+// תאימות לאחור: מפה "CDN" לערכים מקומיים כך שלא נדרש רשת
+const CDN = {
+  md: BUNDLE.js,
+  mdEmoji: null,
+  mdTask: null,
+  mdAnchor: null,
+  mdFootnote: null,
+  mdTocDone: null,
+  mdContainer: null,
+  mdAdmonition: null,
+  hljs: null,
+  hljsCss: BUNDLE.css,
+  katexCss: BUNDLE.css,
+  katexJs: null,
+  katexAuto: null,
+  mermaid: null
+};
+
 function injectCss(href){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.defer=true; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 
