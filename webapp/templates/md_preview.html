@@ -908,27 +908,54 @@ function saveTaskState(state){
 }
 const taskState = loadTaskState();
 
-// טעינת ספריות דרך CDN
-// markdown-it + plugins (GFM-like), KaTeX, Mermaid, highlight.js
-const CDN = {
-  md: 'https://cdn.jsdelivr.net/npm/markdown-it@13.0.2/dist/markdown-it.min.js',
-  mdEmoji: 'https://cdn.jsdelivr.net/npm/markdown-it-emoji@2.0.2/dist/markdown-it-emoji.min.js',
-  mdTask: 'https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/markdown-it-task-lists.min.js',
-  mdAnchor: 'https://cdn.jsdelivr.net/npm/markdown-it-anchor@8.6.7/dist/markdown-it-anchor.min.js',
-  mdFootnote: 'https://cdn.jsdelivr.net/npm/markdown-it-footnote@3.0.3/dist/markdown-it-footnote.min.js',
-  mdTocDone: 'https://cdn.jsdelivr.net/npm/markdown-it-toc-done-right@4.2.0/dist/markdown-it-toc-done-right.min.js',
-  mdContainer: 'https://cdn.jsdelivr.net/npm/markdown-it-container@3.0.0/dist/markdown-it-container.min.js',
-  mdAdmonition: 'https://cdn.jsdelivr.net/npm/markdown-it-admonition@1.0.4/dist/markdown-it-admonition.min.js',
-  hljs: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
-  hljsCss: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css',
-  katexCss: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
-  katexJs: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
-  katexAuto: 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js',
-  mermaid: 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js'
+// טעינת bundle מקומי (ללא CDN)
+const BUNDLE = {
+  js: "{{ url_for('static', filename='js/md_preview.bundle.js') }}",
+  css: "{{ url_for('static', filename='css/md_preview.bundle.css') }}"
 };
 
-function injectCss(href){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); }
-function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+// תאימות לאחור: מפה "CDN" לערכים מקומיים כך שלא נדרש רשת
+const CDN = {
+  md: BUNDLE.js,
+  mdEmoji: null,
+  mdTask: null,
+  mdAnchor: null,
+  mdFootnote: null,
+  mdTocDone: null,
+  mdContainer: null,
+  mdAdmonition: null,
+  hljs: null,
+  hljsCss: BUNDLE.css,
+  katexCss: BUNDLE.css,
+  katexJs: null,
+  katexAuto: null,
+  mermaid: null
+};
+
+function injectCss(href){
+  if (!href) return;
+  try {
+    if (document.querySelector('link[rel="stylesheet"][href="' + href + '"]')) return;
+  } catch(_) {}
+  const l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = href;
+  document.head.appendChild(l);
+}
+function loadScript(src){
+  return new Promise((res, rej) => {
+    if (!src) { res(); return; }
+    try {
+      if (document.querySelector('script[src="' + src + '"]')) { res(); return; }
+    } catch(_) {}
+    const s = document.createElement('script');
+    s.src = src;
+    s.defer = true;
+    s.onload = res;
+    s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
 
 (async function(){
   try{
