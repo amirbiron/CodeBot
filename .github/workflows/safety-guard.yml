@@ -95,7 +95,14 @@ jobs:
             const marker = '<!-- safety-guard-report -->';
             let body = '';
             try { body = fs.readFileSync('scan_report.md', 'utf8'); } catch (e) { body = 'Report missing.' }
-            const full = `${marker}\n${body}`;
+            // Truncate to stay under GitHub's 65,536 chars issue comment limit
+            const MAX = 65000;
+            const suffix = '\n\n[...truncated, see workflow logs for full report]';
+            let safeBody = body;
+            if (typeof body === 'string' && body.length > MAX) {
+              safeBody = body.slice(0, MAX - suffix.length) + suffix;
+            }
+            const full = `${marker}\n${safeBody}`;
             const pr = context.payload.pull_request?.number;
             if (!pr) { core.info('Not a PR event; skip comment'); return; }
             const { owner, repo } = context.repo;
