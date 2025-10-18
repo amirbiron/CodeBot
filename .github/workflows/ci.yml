@@ -104,7 +104,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: 'Code Quality',
+              context: '🔍 Code Quality & Security',
               description: 'Checks passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -244,7 +244,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'pending',
-              context: `Unit Tests (${ver})`,
+              context: `🧪 Unit Tests (${ver})`,
               description: 'Job queued/running',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -282,7 +282,7 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Report required status (redundant success)
+      - name: Report required status (success)
         if: ${{ success() }}
         uses: actions/github-script@v7
         continue-on-error: true
@@ -296,7 +296,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'success',
-              context: `Unit Tests (${ver})`,
+              context: `🧪 Unit Tests (${ver})`,
               description: 'Tests passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -323,7 +323,7 @@ jobs:
         env:
           PYV: ${{ matrix.python-version }}
 
-      - name: Report required status (failure duplicate)
+      - name: Report required status (failure)
         if: ${{ failure() }}
         uses: actions/github-script@v7
         continue-on-error: true
@@ -337,7 +337,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `Unit Tests (${ver})`,
+              context: `🧪 Unit Tests (${ver})`,
               description: 'Tests failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -358,13 +358,13 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `Unit Tests (${ver})`,
+              context: `🧪 Unit Tests (${ver})`,
               description: 'Job cancelled',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
         env:
           PYV: ${{ matrix.python-version }}
-      - name: Report required status (failure again)
+      - name: Report required status (failure)
         if: ${{ failure() }}
         uses: actions/github-script@v7
         continue-on-error: true
@@ -378,7 +378,7 @@ jobs:
               repo: context.repo.repo,
               sha,
               state: 'failure',
-              context: `Unit Tests (${ver})`,
+              context: `🧪 Unit Tests (${ver})`,
               description: 'Tests failed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
