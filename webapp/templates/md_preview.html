@@ -970,11 +970,57 @@ function loadScript(src){ return new Promise((res,rej)=>{ const s=document.creat
         }
       } catch(_) {}
     })();
+    // תמיכה רשמית בתחביר ::: ע"י markdown-it-container עבור כל הסוגים וה-details
+    (function(){
+      try {
+        const containerPlugin = window.markdownitContainer;
+        if (!containerPlugin) return;
+        const types = ['details','note','tip','warning','danger','info','success','question','example','quote','experimental','deprecated','todo','abstract'];
+        const DEFAULT_TITLES = { note:'הערה', tip:'טיפ', warning:'אזהרה', danger:'סכנה', info:'מידע', success:'הצלחה', question:'שאלה', example:'דוגמה', quote:'ציטוט', experimental:'ניסוי', deprecated:'לא מומלץ', todo:'לעשות', abstract:'תקציר' };
+        function defaultTitle(type){ return DEFAULT_TITLES[type] || type; }
+
+        types.forEach(function(type){
+          if (type === 'details') {
+            md.use(containerPlugin, 'details', {
+              validate: function(params){ return /^details\b/i.test((params||'').trim()); },
+              render: function(tokens, idx){
+                const m = (tokens[idx].info || '').trim().match(/^details\s+(.*)$/i);
+                const title = (m && m[1] && m[1].trim()) || 'לחץ להצגה';
+                if (tokens[idx].nesting === 1) {
+                  return `<details class="markdown-details"><summary class="markdown-summary">${md.utils.escapeHtml(title)}</summary><div class="details-content">`;
+                }
+                return `</div></details>\n`;
+              }
+            });
+          } else {
+            // כרטיסיות הסבר (admonitions) עם ::: tip כותרת
+            const rxOpen = new RegExp('^' + type + '\\b\\s*(.*)$', 'i');
+            md.use(containerPlugin, type, {
+              validate: function(params){ return rxOpen.test((params||'').trim()); },
+              render: function(tokens, idx){
+                const info = (tokens[idx].info || '').trim();
+                const m = info.match(rxOpen);
+                const title = (m && m[1] && m[1].trim()) || defaultTitle(type);
+                if (tokens[idx].nesting === 1) {
+                  return `<div class="admonition admonition-${type}"><div class="admonition-title">${md.utils.escapeHtml(title)}</div><div class="admonition-content">`;
+                }
+                return `</div></div>\n`;
+              }
+            });
+          }
+        });
+      } catch(_) {}
+    })();
     if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
 
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
+    // בדיקת smoke מהירה: האם ::: tip מומר ל-admonition (לוג בלבד)
+    try {
+      const smoke = md.render('::: tip בדיקת טיפ\nתוכן\n:::');
+      console.info('Admonition(::: tip) supported =', /class="admonition admonition-tip"/.test(smoke));
+    } catch(_) {}
     try {
       // השלם מזהי עוגן חסרים והסר כפילויות כדי שסימניות על כותרות יעבדו יציב
       const seen = new Set();
