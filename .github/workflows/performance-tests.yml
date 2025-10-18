@@ -100,6 +100,7 @@ jobs:
             let top = '';
             let threshold = null;
             let percentile = 90;
+            let artifactUrl = '';
             try {
               const raw = fs.readFileSync('durations.json', 'utf8');
               const data = JSON.parse(raw);
@@ -118,18 +119,34 @@ jobs:
                 return ` ${i+1}. ${d.test} — ${d.seconds?.toFixed(3)}s${warn}`;
               }).join('\n');
               if (lines) top = `\n\n### Top slow tests\n\n${lines}`;
+              if (!lines) top = `\n\n_(No performance test durations collected. Mark tests with \`@pytest.mark.performance\`.)_`;
             } catch (e) {
               // ignore missing/invalid file
+              top = `\n\n_(No performance test durations collected. Mark tests with \`@pytest.mark.performance\`.)_`;
             }
 
+            // Try to link directly to the artifact
+            try {
+              const arts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+              });
+              const art = arts.data.artifacts.find(a => a.name && a.name.startsWith('perf-durations-')) || arts.data.artifacts[0];
+              if (art) {
+                artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/artifacts/${art.id}`;
+              }
+            } catch(e) {}
+
             const prefix = threshold ? `Heavy threshold auto-calculated: ${threshold.toFixed(3)}s (P${percentile})\n\n` : '';
-            const body = `## ⏱️ Performance report\n\n${prefix}- Run: ${runUrl}\n- Artifact: perf-durations-${context.runId}${top}`;
+            const artLine = artifactUrl ? `- Artifact: [perf-durations](${artifactUrl})` : `- Artifact: perf-durations-${context.runId}`;
+            const body = `## ⏱️ Performance report\n\n${prefix}- Run: ${runUrl}\n${artLine}${top}`;
             // Write to job summary as well
             try {
               await core.summary
                 .addHeading('⏱️ Performance report')
                 .addRaw(prefix)
-                .addRaw(`- Run: ${runUrl}\n- Artifact: perf-durations-${context.runId}\n`)
+                .addRaw(`- Run: ${runUrl}\n${artLine}\n`)
                 .addRaw(top ? `\n${top}\n` : '\n(No durations collected)\n')
                 .write();
             } catch (e) {}
