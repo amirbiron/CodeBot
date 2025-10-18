@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import time
+import math
 import asyncio
 import functools
 from typing import Dict, Tuple, Awaitable, Callable, Any
@@ -36,9 +37,14 @@ class SensitiveCommandRateLimiter:
         key = (int(user_id or 0), str(command_name or ""))
         async with self._lock:
             last = self._last_call_ts.get(key, 0.0)
-            remaining = self._cooldown_sec - int(now - last)
-            if last and remaining > 0:
-                return False, remaining
+            if last:
+                elapsed = now - last
+                remaining_float = self._cooldown_sec - elapsed
+                if remaining_float > 0:
+                    # Round up to the next whole second for user-facing message
+                    remaining = int(max(1, math.ceil(remaining_float)))
+                    return False, remaining
+            # allow and stamp current call time
             self._last_call_ts[key] = now
             return True, 0
 
