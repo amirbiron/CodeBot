@@ -107,7 +107,8 @@ def _summarize(results: List[Result]) -> Tuple[dict, str]:
         return {"total": 0}, "No results"
     statuses = [r.status for r in results]
     latencies = sorted([r.latency for r in results])
-    ok = sum(1 for s in statuses if 200 <= s < 500)
+    # Count success for 2xx and 3xx only; 4xx/5xx are errors
+    ok = sum(1 for s in statuses if 200 <= s < 400)
     err = total - ok
     success_ratio = (ok / total) * 100.0
     p50 = _percentile(latencies, 50)
