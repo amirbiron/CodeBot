@@ -51,7 +51,15 @@ await build({
   entryPoints: [cssIndex],
   outfile: path.join(outdirCss, 'md_preview.bundle.css'),
   bundle: true,
-  loader: { '.css': 'css' },
+  loader: {
+    '.css': 'css',
+    '.ttf': 'file',
+    '.woff': 'file',
+    '.woff2': 'file',
+    '.eot': 'file',
+    '.svg': 'file'
+  },
+  assetNames: 'fonts/[name]-[hash]',
   banner: { css: banner },
   sourcemap: true,
 });
