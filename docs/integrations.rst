@@ -58,3 +58,73 @@ Telegram Webhooks vs Polling
 
 - :doc:`services/index`
 - :doc:`handlers/index`
+
+GitHub – Scopes נדרשים
+-----------------------
+
+להפעלת פעולות שונות מול GitHub נדרש להגדיר לטוקן \(`GITHUB_TOKEN` או טוקן משתמש שנשמר במערכת\) את מרחבי ההרשאות המינימליים. הקפידו על עיקרון ההרשאות המצומצמות.
+
+.. list-table:: Feature → Required Scopes
+   :header-rows: 1
+
+   * - Feature
+     - Required Scopes
+   * - Create Pull Request
+     - ``repo``, ``workflow``
+   * - Write files (Trees/Contents API)
+     - ``repo``
+   * - Read repository metadata (branches, commits, PRs)
+     - ``repo``
+   * - Trigger workflows / read checks status
+     - ``workflow``
+
+למידע נוסף וגרסה מסונכרנת של הטבלה ראו גם: :doc:`environment-variables`.
+
+Troubleshooting GitHub – Rate limits
+------------------------------------
+
+בעת חריגה ממכסת ה‑API של GitHub, ייתכן ותקבלו שגיאות כמו ``403 Forbidden`` עם כותרות ``X-RateLimit-Remaining: 0`` או הודעה על ``secondary rate limit``. המערכת מיישמת Backoff עם ניסיונות חוזרים מדורגים, אך מומלץ:
+
+- להפחית את קצב הבקשות ולצמצם סריקות
+- לאגד פעולות ולנצל Cache פנימי
+- להשתמש ב‑ChatOps לצפייה במצב מגבלות ובשגיאות
+
+קישורים רלוונטיים:
+
+- :doc:`api/chatops.ratelimit`
+- :doc:`chatops/permissions`
+- :doc:`troubleshooting`
+- :doc:`git-lfs`
+- :doc:`runbooks/github_backup_restore`
+
+GitHub CLI (gh) – תקציר קצר
+----------------------------
+
+הכלי ``gh`` מקל על עבודה מול GitHub משורת הפקודה. דוגמאות נפוצות:
+
+.. code-block:: bash
+
+   # כניסה
+   gh auth login
+
+   # יצירת PR
+   gh pr create --title "feat: update docs" --body "Why and test plan"
+
+   # סטטוס/מעבר ל‑PR
+   gh pr status
+   gh pr checkout <PR_NUMBER>
+
+ל‑Cheatsheet מלא ומקיף ראו: :doc:`quickstart-ai`.
+
+Repository Providers
+--------------------
+
+תמיכה בספקי מאגרי קוד מפורטת כאן: :doc:`repository-integrations`. נכון לעכשיו: **נתמך – GitHub**; **לא נתמך – GitLab/Bitbucket**.
+
+Best Practices – מאגרים גדולים/Monorepos
+-----------------------------------------
+
+- הגדירו דילוג על תיקיות כבדות בסריקות (למשל ``node_modules/``, ``dist/``, ``.venv/``)
+- בצעו חיפושים ממוקדים לפי סוג קובץ/ספריות רלוונטיות
+- חלקו תיעוד ותתי‑מודולים לפי תחומים כדי להקל ניווט
+- ודאו ש‑CI ומנגנוני קאש מקומיים מוגדרים נכון למונוריפו (Artifacts, dependency caching)

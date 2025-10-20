@@ -22,6 +22,7 @@ Code Keeper Bot - תיעוד API
    whats-new
    architecture
    contributing
+   branch-protection-and-pr-rules
 
 .. toctree::
    :maxdepth: 2
@@ -56,8 +57,10 @@ Code Keeper Bot - תיעוד API
    troubleshooting
    development
    integrations
+   repository-integrations
    security
    monitoring
+   git-lfs
    user/bookmarks
    user/share_code
    user/github_browse
@@ -83,6 +86,7 @@ Code Keeper Bot - תיעוד API
    alerts
    sentry
    runbooks/logging-levels
+   runbooks/github_backup_restore
 
 .. toctree::
    :maxdepth: 2
