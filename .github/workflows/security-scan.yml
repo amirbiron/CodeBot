@@ -31,6 +31,17 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4
+      
+      # Run CodeQL early to ensure configuration is detected on PRs
+      - name: "🔍 CodeQL Analysis"
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+        continue-on-error: true
+
+      - name: "🔍 Perform CodeQL Analysis"
+        uses: github/codeql-action/analyze@v3
+        continue-on-error: true
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
@@ -76,15 +87,7 @@ jobs:
           output: trivy-image.txt
         continue-on-error: true
 
-      - name: "🔍 CodeQL Analysis"
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
-        continue-on-error: true
-
-      - name: "🔍 Perform CodeQL Analysis"
-        uses: github/codeql-action/analyze@v3
-        continue-on-error: true
+      
 
       - name: "🧪 Safety check"
         run: safety check --full-report || true
