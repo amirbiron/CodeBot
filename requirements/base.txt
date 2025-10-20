@@ -24,7 +24,7 @@ httpx==0.25.2
 
 # Google APIs (Drive OAuth + Client)
 google-api-python-client==2.141.0
-google-auth==2.34.0
+google-auth==2.41.1
 google-auth-oauthlib==1.2.1
 
 # GitHub Integration
