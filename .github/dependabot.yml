@@ -10,9 +10,17 @@ updates:
       day: "monday"
       time: "02:00"
       timezone: "UTC"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 1
     allow:
       - dependency-type: "all"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+          - "major"
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -20,7 +28,11 @@ updates:
       day: "monday"
       time: "02:15"
       timezone: "UTC"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 1
+    groups:
+      docker-dependencies:
+        patterns:
+          - "*"
   # Removed monitoring for /telegram_terminal_bot (not part of deploy scope)
     # You can add reviewers or assignees automatically if you want
     # assignees:
