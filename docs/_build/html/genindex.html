@@ -203,16 +203,111 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.__init__"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.setup_advanced_handlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.setup_advanced_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.show_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.show_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorite_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorite_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorites_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorites_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.edit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.edit_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.delete_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.delete_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.versions_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.versions_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.analyze_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.analyze_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.status_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.status_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.sentry_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.sentry_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.uptime_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.uptime_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.observe_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.observe_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.alerts_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.alerts_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.incidents_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.incidents_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.predict_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.predict_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.accuracy_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.accuracy_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.errors_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.errors_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.triage_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.triage_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.rate_limit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.rate_limit_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.enable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.enable_backoff_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.disable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.disable_backoff_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.validate_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.validate_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_help_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_help_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.download_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.download_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.tags_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.tags_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.recent_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.recent_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.info_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.info_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.search_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.search_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.broadcast_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.broadcast_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.handle_callback_query()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="api/database.html">database package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/database.bookmark.html">database.bookmark module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.manager.html">database.manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.models.html">database.models module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.repository.html">database.repository module</a></li>
@@ -222,10 +317,13 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="api/services.html">services package</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/services.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/services.backoff_state.html">services.backoff_state module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/services.backup_service.html">services.backup_service module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/services.code_service.html">services.code_service module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/services.github_service.html">services.github_service module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/services.google_drive_service.html">services.google_drive_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/services.investigation_service.html">services.investigation_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/services.webserver.html">services.webserver module</a></li>
 </ul>
 </li>
 </ul>
@@ -342,8 +440,28 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="api/modules.html">workspace</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/alert_forwarder.html">alert_forwarder module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_forwarder.html#alert_forwarder.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_forwarder.html#alert_forwarder.forward_alerts"><code class="docutils literal notranslate"><span class="pre">forward_alerts()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/alert_manager.html">alert_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.reset_state_for_tests"><code class="docutils literal notranslate"><span class="pre">reset_state_for_tests()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.note_request"><code class="docutils literal notranslate"><span class="pre">note_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.get_current_error_rate_percent"><code class="docutils literal notranslate"><span class="pre">get_current_error_rate_percent()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.get_current_avg_latency_seconds"><code class="docutils literal notranslate"><span class="pre">get_current_avg_latency_seconds()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.bump_threshold"><code class="docutils literal notranslate"><span class="pre">bump_threshold()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.get_thresholds_snapshot"><code class="docutils literal notranslate"><span class="pre">get_thresholds_snapshot()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.check_and_emit_alerts"><code class="docutils literal notranslate"><span class="pre">check_and_emit_alerts()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.forward_critical_alert"><code class="docutils literal notranslate"><span class="pre">forward_critical_alert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.get_dispatch_log"><code class="docutils literal notranslate"><span class="pre">get_dispatch_log()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/autocomplete_manager.html">autocomplete_manager module</a><ul>
@@ -369,7 +487,12 @@
 <li class="toctree-l4"><a class="reference internal" href="api/batch_processor.html#batch_processor.BatchProcessor"><code class="docutils literal notranslate"><span class="pre">BatchProcessor</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_commands.html">cache_commands module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
@@ -382,6 +505,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="api/chatops.html">chatops package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/chatops.html#submodules">Submodules</a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/code_preview.html">code_preview module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/code_preview.html#code_preview.CodePreviewManager"><code class="docutils literal notranslate"><span class="pre">CodePreviewManager</span></code></a></li>
 </ul>
@@ -392,10 +519,71 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html">database package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/duplicate_detector.html">duplicate_detector module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/duplicate_detector.html#duplicate_detector.scan_duplicates"><code class="docutils literal notranslate"><span class="pre">scan_duplicates()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/file_manager.html">file_manager module</a><ul>
@@ -435,6 +623,24 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/integrations.html">integrations module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/integrations_github_monitor.html">integrations_github_monitor module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/integrations_github_monitor.html#integrations_github_monitor.fetch_rate_limit"><code class="docutils literal notranslate"><span class="pre">fetch_rate_limit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/integrations_github_monitor.html#integrations_github_monitor.summarize_rate_limit"><code class="docutils literal notranslate"><span class="pre">summarize_rate_limit()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/integrations_sentry.html">integrations_sentry module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/integrations_sentry.html#integrations_sentry.is_configured"><code class="docutils literal notranslate"><span class="pre">is_configured()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/integrations_sentry.html#integrations_sentry.get_recent_issues"><code class="docutils literal notranslate"><span class="pre">get_recent_issues()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/integrations_sentry.html#integrations_sentry.search_events"><code class="docutils literal notranslate"><span class="pre">search_events()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/integrations_sentry.html#integrations_sentry.get_issue_events"><code class="docutils literal notranslate"><span class="pre">get_issue_events()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/internal_alerts.html">internal_alerts module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/internal_alerts.html#internal_alerts.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/internal_alerts.html#internal_alerts.emit_internal_alert"><code class="docutils literal notranslate"><span class="pre">emit_internal_alert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/internal_alerts.html#internal_alerts.get_recent_alerts"><code class="docutils literal notranslate"><span class="pre">get_recent_alerts()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/large_files_handler.html">large_files_handler module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/large_files_handler.html#large_files_handler.LargeFilesHandler"><code class="docutils literal notranslate"><span class="pre">LargeFilesHandler</span></code></a></li>
 </ul>
@@ -445,6 +651,62 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/main.html">main module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/metrics.html">metrics module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.generate_latest"><code class="docutils literal notranslate"><span class="pre">generate_latest()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_performance"><code class="docutils literal notranslate"><span class="pre">track_performance()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.metrics_endpoint_bytes"><code class="docutils literal notranslate"><span class="pre">metrics_endpoint_bytes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.metrics_content_type"><code class="docutils literal notranslate"><span class="pre">metrics_content_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_search_performed"><code class="docutils literal notranslate"><span class="pre">track_search_performed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_github_sync"><code class="docutils literal notranslate"><span class="pre">track_github_sync()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/monitoring.html">monitoring package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/monitoring.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/observability.html">observability module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/predictive_engine.html">predictive_engine module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.Trend"><code class="docutils literal notranslate"><span class="pre">Trend</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.note_observation"><code class="docutils literal notranslate"><span class="pre">note_observation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.evaluate_predictions"><code class="docutils literal notranslate"><span class="pre">evaluate_predictions()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.reset_state_for_tests"><code class="docutils literal notranslate"><span class="pre">reset_state_for_tests()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.maybe_recompute_and_preempt"><code class="docutils literal notranslate"><span class="pre">maybe_recompute_and_preempt()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.get_recent_predictions"><code class="docutils literal notranslate"><span class="pre">get_recent_predictions()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.get_trend_snapshot"><code class="docutils literal notranslate"><span class="pre">get_trend_snapshot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/rate_limiter.html">rate_limiter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/rate_limiter.html#rate_limiter.RateLimiter"><code class="docutils literal notranslate"><span class="pre">RateLimiter</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/refactor_handlers.html">refactor_handlers module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/refactor_handlers.html#refactor_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers"><code class="docutils literal notranslate"><span class="pre">RefactorHandlers</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactor_handlers.html#refactor_handlers.setup_refactor_handlers"><code class="docutils literal notranslate"><span class="pre">setup_refactor_handlers()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/refactoring_engine.html">refactoring_engine module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.RefactorType"><code class="docutils literal notranslate"><span class="pre">RefactorType</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.FunctionInfo"><code class="docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.ClassInfo"><code class="docutils literal notranslate"><span class="pre">ClassInfo</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.RefactorProposal"><code class="docutils literal notranslate"><span class="pre">RefactorProposal</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.RefactorResult"><code class="docutils literal notranslate"><span class="pre">RefactorResult</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer"><code class="docutils literal notranslate"><span class="pre">CodeAnalyzer</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.RefactoringEngine"><code class="docutils literal notranslate"><span class="pre">RefactoringEngine</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/remediation_manager.html">remediation_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/repo_analyzer.html">repo_analyzer module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/repo_analyzer.html#repo_analyzer.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer"><code class="docutils literal notranslate"><span class="pre">RepoAnalyzer</span></code></a></li>
@@ -458,6 +720,14 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/services.html">services package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/services.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/setup_bookmarks.html">setup_bookmarks module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/setup_bookmarks.html#setup_bookmarks.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/setup_bookmarks.html#setup_bookmarks.check_mongodb_connection"><code class="docutils literal notranslate"><span class="pre">check_mongodb_connection()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/setup_bookmarks.html#setup_bookmarks.setup_bookmarks_collection"><code class="docutils literal notranslate"><span class="pre">setup_bookmarks_collection()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/setup_bookmarks.html#setup_bookmarks.verify_installation"><code class="docutils literal notranslate"><span class="pre">verify_installation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/setup_bookmarks.html#setup_bookmarks.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/terminal_commands.html">terminal_commands module</a><ul>
@@ -476,6 +746,14 @@
 <li class="toctree-l4"><a class="reference internal" href="api/test_basic.html#test_basic.test_environment"><code class="docutils literal notranslate"><span class="pre">test_environment()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/test_basic.html#test_basic.test_basic_calculation"><code class="docutils literal notranslate"><span class="pre">test_basic_calculation()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/test_basic.html#test_basic.TestRequirements"><code class="docutils literal notranslate"><span class="pre">TestRequirements</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/test_bookmarks.html">test_bookmarks module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel"><code class="docutils literal notranslate"><span class="pre">TestFileBookmarkModel</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager"><code class="docutils literal notranslate"><span class="pre">TestBookmarksManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality"><code class="docutils literal notranslate"><span class="pre">TestSyncFunctionality</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestIntegration"><code class="docutils literal notranslate"><span class="pre">TestIntegration</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.run_tests"><code class="docutils literal notranslate"><span class="pre">run_tests()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/user_stats.html">user_stats module</a><ul>
@@ -503,6 +781,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/utils.html#utils.SensitiveDataFilter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/utils.html#utils.install_sensitive_filter"><code class="docutils literal notranslate"><span class="pre">install_sensitive_filter()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/utils.html#utils.normalize_code"><code class="docutils literal notranslate"><span class="pre">normalize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/webapp.html">webapp package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/webapp.html#submodules">Submodules</a></li>
 </ul>
 </li>
 </ul>
@@ -691,12 +973,23 @@
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id2">מחיקה בטוחה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#performance">בדיקות ביצועים (Performance)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="ci-cd.html">CI/CD Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id1">חוקים קשיחים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id3">בדיקות מומלצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id4">בנייה של התיעוד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id5">קישורים</a></li>
@@ -764,6 +1057,42 @@
 <li class="toctree-l2"><a class="reference internal" href="security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id3">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="monitoring.html">Smart Observability v7 – Predictive Health &amp; Adaptive Feedback</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#grafana-telegram-webhook">חיבור Grafana → Telegram (Webhook)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#grafana-annotations">Grafana Annotations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#adaptive-thresholds">Adaptive Thresholds (ספים דינמיים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#predictive-health-v7">Predictive Health (v7)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#safe-mode">SAFE_MODE ודילוג על פעולות מנע</a></li>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#chatops">ChatOps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#chatops-rate-limit">הרשאות ChatOps ו-Rate Limit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#grafana">Grafana – ייבוא דשבורד לדוגמה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#grafana-accuracy-prevention-panels">Grafana – Accuracy &amp; Prevention Panels</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#feedback-loop">תרשים זרימת Feedback Loop</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#autoremediation-v5">Auto‑Remediation (v5)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#incident-memory">Incident Memory</a></li>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#endpoints">Endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#id3">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id5">הערות שימושיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -859,11 +1188,12 @@
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות חובה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">שדות מומלצים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">דוגמה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">פרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
@@ -886,6 +1216,33 @@
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/faq.html">שאלות נפוצות</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
 <ul>
@@ -982,11 +1339,19 @@
 </li>
         <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.__init__">(batch_processor.BatchProcessor method)</a>
 </li>
+        <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.__init__">(bot_handlers.AdvancedBotHandlers method)</a>
+</li>
         <li><a href="api/cache_manager.html#cache_manager.CacheManager.__init__">(cache_manager.CacheManager method)</a>
+</li>
+        <li><a href="api/chatops.ratelimit.html#chatops.ratelimit.SensitiveCommandRateLimiter.__init__">(chatops.ratelimit.SensitiveCommandRateLimiter method)</a>
 </li>
         <li><a href="api/code_preview.html#code_preview.CodePreviewManager.__init__">(code_preview.CodePreviewManager method)</a>
 </li>
         <li><a href="api/config.html#config.BotConfig.__init__">(config.BotConfig method)</a>
+</li>
+        <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.__init__">(database.bookmark.FileBookmark method)</a>
+</li>
+        <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.__init__">(database.bookmarks_manager.BookmarksManager method)</a>
 </li>
         <li><a href="api/database.manager.html#database.manager.DatabaseManager.__init__">(database.manager.DatabaseManager method)</a>
 </li>
@@ -1012,7 +1377,29 @@
 </li>
         <li><a href="api/lazy_loader.html#lazy_loader.LazyLoader.__init__">(lazy_loader.LazyLoader method)</a>
 </li>
+        <li><a href="api/predictive_engine.html#predictive_engine.Trend.__init__">(predictive_engine.Trend method)</a>
+</li>
+        <li><a href="api/rate_limiter.html#rate_limiter.RateLimiter.__init__">(rate_limiter.RateLimiter method)</a>
+</li>
+        <li><a href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers.__init__">(refactor_handlers.RefactorHandlers method)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.__init__">(refactoring_engine.ClassInfo method)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer.__init__">(refactoring_engine.CodeAnalyzer method)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.__init__">(refactoring_engine.FunctionInfo method)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.RefactoringEngine.__init__">(refactoring_engine.RefactoringEngine method)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.__init__">(refactoring_engine.RefactorProposal method)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult.__init__">(refactoring_engine.RefactorResult method)</a>
+</li>
         <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.__init__">(repo_analyzer.RepoAnalyzer method)</a>
+</li>
+        <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo.__init__">(services.backoff_state.BackoffInfo method)</a>
+</li>
+        <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState.__init__">(services.backoff_state.BackoffState method)</a>
 </li>
         <li><a href="api/user_stats.html#user_stats.UserStats.__init__">(user_stats.UserStats method)</a>
 </li>
@@ -1025,6 +1412,8 @@
 <h2 id="A">A</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.accuracy_command">accuracy_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li>
     activity_reporter
 
@@ -1032,30 +1421,64 @@
         <li><a href="api/activity_reporter.html#module-activity_reporter">module</a>
 </li>
       </ul></li>
+      <li><a href="api/chatops.permissions.html#chatops.permissions.admin_required">admin_required() (in module chatops.permissions)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers">AdvancedBotHandlers (class in bot_handlers)</a>
+</li>
+      <li>
+    alert_forwarder
+
+      <ul>
+        <li><a href="api/alert_forwarder.html#module-alert_forwarder">module</a>
+</li>
+      </ul></li>
+      <li>
+    alert_manager
+
+      <ul>
+        <li><a href="api/alert_manager.html#module-alert_manager">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.alerts_command">alerts_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer.analyze">analyze() (refactoring_engine.CodeAnalyzer method)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.analyze_another_repo">analyze_another_repo() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.analyze_another_repo">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/services.code_service.html#services.code_service.analyze_code">analyze_code() (in module services.code_service)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.analyze_command">analyze_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.analyze_files_batch">analyze_files_batch() (batch_processor.BatchProcessor method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.analyze_repository">analyze_repository() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.analyze_repository">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.anchor_id">anchor_id (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.anchor_text">anchor_text (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.anchor_type">anchor_type (database.bookmark.FileBookmark attribute)</a>
+</li>
       <li><a href="api/fix_telegram_parse_error.html#fix_telegram_parse_error.apply_fix">apply_fix() (in module fix_telegram_parse_error)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.apply_rate_limit_delay">apply_rate_limit_delay() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.apply_rate_limit_delay">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.args">args (refactoring_engine.FunctionInfo attribute)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.ask_upload_folder">ask_upload_folder() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -1065,6 +1488,8 @@
       <li><a href="api/cache_manager.html#cache_manager.async_cached">async_cached() (in module cache_manager)</a>
 </li>
       <li><a href="api/utils.html#utils.AsyncUtils">AsyncUtils (class in utils)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.attributes">attributes (refactoring_engine.ClassInfo attribute)</a>
 </li>
       <li>
     autocomplete_manager
@@ -1081,6 +1506,10 @@
 <h2 id="B">B</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo">BackoffInfo (class in services.backoff_state)</a>
+</li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState">BackoffState (class in services.backoff_state)</a>
+</li>
       <li>
     backup_menu_handler
 
@@ -1094,6 +1523,8 @@
 </li>
       <li><a href="api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler">BackupMenuHandler (class in backup_menu_handler)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.base_classes">base_classes (refactoring_engine.ClassInfo attribute)</a>
+</li>
       <li><a href="api/batch_commands.html#batch_commands.batch_analyze_command">batch_analyze_command() (in module batch_commands)</a>
 </li>
       <li>
@@ -1105,8 +1536,6 @@
       </ul></li>
       <li><a href="api/utils.html#utils.AsyncUtils.batch_process">batch_process() (utils.AsyncUtils static method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     batch_processor
 
@@ -1114,19 +1543,36 @@
         <li><a href="api/batch_processor.html#module-batch_processor">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/batch_commands.html#batch_commands.batch_validate_command">batch_validate_command() (in module batch_commands)</a>
 </li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob">BatchJob (class in batch_processor)</a>
 </li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor">BatchProcessor (class in batch_processor)</a>
 </li>
+      <li><a href="api/services.webserver.html#services.webserver.bind_request_id">bind_request_id() (in module services.webserver)</a>
+</li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager">BookmarksManager (class in database.bookmarks_manager)</a>
+</li>
+      <li>
+    bot_handlers
+
+      <ul>
+        <li><a href="api/bot_handlers.html#module-bot_handlers">module</a>
+</li>
+      </ul></li>
       <li><a href="api/config.html#config.BotConfig.BOT_LABEL">BOT_LABEL (config.BotConfig attribute)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig.BOT_TOKEN">BOT_TOKEN (config.BotConfig attribute)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig">BotConfig (class in config)</a>
 </li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.broadcast_command">broadcast_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/handlers.pagination.html#handlers.pagination.build_pagination_row">build_pagination_row() (in module handlers.pagination)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.bump_threshold">bump_threshold() (in module alert_manager)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1160,33 +1606,100 @@
 </li>
       <li><a href="api/utils.html#utils.CallbackQueryGuard">CallbackQueryGuard (class in utils)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.called_by">called_by (refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.calls">calls (refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.cancel">cancel() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.cancel_job">cancel_job() (batch_processor.BatchProcessor method)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.changes_summary">changes_summary (refactoring_engine.RefactorProposal attribute)</a>
+</li>
+      <li><a href="api/chatops.permissions.html#chatops.permissions.chat_allowlist_required">chat_allowlist_required() (in module chatops.permissions)</a>
+</li>
+      <li>
+    chatops
+
+      <ul>
+        <li><a href="api/chatops.html#module-chatops">module</a>
+</li>
+      </ul></li>
+      <li>
+    chatops.permissions
+
+      <ul>
+        <li><a href="api/chatops.permissions.html#module-chatops.permissions">module</a>
+</li>
+      </ul></li>
+      <li>
+    chatops.ratelimit
+
+      <ul>
+        <li><a href="api/chatops.ratelimit.html#module-chatops.ratelimit">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/alert_manager.html#alert_manager.check_and_emit_alerts">check_and_emit_alerts() (in module alert_manager)</a>
+</li>
       <li><a href="api/github_upload_fix.html#github_upload_fix.check_commands">check_commands() (in module github_upload_fix)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.check_db_connection">check_db_connection() (in module bot_handlers)</a>
+</li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.check_file_sync">check_file_sync() (database.bookmarks_manager.BookmarksManager method)</a>
+
+      <ul>
+        <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.check_file_sync">(in module webapp.bookmarks_api)</a>
+</li>
+      </ul></li>
+      <li><a href="api/setup_bookmarks.html#setup_bookmarks.check_mongodb_connection">check_mongodb_connection() (in module setup_bookmarks)</a>
 </li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.check_rate_limit">check_rate_limit() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.check_rate_limit">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
+        <li><a href="api/rate_limiter.html#rate_limiter.RateLimiter.check_rate_limit">(rate_limiter.RateLimiter method)</a>
+</li>
       </ul></li>
       <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.chunk_index">chunk_index (lazy_loader.FileChunk attribute)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo">ClassInfo (class in refactoring_engine)</a>
 </li>
       <li><a href="api/utils.html#utils.TextUtils.clean_filename">clean_filename() (utils.TextUtils static method)</a>
 </li>
       <li><a href="api/fix_telegram_parse_error.html#fix_telegram_parse_error.clean_for_telegram">clean_for_telegram() (in module fix_telegram_parse_error)</a>
 </li>
+      <li><a href="api/monitoring.cleanup.html#monitoring.cleanup.cleanup_incidents">cleanup_incidents() (in module monitoring.cleanup)</a>
+</li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.cleanup_invalid_bookmarks">cleanup_invalid_bookmarks() (database.bookmarks_manager.BookmarksManager method)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.cleanup_old_jobs">cleanup_old_jobs() (batch_processor.BatchProcessor method)</a>
+</li>
+      <li><a href="api/monitoring.cleanup.html#monitoring.cleanup.cleanup_predictions">cleanup_predictions() (in module monitoring.cleanup)</a>
 </li>
       <li><a href="api/utils.html#utils.CacheUtils.clear">clear() (utils.CacheUtils class method)</a>
 </li>
+      <li><a href="api/cache_manager.html#cache_manager.CacheManager.clear_all">clear_all() (cache_manager.CacheManager method)</a>
+</li>
       <li><a href="api/cache_commands.html#cache_commands.clear_cache_command">clear_cache_command() (in module cache_commands)</a>
+</li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.clear_file_bookmarks">clear_file_bookmarks() (in module webapp.bookmarks_api)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.CacheManager.clear_stale">clear_stale() (cache_manager.CacheManager method)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.close">close() (database.manager.DatabaseManager method)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.close_connection">close_connection() (database.manager.DatabaseManager method)</a>
 </li>
+      <li><a href="api/activity_reporter.html#activity_reporter.close_mongo_client">close_mongo_client() (in module activity_reporter)</a>
+</li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.code">code (database.models.CodeSnippet attribute)</a>
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.code">(refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.code_context">code_context (database.bookmark.FileBookmark attribute)</a>
 </li>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.CODE_EXTENSIONS">CODE_EXTENSIONS (repo_analyzer.RepoAnalyzer attribute)</a>
 </li>
@@ -1204,11 +1717,19 @@
         <li><a href="api/code_processor.html#module-code_processor">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer">CodeAnalyzer (class in refactoring_engine)</a>
+</li>
       <li><a href="api/utils.html#utils.CodeErrorLogger">CodeErrorLogger (class in utils)</a>
 </li>
       <li><a href="api/code_preview.html#code_preview.CodePreviewManager">CodePreviewManager (class in code_preview)</a>
 </li>
       <li><a href="api/database.models.html#database.models.CodeSnippet">CodeSnippet (class in database.models)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.color">color (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.complexity">complexity (refactoring_engine.FunctionInfo attribute)</a>
 </li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.compute_friendly_name">compute_friendly_name() (in module services.google_drive_service)</a>
 </li>
@@ -1221,8 +1742,6 @@
         <li><a href="api/config.html#module-config">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.CONFIG_FILES">CONFIG_FILES (repo_analyzer.RepoAnalyzer attribute)</a>
 </li>
       <li><a href="api/utils.html#utils.ConfigUtils">ConfigUtils (class in utils)</a>
@@ -1282,6 +1801,19 @@
         <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.content">(lazy_loader.FileChunk attribute)</a>
 </li>
       </ul></li>
+      <li>
+    conversation_handlers
+
+      <ul>
+        <li><a href="api/conversation_handlers.html#module-conversation_handlers">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType.CONVERT_TO_CLASSES">CONVERT_TO_CLASSES (refactoring_engine.RefactorType attribute)</a>
+</li>
+      <li><a href="api/chatops.ratelimit.html#chatops.ratelimit.SensitiveCommandRateLimiter.cooldown_sec">cooldown_sec (chatops.ratelimit.SensitiveCommandRateLimiter property)</a>
+</li>
+      <li><a href="api/services.webserver.html#services.webserver.create_app">create_app() (in module services.webserver)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.create_branch_from_tag">create_branch_from_tag() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -1316,18 +1848,43 @@
       </ul></li>
       <li><a href="api/utils.html#utils.FileUtils.create_temp_file">create_temp_file() (utils.FileUtils static method)</a>
 </li>
-      <li><a href="api/database.models.html#database.models.CodeSnippet.created_at">created_at (database.models.CodeSnippet attribute)</a>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.created_at">created_at (database.bookmark.FileBookmark attribute)</a>
 
       <ul>
+        <li><a href="api/database.models.html#database.models.CodeSnippet.created_at">(database.models.CodeSnippet attribute)</a>
+</li>
         <li><a href="api/database.models.html#database.models.LargeFile.created_at">(database.models.LargeFile attribute)</a>
 </li>
       </ul></li>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend.current_value">current_value (predictive_engine.Trend attribute)</a>
+</li>
   </ul></td>
 </tr></table>
 
 <h2 id="D">D</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    database
+
+      <ul>
+        <li><a href="api/database.html#module-database">module</a>
+</li>
+      </ul></li>
+      <li>
+    database.bookmark
+
+      <ul>
+        <li><a href="api/database.bookmark.html#module-database.bookmark">module</a>
+</li>
+      </ul></li>
+      <li>
+    database.bookmarks_manager
+
+      <ul>
+        <li><a href="api/database.bookmarks_manager.html#module-database.bookmarks_manager">module</a>
+</li>
+      </ul></li>
       <li>
     database.manager
 
@@ -1353,6 +1910,12 @@
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager">DatabaseManager (class in database.manager)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.decorators">decorators (refactoring_engine.ClassInfo attribute)</a>
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.decorators">(refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/secret_manager.html#secret_manager.decrypt_secret">decrypt_secret() (in module secret_manager)</a>
 </li>
       <li><a href="api/utils.html#utils.CallbackQueryGuard.DEFAULT_WINDOW_SECONDS">DEFAULT_WINDOW_SECONDS (utils.CallbackQueryGuard attribute)</a>
@@ -1374,6 +1937,20 @@
 </li>
       </ul></li>
       <li><a href="api/file_manager.html#file_manager.BackupManager.delete_backups">delete_backups() (file_manager.BackupManager method)</a>
+
+      <ul>
+        <li><a href="api/services.backup_service.html#services.backup_service.delete_backups">(in module services.backup_service)</a>
+</li>
+      </ul></li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.delete_bookmark">delete_bookmark() (database.bookmarks_manager.BookmarksManager method)</a>
+
+      <ul>
+        <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.delete_bookmark">(in module webapp.bookmarks_api)</a>
+</li>
+      </ul></li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.delete_bookmark_by_anchor">delete_bookmark_by_anchor() (database.bookmarks_manager.BookmarksManager method)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.delete_command">delete_command() (bot_handlers.AdvancedBotHandlers method)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.delete_drive_tokens">delete_drive_tokens() (database.manager.DatabaseManager method)</a>
 
@@ -1387,14 +1964,16 @@
         <li><a href="api/database.repository.html#database.repository.Repository.delete_file">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.delete_file_bookmarks">delete_file_bookmarks() (database.bookmarks_manager.BookmarksManager method)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.delete_file_by_id">delete_file_by_id() (database.manager.DatabaseManager method)</a>
 
       <ul>
         <li><a href="api/database.repository.html#database.repository.Repository.delete_file_by_id">(database.repository.Repository method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.delete_github_token">delete_github_token() (database.manager.DatabaseManager method)</a>
 
       <ul>
@@ -1433,14 +2012,30 @@
         <li><a href="api/database.models.html#database.models.LargeFile.deleted_expires_at">(database.models.LargeFile attribute)</a>
 </li>
       </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType.DEPENDENCY_INJECTION">DEPENDENCY_INJECTION (refactoring_engine.RefactorType attribute)</a>
+</li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.description">description (database.models.CodeSnippet attribute)</a>
 
       <ul>
         <li><a href="api/database.models.html#database.models.LargeFile.description">(database.models.LargeFile attribute)</a>
 </li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.description">(refactoring_engine.RefactorProposal attribute)</a>
+</li>
       </ul></li>
+      <li><a href="api/services.code_service.html#services.code_service.detect_language">detect_language() (in module services.code_service)</a>
+</li>
       <li><a href="api/utils.html#utils.detect_language_from_filename">detect_language_from_filename() (in module utils)</a>
 </li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState.disable">disable() (services.backoff_state.BackoffState method)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.disable_backoff_command">disable_backoff_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.docstring">docstring (refactoring_engine.ClassInfo attribute)</a>
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.docstring">(refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/config.html#config.BotConfig.DOCUMENTATION_URL">DOCUMENTATION_URL (config.BotConfig attribute)</a>
 </li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.download_analysis_json">download_analysis_json() (github_menu_handler.GitHubMenuHandler method)</a>
@@ -1449,6 +2044,8 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.download_analysis_json">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.download_command">download_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/utils.html#utils.FileUtils.download_file">download_file() (utils.FileUtils static method)</a>
 </li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler.download_large_file">download_large_file() (large_files_handler.LargeFilesHandler method)</a>
@@ -1457,35 +2054,78 @@
 </li>
       <li><a href="api/config.html#config.BotConfig.DRIVE_MENU_V2">DRIVE_MENU_V2 (config.BotConfig attribute)</a>
 </li>
+      <li>
+    duplicate_detector
+
+      <ul>
+        <li><a href="api/duplicate_detector.html#module-duplicate_detector">module</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
 <h2 id="E">E</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.edit_command">edit_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler.edit_large_file">edit_large_file() (large_files_handler.LargeFilesHandler method)</a>
 </li>
-      <li><a href="api/backup_menu_handler.html#backup_menu_handler.emit_event">emit_event() (in module backup_menu_handler)</a>
+      <li><a href="api/alert_forwarder.html#alert_forwarder.emit_event">emit_event() (in module alert_forwarder)</a>
 
       <ul>
+        <li><a href="api/alert_manager.html#alert_manager.emit_event">(in module alert_manager)</a>
+</li>
+        <li><a href="api/backup_menu_handler.html#backup_menu_handler.emit_event">(in module backup_menu_handler)</a>
+</li>
         <li><a href="api/database.manager.html#database.manager.emit_event">(in module database.manager)</a>
 </li>
         <li><a href="api/database.repository.html#database.repository.emit_event">(in module database.repository)</a>
 </li>
         <li><a href="api/github_menu_handler.html#github_menu_handler.emit_event">(in module github_menu_handler)</a>
 </li>
+        <li><a href="api/internal_alerts.html#internal_alerts.emit_event">(in module internal_alerts)</a>
+</li>
+        <li><a href="api/metrics.html#metrics.emit_event">(in module metrics)</a>
+</li>
+        <li><a href="api/monitoring.metrics_storage.html#monitoring.metrics_storage.emit_event">(in module monitoring.metrics_storage)</a>
+</li>
+        <li><a href="api/predictive_engine.html#predictive_engine.emit_event">(in module predictive_engine)</a>
+</li>
         <li><a href="api/repo_analyzer.html#repo_analyzer.emit_event">(in module repo_analyzer)</a>
+</li>
+        <li><a href="api/services.backoff_state.html#services.backoff_state.emit_event">(in module services.backoff_state)</a>
+</li>
+        <li><a href="api/services.webserver.html#services.webserver.emit_event">(in module services.webserver)</a>
+</li>
+        <li><a href="api/setup_bookmarks.html#setup_bookmarks.emit_event">(in module setup_bookmarks)</a>
 </li>
         <li><a href="api/terminal_commands.html#terminal_commands.emit_event">(in module terminal_commands)</a>
 </li>
       </ul></li>
-      <li><a href="api/secret_manager.html#secret_manager.encrypt_secret">encrypt_secret() (in module secret_manager)</a>
+      <li><a href="api/internal_alerts.html#internal_alerts.emit_internal_alert">emit_internal_alert() (in module internal_alerts)</a>
 </li>
-      <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.end_line">end_line (lazy_loader.FileChunk attribute)</a>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState.enable">enable() (services.backoff_state.BackoffState method)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.enable_backoff_command">enable_backoff_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo.enabled">enabled (services.backoff_state.BackoffInfo attribute)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/secret_manager.html#secret_manager.encrypt_secret">encrypt_secret() (in module secret_manager)</a>
+</li>
+      <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.end_line">end_line (lazy_loader.FileChunk attribute)</a>
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.end_line">(refactoring_engine.ClassInfo attribute)</a>
+</li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.end_line">(refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.end_time">end_time (batch_processor.BatchJob attribute)</a>
+</li>
+      <li><a href="api/monitoring.metrics_storage.html#monitoring.metrics_storage.enqueue_request_metric">enqueue_request_metric() (in module monitoring.metrics_storage)</a>
 </li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.ensure_folder">ensure_folder() (in module services.google_drive_service)</a>
 </li>
@@ -1493,11 +2133,27 @@
 </li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.ensure_subpath">ensure_subpath() (in module services.google_drive_service)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult.error">error (refactoring_engine.RefactorResult attribute)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.error_message">error_message (batch_processor.BatchJob attribute)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.errors_command">errors_command() (bot_handlers.AdvancedBotHandlers method)</a>
 </li>
       <li><a href="api/utils.html#utils.TextUtils.escape_markdown">escape_markdown() (utils.TextUtils static method)</a>
 </li>
+      <li><a href="api/predictive_engine.html#predictive_engine.evaluate_predictions">evaluate_predictions() (in module predictive_engine)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection">execute_batch_on_current_selection() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo.expires_at">expires_at (services.backoff_state.BackoffInfo attribute)</a>
+</li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.export_bookmarks">export_bookmarks() (in module webapp.bookmarks_api)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.export_files_batch">export_files_batch() (batch_processor.BatchProcessor method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType.EXTRACT_FUNCTIONS">EXTRACT_FUNCTIONS (refactoring_engine.RefactorType attribute)</a>
+</li>
+      <li><a href="api/services.code_service.html#services.code_service.extract_functions">extract_functions() (in module services.code_service)</a>
 </li>
       <li><a href="api/utils.html#utils.TextUtils.extract_hashtags">extract_hashtags() (utils.TextUtils static method)</a>
 </li>
@@ -1509,9 +2165,19 @@
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorite_command">favorite_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.favorited_at">favorited_at (database.models.CodeSnippet attribute)</a>
 </li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorites_command">favorites_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.fetch_and_analyze_repo">fetch_and_analyze_repo() (repo_analyzer.RepoAnalyzer method)</a>
+</li>
+      <li><a href="api/integrations_github_monitor.html#integrations_github_monitor.fetch_rate_limit">fetch_rate_limit() (in module integrations_github_monitor)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.file_hash">file_hash (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.file_id">file_id (database.bookmark.FileBookmark attribute)</a>
 </li>
       <li>
     file_manager
@@ -1520,25 +2186,35 @@
         <li><a href="api/file_manager.html#module-file_manager">module</a>
 </li>
       </ul></li>
-      <li><a href="api/database.models.html#database.models.CodeSnippet.file_name">file_name (database.models.CodeSnippet attribute)</a>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.file_name">file_name (database.bookmark.FileBookmark attribute)</a>
 
       <ul>
+        <li><a href="api/database.models.html#database.models.CodeSnippet.file_name">(database.models.CodeSnippet attribute)</a>
+</li>
         <li><a href="api/database.models.html#database.models.LargeFile.file_name">(database.models.LargeFile attribute)</a>
 </li>
         <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.file_name">(lazy_loader.FileChunk attribute)</a>
 </li>
       </ul></li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.file_path">file_path (database.bookmark.FileBookmark attribute)</a>
+</li>
       <li><a href="api/database.models.html#database.models.LargeFile.file_size">file_size (database.models.LargeFile attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark">FileBookmark (class in database.bookmark)</a>
 </li>
       <li><a href="api/lazy_loader.html#lazy_loader.FileChunk">FileChunk (class in lazy_loader)</a>
 </li>
-      <li><a href="api/batch_processor.html#batch_processor.BatchJob.files">files (batch_processor.BatchJob attribute)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/batch_processor.html#batch_processor.BatchJob.files">files (batch_processor.BatchJob attribute)</a>
+</li>
       <li><a href="api/utils.html#utils.FileUtils">FileUtils (class in utils)</a>
 </li>
       <li><a href="api/utils.html#utils.SensitiveDataFilter.filter">filter() (utils.SensitiveDataFilter method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer.find_large_classes">find_large_classes() (refactoring_engine.CodeAnalyzer method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer.find_large_functions">find_large_functions() (refactoring_engine.CodeAnalyzer method)</a>
 </li>
       <li>
     fix_telegram_parse_error
@@ -1547,6 +2223,8 @@
         <li><a href="api/fix_telegram_parse_error.html#module-fix_telegram_parse_error">module</a>
 </li>
       </ul></li>
+      <li><a href="api/monitoring.metrics_storage.html#monitoring.metrics_storage.flush">flush() (in module monitoring.metrics_storage)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.format_bytes">format_bytes() (in module github_menu_handler)</a>
 </li>
       <li><a href="api/lazy_loader.html#lazy_loader.LazyLoader.format_chunk_message">format_chunk_message() (lazy_loader.LazyLoader method)</a>
@@ -1559,6 +2237,14 @@
 </li>
       <li><a href="api/utils.html#utils.TimeUtils.format_relative_time">format_relative_time() (utils.TimeUtils static method)</a>
 </li>
+      <li><a href="api/alert_forwarder.html#alert_forwarder.forward_alerts">forward_alerts() (in module alert_forwarder)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.forward_critical_alert">forward_critical_alert() (in module alert_manager)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.from_dict">from_dict() (database.bookmark.FileBookmark class method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo">FunctionInfo (class in refactoring_engine)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1567,6 +2253,10 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.generate_improvement_suggestions">generate_improvement_suggestions() (repo_analyzer.RepoAnalyzer method)</a>
 </li>
+      <li><a href="api/metrics.html#metrics.generate_latest">generate_latest() (in module metrics)</a>
+</li>
+      <li><a href="api/services.webserver.html#services.webserver.generate_request_id">generate_request_id() (in module services.webserver)</a>
+</li>
       <li><a href="api/utils.html#utils.SecurityUtils.generate_secure_token">generate_secure_token() (utils.SecurityUtils static method)</a>
 </li>
       <li><a href="api/utils.html#utils.generate_summary_stats">generate_summary_stats() (in module utils)</a>
@@ -1574,9 +2264,15 @@
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.get">get() (cache_manager.CacheManager method)</a>
 
       <ul>
+        <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState.get">(services.backoff_state.BackoffState method)</a>
+</li>
         <li><a href="api/utils.html#utils.CacheUtils.get">(utils.CacheUtils class method)</a>
 </li>
       </ul></li>
+      <li><a href="api/chatops.permissions.html#chatops.permissions.get_admin_user_ids">get_admin_user_ids() (in module chatops.permissions)</a>
+</li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.get_all_bookmarks">get_all_bookmarks() (in module webapp.bookmarks_api)</a>
+</li>
       <li><a href="api/user_stats.html#user_stats.UserStats.get_all_time_stats">get_all_time_stats() (user_stats.UserStats method)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_all_user_files_combined">get_all_user_files_combined() (database.manager.DatabaseManager method)</a>
@@ -1591,6 +2287,8 @@
         <li><a href="api/database.repository.html#database.repository.Repository.get_all_versions">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/chatops.permissions.html#chatops.permissions.get_allowed_chat_ids">get_allowed_chat_ids() (in module chatops.permissions)</a>
+</li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_backup_note">get_backup_note() (database.manager.DatabaseManager method)</a>
 
       <ul>
@@ -1603,7 +2301,21 @@
         <li><a href="api/database.repository.html#database.repository.Repository.get_backup_rating">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.get_bookmark_stats">get_bookmark_stats() (in module webapp.bookmarks_api)</a>
+</li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.get_bookmarks_manager">get_bookmarks_manager() (in module webapp.bookmarks_api)</a>
+</li>
       <li><a href="api/handlers.save_flow.html#handlers.save_flow.get_code">get_code() (in module handlers.save_flow)</a>
+</li>
+      <li><a href="api/services.code_service.html#services.code_service.get_code_stats">get_code_stats() (in module services.code_service)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.get_current_avg_latency_seconds">get_current_avg_latency_seconds() (in module alert_manager)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.get_current_error_rate_percent">get_current_error_rate_percent() (in module alert_manager)</a>
+</li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.get_db">get_db() (in module webapp.bookmarks_api)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.get_dispatch_log">get_dispatch_log() (in module alert_manager)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_drive_prefs">get_drive_prefs() (database.manager.DatabaseManager method)</a>
 
@@ -1637,6 +2349,12 @@
         <li><a href="api/database.repository.html#database.repository.Repository.get_file">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.get_file_bookmarks">get_file_bookmarks() (database.bookmarks_manager.BookmarksManager method)</a>
+
+      <ul>
+        <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.get_file_bookmarks">(in module webapp.bookmarks_api)</a>
+</li>
+      </ul></li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_file_by_id">get_file_by_id() (database.manager.DatabaseManager method)</a>
 
       <ul>
@@ -1660,6 +2378,10 @@
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_global_statistics">get_global_statistics() (database.manager.DatabaseManager method)</a>
 </li>
       <li><a href="api/services.github_service.html#services.github_service.get_handler">get_handler() (in module services.github_service)</a>
+</li>
+      <li><a href="api/remediation_manager.html#remediation_manager.get_incidents">get_incidents() (in module remediation_manager)</a>
+</li>
+      <li><a href="api/integrations_sentry.html#integrations_sentry.get_issue_events">get_issue_events() (in module integrations_sentry)</a>
 </li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.get_job_status">get_job_status() (batch_processor.BatchProcessor method)</a>
 </li>
@@ -1687,16 +2409,26 @@
 </li>
       <li><a href="api/utils.html#utils.FileUtils.get_mime_type">get_mime_type() (utils.FileUtils static method)</a>
 </li>
+      <li><a href="api/activity_reporter.html#activity_reporter.get_mongo_client">get_mongo_client() (in module activity_reporter)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/lazy_loader.html#lazy_loader.LazyLoader.get_navigation_keyboard">get_navigation_keyboard() (lazy_loader.LazyLoader method)</a>
 </li>
       <li><a href="api/handlers.save_flow.html#handlers.save_flow.get_note">get_note() (in module handlers.save_flow)</a>
 </li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.get_or_create_default_folder">get_or_create_default_folder() (in module services.google_drive_service)</a>
 </li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.get_prefs">get_prefs() (in module webapp.bookmarks_api)</a>
+</li>
+      <li><a href="api/internal_alerts.html#internal_alerts.get_recent_alerts">get_recent_alerts() (in module internal_alerts)</a>
+</li>
       <li><a href="api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager.get_recent_files">get_recent_files() (autocomplete_manager.AutocompleteManager method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/integrations_sentry.html#integrations_sentry.get_recent_issues">get_recent_issues() (in module integrations_sentry)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.get_recent_predictions">get_recent_predictions() (in module predictive_engine)</a>
+</li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_regular_files_paginated">get_regular_files_paginated() (database.manager.DatabaseManager method)</a>
 
       <ul>
@@ -1709,6 +2441,8 @@
         <li><a href="api/database.repository.html#database.repository.Repository.get_repo_tags_with_counts">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler">get_save_conversation_handler() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_selected_repo">get_selected_repo() (database.manager.DatabaseManager method)</a>
 
       <ul>
@@ -1721,7 +2455,15 @@
 </li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.get_stats">get_stats() (cache_manager.CacheManager method)</a>
 </li>
+      <li><a href="api/alert_manager.html#alert_manager.get_thresholds_snapshot">get_thresholds_snapshot() (in module alert_manager)</a>
+</li>
       <li><a href="api/utils.html#utils.TimeUtils.get_time_ranges">get_time_ranges() (utils.TimeUtils static method)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.get_trend_snapshot">get_trend_snapshot() (in module predictive_engine)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.get_uptime_percentage">get_uptime_percentage() (in module metrics)</a>
+</li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.get_user_bookmarks">get_user_bookmarks() (database.bookmarks_manager.BookmarksManager method)</a>
 </li>
       <li><a href="api/database.repository.html#database.repository.Repository.get_user_file_names">get_user_file_names() (database.repository.Repository method)</a>
 </li>
@@ -1759,9 +2501,11 @@
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_user_statistics">get_user_statistics() (database.manager.DatabaseManager method)</a>
 </li>
-      <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_user_stats">get_user_stats() (database.manager.DatabaseManager method)</a>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.get_user_stats">get_user_stats() (database.bookmarks_manager.BookmarksManager method)</a>
 
       <ul>
+        <li><a href="api/database.manager.html#database.manager.DatabaseManager.get_user_stats">(database.manager.DatabaseManager method)</a>
+</li>
         <li><a href="api/database.repository.html#database.repository.Repository.get_user_stats">(database.repository.Repository method)</a>
 </li>
       </ul></li>
@@ -1837,40 +2581,86 @@
 <h2 id="H">H</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button">handle_autocomplete_button() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_batch_button">handle_batch_button() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/batch_commands.html#batch_commands.handle_batch_callbacks">handle_batch_callbacks() (in module batch_commands)</a>
 </li>
       <li><a href="handlers/drive_menu.html#handlers.drive.menu.GoogleDriveMenuHandler.handle_callback">handle_callback() (handlers.drive.menu.GoogleDriveMenuHandler method)</a>
 </li>
       <li><a href="api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler.handle_callback_query">handle_callback_query() (backup_menu_handler.BackupMenuHandler method)</a>
+
+      <ul>
+        <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.handle_callback_query">(bot_handlers.AdvancedBotHandlers method)</a>
 </li>
+        <li><a href="api/conversation_handlers.html#conversation_handlers.handle_callback_query">(in module conversation_handlers)</a>
+</li>
+      </ul></li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.handle_clone">handle_clone() (in module handlers.file_view)</a>
 </li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.handle_clone_direct">handle_clone_direct() (in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_delete_confirmation">handle_delete_confirmation() (in module handlers.file_view)</a>
+      <li><a href="api/remediation_manager.html#remediation_manager.handle_critical_incident">handle_critical_incident() (in module remediation_manager)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_delete_file">handle_delete_file() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation">handle_delete_confirmation() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_delete_confirmation">(in module handlers.file_view)</a>
 </li>
+      </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_delete_file">handle_delete_file() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_delete_file">(in module handlers.file_view)</a>
+</li>
+      </ul></li>
       <li><a href="api/github_upload_fix.html#github_upload_fix.handle_document_fixed">handle_document_fixed() (in module github_upload_fix)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_download_file">handle_download_file() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_download_file">handle_download_file() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_download_file">(in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_code">handle_edit_code() (in module handlers.file_view)</a>
+      </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback">handle_duplicate_callback() (in module conversation_handlers)</a>
 </li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_edit_code">handle_edit_code() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_code">(in module handlers.file_view)</a>
+</li>
+      </ul></li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_code_direct">handle_edit_code_direct() (in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_name">handle_edit_name() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_edit_name">handle_edit_name() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_name">(in module handlers.file_view)</a>
 </li>
+      </ul></li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_name_direct">handle_edit_name_direct() (in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_note">handle_edit_note() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_edit_note">handle_edit_note() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_note">(in module handlers.file_view)</a>
 </li>
+      </ul></li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.handle_edit_note_direct">handle_edit_note_direct() (in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_file_info">handle_file_info() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_file_info">handle_file_info() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_file_info">(in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_file_menu">handle_file_menu() (in module handlers.file_view)</a>
+      </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_file_menu">handle_file_menu() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_file_menu">(in module handlers.file_view)</a>
 </li>
+      </ul></li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler.handle_file_selection">handle_file_selection() (large_files_handler.LargeFilesHandler method)</a>
 </li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.handle_file_upload">handle_file_upload() (github_menu_handler.GitHubMenuHandler method)</a>
@@ -1891,20 +2681,28 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.handle_large_file_upload">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.handle_menu_callback">handle_menu_callback() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.handle_menu_callback">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_preview_button">handle_preview_button() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers.handle_proposal_callback">handle_proposal_callback() (refactor_handlers.RefactorHandlers method)</a>
+</li>
+      <li><a href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers.handle_refactor_type_callback">handle_refactor_type_callback() (refactor_handlers.RefactorHandlers method)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.handle_repo_url_input">handle_repo_url_input() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.handle_repo_url_input">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_revert_version">handle_revert_version() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.handle_saved_file_upload">handle_saved_file_upload() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -1919,12 +2717,29 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.handle_text_input">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_versions_history">handle_versions_history() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_versions_history">handle_versions_history() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_versions_history">(in module handlers.file_view)</a>
 </li>
+      </ul></li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.handle_view_direct_file">handle_view_direct_file() (in module handlers.file_view)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.handle_view_file">handle_view_file() (in module handlers.file_view)</a>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_view_file">handle_view_file() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.handle_view_file">(in module handlers.file_view)</a>
 </li>
+      </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.handle_view_version">handle_view_version() (in module conversation_handlers)</a>
+</li>
+      <li>
+    handlers
+
+      <ul>
+        <li><a href="api/handlers.html#module-handlers">module</a>
+</li>
+      </ul></li>
       <li>
     handlers.drive.menu
 
@@ -1976,6 +2791,8 @@
       </ul></li>
       <li><a href="api/utils.html#utils.SecurityUtils.hash_content">hash_content() (utils.SecurityUtils static method)</a>
 </li>
+      <li><a href="api/services.code_service.html#services.code_service.highlight_code">highlight_code() (in module services.code_service)</a>
+</li>
       <li><a href="api/utils.html#utils.TextUtils.highlight_text">highlight_text() (utils.TextUtils static method)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig.HIGHLIGHT_THEME">HIGHLIGHT_THEME (config.BotConfig attribute)</a>
@@ -2008,6 +2825,14 @@
       </ul></li>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.IMPORTANT_FILES">IMPORTANT_FILES (repo_analyzer.RepoAnalyzer attribute)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.imports_needed">imports_needed (refactoring_engine.RefactorProposal attribute)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.incidents_command">incidents_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.info_command">info_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/database.html#database.init_database">init_database() (in module database)</a>
+</li>
       <li><a href="api/utils.html#utils.install_sensitive_filter">install_sensitive_filter() (in module utils)</a>
 </li>
       <li>
@@ -2017,8 +2842,33 @@
         <li><a href="api/integrations.html#module-integrations">module</a>
 </li>
       </ul></li>
+      <li>
+    integrations_github_monitor
+
+      <ul>
+        <li><a href="api/integrations_github_monitor.html#module-integrations_github_monitor">module</a>
+</li>
+      </ul></li>
+      <li>
+    integrations_sentry
+
+      <ul>
+        <li><a href="api/integrations_sentry.html#module-integrations_sentry">module</a>
+</li>
+      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend.intercept">intercept (predictive_engine.Trend attribute)</a>
+</li>
+      <li>
+    internal_alerts
+
+      <ul>
+        <li><a href="api/internal_alerts.html#module-internal_alerts">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.internal_error">internal_error() (in module webapp.bookmarks_api)</a>
+</li>
       <li><a href="api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager.invalidate_cache">invalidate_cache() (autocomplete_manager.AutocompleteManager method)</a>
 </li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.invalidate_user_cache">invalidate_user_cache() (cache_manager.CacheManager method)</a>
@@ -2029,6 +2879,14 @@
         <li><a href="api/database.models.html#database.models.LargeFile.is_active">(database.models.LargeFile attribute)</a>
 </li>
       </ul></li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo.is_active">is_active() (services.backoff_state.BackoffInfo method)</a>
+</li>
+      <li><a href="api/chatops.permissions.html#chatops.permissions.is_admin">is_admin() (in module chatops.permissions)</a>
+</li>
+      <li><a href="api/chatops.permissions.html#chatops.permissions.is_chat_allowed">is_chat_allowed() (in module chatops.permissions)</a>
+</li>
+      <li><a href="api/integrations_sentry.html#integrations_sentry.is_configured">is_configured() (in module integrations_sentry)</a>
+</li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.is_favorite">is_favorite (database.models.CodeSnippet attribute)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.is_favorite">is_favorite() (database.manager.DatabaseManager method)</a>
@@ -2076,6 +2934,8 @@
 </li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler">LargeFilesHandler (class in large_files_handler)</a>
 </li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.last_accessed">last_accessed (database.bookmark.FileBookmark attribute)</a>
+</li>
       <li>
     lazy_loader
 
@@ -2085,12 +2945,22 @@
       </ul></li>
       <li><a href="api/lazy_loader.html#lazy_loader.LazyLoader">LazyLoader (class in lazy_loader)</a>
 </li>
-      <li><a href="api/database.models.html#database.models.LargeFile.lines_count">lines_count (database.models.LargeFile attribute)</a>
+      <li><a href="api/chatops.ratelimit.html#chatops.ratelimit.limit_sensitive">limit_sensitive() (in module chatops.ratelimit)</a>
 </li>
-      <li><a href="api/file_manager.html#file_manager.BackupManager.list_backups">list_backups() (file_manager.BackupManager method)</a>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.line_number">line_number (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.line_text_preview">line_text_preview (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/database.models.html#database.models.LargeFile.lines_count">lines_count (database.models.LargeFile attribute)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/file_manager.html#file_manager.BackupManager.list_backups">list_backups() (file_manager.BackupManager method)</a>
+
+      <ul>
+        <li><a href="api/services.backup_service.html#services.backup_service.list_backups">(in module services.backup_service)</a>
+</li>
+      </ul></li>
       <li><a href="api/database.repository.html#database.repository.Repository.list_deleted_files">list_deleted_files() (database.repository.Repository method)</a>
 </li>
       <li><a href="api/config.html#config.load_config">load_config() (in module config)</a>
@@ -2121,6 +2991,12 @@
 <h2 id="M">M</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/monitoring.cleanup.html#monitoring.cleanup.main">main() (in module monitoring.cleanup)</a>
+
+      <ul>
+        <li><a href="api/setup_bookmarks.html#setup_bookmarks.main">(in module setup_bookmarks)</a>
+</li>
+      </ul></li>
       <li><a href="api/config.html#config.BotConfig.MAINTENANCE_AUTO_WARMUP_SECS">MAINTENANCE_AUTO_WARMUP_SECS (config.BotConfig attribute)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig.MAINTENANCE_MESSAGE">MAINTENANCE_MESSAGE (config.BotConfig attribute)</a>
@@ -2135,15 +3011,46 @@
 </li>
       <li><a href="api/config.html#config.BotConfig.MAX_FILES_PER_USER">MAX_FILES_PER_USER (config.BotConfig attribute)</a>
 </li>
+      <li><a href="api/predictive_engine.html#predictive_engine.maybe_recompute_and_preempt">maybe_recompute_and_preempt() (in module predictive_engine)</a>
+</li>
       <li><a href="api/utils.html#utils.PerformanceUtils.measure_time">measure_time() (utils.PerformanceUtils static method)</a>
 </li>
       <li><a href="handlers/drive_menu.html#handlers.drive.menu.GoogleDriveMenuHandler.menu">menu() (handlers.drive.menu.GoogleDriveMenuHandler method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType.MERGE_SIMILAR">MERGE_SIMILAR (refactoring_engine.RefactorType attribute)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.methods">methods (refactoring_engine.ClassInfo attribute)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend.metric">metric (predictive_engine.Trend attribute)</a>
+</li>
+      <li>
+    metrics
+
+      <ul>
+        <li><a href="api/metrics.html#module-metrics">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/config.html#config.BotConfig.METRICS_BATCH_SIZE">METRICS_BATCH_SIZE (config.BotConfig attribute)</a>
+</li>
+      <li><a href="api/config.html#config.BotConfig.METRICS_COLLECTION">METRICS_COLLECTION (config.BotConfig attribute)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.metrics_content_type">metrics_content_type() (in module metrics)</a>
+</li>
+      <li><a href="api/config.html#config.BotConfig.METRICS_DB_ENABLED">METRICS_DB_ENABLED (config.BotConfig attribute)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.metrics_endpoint_bytes">metrics_endpoint_bytes() (in module metrics)</a>
+</li>
+      <li><a href="api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC">METRICS_FLUSH_INTERVAL_SEC (config.BotConfig attribute)</a>
 </li>
       <li>
     module
 
       <ul>
         <li><a href="api/activity_reporter.html#module-activity_reporter">activity_reporter</a>
+</li>
+        <li><a href="api/alert_forwarder.html#module-alert_forwarder">alert_forwarder</a>
+</li>
+        <li><a href="api/alert_manager.html#module-alert_manager">alert_manager</a>
 </li>
         <li><a href="api/autocomplete_manager.html#module-autocomplete_manager">autocomplete_manager</a>
 </li>
@@ -2153,9 +3060,17 @@
 </li>
         <li><a href="api/batch_processor.html#module-batch_processor">batch_processor</a>
 </li>
+        <li><a href="api/bot_handlers.html#module-bot_handlers">bot_handlers</a>
+</li>
         <li><a href="api/cache_commands.html#module-cache_commands">cache_commands</a>
 </li>
         <li><a href="api/cache_manager.html#module-cache_manager">cache_manager</a>
+</li>
+        <li><a href="api/chatops.html#module-chatops">chatops</a>
+</li>
+        <li><a href="api/chatops.permissions.html#module-chatops.permissions">chatops.permissions</a>
+</li>
+        <li><a href="api/chatops.ratelimit.html#module-chatops.ratelimit">chatops.ratelimit</a>
 </li>
         <li><a href="api/code_preview.html#module-code_preview">code_preview</a>
 </li>
@@ -2165,11 +3080,21 @@
 </li>
         <li><a href="api/conftest.html#module-conftest">conftest</a>
 </li>
+        <li><a href="api/conversation_handlers.html#module-conversation_handlers">conversation_handlers</a>
+</li>
+        <li><a href="api/database.html#module-database">database</a>
+</li>
+        <li><a href="api/database.bookmark.html#module-database.bookmark">database.bookmark</a>
+</li>
+        <li><a href="api/database.bookmarks_manager.html#module-database.bookmarks_manager">database.bookmarks_manager</a>
+</li>
         <li><a href="api/database.manager.html#module-database.manager">database.manager</a>
 </li>
         <li><a href="api/database.models.html#module-database.models">database.models</a>
 </li>
         <li><a href="api/database.repository.html#module-database.repository">database.repository</a>
+</li>
+        <li><a href="api/duplicate_detector.html#module-duplicate_detector">duplicate_detector</a>
 </li>
         <li><a href="api/file_manager.html#module-file_manager">file_manager</a>
 </li>
@@ -2178,6 +3103,8 @@
         <li><a href="api/github_menu_handler.html#module-github_menu_handler">github_menu_handler</a>
 </li>
         <li><a href="api/github_upload_fix.html#module-github_upload_fix">github_upload_fix</a>
+</li>
+        <li><a href="api/handlers.html#module-handlers">handlers</a>
 </li>
         <li><a href="handlers/drive_menu.html#module-handlers.drive.menu">handlers.drive.menu</a>
 </li>
@@ -2199,9 +3126,33 @@
 </li>
         <li><a href="api/integrations.html#module-integrations">integrations</a>
 </li>
+        <li><a href="api/integrations_github_monitor.html#module-integrations_github_monitor">integrations_github_monitor</a>
+</li>
+        <li><a href="api/integrations_sentry.html#module-integrations_sentry">integrations_sentry</a>
+</li>
+        <li><a href="api/internal_alerts.html#module-internal_alerts">internal_alerts</a>
+</li>
         <li><a href="api/large_files_handler.html#module-large_files_handler">large_files_handler</a>
 </li>
         <li><a href="api/lazy_loader.html#module-lazy_loader">lazy_loader</a>
+</li>
+        <li><a href="api/metrics.html#module-metrics">metrics</a>
+</li>
+        <li><a href="api/monitoring.html#module-monitoring">monitoring</a>
+</li>
+        <li><a href="api/monitoring.cleanup.html#module-monitoring.cleanup">monitoring.cleanup</a>
+</li>
+        <li><a href="api/monitoring.metrics_storage.html#module-monitoring.metrics_storage">monitoring.metrics_storage</a>
+</li>
+        <li><a href="api/predictive_engine.html#module-predictive_engine">predictive_engine</a>
+</li>
+        <li><a href="api/rate_limiter.html#module-rate_limiter">rate_limiter</a>
+</li>
+        <li><a href="api/refactor_handlers.html#module-refactor_handlers">refactor_handlers</a>
+</li>
+        <li><a href="api/refactoring_engine.html#module-refactoring_engine">refactoring_engine</a>
+</li>
+        <li><a href="api/remediation_manager.html#module-remediation_manager">remediation_manager</a>
 </li>
         <li><a href="api/repo_analyzer.html#module-repo_analyzer">repo_analyzer</a>
 </li>
@@ -2209,35 +3160,94 @@
 </li>
         <li><a href="api/secret_manager.html#module-secret_manager">secret_manager</a>
 </li>
+        <li><a href="api/services.html#module-services">services</a>
+</li>
+        <li><a href="api/services.backoff_state.html#module-services.backoff_state">services.backoff_state</a>
+</li>
+        <li><a href="api/services.backup_service.html#module-services.backup_service">services.backup_service</a>
+</li>
+        <li><a href="api/services.code_service.html#module-services.code_service">services.code_service</a>
+</li>
         <li><a href="api/services.github_service.html#module-services.github_service">services.github_service</a>
 </li>
         <li><a href="api/services.google_drive_service.html#module-services.google_drive_service">services.google_drive_service</a>
+</li>
+        <li><a href="api/services.investigation_service.html#module-services.investigation_service">services.investigation_service</a>
+</li>
+        <li><a href="api/services.webserver.html#module-services.webserver">services.webserver</a>
+</li>
+        <li><a href="api/setup_bookmarks.html#module-setup_bookmarks">setup_bookmarks</a>
 </li>
         <li><a href="api/terminal_commands.html#module-terminal_commands">terminal_commands</a>
 </li>
         <li><a href="api/test_basic.html#module-test_basic">test_basic</a>
 </li>
+        <li><a href="api/test_bookmarks.html#module-test_bookmarks">test_bookmarks</a>
+</li>
         <li><a href="api/user_stats.html#module-user_stats">user_stats</a>
 </li>
         <li><a href="api/utils.html#module-utils">utils</a>
+</li>
+        <li><a href="api/webapp.html#module-webapp">webapp</a>
+</li>
+        <li><a href="api/webapp.bookmarks_api.html#module-webapp.bookmarks_api">webapp.bookmarks_api</a>
 </li>
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/config.html#config.BotConfig.MONGODB_URL">MONGODB_URL (config.BotConfig attribute)</a>
 </li>
+      <li>
+    monitoring
+
+      <ul>
+        <li><a href="api/monitoring.html#module-monitoring">module</a>
+</li>
+      </ul></li>
+      <li>
+    monitoring.cleanup
+
+      <ul>
+        <li><a href="api/monitoring.cleanup.html#module-monitoring.cleanup">module</a>
+</li>
+      </ul></li>
+      <li>
+    monitoring.metrics_storage
+
+      <ul>
+        <li><a href="api/monitoring.metrics_storage.html#module-monitoring.metrics_storage">module</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
 <h2 id="N">N</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.name">name (refactoring_engine.ClassInfo attribute)</a>
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.name">(refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.new_files">new_files (refactoring_engine.RefactorProposal attribute)</a>
+</li>
       <li><a href="api/utils.html#utils.normalize_code">normalize_code() (in module utils)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE">NORMALIZE_CODE_ON_SAVE (config.BotConfig attribute)</a>
 </li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.not_found">not_found() (in module webapp.bookmarks_api)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.note">note (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.note_active_user">note_active_user() (in module metrics)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.note_observation">note_observation() (in module predictive_engine)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.note_request">note_request() (in module alert_manager)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.notifications_check_now">notifications_check_now() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2250,6 +3260,8 @@
 <h2 id="O">O</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.observe_command">observe_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.open_pr_from_branch">open_pr_from_branch() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2259,6 +3271,8 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.operation">operation (batch_processor.BatchJob attribute)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.original_file">original_file (refactoring_engine.RefactorProposal attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -2278,10 +3292,23 @@
 </li>
       <li><a href="api/utils.html#utils.TextUtils.pluralize_hebrew">pluralize_hebrew() (utils.TextUtils static method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.poll_device_token">poll_device_token() (in module services.google_drive_service)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactoringEngine.post_refactor_cleanup">post_refactor_cleanup() (refactoring_engine.RefactoringEngine method)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.predict_command">predict_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend.predicted_cross_ts">predicted_cross_ts (predictive_engine.Trend attribute)</a>
+</li>
+      <li>
+    predictive_engine
+
+      <ul>
+        <li><a href="api/predictive_engine.html#module-predictive_engine">module</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.process_files_batch">process_files_batch() (batch_processor.BatchProcessor method)</a>
 </li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.programming_language">programming_language (database.models.CodeSnippet attribute)</a>
@@ -2292,9 +3319,23 @@
       </ul></li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.progress">progress (batch_processor.BatchJob attribute)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult.proposal">proposal (refactoring_engine.RefactorResult attribute)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactoringEngine.propose_refactoring">propose_refactoring() (refactoring_engine.RefactoringEngine method)</a>
+</li>
       <li><a href="api/config.html#config.BotConfig.PUBLIC_BASE_URL">PUBLIC_BASE_URL (config.BotConfig attribute)</a>
 </li>
       <li><a href="api/database.repository.html#database.repository.Repository.purge_file_by_id">purge_file_by_id() (database.repository.Repository method)</a>
+</li>
+      <li><a href="api/conftest.html#conftest.pytest_addoption">pytest_addoption() (in module conftest)</a>
+</li>
+      <li><a href="api/conftest.html#conftest.pytest_collection_modifyitems">pytest_collection_modifyitems() (in module conftest)</a>
+</li>
+      <li><a href="api/conftest.html#conftest.pytest_configure">pytest_configure() (in module conftest)</a>
+</li>
+      <li><a href="api/conftest.html#conftest.pytest_runtest_makereport">pytest_runtest_makereport() (in module conftest)</a>
+</li>
+      <li><a href="api/conftest.html#conftest.pytest_sessionfinish">pytest_sessionfinish() (in module conftest)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -2302,20 +3343,86 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.rate_limit_command">rate_limit_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/config.html#config.BotConfig.RATE_LIMIT_PER_MINUTE">RATE_LIMIT_PER_MINUTE (config.BotConfig attribute)</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.receive_new_code">receive_new_code() (in module handlers.file_view)</a>
+      <li>
+    rate_limiter
+
+      <ul>
+        <li><a href="api/rate_limiter.html#module-rate_limiter">module</a>
 </li>
-      <li><a href="api/handlers.file_view.html#handlers.file_view.receive_new_name">receive_new_name() (in module handlers.file_view)</a>
+      </ul></li>
+      <li><a href="api/rate_limiter.html#rate_limiter.RateLimiter">RateLimiter (class in rate_limiter)</a>
+</li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo.reason">reason (services.backoff_state.BackoffInfo attribute)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.receive_new_code">receive_new_code() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.receive_new_code">(in module handlers.file_view)</a>
+</li>
+      </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.receive_new_name">receive_new_name() (in module conversation_handlers)</a>
+
+      <ul>
+        <li><a href="api/handlers.file_view.html#handlers.file_view.receive_new_name">(in module handlers.file_view)</a>
+</li>
+      </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.recent_command">recent_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.record_request_outcome">record_request_outcome() (in module metrics)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.recycle_purge">recycle_purge() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.recycle_restore">recycle_restore() (in module conversation_handlers)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig.RECYCLE_TTL_DAYS">RECYCLE_TTL_DAYS (config.BotConfig attribute)</a>
 </li>
       <li><a href="api/config.html#config.BotConfig.REDIS_URL">REDIS_URL (config.BotConfig attribute)</a>
 </li>
+      <li><a href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers.refactor_command">refactor_command() (refactor_handlers.RefactorHandlers method)</a>
+</li>
+      <li>
+    refactor_handlers
+
+      <ul>
+        <li><a href="api/refactor_handlers.html#module-refactor_handlers">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.refactor_type">refactor_type (refactoring_engine.RefactorProposal attribute)</a>
+</li>
+      <li><a href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers">RefactorHandlers (class in refactor_handlers)</a>
+</li>
+      <li>
+    refactoring_engine
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#module-refactoring_engine">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactoringEngine">RefactoringEngine (class in refactoring_engine)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal">RefactorProposal (class in refactoring_engine)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult">RefactorResult (class in refactoring_engine)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType">RefactorType (class in refactoring_engine)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.refresh_saved_checks">refresh_saved_checks() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.refresh_saved_checks">(handlers.github.menu.GitHubMenuHandler method)</a>
+</li>
+      </ul></li>
+      <li>
+    remediation_manager
+
+      <ul>
+        <li><a href="api/remediation_manager.html#module-remediation_manager">module</a>
 </li>
       </ul></li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.rename_file">rename_file() (database.manager.DatabaseManager method)</a>
@@ -2324,6 +3431,8 @@
         <li><a href="api/database.repository.html#database.repository.Repository.rename_file">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/services.investigation_service.html#services.investigation_service.render_triage_html">render_triage_html() (in module services.investigation_service)</a>
+</li>
       <li>
     repo_analyzer
 
@@ -2331,8 +3440,6 @@
         <li><a href="api/repo_analyzer.html#module-repo_analyzer">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer">RepoAnalyzer (class in repo_analyzer)</a>
 </li>
       <li><a href="api/activity_reporter.html#activity_reporter.SimpleActivityReporter.report_activity">report_activity() (activity_reporter.SimpleActivityReporter method)</a>
@@ -2345,10 +3452,22 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.request_repo_url">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.require_auth">require_auth() (in module webapp.bookmarks_api)</a>
+</li>
+      <li><a href="api/alert_manager.html#alert_manager.reset_state_for_tests">reset_state_for_tests() (in module alert_manager)</a>
+
+      <ul>
+        <li><a href="api/predictive_engine.html#predictive_engine.reset_state_for_tests">(in module predictive_engine)</a>
+</li>
+      </ul></li>
       <li><a href="api/database.repository.html#database.repository.Repository.restore_file_by_id">restore_file_by_id() (database.repository.Repository method)</a>
 </li>
       <li><a href="api/file_manager.html#file_manager.BackupManager.restore_from_backup">restore_from_backup() (file_manager.BackupManager method)</a>
+
+      <ul>
+        <li><a href="api/services.backup_service.html#services.backup_service.restore_from_backup">(in module services.backup_service)</a>
 </li>
+      </ul></li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.restore_zip_file_to_repo">restore_zip_file_to_repo() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2357,7 +3476,13 @@
       </ul></li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.results">results (batch_processor.BatchJob attribute)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.returns">returns (refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      <li><a href="api/services.webserver.html#services.webserver.run">run() (in module services.webserver)</a>
+</li>
       <li><a href="api/terminal_commands.html#terminal_commands.run_in_sandbox">run_in_sandbox() (in module terminal_commands)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.run_tests">run_tests() (in module test_bookmarks)</a>
 </li>
       <li><a href="api/utils.html#utils.AsyncUtils.run_with_timeout">run_with_timeout() (utils.AsyncUtils static method)</a>
 </li>
@@ -2377,8 +3502,14 @@
 </li>
       <li><a href="api/utils.html#utils.SecurityUtils.sanitize_code">sanitize_code() (utils.SecurityUtils static method)</a>
 </li>
-      <li><a href="api/file_manager.html#file_manager.BackupManager.save_backup_bytes">save_backup_bytes() (file_manager.BackupManager method)</a>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.sanitize_input">sanitize_input() (in module webapp.bookmarks_api)</a>
 </li>
+      <li><a href="api/file_manager.html#file_manager.BackupManager.save_backup_bytes">save_backup_bytes() (file_manager.BackupManager method)</a>
+
+      <ul>
+        <li><a href="api/services.backup_service.html#services.backup_service.save_backup_bytes">(in module services.backup_service)</a>
+</li>
+      </ul></li>
       <li><a href="api/file_manager.html#file_manager.BackupManager.save_backup_file">save_backup_file() (file_manager.BackupManager method)</a>
 </li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.save_backup_note">save_backup_note() (database.manager.DatabaseManager method)</a>
@@ -2449,12 +3580,16 @@
         <li><a href="api/database.repository.html#database.repository.Repository.save_user">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/duplicate_detector.html#duplicate_detector.scan_duplicates">scan_duplicates() (in module duplicate_detector)</a>
+</li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.search_code">search_code() (database.manager.DatabaseManager method)</a>
 
       <ul>
         <li><a href="api/database.repository.html#database.repository.Repository.search_code">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.search_command">search_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li>
     search_engine
 
@@ -2462,6 +3597,8 @@
         <li><a href="api/search_engine.html#module-search_engine">module</a>
 </li>
       </ul></li>
+      <li><a href="api/integrations_sentry.html#integrations_sentry.search_events">search_events() (in module integrations_sentry)</a>
+</li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.search_snippets">search_snippets() (database.manager.DatabaseManager method)</a>
 </li>
       <li>
@@ -2479,8 +3616,40 @@
 </li>
       <li><a href="api/utils.html#utils.TelegramUtils.send_typing_action">send_typing_action() (utils.TelegramUtils static method)</a>
 </li>
+      <li><a href="api/chatops.ratelimit.html#chatops.ratelimit.SensitiveCommandRateLimiter">SensitiveCommandRateLimiter (class in chatops.ratelimit)</a>
+</li>
       <li><a href="api/utils.html#utils.SensitiveDataFilter">SensitiveDataFilter (class in utils)</a>
 </li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.sentry_command">sentry_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li>
+    services
+
+      <ul>
+        <li><a href="api/services.html#module-services">module</a>
+</li>
+      </ul></li>
+      <li>
+    services.backoff_state
+
+      <ul>
+        <li><a href="api/services.backoff_state.html#module-services.backoff_state">module</a>
+</li>
+      </ul></li>
+      <li>
+    services.backup_service
+
+      <ul>
+        <li><a href="api/services.backup_service.html#module-services.backup_service">module</a>
+</li>
+      </ul></li>
+      <li>
+    services.code_service
+
+      <ul>
+        <li><a href="api/services.code_service.html#module-services.code_service">module</a>
+</li>
+      </ul></li>
       <li>
     services.github_service
 
@@ -2495,31 +3664,92 @@
         <li><a href="api/services.google_drive_service.html#module-services.google_drive_service">module</a>
 </li>
       </ul></li>
+      <li>
+    services.investigation_service
+
+      <ul>
+        <li><a href="api/services.investigation_service.html#module-services.investigation_service">module</a>
+</li>
+      </ul></li>
+      <li>
+    services.webserver
+
+      <ul>
+        <li><a href="api/services.webserver.html#module-services.webserver">module</a>
+</li>
+      </ul></li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.set">set() (cache_manager.CacheManager method)</a>
 
       <ul>
         <li><a href="api/utils.html#utils.CacheUtils.set">(utils.CacheUtils class method)</a>
 </li>
       </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.set_activity_reporter">set_activity_reporter() (in module bot_handlers)</a>
+
+      <ul>
+        <li><a href="api/conversation_handlers.html#conversation_handlers.set_activity_reporter">(in module conversation_handlers)</a>
+</li>
+        <li><a href="api/refactor_handlers.html#refactor_handlers.set_activity_reporter">(in module refactor_handlers)</a>
+</li>
+      </ul></li>
+      <li><a href="api/metrics.html#metrics.set_adaptive_observability_gauges">set_adaptive_observability_gauges() (in module metrics)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.set_notifications_interval">set_notifications_interval() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.set_notifications_interval">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.set_prefs">set_prefs() (in module webapp.bookmarks_api)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.setUp">setUp() (test_bookmarks.TestBookmarksManager method)</a>
+
+      <ul>
+        <li><a href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality.setUp">(test_bookmarks.TestSyncFunctionality method)</a>
+</li>
+      </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.setup_advanced_handlers">setup_advanced_handlers() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/batch_commands.html#batch_commands.setup_batch_handlers">setup_batch_handlers() (in module batch_commands)</a>
 </li>
+      <li>
+    setup_bookmarks
+
+      <ul>
+        <li><a href="api/setup_bookmarks.html#module-setup_bookmarks">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/setup_bookmarks.html#setup_bookmarks.setup_bookmarks_collection">setup_bookmarks_collection() (in module setup_bookmarks)</a>
+</li>
       <li><a href="api/cache_commands.html#cache_commands.setup_cache_handlers">setup_cache_handlers() (in module cache_commands)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers">setup_favorites_category_handlers() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers.setup_handlers">setup_handlers() (refactor_handlers.RefactorHandlers method)</a>
 </li>
       <li><a href="api/utils.html#utils.setup_logging">setup_logging() (in module utils)</a>
 </li>
       <li><a href="api/github_upload_fix.html#github_upload_fix.setup_minimal_commands">setup_minimal_commands() (in module github_upload_fix)</a>
 </li>
+      <li><a href="api/refactor_handlers.html#refactor_handlers.setup_refactor_handlers">setup_refactor_handlers() (in module refactor_handlers)</a>
+</li>
       <li><a href="api/terminal_commands.html#terminal_commands.setup_terminal_handlers">setup_terminal_handlers() (in module terminal_commands)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_command">share_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_help_command">share_help_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.share_single_by_id">share_single_by_id() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/chatops.ratelimit.html#chatops.ratelimit.SensitiveCommandRateLimiter.should_allow">should_allow() (chatops.ratelimit.SensitiveCommandRateLimiter method)</a>
 </li>
       <li><a href="api/utils.html#utils.CallbackQueryGuard.should_block">should_block() (utils.CallbackQueryGuard static method)</a>
 </li>
       <li><a href="api/utils.html#utils.CallbackQueryGuard.should_block_async">should_block_async() (utils.CallbackQueryGuard static method)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_all_files">show_all_files() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_all_files_callback">show_all_files_callback() (in module conversation_handlers)</a>
 </li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_analyze_repo_menu">show_analyze_repo_menu() (github_menu_handler.GitHubMenuHandler method)</a>
 
@@ -2535,6 +3765,18 @@
       </ul></li>
       <li><a href="api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler.show_backup_menu">show_backup_menu() (backup_menu_handler.BackupMenuHandler method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu">show_batch_actions_menu() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_batch_files_menu">show_batch_files_menu() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_batch_menu">show_batch_menu() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu">show_batch_repos_menu() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu">show_batch_zips_menu() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_browse_ref_menu">show_browse_ref_menu() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2547,14 +3789,18 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.show_browse_search_results">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu">show_by_repo_menu() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback">show_by_repo_menu_callback() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.show_command">show_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_confirm_create_pr">show_confirm_create_pr() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.show_confirm_create_pr">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_confirm_merge_pr">show_confirm_merge_pr() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2591,6 +3837,10 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.show_download_file_menu">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_favorites_callback">show_favorites_callback() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback">show_favorites_page_callback() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler.show_file_info">show_file_info() (large_files_handler.LargeFilesHandler method)</a>
 </li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_full_analysis">show_full_analysis() (github_menu_handler.GitHubMenuHandler method)</a>
@@ -2605,6 +3855,10 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.show_github_backup_menu">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_github_menu">show_github_menu() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_help_page">show_help_page() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_import_branch_menu">show_import_branch_menu() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2618,6 +3872,8 @@
 </li>
       </ul></li>
       <li><a href="api/lazy_loader.html#lazy_loader.LazyLoader.show_large_file_lazy">show_large_file_lazy() (lazy_loader.LazyLoader method)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_large_files_direct">show_large_files_direct() (in module conversation_handlers)</a>
 </li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler.show_large_files_menu">show_large_files_menu() (large_files_handler.LargeFilesHandler method)</a>
 </li>
@@ -2645,6 +3901,12 @@
         <li><a href="api/handlers.github.menu.html#handlers.github.menu.GitHubMenuHandler.show_pre_upload_check">(handlers.github.menu.GitHubMenuHandler method)</a>
 </li>
       </ul></li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_recycle_bin">show_recycle_bin() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_regular_files_callback">show_regular_files_callback() (in module conversation_handlers)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback">show_regular_files_page_callback() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.show_repo_browser">show_repo_browser() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2713,35 +3975,61 @@
       </ul></li>
       <li><a href="api/activity_reporter.html#activity_reporter.SimpleActivityReporter">SimpleActivityReporter (class in activity_reporter)</a>
 </li>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend.slope_per_minute">slope_per_minute (predictive_engine.Trend attribute)</a>
+</li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.soft_delete_files_by_names">soft_delete_files_by_names() (database.manager.DatabaseManager method)</a>
 
       <ul>
         <li><a href="api/database.repository.html#database.repository.Repository.soft_delete_files_by_names">(database.repository.Repository method)</a>
 </li>
       </ul></li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType.SPLIT_FUNCTIONS">SPLIT_FUNCTIONS (refactoring_engine.RefactorType attribute)</a>
+</li>
       <li><a href="api/utils.html#utils.TelegramUtils.split_long_message">split_long_message() (utils.TelegramUtils static method)</a>
 </li>
       <li><a href="api/handlers.save_flow.html#handlers.save_flow.start_add_code_menu">start_add_code_menu() (in module handlers.save_flow)</a>
 </li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.start_command">start_command() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.start_device_authorization">start_device_authorization() (in module services.google_drive_service)</a>
 </li>
       <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.start_line">start_line (lazy_loader.FileChunk attribute)</a>
+
+      <ul>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.start_line">(refactoring_engine.ClassInfo attribute)</a>
 </li>
+        <li><a href="api/refactoring_engine.html#refactoring_engine.FunctionInfo.start_line">(refactoring_engine.FunctionInfo attribute)</a>
+</li>
+      </ul></li>
       <li><a href="api/handlers.save_flow.html#handlers.save_flow.start_long_collect">start_long_collect() (in module handlers.save_flow)</a>
+</li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.start_repo_zip_import">start_repo_zip_import() (in module conversation_handlers)</a>
 </li>
       <li><a href="api/handlers.save_flow.html#handlers.save_flow.start_save_flow">start_save_flow() (in module handlers.save_flow)</a>
 </li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.start_time">start_time (batch_processor.BatchJob attribute)</a>
 </li>
+      <li><a href="api/conversation_handlers.html#conversation_handlers.start_zip_create_flow">start_zip_create_flow() (in module conversation_handlers)</a>
+</li>
       <li><a href="api/github_upload_fix.html#github_upload_fix.stats_command_secured">stats_command_secured() (in module github_upload_fix)</a>
 </li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.status">status (batch_processor.BatchJob attribute)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.status_command">status_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult.success">success (refactoring_engine.RefactorResult attribute)</a>
 </li>
       <li><a href="api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager.suggest_filenames">suggest_filenames() (autocomplete_manager.AutocompleteManager method)</a>
 </li>
       <li><a href="api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager.suggest_tags">suggest_tags() (autocomplete_manager.AutocompleteManager method)</a>
 </li>
+      <li><a href="api/integrations_github_monitor.html#integrations_github_monitor.summarize_rate_limit">summarize_rate_limit() (in module integrations_github_monitor)</a>
+</li>
       <li><a href="api/config.html#config.BotConfig.SUPPORTED_LANGUAGES">SUPPORTED_LANGUAGES (config.BotConfig attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.sync_confidence">sync_confidence (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.sync_status">sync_status (database.bookmark.FileBookmark attribute)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -2755,6 +4043,8 @@
         <li><a href="api/database.models.html#database.models.LargeFile.tags">(database.models.LargeFile attribute)</a>
 </li>
       </ul></li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.tags_command">tags_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/utils.html#utils.TelegramUtils">TelegramUtils (class in utils)</a>
 </li>
       <li><a href="api/terminal_commands.html#terminal_commands.terminal_command">terminal_command() (in module terminal_commands)</a>
@@ -2781,26 +4071,109 @@
       </ul></li>
       <li><a href="api/test_basic.html#test_basic.test_basic_calculation">test_basic_calculation() (in module test_basic)</a>
 </li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel.test_bookmark_creation">test_bookmark_creation() (test_bookmarks.TestFileBookmarkModel method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel.test_bookmark_from_dict">test_bookmark_from_dict() (test_bookmarks.TestFileBookmarkModel method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_bookmark_limits_per_file">test_bookmark_limits_per_file() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_bookmark_limits_per_user">test_bookmark_limits_per_user() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel.test_bookmark_to_dict">test_bookmark_to_dict() (test_bookmarks.TestFileBookmarkModel method)</a>
+</li>
+      <li>
+    test_bookmarks
+
+      <ul>
+        <li><a href="api/test_bookmarks.html#module-test_bookmarks">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality.test_check_line_status_deleted">test_check_line_status_deleted() (test_bookmarks.TestSyncFunctionality method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality.test_check_line_status_modified">test_check_line_status_modified() (test_bookmarks.TestSyncFunctionality method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality.test_check_line_status_moved">test_check_line_status_moved() (test_bookmarks.TestSyncFunctionality method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality.test_check_line_status_unchanged">test_check_line_status_unchanged() (test_bookmarks.TestSyncFunctionality method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_delete_bookmark">test_delete_bookmark() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_delete_bookmark_by_anchor">test_delete_bookmark_by_anchor() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_delete_file_bookmarks">test_delete_file_bookmarks() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
       <li><a href="api/test_basic.html#test_basic.test_environment">test_environment() (in module test_basic)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestIntegration.test_error_handling">test_error_handling() (test_bookmarks.TestIntegration method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_get_file_bookmarks">test_get_file_bookmarks() (test_bookmarks.TestBookmarksManager method)</a>
 </li>
       <li><a href="api/test_basic.html#test_basic.TestRequirements.test_github_installed">test_github_installed() (test_basic.TestRequirements method)</a>
 </li>
       <li><a href="api/test_basic.html#test_basic.test_import_main">test_import_main() (in module test_basic)</a>
 </li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_invalid_line_number">test_invalid_line_number() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
       <li><a href="api/test_basic.html#test_basic.test_python_version">test_python_version() (in module test_basic)</a>
+</li>
+      <li><a href="api/test_basic.html#test_basic.TestRequirements.test_telegram_installed">test_telegram_installed() (test_basic.TestRequirements method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel.test_text_length_limits">test_text_length_limits() (test_bookmarks.TestFileBookmarkModel method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_toggle_bookmark_add">test_toggle_bookmark_add() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_toggle_bookmark_add_anchor">test_toggle_bookmark_add_anchor() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_toggle_bookmark_remove">test_toggle_bookmark_remove() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_toggle_bookmark_remove_anchor">test_toggle_bookmark_remove_anchor() (test_bookmarks.TestBookmarksManager method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/test_basic.html#test_basic.TestRequirements.test_telegram_installed">test_telegram_installed() (test_basic.TestRequirements method)</a>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_color_by_anchor">test_update_bookmark_color_by_anchor() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_color_by_anchor_invalid">test_update_bookmark_color_by_anchor_invalid() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_color_exception">test_update_bookmark_color_exception() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_color_invalid_color">test_update_bookmark_color_invalid_color() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_color_not_found">test_update_bookmark_color_not_found() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_color_success">test_update_bookmark_color_success() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_note">test_update_bookmark_note() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager.test_update_bookmark_note_by_anchor">test_update_bookmark_note_by_anchor() (test_bookmarks.TestBookmarksManager method)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager">TestBookmarksManager (class in test_bookmarks)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel">TestFileBookmarkModel (class in test_bookmarks)</a>
+</li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestIntegration">TestIntegration (class in test_bookmarks)</a>
 </li>
       <li><a href="api/test_basic.html#test_basic.TestRequirements">TestRequirements (class in test_basic)</a>
 </li>
+      <li><a href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality">TestSyncFunctionality (class in test_bookmarks)</a>
+</li>
       <li><a href="api/utils.html#utils.TextUtils">TextUtils (class in utils)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend.threshold">threshold (predictive_engine.Trend attribute)</a>
 </li>
       <li><a href="api/utils.html#utils.TimeUtils">TimeUtils (class in utils)</a>
 </li>
       <li><a href="api/utils.html#utils.PerformanceUtils.timing_decorator">timing_decorator() (utils.PerformanceUtils static method)</a>
 </li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.to_dict">to_dict() (database.bookmark.FileBookmark method)</a>
+</li>
+      <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState.toggle">toggle() (services.backoff_state.BackoffState method)</a>
+</li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.toggle_bookmark">toggle_bookmark() (database.bookmarks_manager.BookmarksManager method)</a>
+
+      <ul>
+        <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.toggle_bookmark">(in module webapp.bookmarks_api)</a>
+</li>
+      </ul></li>
       <li><a href="api/database.manager.html#database.manager.DatabaseManager.toggle_favorite">toggle_favorite() (database.manager.DatabaseManager method)</a>
 
       <ul>
@@ -2831,6 +4204,20 @@
 </li>
       <li><a href="api/lazy_loader.html#lazy_loader.FileChunk.total_lines">total_lines (lazy_loader.FileChunk attribute)</a>
 </li>
+      <li><a href="api/metrics.html#metrics.track_file_saved">track_file_saved() (in module metrics)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.track_github_sync">track_github_sync() (in module metrics)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.track_performance">track_performance() (in module metrics)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.track_search_performed">track_search_performed() (in module metrics)</a>
+</li>
+      <li><a href="api/predictive_engine.html#predictive_engine.Trend">Trend (class in predictive_engine)</a>
+</li>
+      <li><a href="api/services.investigation_service.html#services.investigation_service.triage">triage() (in module services.investigation_service)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.triage_command">triage_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/utils.html#utils.TextUtils.truncate_text">truncate_text() (utils.TextUtils static method)</a>
 </li>
   </ul></td>
@@ -2839,16 +4226,38 @@
 <h2 id="U">U</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/database.models.html#database.models.CodeSnippet.updated_at">updated_at (database.models.CodeSnippet attribute)</a>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.update_bookmark_color">update_bookmark_color() (database.bookmarks_manager.BookmarksManager method)</a>
 
       <ul>
+        <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.update_bookmark_color">(in module webapp.bookmarks_api)</a>
+</li>
+      </ul></li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.update_bookmark_color_by_anchor">update_bookmark_color_by_anchor() (database.bookmarks_manager.BookmarksManager method)</a>
+</li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.update_bookmark_note">update_bookmark_note() (database.bookmarks_manager.BookmarksManager method)</a>
+
+      <ul>
+        <li><a href="api/webapp.bookmarks_api.html#webapp.bookmarks_api.update_bookmark_note">(in module webapp.bookmarks_api)</a>
+</li>
+      </ul></li>
+      <li><a href="api/database.bookmarks_manager.html#database.bookmarks_manager.BookmarksManager.update_bookmark_note_by_anchor">update_bookmark_note_by_anchor() (database.bookmarks_manager.BookmarksManager method)</a>
+</li>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.updated_at">updated_at (database.bookmark.FileBookmark attribute)</a>
+
+      <ul>
+        <li><a href="api/database.models.html#database.models.CodeSnippet.updated_at">(database.models.CodeSnippet attribute)</a>
+</li>
         <li><a href="api/database.models.html#database.models.LargeFile.updated_at">(database.models.LargeFile attribute)</a>
+</li>
+        <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffInfo.updated_at">(services.backoff_state.BackoffInfo attribute)</a>
 </li>
       </ul></li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.upload_all_saved_zip_backups">upload_all_saved_zip_backups() (in module services.google_drive_service)</a>
 </li>
       <li><a href="api/services.google_drive_service.html#services.google_drive_service.upload_bytes">upload_bytes() (in module services.google_drive_service)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler.upload_large_files_menu">upload_large_files_menu() (github_menu_handler.GitHubMenuHandler method)</a>
 
       <ul>
@@ -2857,11 +4266,13 @@
       </ul></li>
       <li><a href="api/github_upload_fix.html#github_upload_fix.upload_to_github_fixed">upload_to_github_fixed() (in module github_upload_fix)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.uptime_command">uptime_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchJob.user_id">user_id (batch_processor.BatchJob attribute)</a>
 
       <ul>
+        <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.user_id">(database.bookmark.FileBookmark attribute)</a>
+</li>
         <li><a href="api/database.models.html#database.models.CodeSnippet.user_id">(database.models.CodeSnippet attribute)</a>
 </li>
         <li><a href="api/database.models.html#database.models.LargeFile.user_id">(database.models.LargeFile attribute)</a>
@@ -2889,15 +4300,27 @@
 <h2 id="V">V</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.valid">valid (database.bookmark.FileBookmark attribute)</a>
+</li>
+      <li><a href="api/services.code_service.html#services.code_service.validate_code_input">validate_code_input() (in module services.code_service)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.validate_command">validate_command() (bot_handlers.AdvancedBotHandlers method)</a>
+</li>
       <li><a href="api/batch_processor.html#batch_processor.BatchProcessor.validate_files_batch">validate_files_batch() (batch_processor.BatchProcessor method)</a>
 </li>
       <li><a href="api/utils.html#utils.SecurityUtils.validate_user_input">validate_user_input() (utils.SecurityUtils static method)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult.validation_passed">validation_passed (refactoring_engine.RefactorResult attribute)</a>
+</li>
       <li><a href="api/utils.html#utils.ValidationUtils">ValidationUtils (class in utils)</a>
 </li>
+      <li><a href="api/setup_bookmarks.html#setup_bookmarks.verify_installation">verify_installation() (in module setup_bookmarks)</a>
+</li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.version">version (database.models.CodeSnippet attribute)</a>
+</li>
+      <li><a href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.versions_command">versions_command() (bot_handlers.AdvancedBotHandlers method)</a>
 </li>
       <li><a href="api/large_files_handler.html#large_files_handler.LargeFilesHandler.view_large_file">view_large_file() (large_files_handler.LargeFilesHandler method)</a>
 </li>
@@ -2907,10 +4330,26 @@
 <h2 id="W">W</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/config.html#config.BotConfig.WEBAPP_URL">WEBAPP_URL (config.BotConfig attribute)</a>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.warnings">warnings (refactoring_engine.RefactorProposal attribute)</a>
 </li>
+      <li>
+    webapp
+
+      <ul>
+        <li><a href="api/webapp.html#module-webapp">module</a>
+</li>
+      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    webapp.bookmarks_api
+
+      <ul>
+        <li><a href="api/webapp.bookmarks_api.html#module-webapp.bookmarks_api">module</a>
+</li>
+      </ul></li>
+      <li><a href="api/config.html#config.BotConfig.WEBAPP_URL">WEBAPP_URL (config.BotConfig attribute)</a>
+</li>
       <li><a href="api/fix_telegram_parse_error.html#fix_telegram_parse_error.wrap_edit_message_calls">wrap_edit_message_calls() (in module fix_telegram_parse_error)</a>
 </li>
   </ul></td>

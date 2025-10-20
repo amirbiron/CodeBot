@@ -35,7 +35,7 @@
 
 .. code-block:: bash
 
-   pip install -r requirements.txt
+   pip install -r requirements/production.txt
 
 3. הגדר משתני סביבה
 ~~~~~~~~~~~~~~~~~~~
@@ -174,7 +174,7 @@
 
    # נסה עם pip מעודכן
    pip install --upgrade pip
-   pip install -r requirements.txt
+   pip install -r requirements/production.txt
 
 תמיכה
 ------

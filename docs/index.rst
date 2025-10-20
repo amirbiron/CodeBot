@@ -57,6 +57,7 @@ Code Keeper Bot - תיעוד API
    development
    integrations
    security
+   monitoring
    user/bookmarks
    user/share_code
    user/github_browse
@@ -82,6 +83,17 @@ Code Keeper Bot - תיעוד API
    alerts
    sentry
    runbooks/logging-levels
+
+.. toctree::
+   :maxdepth: 2
+   :caption: ChatOps
+
+   chatops/overview
+   chatops/commands
+   chatops/playbooks
+   chatops/permissions
+   chatops/troubleshooting
+   chatops/faq
 
 .. toctree::
    :maxdepth: 2

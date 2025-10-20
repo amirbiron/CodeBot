@@ -36,6 +36,14 @@ extensions = [
     'sphinx_autodoc_typehints',
     'sphinx_rtd_theme',
     'sphinxcontrib.mermaid',
+    # אפשר תמיכה ב-Markdown דרך MyST עבור פרקי ChatOps
+    'myst_parser',
+]
+
+# הגדרות בסיסיות עבור MyST (להימנע מאזהרות וקישורים נוחים בין עמודים)
+myst_enable_extensions = [
+    'colon_fence',
+    'deflist',
 ]
 
 # Napoleon settings for Google and NumPy style docstrings
@@ -91,6 +99,17 @@ exclude_patterns = [
     '.DS_Store',
     'api/get-pip.rst',
     '_templates/**',  # exclude RST templates not in toctree
+    # הימנעות מכפילויות ותוכן שלא בתוכן העניינים כאשר MyST פעיל
+    'logging_schema.rst',  # יש גם logging_schema.md שמוכלל
+    'AGENTS_FAQ.md', 'AGENTS_FAQ.md.rst',
+    'DEPENDENCY_LOCKING.md', 'DEPENDENCY_LOCKING.md.rst',
+    'DOCUMENTATION_GUIDE.md', 'DOCUMENTATION_GUIDE.md.rst',
+    'README.md', 'README.md.rst',
+    'SECURITY_TOKENS.md', 'SECURITY_TOKENS.md.rst',
+    'api-examples.md', 'api-examples.md.rst',
+    'auto-updates-and-auto-merge.md', 'auto-updates-and-auto-merge.md.rst',
+    'oncall_rotation.md', 'oncall_rotation.md.rst',
+    'sequence_diagrams.md', 'sequence_diagrams.md.rst',
 ]
 
 # The language for content

@@ -16,6 +16,18 @@ CI/CD Guide
 - 🧪 Unit Tests (3.11)
 - 🧪 Unit Tests (3.12)
 
+ריכוז CI (Overview)
+--------------------
+
+- **Code Quality & Security** – בדיקות סטטיות ואבטחה
+- **Unit Tests (3.11/3.12)** – טסטי יחידה במטריצת גרסאות
+- **Performance Tests** – טסטי ביצועים (ברירת מחדל: הכל; Draft + ``perf-light``: רק קלים). דוחות זמני ריצה נשמרים כארטיפקטים.
+
+קישורים מהירים:
+
+- Actions (Performance): ``https://github.com/<OWNER>/<REPO>/actions/workflows/performance-tests.yml``
+- ריצת ה‑PR: בתגובות ה‑PR מתווסף קישור אוטומטי ל‑Run ול‑Artifact.
+
 בדיקות מומלצות
 ---------------
 
