@@ -84,6 +84,7 @@
 - Issues קשורים: #
 - Docs Preview: <!-- הוסף כאן קישור ל-RTD Preview של ה-PR, אם קיים -->
 - מסמכים/מפרטים רלוונטיים:
+ - [Branch Protection & PR Rules](../docs/branch-protection-and-pr-rules.rst)
 
 ## 🧯 סיכון / החזרה לאחור (Rollback)
 - תוכנית חזרה לאחור במקרה תקלה:

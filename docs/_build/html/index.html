@@ -53,6 +53,7 @@
 <li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#tmp">מחיקה בטוחה (רק ב-/tmp)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#pr">קומיטים ו-PR</a></li>
 <li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#id5">קישורים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#cheatsheet-github-cli-gh">Cheatsheet – GitHub CLI (gh)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">התחלה מהירה - מפתחים</a><ul>
@@ -125,6 +126,14 @@
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id5">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="branch-protection-and-pr-rules.html">Branch Protection &amp; PR Rules</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id2">כללי ענפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#pr">חוקי PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#ci-required-checks">CI – Required Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id3">קישורים</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">מדריכים בסיסיים:</span></p>
 <ul>
@@ -166,6 +175,7 @@
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id2">טבלה מרכזית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
 </ul>
 </li>
 </ul>
@@ -1048,6 +1058,17 @@
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#google-drive-oauth-flow">Google Drive (OAuth Flow)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#telegram-webhooks-vs-polling">Telegram Webhooks vs Polling</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#github-scopes">GitHub – Scopes נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#repository-providers">Repository Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#best-practices-monorepos">Best Practices – מאגרים גדולים/Monorepos</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="repository-integrations.html">Repository Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id2">מצב תמיכה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id3">הערות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Guide</a><ul>
@@ -1083,6 +1104,15 @@
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#id3">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="git-lfs.html">Git LFS Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#lfs">מתי להשתמש ב‑LFS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id2">התקנה בסיסית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id3">מגבלות וגבולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
@@ -1216,6 +1246,18 @@
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="runbooks/github_backup_restore.html">GitHub Backup &amp; Restore Runbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id2">דרישות מקדימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#checkpoint-tag">יצירת נקודת גיבוי (Checkpoint Tag)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#zip">יצירת ארכיון ZIP</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id3">שחזור – בדיקה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id4">שחזור מלא לפרודקשן (זהירות!)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id7">קישורים</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
 <ul>
@@ -1316,6 +1358,7 @@
 <li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#tmp">מחיקה בטוחה (רק ב-/tmp)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#pr">קומיטים ו-PR</a></li>
 <li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#id5">קישורים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart-ai.html#cheatsheet-github-cli-gh">Cheatsheet – GitHub CLI (gh)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">התחלה מהירה - מפתחים</a><ul>
@@ -1385,6 +1428,14 @@
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id5">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="branch-protection-and-pr-rules.html">Branch Protection &amp; PR Rules</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id2">כללי ענפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#pr">חוקי PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#ci-required-checks">CI – Required Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id3">קישורים</a></li>
+</ul>
+</li>
 </ul>
 </div>
 <div class="toctree-wrapper compound">
@@ -1418,6 +1469,7 @@
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id2">טבלה מרכזית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
 </ul>
 </li>
 </ul>
@@ -1591,6 +1643,17 @@
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#google-drive-oauth-flow">Google Drive (OAuth Flow)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#telegram-webhooks-vs-polling">Telegram Webhooks vs Polling</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#github-scopes">GitHub – Scopes נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#repository-providers">Repository Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#best-practices-monorepos">Best Practices – מאגרים גדולים/Monorepos</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="repository-integrations.html">Repository Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id2">מצב תמיכה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id3">הערות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Guide</a><ul>
@@ -1613,6 +1676,15 @@
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#id3">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="git-lfs.html">Git LFS Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#lfs">מתי להשתמש ב‑LFS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id2">התקנה בסיסית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id3">מגבלות וגבולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
@@ -1735,6 +1807,18 @@
 <li class="toctree-l1"><a class="reference internal" href="runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="runbooks/github_backup_restore.html">GitHub Backup &amp; Restore Runbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id2">דרישות מקדימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#checkpoint-tag">יצירת נקודת גיבוי (Checkpoint Tag)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#zip">יצירת ארכיון ZIP</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id3">שחזור – בדיקה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id4">שחזור מלא לפרודקשן (זהירות!)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id7">קישורים</a></li>
 </ul>
 </li>
 </ul>

@@ -89,3 +89,34 @@ Checklist לפני קומיט:
 - :doc:`examples`
 - :doc:`user/github_browse`
 - :doc:`webapp/overview`
+
+Cheatsheet – GitHub CLI (gh)
+----------------------------
+
+.. code-block:: bash
+
+   # התחברות והגדרת הרשאות
+   gh auth login
+   gh auth status
+
+   # עבודה עם Issues
+   gh issue list
+   gh issue view <NUMBER>
+
+   # עבודה עם Pull Requests
+   gh pr status
+   gh pr create --title "feat: add docs" --body "Why and tests"
+   gh pr checkout <NUMBER>
+   gh pr view --web
+
+   # Checks/Workflows
+   gh run list
+   gh run watch --exit-status
+
+   # עבודה עם Forks
+   gh repo fork --remote=true
+
+למידע נוסף:
+
+- :doc:`integrations`
+- :doc:`ci-cd`
