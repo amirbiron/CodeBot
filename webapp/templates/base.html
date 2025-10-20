@@ -434,6 +434,7 @@
     </style>
     
     {% block extra_css %}{% endblock %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}">
 </head>
@@ -539,6 +540,7 @@
     <script src="{{ uptime_widget_script_url }}" data-id="{{ uptime_widget_id }}" async></script>
     {% endif %}
     <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

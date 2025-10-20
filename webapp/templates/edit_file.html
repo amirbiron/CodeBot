@@ -20,7 +20,7 @@
     </div>
     <div>
       <label>שפה</label>
-      <select name="language" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <select id="languageSelect" name="language" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
         <option value="{{ file.language }}">— {{ file.language }} (נוכחית) —</option>
         <option value="text">זהה לפי סיומת/תוכן</option>
         {% for lang in languages %}
@@ -36,7 +36,7 @@
       <label>תגיות</label>
       <input type="text" name="tags" value="{{ file.tags | join(', ') }}" placeholder="#utils, #repo:owner/name" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
     </div>
-    <div>
+    <div id="editorContainer">
       <label>קוד</label>
       <textarea name="code" rows="18" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value }}</textarea>
     </div>
@@ -47,4 +47,27 @@
   </form>
 </div>
 {% endblock %}
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', async function () {
+    try {
+      const container = document.getElementById('editorContainer');
+      const languageSelect = document.getElementById('languageSelect');
+      if (container && window.editorManager && typeof window.editorManager.initEditor === 'function') {
+        await window.editorManager.initEditor(container, {
+          language: '{{ file.language }}',
+          value: {{ code_value | tojson }},
+          theme: 'dark'
+        });
+      }
+      if (languageSelect && window.editorManager && typeof window.editorManager.updateLanguage === 'function') {
+        languageSelect.addEventListener('change', async (e) => {
+          try { await window.editorManager.updateLanguage(e.target.value); } catch (_) {}
+        });
+      }
+    } catch (_) {}
+  });
+</script>
+{% endblock %}
+ 
 
