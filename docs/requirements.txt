@@ -4,7 +4,7 @@
 
 # Core Sphinx
 sphinx<8,>=7.4.0
-sphinx-rtd-theme==3.0.1
+sphinx-rtd-theme==3.0.2
 
 # Sphinx Extensions
 sphinx-autodoc-typehints==2.2.3
