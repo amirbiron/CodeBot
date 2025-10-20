@@ -5115,7 +5115,7 @@ class GitHubMenuHandler:
         pr_on = settings.get("pr", True)
         issues_on = settings.get("issues", True)
         interval = settings.get("interval", 300)
-        # הצגת תדירות: אם פחות מדקה, הצג בשניות; אחרת בדקות
+        # הצגת מרווח זמן: אם פחות מדקה, הצג בשניות; אחרת בדקות (ללא המילה "תדירות")
         freq_display = f"{interval} שנ׳" if interval < 60 else f"{int(interval/60)} ד׳"
         keyboard = [
             [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
@@ -5136,7 +5136,7 @@ class GitHubMenuHandler:
                 )
             ],
             [
-                InlineKeyboardButton("תדירות: 30שנ׳", callback_data="notifications_interval_30"),
+                InlineKeyboardButton("30שנ׳", callback_data="notifications_interval_30"),
                 InlineKeyboardButton("2ד׳", callback_data="notifications_interval_120"),
                 InlineKeyboardButton("5ד׳", callback_data="notifications_interval_300"),
                 InlineKeyboardButton("15ד׳", callback_data="notifications_interval_900"),
@@ -5145,7 +5145,7 @@ class GitHubMenuHandler:
         ]
         text = (
             f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
-            f"מצב: {'פעיל' if enabled else 'כבוי'} | תדירות: {freq_display}\n"
+            f"מצב: {'פעיל' if enabled else 'כבוי'} | ⏱ {freq_display}\n"
             f"התראות = בדיקת PRs/Issues חדשים/שעודכנו ושיגור הודעה אליך."
         )
         try:
