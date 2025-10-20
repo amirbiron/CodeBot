@@ -138,12 +138,12 @@ Samples (status, latency) → Adaptive Thresholds (mean+3σ)
 ## קישורים לתיעוד ChatOps
 
 - ראו את פרק ChatOps המלא:
-  - `chatops/overview`
-  - `chatops/commands`
-  - `chatops/playbooks`
-  - `chatops/permissions`
-  - `chatops/troubleshooting`
-  - `chatops/faq`
+  - [ChatOps – סקירה כללית](chatops/overview)
+  - [פקודות ChatOps](chatops/commands)
+  - [Playbooks](chatops/playbooks)
+  - [הרשאות ו-Rate Limit](chatops/permissions)
+  - [פתרון תקלות](chatops/troubleshooting)
+  - [שאלות נפוצות](chatops/faq)
 
 ## טיפים
 

@@ -3,9 +3,8 @@ database package
 
 .. automodule:: database
    :members:
-   :show-inheritance:
    :undoc-members:
-   :noindex:
+   :show-inheritance:
 
 Submodules
 ----------
@@ -13,6 +12,8 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
+   database.bookmark
+   database.bookmarks_manager
    database.manager
    database.models
    database.repository

@@ -57,6 +57,7 @@ Code Keeper Bot - תיעוד API
    development
    integrations
    security
+   monitoring
    user/bookmarks
    user/share_code
    user/github_browse

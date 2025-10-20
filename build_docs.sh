@@ -37,7 +37,7 @@ if ! command -v sphinx-build &> /dev/null; then
     echo -e "${YELLOW}Trying sphinx-build from user bin...${NC}"
 fi
 
-"$(command -v sphinx-build)" -b html . _build/html -q
+"$(command -v sphinx-build)" -b html . _build/html -W --keep-going -q
 
 # Check if build was successful
 if [ $? -eq 0 ]; then

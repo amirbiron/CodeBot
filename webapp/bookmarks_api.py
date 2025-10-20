@@ -86,23 +86,22 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
 @require_auth
 def toggle_bookmark(file_id):
     """
-    Toggle bookmark for a specific line in a file
-    
-    Request body:
-        {
-            "line_number": int,
-            "line_text": str (optional),
-            "note": str (optional),
-            "color": str (optional)
-        }
-    
-    Response:
-        {
-            "ok": bool,
-            "action": "added" | "removed" | "error",
-            "bookmark": {...} | null,
-            "error": str | null
-        }
+    Toggle bookmark for a specific line in a file.
+
+    Args:
+        file_id: The ID of the file to toggle a bookmark for.
+
+    Returns:
+        A Flask response with a JSON body describing the action performed.
+
+    Example:
+        Request JSON::
+
+            {"line_number": 12, "line_text": "print('hi')", "note": "בדיקה", "color": "yellow"}
+
+        Response JSON::
+
+            {"ok": true, "action": "added", "bookmark": {"line_number": 12, "color": "yellow"}, "error": null}
     """
     try:
         user_id = session['user_id']
@@ -176,17 +175,13 @@ def toggle_bookmark(file_id):
 @require_auth
 def get_file_bookmarks(file_id):
     """
-    Get all bookmarks for a specific file
-    
-    Query params:
-        include_invalid: bool (default: false) - include invalid bookmarks
-    
-    Response:
-        {
-            "ok": bool,
-            "bookmarks": [...],
-            "count": int
-        }
+    Get all bookmarks for a specific file.
+
+    Query parameters:
+    - include_invalid: bool (default: false) – whether to include invalid bookmarks
+
+    Returns:
+        A Flask response with a JSON body containing the bookmarks and count.
     """
     try:
         user_id = session['user_id']
@@ -210,19 +205,14 @@ def get_file_bookmarks(file_id):
 @require_auth
 def get_all_bookmarks():
     """
-    Get all bookmarks for current user
-    
-    Query params:
-        limit: int (default: 100)
-        skip: int (default: 0)
-    
-    Response:
-        {
-            "ok": bool,
-            "files": [...],
-            "total_bookmarks": int,
-            "files_count": int
-        }
+    Get all bookmarks for the current user.
+
+    Query parameters:
+    - limit: int (default: 100)
+    - skip: int (default: 0)
+
+    Returns:
+        A Flask response with aggregated bookmarks grouped by files.
     """
     try:
         user_id = session['user_id']
@@ -258,12 +248,12 @@ def get_all_bookmarks():
 @require_auth
 def update_bookmark_note(file_id, line_number):
     """
-    Update note for a specific bookmark
-    
-    Request body:
-        {
-            "note": str
-        }
+    Update note for a specific bookmark.
+
+    Example:
+        Request JSON::
+
+            {"note": "כאן הערה"}
     """
     try:
         user_id = session['user_id']
@@ -357,18 +347,11 @@ def clear_file_bookmarks(file_id):
 @require_auth
 def check_file_sync(file_id):
     """
-    Check if bookmarks need sync due to file changes
-    
-    Request body:
-        {
-            "content": str (file content)
-        }
-    
-    Response:
-        {
-            "changed": bool,
-            "affected": [...] 
-        }
+    Check if bookmarks need sync due to file changes.
+
+    Request JSON: {"content": "<file content>"}
+
+    Returns: {"changed": bool, "affected": [...]}
     """
     try:
         data = request.get_json()
