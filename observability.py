@@ -386,9 +386,9 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
         _IN_SINGLE_ERROR_ALERT = True
         try:
             from internal_alerts import emit_internal_alert  # type: ignore
-            # Use non-error severity for the internal log event to avoid re-entry paths,
-            # the sink forwarding still occurs for non-critical severities.
-            emit_internal_alert(name=name, severity="warn", summary=summary)
+            # Emit the internal alert as an error to reflect the source severity.
+            # Re-entry is prevented by the _IN_SINGLE_ERROR_ALERT guard above.
+            emit_internal_alert(name=name, severity="error", summary=summary)
         except Exception:
             # As a fallback, log directly without re-entering emit_event to avoid recursion
             try:
