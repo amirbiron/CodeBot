@@ -116,6 +116,11 @@ class AdvancedBotHandlers:
             "status",
             chat_allowlist_required(admin_required(self.status_command))
         ))
+        # Alias for detailed health check via chat (same as /status for now)
+        self.application.add_handler(CommandHandler(
+            "health",
+            chat_allowlist_required(admin_required(self.status_command))
+        ))
         self.application.add_handler(CommandHandler(
             "observe",
             chat_allowlist_required(admin_required(self.observe_command))
