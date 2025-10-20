@@ -48,34 +48,51 @@ class BookmarksManager:
     def _ensure_indexes(self):
         """יצירת אינדקסים לביצועים מיטביים"""
         try:
+            # תיקון נתוני עבר: ודא שאין שדה anchor_id ריק/None במסמכי שורות רגילים
+            try:
+                self.collection.update_many(
+                    {"anchor_id": {"$in": [None, ""]}},
+                    {"$unset": {"anchor_id": ""}}
+                )
+            except Exception:
+                pass
+
+            # במידה וקיים אינדקס ישן על anchor_id (sparse) – הסר אותו כדי ליצור partial index נכון
+            try:
+                self.collection.drop_index("unique_user_file_anchor")
+            except Exception:
+                pass
+
             indexes = [
-                # אינדקס ייחודי למניעת כפילויות
+                # אינדקס ייחודי למניעת כפילויות בשורה
                 IndexModel(
                     [("user_id", ASCENDING), ("file_id", ASCENDING), ("line_number", ASCENDING)],
                     unique=True,
-                    name="unique_user_file_line"
+                    name="unique_user_file_line",
                 ),
-                # אינדקס ייחודי לסימניות עוגן (sparse כדי לא לכפות ייחודיות כשאין עוגן)
+                # אינדקס ייחודי לסימניות עוגן בלבד: נאכף רק כשanchor_id הוא מחרוזת לא-ריקה
                 IndexModel(
                     [("user_id", ASCENDING), ("file_id", ASCENDING), ("anchor_id", ASCENDING)],
                     unique=True,
                     name="unique_user_file_anchor",
-                    sparse=True
+                    partialFilterExpression={
+                        "anchor_id": {"$type": "string", "$ne": ""}
+                    },
                 ),
                 # אינדקס לחיפוש מהיר לפי משתמש וקובץ
                 IndexModel(
                     [("user_id", ASCENDING), ("file_id", ASCENDING)],
-                    name="user_file_lookup"
+                    name="user_file_lookup",
                 ),
                 # אינדקס לחיפוש לפי משתמש בלבד
                 IndexModel(
                     [("user_id", ASCENDING), ("created_at", DESCENDING)],
-                    name="user_recent_bookmarks"
+                    name="user_recent_bookmarks",
                 ),
                 # אינדקס לחיפוש טקסט בהערות
                 IndexModel(
                     [("note", "text")],
-                    name="note_text_search"
+                    name="note_text_search",
                 ),
                 # TTL index למחיקה אוטומטית של סימניות ישנות (אופציונלי - שנה)
                 # IndexModel(
@@ -84,10 +101,10 @@ class BookmarksManager:
                 #     name="ttl_old_bookmarks"
                 # )
             ]
-            
+
             self.collection.create_indexes(indexes)
             logger.info("Bookmarks indexes created successfully")
-            
+
         except Exception as e:
             logger.warning(f"Failed to create some bookmarks indexes: {e}")
     
@@ -190,6 +207,7 @@ class BookmarksManager:
                 line_text_preview=line_text[:100] if line_text else "",
                 note=note,
                 color=color,
+                # הכנס עוגן רק אם זה מזהה מחרוזת לא-ריקה כדי להתיישר עם ה-partial index
                 anchor_id=(anchor_id or ""),
                 anchor_text=(anchor_text or ""),
                 anchor_type=(anchor_type or ""),

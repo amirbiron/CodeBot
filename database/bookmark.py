@@ -66,7 +66,7 @@ class FileBookmark:
             "last_accessed": self.last_accessed
         }
         # הוסף שדות עוגן רק כאשר קיים anchor_id ממשי (לא ריק)
-        if (self.anchor_id or "").strip():
+        if isinstance(self.anchor_id, str) and (self.anchor_id or "").strip():
             data["anchor_id"] = self.anchor_id
             if self.anchor_text:
                 data["anchor_text"] = self.anchor_text
