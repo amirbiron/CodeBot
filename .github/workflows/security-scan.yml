@@ -75,7 +75,6 @@ jobs:
       - name: "🛠️ Build app image (production)"
         run: |
           docker build --pull --no-cache -t app:scan --target production .
-        continue-on-error: true
 
       - name: "🧪 Trivy Image scan (app:scan)"
         uses: aquasecurity/trivy-action@0.24.0
