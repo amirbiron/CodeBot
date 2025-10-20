@@ -41,8 +41,6 @@ jobs:
 
       - name: "🔍 Perform CodeQL Analysis"
         uses: github/codeql-action/analyze@v3
-        with:
-          category: "security-scan"
         continue-on-error: true
       - name: 🐍 Setup Python
         uses: actions/setup-python@v5
