@@ -103,6 +103,8 @@ app.config['COMPRESS_ALGORITHM'] = ['br', 'gzip']
 app.config['COMPRESS_LEVEL'] = 6
 app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
+# לוגר מודולרי לשימוש פנימי
+logger = logging.getLogger(__name__)
 # --- Correlation ID across services (request_id) ---
 try:
     from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid  # type: ignore
@@ -1355,7 +1357,7 @@ def api_search_global():
                     'snippet': (_safe_getattr(r, 'snippet_preview', '') or '')[:200],
                     'highlights': _safe_getattr(r, 'highlight_ranges', []) or [],
                     'matches': (_safe_getattr(r, 'matches', []) or [])[:5],
-                    'updated_at': (_safe_getattr(r, 'updated_at', datetime.now(timezone.utc)) or datetime.now(timezone.utc)).isoformat(),
+                    'updated_at': safe_iso((_safe_getattr(r, 'updated_at', datetime.now(timezone.utc)) or datetime.now(timezone.utc)), field='updated_at'),
                     'size': len(_safe_getattr(r, 'content', '') or ''),
                 }
                 for r in page_results
@@ -1542,6 +1544,27 @@ def get_language_icon(language: str) -> str:
         'markdown': '📝',
     }
     return icons.get(language.lower(), '📄')
+
+# המרה בטוחה למחרוזת ISO8601; לא מפילה על טיפוס שגוי
+def safe_iso(value, field: str = "") -> str:
+    if isinstance(value, str):
+        return value  # כבר בפורמט טקסטואלי
+    try:
+        return value.isoformat()  # type: ignore[attr-defined]
+    except Exception:
+        try:
+            # אזהרה תחקורית – לא מפילה את הזרימה
+            logger.warning(
+                "Non-datetime value in isoformat field=%s type=%s",
+                field,
+                type(value).__name__,
+            )
+        except Exception:
+            pass
+        try:
+            return str(value)
+        except Exception:
+            return ""
 
 # עיצוב תאריך בטוח לתצוגה ללא נפילה לברירת מחדל של עכשיו
 def format_datetime_display(value) -> str:

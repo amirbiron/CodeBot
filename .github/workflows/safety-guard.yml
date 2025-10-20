@@ -59,6 +59,23 @@ jobs:
             done < <(printf '%s\n' $sh_files) >> flagged.txt
           fi
 
+          # Truncate very long lines to keep PR comment readable (e.g., *.map JSON lines)
+          MAX_COLS=240
+          truncate_lines() { # $1=in $2=out
+            local in_file="$1" out_file="$2"
+            if [ -s "$in_file" ]; then
+              awk -v maxc="$MAX_COLS" '{
+                if (length($0) > maxc) {
+                  print substr($0, 1, maxc) " … [truncated]";
+                } else { print $0 }
+              }' "$in_file" > "$out_file"
+            else
+              : > "$out_file"
+            fi
+          }
+          truncate_lines matches_excluded.txt matches_excluded_short.txt
+          truncate_lines flagged.txt flagged_short.txt
+
           num_flagged=$(grep -c ':' flagged.txt 2>/dev/null || echo 0)
           num_excluded=$(grep -c ':' matches_excluded.txt 2>/dev/null || echo 0)
           num_all=$(grep -c ':' matches_all.txt 2>/dev/null || echo 0)
@@ -74,10 +91,20 @@ jobs:
             echo "- Total matches (all files): ${num_all}"
             echo
             echo "Flagged findings (file:line:snippet):"
-            cat flagged.txt 2>/dev/null || true
+            if [ -s flagged_short.txt ]; then
+              echo '```'
+              cat flagged_short.txt
+              echo '```'
+            else
+              echo "(none)"
+            fi
             echo
-            echo "Excluded matches (by path pattern):"
-            cat matches_excluded.txt 2>/dev/null || true
+            echo "<details><summary>Excluded matches (by path pattern)</summary>"
+            echo
+            echo '```'
+            cat matches_excluded_short.txt 2>/dev/null || true
+            echo '```'
+            echo "</details>"
           } > scan_report.md
 
           if [ "$num_flagged" -gt 0 ]; then
