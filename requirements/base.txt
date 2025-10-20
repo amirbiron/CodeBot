@@ -90,7 +90,7 @@ rapidfuzz==3.14.1
 
 # CLI Tools
 rich==14.2.0
-typer==0.9.0
+typer==0.19.2
 
 # Resilience utilities
 tenacity==9.1.2
