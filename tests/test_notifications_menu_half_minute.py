@@ -73,9 +73,9 @@ async def test_notifications_menu_shows_30s_option_and_displays_seconds(monkeypa
 
     await handler.handle_menu_callback(update, context)
 
-    # Validate text shows seconds for sub-minute intervals
+    # Validate text shows seconds for sub-minute intervals (new wording without the word 'תדירות')
     all_text = "\n".join(update.callback_query.message.texts)
-    assert "תדירות: 30 שנ׳" in all_text
+    assert "⏱ 30 שנ׳" in all_text
 
     # Validate keyboard contains a 30s option button
     # reply_markup is a list of rows; each button is (args, kwargs)
@@ -86,7 +86,7 @@ async def test_notifications_menu_shows_30s_option_and_displays_seconds(monkeypa
         for row in rows:
             for button in row:
                 label = button[0][0] if button and button[0] else ""
-                if "תדירות: 30שנ׳" in label:
+                if "30שנ׳" in label:
                     found_30s = True
                     break
             if found_30s:
