@@ -265,10 +265,15 @@ def emit_anomaly(name: str, **fields: Any) -> None:
 # --- Optional: alert on each individual error (rate-limited) ---
 # Controlled by env ALERT_EACH_ERROR={1|true|yes} and ALERT_EACH_ERROR_COOLDOWN_SECONDS (default 120)
 _SINGLE_ERROR_ALERT_LAST_TS: Dict[str, float] = {}
+# Re-entrancy guard to avoid recursive loops via internal alert logging/forwarders
+_IN_SINGLE_ERROR_ALERT: bool = False
 
 
 def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
     try:
+        global _IN_SINGLE_ERROR_ALERT
+        if _IN_SINGLE_ERROR_ALERT:
+            return
         enabled = str(os.getenv("ALERT_EACH_ERROR", "")).lower() in {"1", "true", "yes", "on"}
         if not enabled:
             return
@@ -288,7 +293,8 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
 
         # Ignore our own fallback marker to prevent recursive loops
         ev_name = str(fields.get("event") or event or "").strip()
-        if ev_name.lower() == "single_error_alert_fallback":
+        # Ignore our own system/internal events to prevent re-triggering
+        if ev_name.lower() in {"single_error_alert_fallback", "internal_alert", "alert_received"}:
             return
 
         # Build a stable key to rate-limit similar errors
@@ -329,14 +335,19 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
         summary = ", ".join(parts)
 
         # Defer import to avoid import cycles and make this best-effort
+        _IN_SINGLE_ERROR_ALERT = True
         try:
             from internal_alerts import emit_internal_alert  # type: ignore
-            emit_internal_alert(name=name, severity="error", summary=summary)
+            # Use non-error severity for the internal log event to avoid re-entry paths,
+            # the sink forwarding still occurs for non-critical severities.
+            emit_internal_alert(name=name, severity="warn", summary=summary)
         except Exception:
             # As a fallback, log directly without re-entering emit_event to avoid recursion
             try:
                 structlog.get_logger().warning(event="single_error_alert_fallback", name=name, summary=summary)
             except Exception:
                 pass
+        finally:
+            _IN_SINGLE_ERROR_ALERT = False
     except Exception:
         return
