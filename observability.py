@@ -286,8 +286,13 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
         include_patterns = _parse_patterns("ALERT_EACH_ERROR_INCLUDE")
         exclude_patterns = _parse_patterns("ALERT_EACH_ERROR_EXCLUDE")
 
+        # Ignore our own fallback marker to prevent recursive loops
+        ev_name = str(fields.get("event") or event or "").strip()
+        if ev_name.lower() == "single_error_alert_fallback":
+            return
+
         # Build a stable key to rate-limit similar errors
-        name = str(fields.get("event") or event or "error")
+        name = ev_name or "error"
         err_code = str(fields.get("error_code") or "")
         operation = str(fields.get("operation") or "")
         key = "|".join([name, err_code, operation])
@@ -328,9 +333,9 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
             from internal_alerts import emit_internal_alert  # type: ignore
             emit_internal_alert(name=name, severity="error", summary=summary)
         except Exception:
-            # As a fallback, emit a structured event only
+            # As a fallback, log directly without re-entering emit_event to avoid recursion
             try:
-                emit_event("single_error_alert_fallback", severity="error", name=name, summary=summary)
+                structlog.get_logger().warning(event="single_error_alert_fallback", name=name, summary=summary)
             except Exception:
                 pass
     except Exception:
