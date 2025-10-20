@@ -399,14 +399,33 @@ class BookmarkManager {
                 return;
             }
             
-            // לחיצה על הסימנייה - גלול לשורה
+            // לחיצה על הסימנייה - גלול לשורה/עוגן
             if (anchorId) {
-                // נסה במרתף הדף, ואם לא – בתוך ה-iframe של תצוגת HTML
-                const el = document.getElementById(anchorId);
+                // נסה בעמוד הנוכחי (תצוגת MD) ע"פ anchorId
+                let el = document.getElementById(anchorId);
+                if (!el) {
+                    // תצוגות ישנות/עוגנים לא תואמים – נסה למצוא לפי טקסט הכותרת
+                    try {
+                        const anchorText = bookmarkItem.dataset.anchorText || '';
+                        if (anchorText) {
+                            const normalize = (s) => (s || '').replace(/\u00b6|¶/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                            const targetText = normalize(anchorText);
+                            const mdRoot = document.getElementById('md-content');
+                            if (mdRoot) {
+                                const candidates = Array.from(mdRoot.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+                                el = candidates.find(h => {
+                                    const ht = normalize(h.textContent || '');
+                                    return ht === targetText || ht.includes(targetText) || targetText.includes(ht);
+                                }) || null;
+                            }
+                        }
+                    } catch(_) {}
+                }
                 if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     this.ui.addAnchorIndicator(el);
                 } else {
+                    // נסיון אחרון – בתוך iframe של תצוגות אחרות
                     try {
                         const frame = document.getElementById('previewFrame');
                         const doc = frame && (frame.contentDocument || frame.contentWindow?.document);
@@ -1248,7 +1267,9 @@ class BookmarkUI {
             const isAnchor = !!(bm.anchor_id);
             const title = isAnchor ? (bm.anchor_text || `#${bm.anchor_id}`) : `שורה ${bm.line_number}`;
             const subtitle = isAnchor ? (bm.line_text_preview || '') : (bm.line_text_preview || '');
-            const attrs = isAnchor ? `data-anchor-id="${this.escapeHtml(bm.anchor_id)}"` : `data-line-number="${bm.line_number}"`;
+            const attrs = isAnchor
+                ? `data-anchor-id="${this.escapeHtml(bm.anchor_id)}" data-anchor-text="${this.escapeHtml(bm.anchor_text || '')}"`
+                : `data-line-number="${bm.line_number}"`;
             return `
             <div class="bookmark-item" ${attrs} data-color="${bm.color || 'yellow'}">
                 <div class="bookmark-content">
