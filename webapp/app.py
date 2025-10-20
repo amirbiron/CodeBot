@@ -3941,6 +3941,42 @@ def api_ui_prefs():
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
+
+# --- User preferences (generic) ---
+@app.route('/api/user/preferences', methods=['POST'])
+@login_required
+def update_user_preferences():
+    """עדכון העדפות משתמש כלליות (כעת: סוג עורך).
+
+    מבנה קלט צפוי (JSON): { "editor_type": "simple" | "codemirror" }
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        editor_type = (payload.get('editor_type') or '').strip().lower()
+        if editor_type not in {'simple', 'codemirror'}:
+            return jsonify({'ok': False, 'error': 'Invalid editor type'}), 400
+
+        # עדכון session כדי להשפיע מיידית ב-render
+        session['preferred_editor'] = editor_type
+
+        # שמירה ב-DB תחת ui_prefs.editor לשימור חוצה דיפלוימנטים
+        try:
+            from datetime import datetime, timezone
+            db = get_db()
+            user_id = session['user_id']
+            db.users.update_one(
+                {'user_id': user_id},
+                {'$set': {'ui_prefs.editor': editor_type, 'updated_at': datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+        except Exception:
+            # לא מפילים את הבקשה במקרה של DB בעייתי – נשמור לפחות בסשן
+            pass
+
+        return jsonify({'ok': True, 'editor_type': editor_type})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
 def api_public_stats():
