@@ -54,3 +54,4 @@ HEREDOC לקומיט::
 - :doc:`examples`
 - :doc:`user/github_browse`
 - :doc:`webapp/overview`
+- :doc:`branch-protection-and-pr-rules`

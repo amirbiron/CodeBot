@@ -44,7 +44,7 @@
      - ``@MyBot``
      - Bot/WebApp
    * - ``GITHUB_TOKEN``
-     - טוקן GitHub
+     - טוקן GitHub לשימוש בפעולות API. למינימום הרשאות ראו טבלת Scopes בהמשך.
      - לא
      - -
      - ``ghp_xxx...``
@@ -400,3 +400,23 @@ Production::
 
 - :doc:`installation`
 - :doc:`configuration`
+- `SECURITY_TOKENS (מסמך ריפו)` <https://github.com/amirbiron/CodeBot/blob/main/docs/SECURITY_TOKENS.md>`_
+
+טבלת Scopes לפיצ'רים של GitHub
+--------------------------------
+
+.. list-table:: Feature → Required Scopes
+   :header-rows: 1
+
+   * - Feature
+     - Required Scopes
+   * - Create Pull Request
+     - ``repo``, ``workflow``
+   * - Write files (Trees/Contents API)
+     - ``repo``
+   * - Read repository metadata (branches, commits, PRs)
+     - ``repo``
+   * - Trigger workflows / read checks status
+     - ``workflow``
+
+הערה: הקפידו להעניק הרשאות מינימליות בלבד. לפרטים נוספים ראו :doc:`integrations`.
