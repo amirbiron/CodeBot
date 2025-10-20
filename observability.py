@@ -14,6 +14,7 @@ import os
 import uuid
 from typing import Any, Dict
 import time
+from fnmatch import fnmatch
 import random
 import hashlib
 
@@ -277,11 +278,37 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
         except Exception:
             cooldown = 120
 
+        # Optional include/exclude filters (comma-separated; supports * wildcard and substring)
+        def _parse_patterns(key: str) -> list[str]:
+            raw = (os.getenv(key) or "").strip()
+            return [p.strip() for p in raw.split(",") if p.strip()]
+
+        include_patterns = _parse_patterns("ALERT_EACH_ERROR_INCLUDE")
+        exclude_patterns = _parse_patterns("ALERT_EACH_ERROR_EXCLUDE")
+
         # Build a stable key to rate-limit similar errors
         name = str(fields.get("event") or event or "error")
         err_code = str(fields.get("error_code") or "")
         operation = str(fields.get("operation") or "")
         key = "|".join([name, err_code, operation])
+
+        def _matches_any(values: list[str], patterns: list[str]) -> bool:
+            if not patterns:
+                return False
+            for v in values:
+                lv = v.lower()
+                for pat in patterns:
+                    lp = pat.lower()
+                    if fnmatch(lv, lp) or (lp in lv):
+                        return True
+            return False
+
+        # Exclude takes precedence
+        if _matches_any([name, err_code, operation], exclude_patterns):
+            return
+        # If include provided, require a match
+        if include_patterns and not _matches_any([name, err_code, operation], include_patterns):
+            return
 
         now = time.time()
         last = float(_SINGLE_ERROR_ALERT_LAST_TS.get(key, 0.0) or 0.0)
