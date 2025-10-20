@@ -2175,6 +2175,8 @@ class GitHubMenuHandler:
                 repo = g.get_repo(repo_name)
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
+                    # נבנה ZIP מלא מהריפו (zipball). שמור metadata כדי לדעת אם ההורדה הצליחה
+                    metadata = None
                     try:
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
@@ -2273,27 +2275,28 @@ class GitHubMenuHandler:
                         except BadRequest as br:
                             if "message is not modified" not in str(br).lower():
                                 raise
-                    # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים עבור הריפו הנוכחי
-                    try:
-                        backup_handler = context.bot_data.get('backup_handler')
-                        if backup_handler is None:
-                            from backup_menu_handler import BackupMenuHandler
-                            backup_handler = BackupMenuHandler()
-                            context.bot_data['backup_handler'] = backup_handler
-                        # הגדר הקשר חזרה לסאב־תפריט GitHub וגבילת הרשימה לריפו הנוכחי
+                    # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים רק אם נוצר metadata (כלומר ההורדה הצליחה)
+                    if metadata is not None:
                         try:
-                            context.user_data['zip_back_to'] = 'github'
-                            context.user_data['github_backup_context_repo'] = repo.full_name
-                            context.user_data['backup_highlight_id'] = metadata.get('backup_id')
+                            backup_handler = context.bot_data.get('backup_handler')
+                            if backup_handler is None:
+                                from backup_menu_handler import BackupMenuHandler
+                                backup_handler = BackupMenuHandler()
+                                context.bot_data['backup_handler'] = backup_handler
+                            # הגדר הקשר חזרה לסאב־תפריט GitHub וגבילת הרשימה לריפו הנוכחי
+                            try:
+                                context.user_data['zip_back_to'] = 'github'
+                                context.user_data['github_backup_context_repo'] = repo.full_name
+                                context.user_data['backup_highlight_id'] = metadata.get('backup_id')
+                            except Exception:
+                                pass
+                            await backup_handler._show_backups_list(update, context, page=1)
                         except Exception:
-                            pass
-                        await backup_handler._show_backups_list(update, context, page=1)
-                    except Exception as br:
-                        try:
-                            await self.show_github_backup_menu(update, context)
-                        except BadRequest as br2:
-                            if "message is not modified" not in str(br2).lower():
-                                raise
+                            try:
+                                await self.show_github_backup_menu(update, context)
+                            except BadRequest as br2:
+                                if "message is not modified" not in str(br2).lower():
+                                    raise
                     return
 
                 zip_buffer = BytesIO()
@@ -3828,6 +3831,21 @@ class GitHubMenuHandler:
         logger.info(
             f"📝 GitHub text input handler: user={user_id}, waiting_for_repo={context.user_data.get('waiting_for_repo_url')}"
         )
+
+        # הזנת נתיב יעד ידני עבור העלאה (מתוך '✏️ הזן נתיב ידנית')
+        if context.user_data.get("waiting_for_upload_folder"):
+            context.user_data["waiting_for_upload_folder"] = False
+            folder_text = (text or "").strip()
+            # נרמל: הוסר קווים נטויים מיותרים בתחילה/בסוף ורצפים כפולים
+            try:
+                import re as _re
+                folder_clean = _re.sub(r"/+", "/", folder_text.strip("/"))
+            except Exception:
+                folder_clean = folder_text.strip("/")
+            context.user_data["upload_target_folder"] = folder_clean
+            await update.message.reply_text("✅ תיקיית יעד עודכנה. חוזר לבדיקות…")
+            await self.show_pre_upload_check(update, context)
+            return True
 
         # הנתיבים למחיקה/הורדה עוברים דרך דפדפן הכפתורים כעת, לכן אין צורך לטפל כאן
 
