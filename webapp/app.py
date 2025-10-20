@@ -3968,9 +3968,23 @@ def api_ui_prefs():
         resp = jsonify(resp_payload)
         try:
             if 'font_scale' in resp_payload:
-                resp.set_cookie('ui_font_scale', str(resp_payload['font_scale']), max_age=365*24*3600, samesite='Lax')
+                resp.set_cookie(
+                    'ui_font_scale',
+                    str(resp_payload['font_scale']),
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
             if 'theme' in resp_payload:
-                resp.set_cookie('ui_theme', resp_payload['theme'], max_age=365*24*3600, samesite='Lax')
+                resp.set_cookie(
+                    'ui_theme',
+                    resp_payload['theme'],
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
         except Exception:
             pass
         return resp
