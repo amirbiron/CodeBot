@@ -12,4 +12,5 @@
 
 ## קישורים
 
-- ראו גם: [Monitoring](../monitoring) ו-[Observability](../observability).
+- ראו גם: [Monitoring](../monitoring) ו-[Observability](../observability).  
+  עדכון מינורי לבדיקה מחדש של RTD.
