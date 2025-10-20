@@ -3941,6 +3941,44 @@ def api_ui_prefs():
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
+
+# --- User preferences (editor/theme etc.) ---
+@app.route('/api/user/preferences', methods=['POST'])
+@login_required
+def api_user_preferences():
+    """עדכון העדפות משתמש כלליות מה-frontend.
+
+    כיום בשימוש לשמירת סוג העורך ('codemirror' / 'simple').
+    שדה עתידי אפשרי: theme.
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        editor_type = (payload.get('editor_type') or '').strip().lower()
+        theme = (payload.get('theme') or '').strip().lower()
+
+        update_fields: Dict[str, Any] = {'updated_at': datetime.now(timezone.utc)}
+        if editor_type in {'codemirror', 'simple'}:
+            update_fields['ui_prefs.editor_type'] = editor_type
+        if theme in {'classic', 'ocean', 'forest'}:
+            update_fields['ui_prefs.theme'] = theme
+
+        db = get_db()
+        user_id = session['user_id']
+        db.users.update_one({'user_id': user_id}, {'$set': update_fields}, upsert=True)
+
+        resp = jsonify({'ok': True, 'editor_type': editor_type or None, 'theme': theme or None})
+        # שמירה בעוגיות לצורך אפקט מידי בעמודים ציבוריים / SSR
+        try:
+            if editor_type in {'codemirror', 'simple'}:
+                resp.set_cookie('pref_editor', editor_type, max_age=365*24*3600, samesite='Lax')
+            if theme in {'classic', 'ocean', 'forest'}:
+                resp.set_cookie('ui_theme', theme, max_age=365*24*3600, samesite='Lax')
+        except Exception:
+            pass
+        return resp
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
 def api_public_stats():
