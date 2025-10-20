@@ -125,13 +125,23 @@
         const prev = this.currentEditor;
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
         if (this.currentEditor === 'codemirror') {
-          await this.initCodeMirror(container, { language: 'text', value: this.textarea.value, theme: 'dark' });
+          const lang = this.getSelectedLanguage() || 'text';
+          await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark' });
         } else {
           this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
         }
         this.savePreference(this.currentEditor);
         try { switcher.querySelector('span').textContent = this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'; } catch(_) {}
       });
+    }
+
+    getSelectedLanguage() {
+      try {
+        const sel = document.getElementById('languageSelect');
+        const val = sel && sel.value;
+        if (typeof val === 'string' && val.trim()) return val;
+      } catch(_) {}
+      return null;
     }
 
     async updateLanguage(lang) {
