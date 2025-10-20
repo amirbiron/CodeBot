@@ -15,6 +15,7 @@ import uuid
 from typing import Any, Dict
 import time
 from fnmatch import fnmatch
+import threading
 import random
 import hashlib
 
@@ -267,6 +268,51 @@ def emit_anomaly(name: str, **fields: Any) -> None:
 _SINGLE_ERROR_ALERT_LAST_TS: Dict[str, float] = {}
 # Re-entrancy guard to avoid recursive loops via internal alert logging/forwarders
 _IN_SINGLE_ERROR_ALERT: bool = False
+_SINGLE_ERROR_ALERT_LOCK = threading.Lock()
+
+
+def _cleanup_single_error_keys(now: float, cooldown: int) -> None:
+    """Evict stale keys and cap the map size to prevent memory growth.
+
+    - TTL: ALERT_EACH_ERROR_TTL_SECONDS (default: max(cooldown*10, 3600))
+    - Max keys: ALERT_EACH_ERROR_MAX_KEYS (default: 1000)
+    """
+    try:
+        try:
+            ttl_env = os.getenv("ALERT_EACH_ERROR_TTL_SECONDS")
+            if ttl_env:
+                ttl = max(0, int(ttl_env))
+            else:
+                ttl = max(3600, int(cooldown) * 10)
+        except Exception:
+            ttl = max(3600, int(cooldown or 0) * 10)
+
+        try:
+            max_keys = int(os.getenv("ALERT_EACH_ERROR_MAX_KEYS", "1000"))
+        except Exception:
+            max_keys = 1000
+
+        # TTL eviction
+        if ttl > 0 and _SINGLE_ERROR_ALERT_LAST_TS:
+            stale_keys = [k for k, ts in list(_SINGLE_ERROR_ALERT_LAST_TS.items()) if (now - float(ts or 0.0)) > ttl]
+            for k in stale_keys:
+                _SINGLE_ERROR_ALERT_LAST_TS.pop(k, None)
+
+        # Size cap eviction (remove oldest by timestamp)
+        while max_keys > 0 and len(_SINGLE_ERROR_ALERT_LAST_TS) > max_keys:
+            oldest_key = None
+            oldest_ts = None
+            for k, ts in _SINGLE_ERROR_ALERT_LAST_TS.items():
+                fts = float(ts or 0.0)
+                if oldest_ts is None or fts < oldest_ts:
+                    oldest_ts = fts
+                    oldest_key = k
+            if oldest_key is None:
+                break
+            _SINGLE_ERROR_ALERT_LAST_TS.pop(oldest_key, None)
+    except Exception:
+        # Best-effort cleanup
+        return
 
 
 def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
@@ -322,10 +368,12 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
             return
 
         now = time.time()
-        last = float(_SINGLE_ERROR_ALERT_LAST_TS.get(key, 0.0) or 0.0)
-        if (now - last) < max(0, cooldown):
-            return
-        _SINGLE_ERROR_ALERT_LAST_TS[key] = now
+        with _SINGLE_ERROR_ALERT_LOCK:
+            last = float(_SINGLE_ERROR_ALERT_LAST_TS.get(key, 0.0) or 0.0)
+            if (now - last) < max(0, cooldown):
+                return
+            _SINGLE_ERROR_ALERT_LAST_TS[key] = now
+            _cleanup_single_error_keys(now, cooldown)
 
         # Keep summary privacy-friendly (avoid full exception text)
         rid = str(fields.get("request_id") or "")
