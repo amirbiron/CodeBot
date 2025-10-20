@@ -236,6 +236,18 @@ input.md-task-checkbox {
   font-weight: 500;
 }
 
+/* שבירת שורות לכותרות ארוכות בתצוגת Markdown */
+#md-content h1,
+#md-content h2,
+#md-content h3,
+#md-content h4,
+#md-content h5,
+#md-content h6 {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* אנימציות כניסה עדינות */
 #md-content > * {
   animation: fadeIn 0.4s ease-in;
@@ -774,7 +786,7 @@ input.md-task-checkbox {
     </div>
   <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
       {% if not is_public %}
-      <a href="#" onclick="return goBackToFile(event)" class="btn btn-secondary btn-icon">↩️ חזרה לקובץ</a>
+      <a href="#" onclick="return goBackToFile(event)" class="btn btn-secondary btn-icon">↩️ חזרה לתצוגת קוד</a>
       {% endif %}
     </div>
   </div>
@@ -889,6 +901,8 @@ input.md-task-checkbox {
 </div>
 
 <script>
+// מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
+const FILE_ID = "{{ file.id }}";
 // תוכן ה-Markdown מועבר בבטחה JSON-encoded
 const MD_TEXT = (function(){
   try {
@@ -1531,7 +1545,9 @@ function loadScript(src){
     WAIT_TIMEOUT: 5000,
     CHECK_INTERVAL: 100,
     LONG_PRESS_MS: 450,
-    MINI_POS_KEY: 'md_toc_mini_top'
+    MINI_POS_KEY: 'md_toc_mini_top',
+    MINIMIZED_KEY_GLOBAL: 'mdTocMinimized',
+    MINIMIZED_KEY_PER_FILE_PREFIX: 'mdTocMinimized:'
   };
   let tocState = {
     headings: [],
@@ -1643,6 +1659,8 @@ function loadScript(src){
       setupKeyboardShortcuts();
       setupProgressIndicator();
       tocElement.style.display = 'block';
+      // החלת העדפת מיזעור (גלובלי/פר-קובץ) לאחר בנייה
+      try { if (typeof getSavedMinimizedPreference === 'function' && getSavedMinimizedPreference()) { minimizeTOC(); } } catch(_) {}
       console.info(`TOC: נבנה בהצלחה עם ${headings.length} כותרות`);
     } catch (e) { console.error('TOC: שגיאה כללית בבנייה', e); hideTOC(); }
   }
@@ -1798,8 +1816,47 @@ function loadScript(src){
     document.addEventListener('keydown', keyboardHandler);
     tocState.clickHandlers.push({ element: document, event: 'keydown', handler: keyboardHandler });
   }
-  function minimizeTOC(){ const tocElement = document.getElementById('mdToc'); const miniBtn = document.getElementById('mdTocMini'); if (!tocElement || !miniBtn) return; tocState.isMinimized = true; tocElement.style.display = 'none'; miniBtn.style.display = 'block'; applyMiniTop(parseInt(miniBtn.style.top||String(getSavedMiniTop()),10)); }
-  function restoreTOC(){ const tocElement = document.getElementById('mdToc'); const miniBtn = document.getElementById('mdTocMini'); if (!tocElement || !miniBtn) return; tocState.isMinimized = false; tocElement.style.display = 'block'; miniBtn.style.display = 'none'; }
+  function setMinimizedPreference(isMinimized){
+    try {
+      // שמירה גלובלית
+      localStorage.setItem(CONFIG.MINIMIZED_KEY_GLOBAL, isMinimized ? '1' : '0');
+      // שמירה פר-קובץ
+      if (typeof FILE_ID !== 'undefined' && FILE_ID) {
+        localStorage.setItem(CONFIG.MINIMIZED_KEY_PER_FILE_PREFIX + FILE_ID, isMinimized ? '1' : '0');
+      }
+    } catch(_) {}
+  }
+  function getSavedMinimizedPreference(){
+    try {
+      // עדיפות להגדרה פר-קובץ אם קיימת
+      if (typeof FILE_ID !== 'undefined' && FILE_ID) {
+        const perFile = localStorage.getItem(CONFIG.MINIMIZED_KEY_PER_FILE_PREFIX + FILE_ID);
+        if (perFile === '1' || perFile === '0') return perFile === '1';
+      }
+      const globalVal = localStorage.getItem(CONFIG.MINIMIZED_KEY_GLOBAL);
+      if (globalVal === '1' || globalVal === '0') return globalVal === '1';
+    } catch(_) {}
+    return false;
+  }
+  function minimizeTOC(){
+    const tocElement = document.getElementById('mdToc');
+    const miniBtn = document.getElementById('mdTocMini');
+    if (!tocElement || !miniBtn) return;
+    tocState.isMinimized = true;
+    tocElement.style.display = 'none';
+    miniBtn.style.display = 'block';
+    applyMiniTop(parseInt(miniBtn.style.top||String(getSavedMiniTop()),10));
+    setMinimizedPreference(true);
+  }
+  function restoreTOC(){
+    const tocElement = document.getElementById('mdToc');
+    const miniBtn = document.getElementById('mdTocMini');
+    if (!tocElement || !miniBtn) return;
+    tocState.isMinimized = false;
+    tocElement.style.display = 'block';
+    miniBtn.style.display = 'none';
+    setMinimizedPreference(false);
+  }
   function toggleMinimize() { if (tocState.isMinimized) { restoreTOC(); } else { minimizeTOC(); } }
   function setupProgressIndicator() {
     const progressBar = document.getElementById('tocProgressBar'); if (!progressBar) return; const updateProgress = () => { const scrollHeight = document.documentElement.scrollHeight - window.innerHeight; const scrollPosition = window.scrollY; const percentage = Math.round((scrollPosition / scrollHeight) * 100); progressBar.style.width = `${percentage}%`; tocState.scrollPercentage = percentage; const progressContainer = document.querySelector('.md-toc-progress'); if (progressContainer) { progressContainer.setAttribute('aria-valuenow', percentage); } };
@@ -1815,6 +1872,17 @@ function loadScript(src){
       if (window.navigation) { window.navigation.addEventListener('navigate', cleanup); }
       // יישר מיקום התפריט והכפתור המינימלי לשורה אחת בצד שמאל
       applyMiniTop(getSavedMiniTop());
+      // שחזור העדפת מיזעור (גלובלי/פר-קובץ)
+      if (getSavedMinimizedPreference()) {
+        // נבטיח שהכפתור המינימלי נראה כבר בטעינה
+        const tocElement = document.getElementById('mdToc');
+        const miniBtn = document.getElementById('mdTocMini');
+        if (tocElement && miniBtn) {
+          tocElement.style.display = 'none';
+          miniBtn.style.display = 'block';
+          tocState.isMinimized = true;
+        }
+      }
     } catch (e) { console.error('TOC: שגיאה באתחול', e); hideTOC(); }
   }
   init();
