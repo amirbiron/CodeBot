@@ -4,7 +4,7 @@
 # ===================================
 
 # שלב 1: Build stage (wheel build if needed)
-FROM python:3.14-slim AS builder
+FROM python:3.12-slim AS builder
 
 # מידע על התמונה
 LABEL maintainer="Code Keeper Bot Team"
@@ -28,7 +28,9 @@ RUN apt-get install -y --no-install-recommends \
     libc6-dev \
     libffi-dev \
     libssl-dev \
-    pkg-config && \
+    pkg-config \
+    libjpeg-dev \
+    zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # בשכבת ה-build אין צורך במשתמש נפרד (נשתמש ב-root); המשתמש ייווצר רק בשכבת ה-production
@@ -49,7 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 ######################################
 # שלב 2: Production stage (Alpine)
-FROM python:3.14-slim AS production
+FROM python:3.12-slim AS production
 
 # משתני סביבה לייצור
 ENV PYTHONUNBUFFERED=1
@@ -69,7 +71,8 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-r
     curl \
     libxml2 \
     sqlite3 \
-    zlib1g && \
+    zlib1g \
+    libjpeg62-turbo && \
     rm -rf /var/lib/apt/lists/*
 
 # שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
