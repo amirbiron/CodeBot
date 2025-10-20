@@ -108,14 +108,27 @@ class BookmarksManager:
                        anchor_type: Optional[str] = None) -> Dict[str, Any]:
         """
         הוספה/הסרה של סימנייה (toggle)
-        
+
+        Args:
+            user_id: מזהה המשתמש
+            file_id: מזהה הקובץ במסד הנתונים
+            file_name: שם הקובץ להצגה למשתמש
+            file_path: נתיב לוגי/תצוגתי של הקובץ
+            line_number: מספר השורה (0 מותר כאשר anchor_id קיים)
+            line_text: טקסט השורה לקיצור תצוגה
+            note: הערה קצרה של המשתמש
+            color: צבע סימנייה תקין
+            anchor_id: מזהה עוגן ייחודי (למשל מזהה כותרת)
+            anchor_text: טקסט העוגן לתצוגה
+            anchor_type: סוג העוגן (markdown/html/...)
+
         Returns:
-            dict: {
-                "ok": bool,
-                "action": "added" | "removed" | "error",
-                "bookmark": dict | None,
-                "error": str | None
-            }
+            dict: מילון תוצאה הכולל שדות::
+
+                {"ok": bool,
+                 "action": "added" | "removed" | "error",
+                 "bookmark": dict | None,
+                 "error": str | None}
         """
         try:
             # ולידציה
