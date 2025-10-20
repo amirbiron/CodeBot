@@ -18,6 +18,12 @@
     savePreference(editorType) {
       try { localStorage.setItem('preferredEditor', editorType); } catch(_) {}
       try {
+        // שולחים לשני נתיבי API תואמים לאחור; אחד מהם ייקלט בהתאם לדיפלוי
+        fetch('/api/ui_prefs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ editor: editorType })
+        }).catch(()=>{});
         fetch('/api/user/preferences', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
