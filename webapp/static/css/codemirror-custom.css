@@ -1,0 +1,20 @@
+/* CodeMirror custom styles and editor switcher */
+.codemirror-container {
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+.cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
+.editor-switcher { display:flex; justify-content: space-between; align-items:center; margin:.5rem 0; padding:.5rem; background: rgba(255,255,255,0.05); border-radius:8px; }
+.btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
+.btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
+.editor-info { font-size:.85rem; opacity:.8; }
+.editor-loading { position: relative; min-height: 48px; display:flex; align-items:center; gap:.5rem; color:#fff; }
+.editor-transitioning { opacity: .7; pointer-events: none; }
+/* Gutters & selection to match theme */
+.cm-gutters { background: rgba(0,0,0,0.3); border-right: 1px solid rgba(255,255,255,0.1); }
+.cm-activeLineGutter { background: rgba(100,100,255,0.2); }
+.cm-editor.cm-focused { outline: 2px solid rgba(100,100,255,0.5); }
+.cm-selectionBackground { background-color: rgba(100,100,255,0.3) !important; }
+@media (max-width: 768px){ .cm-editor { max-height: 50vh; font-size: 14px; } .editor-switcher { flex-direction: column; gap:.5rem; } }
