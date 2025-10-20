@@ -75,8 +75,11 @@ class BookmarksManager:
                     [("user_id", ASCENDING), ("file_id", ASCENDING), ("anchor_id", ASCENDING)],
                     unique=True,
                     name="unique_user_file_anchor",
+                    # שים לב: יש גרסאות MongoDB שאינן תומכות ב-$ne בתוך partial index (מתורגם ל-$not).
+                    # כדי לשמור תאימות מלאה, נשתמש בסינון שמוודא קיום וסוג מחרוזת בלבד, כאשר ערכים ריקים
+                    # אינם נשמרים מלכתחילה (to_dict לא שומר anchor_id ריק, וב-startup אנו מבצעים unset).
                     partialFilterExpression={
-                        "anchor_id": {"$type": "string", "$ne": ""}
+                        "anchor_id": {"$exists": True, "$type": "string"}
                     },
                 ),
                 # אינדקס לחיפוש מהיר לפי משתמש וקובץ
