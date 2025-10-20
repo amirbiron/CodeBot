@@ -5,6 +5,8 @@ workspace
    :maxdepth: 4
 
    activity_reporter
+   alert_forwarder
+   alert_manager
    autocomplete_manager
    backup_menu_handler
    batch_commands
@@ -12,27 +14,44 @@ workspace
    bot_handlers
    cache_commands
    cache_manager
+   chatops
    code_preview
    code_processor
    config
    conftest
    conversation_handlers
    database
+   duplicate_detector
    file_manager
    fix_telegram_parse_error
+   get-pip
    github_menu_handler
    github_upload_fix
    handlers
    i18n
    integrations
+   integrations_github_monitor
+   integrations_sentry
+   internal_alerts
    large_files_handler
    lazy_loader
    main
+   metrics
+   monitoring
+   observability
+   predictive_engine
+   rate_limiter
+   refactor_handlers
+   refactoring_engine
+   remediation_manager
    repo_analyzer
    search_engine
    secret_manager
    services
+   setup_bookmarks
    terminal_commands
    test_basic
+   test_bookmarks
    user_stats
    utils
+   webapp

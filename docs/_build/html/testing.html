@@ -21,7 +21,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="genindex.html" />
     <link rel="search" title="חיפוש" href="search.html" />
-    <link rel="next" title="CI/CD Guide" href="ci-cd.html" />
+    <link rel="next" title="בדיקות ביצועים (Performance Tests)" href="performance-tests.html" />
     <link rel="prev" title="דוגמאות שימוש" href="examples.html" /> 
 </head>
 
@@ -204,6 +204,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -343,6 +347,8 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="api/modules.html">workspace</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
 </ul>
@@ -393,7 +399,14 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html">database package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/database.html#submodules">Submodules</a></li>
@@ -692,12 +705,23 @@
 <li class="toctree-l2"><a class="reference internal" href="#id2">מחיקה בטוחה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#performance">בדיקות ביצועים (Performance)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="ci-cd.html">CI/CD Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id1">חוקים קשיחים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id3">בדיקות מומלצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id4">בנייה של התיעוד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id5">קישורים</a></li>
@@ -765,6 +789,16 @@
 <li class="toctree-l2"><a class="reference internal" href="security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id3">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id5">הערות שימושיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -860,11 +894,12 @@
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות חובה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">שדות מומלצים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">דוגמה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">פרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
@@ -885,6 +920,62 @@
 <li class="toctree-l1"><a class="reference internal" href="runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/faq.html">שאלות נפוצות</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#github">GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#db">DB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#web-share">Web/Share</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#alerts">Alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#business">Business</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/error_codes.html#id1">דוגמאות מיפוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/error_codes.html#id2">הנחיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/metrics_promql.html#id1">שיעור שגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/metrics_promql.html#id2">אירועי ביזנס</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/alerts_playbook.html">Playbook קצר להתראות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/alerts_playbook.html#id1">זרימה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/alerts_playbook.html#id2">קישורים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/alerts_playbook.html#id3">דגשים</a></li>
 </ul>
 </li>
 </ul>
@@ -909,7 +1000,7 @@
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
         <a href="examples.html" class="btn btn-neutral float-left" title="דוגמאות שימוש" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="ci-cd.html" class="btn btn-neutral float-right" title="CI/CD Guide" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="performance-tests.html" class="btn btn-neutral float-right" title="בדיקות ביצועים (Performance Tests)" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
   </div>
   <hr/>
 </div>
@@ -1006,6 +1097,38 @@ pytest<span class="w"> </span>tests/test_bot_handlers_show_command_more.py::test
 <li><p>ה‑PR חייב לעבור סטטוסים: ”🔍 Code Quality &amp; Security“, ”🧪 Unit Tests (3.11)“, ”🧪 Unit Tests (3.12)“.</p></li>
 </ul>
 </section>
+<section id="performance">
+<h2>בדיקות ביצועים (Performance)<a class="headerlink" href="#performance" title="Link to this heading"></a></h2>
+<ul>
+<li><p>מרקרים:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[pytest]</span>
+<span class="na">markers</span><span class="w"> </span><span class="o">=</span>
+<span class="w">    </span><span class="na">performance</span><span class="o">:</span><span class="w"> </span><span class="s">בדיקות ביצועים</span>
+<span class="w">    </span><span class="na">heavy</span><span class="o">:</span><span class="w"> </span><span class="s">טסטים כבדים (מדולגים כשמבקשים רק קלים)</span>
+</pre></div>
+</div>
+</li>
+<li><p>הרצות מקומיות:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># הכל</span>
+pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span>performance
+
+<span class="c1"># רק קלים</span>
+<span class="nv">ONLY_LIGHT_PERF</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>pytest<span class="w"> </span>-q<span class="w"> </span>-m<span class="w"> </span>performance
+</pre></div>
+</div>
+</li>
+<li><p>CI:
+- ברירת מחדל מריץ הכל.
+- PR Draft + תווית <code class="docutils literal notranslate"><span class="pre">perf-light</span></code> מריץ רק קלים.
+- זמני ריצה נשמרים כארטיפקטים: <code class="docutils literal notranslate"><span class="pre">durations.json</span></code>, <code class="docutils literal notranslate"><span class="pre">durations-summary.json</span></code>.</p></li>
+<li><p>דוחות/מדידות:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pytest<span class="w"> </span>-m<span class="w"> </span>performance<span class="w"> </span>--durations<span class="o">=</span><span class="m">0</span><span class="w"> </span>--json-report<span class="w"> </span>--json-report-file<span class="o">=</span>durations.json
+cat<span class="w"> </span>durations.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.summary.durations&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>durations-summary.json
+</pre></div>
+</div>
+</li>
+</ul>
+</section>
 <section id="id3">
 <h2>קישורים<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
 <ul class="simple">
@@ -1020,7 +1143,7 @@ pytest<span class="w"> </span>tests/test_bot_handlers_show_command_more.py::test
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="examples.html" class="btn btn-neutral float-left" title="דוגמאות שימוש" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="ci-cd.html" class="btn btn-neutral float-right" title="CI/CD Guide" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="performance-tests.html" class="btn btn-neutral float-right" title="בדיקות ביצועים (Performance Tests)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

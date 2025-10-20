@@ -203,6 +203,10 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -342,6 +346,8 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../api/modules.html">workspace</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../api/activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
 </ul>
@@ -392,7 +398,14 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conftest.html">conftest module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html">database package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.html#submodules">Submodules</a></li>
@@ -691,12 +704,23 @@
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../ci-cd.html">CI/CD Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id1">חוקים קשיחים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id3">בדיקות מומלצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id4">בנייה של התיעוד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id5">קישורים</a></li>
@@ -764,6 +788,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../security.html#id3">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -859,11 +893,12 @@
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id4">קישורים</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id2">שדות חובה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id3">שדות מומלצים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id4">דוגמה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id4">פרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../metrics.html">מדדים (Metrics)</a><ul>
@@ -886,6 +921,33 @@
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/faq.html">שאלות נפוצות</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
 <ul>
@@ -961,7 +1023,19 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">DatabaseManager</span>
 <span class="kn">from</span> <span class="nn">file_manager</span> <span class="kn">import</span> <span class="n">backup_manager</span>
-<span class="kn">from</span> <span class="nn">activity_reporter</span> <span class="kn">import</span> <span class="n">create_reporter</span>
+<span class="c1"># Reporter מוזרק בזמן ריצה כדי להימנע מפתיחת חיבור בעת import</span>
+<span class="k">class</span> <span class="nc">_NoopReporter</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">report_activity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">):</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+<span class="n">reporter</span> <span class="o">=</span> <span class="n">_NoopReporter</span><span class="p">()</span>
+
+<div class="viewcode-block" id="set_activity_reporter">
+<a class="viewcode-back" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">set_activity_reporter</span><span class="p">(</span><span class="n">new_reporter</span><span class="p">):</span>
+    <span class="k">global</span> <span class="n">reporter</span>
+    <span class="n">reporter</span> <span class="o">=</span> <span class="n">new_reporter</span> <span class="ow">or</span> <span class="n">_NoopReporter</span><span class="p">()</span></div>
+
 <span class="kn">from</span> <span class="nn">utils</span> <span class="kn">import</span> <span class="n">get_language_emoji</span> <span class="k">as</span> <span class="n">get_file_emoji</span>
 <span class="kn">from</span> <span class="nn">user_stats</span> <span class="kn">import</span> <span class="n">user_stats</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">cast</span>
@@ -1047,11 +1121,7 @@
     <span class="p">[</span><span class="s2">&quot;☁️ Google Drive&quot;</span><span class="p">,</span> <span class="s2">&quot;ℹ️ הסבר על הבוט&quot;</span><span class="p">]</span>
 <span class="p">]</span>
 
-<span class="n">reporter</span> <span class="o">=</span> <span class="n">create_reporter</span><span class="p">(</span>
-    <span class="n">mongodb_uri</span><span class="o">=</span><span class="s2">&quot;mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&amp;w=majority&amp;appName=muminAI&quot;</span><span class="p">,</span>
-    <span class="n">service_id</span><span class="o">=</span><span class="s2">&quot;srv-d29d72adbo4c73bcuep0&quot;</span><span class="p">,</span>
-    <span class="n">service_name</span><span class="o">=</span><span class="s2">&quot;CodeBot&quot;</span>
-<span class="p">)</span>
+<span class="c1"># ה-reporters יוגדרו ב-main בזמן ריצה</span>
 
 <div class="viewcode-block" id="start_command">
 <a class="viewcode-back" href="../api/conversation_handlers.html#conversation_handlers.start_command">[תיעוד]</a>
@@ -1099,7 +1169,10 @@
                 <span class="n">reply_markup</span><span class="o">=</span><span class="n">reply_markup</span><span class="p">,</span>
                 <span class="n">parse_mode</span><span class="o">=</span><span class="n">ParseMode</span><span class="o">.</span><span class="n">HTML</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
             <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="c1"># אם משהו נכשל ביצירת קישור — נמשיך לזרימת ברירת המחדל</span>
@@ -1109,7 +1182,10 @@
     <span class="n">welcome_text</span> <span class="o">=</span> <span class="n">MESSAGES</span><span class="p">[</span><span class="s2">&quot;welcome&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">safe_user_name</span><span class="p">)</span>
     <span class="n">keyboard</span> <span class="o">=</span> <span class="n">ReplyKeyboardMarkup</span><span class="p">(</span><span class="n">MAIN_KEYBOARD</span><span class="p">,</span> <span class="n">resize_keyboard</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="n">welcome_text</span><span class="p">,</span> <span class="n">reply_markup</span><span class="o">=</span><span class="n">keyboard</span><span class="p">)</span>
-    <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">pass</span>
     <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span></div>
 
 
@@ -1369,7 +1445,10 @@
         <span class="s2">&quot;🔖 אצמיד תגית repo:owner/name (אם קיימת ב-metadata). לא מתבצעת מחיקה.&quot;</span><span class="p">,</span>
         <span class="n">reply_markup</span><span class="o">=</span><span class="n">cancel_markup</span>
     <span class="p">)</span>
-    <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">pass</span>
     <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span></div>
 
 
@@ -1391,7 +1470,10 @@
         <span class="s2">&quot;כשתסיים/י, לחצ/י &#39;סיום&#39; וניצור עבורך ZIP מוכן.&quot;</span><span class="p">,</span>
         <span class="n">reply_markup</span><span class="o">=</span><span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">keyboard</span><span class="p">)</span>
     <span class="p">)</span>
-    <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">pass</span>
     <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span></div>
 
 
@@ -1494,7 +1576,10 @@
             <span class="n">reply_markup</span><span class="o">=</span><span class="n">ReplyKeyboardMarkup</span><span class="p">(</span><span class="n">MAIN_KEYBOARD</span><span class="p">,</span> <span class="n">resize_keyboard</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
         <span class="p">)</span>
     
-    <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">pass</span>
     <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span></div>
 
 
@@ -1526,7 +1611,10 @@
     
     <span class="n">github_handler</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">bot_data</span><span class="p">[</span><span class="s1">&#39;github_handler&#39;</span><span class="p">]</span>
     <span class="k">await</span> <span class="n">github_handler</span><span class="o">.</span><span class="n">github_menu_command</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
-    <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">pass</span>
     <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span></div>
 
 
@@ -1559,7 +1647,10 @@
             <span class="s2">&quot;בחר/י דרך להצגת הקבצים:&quot;</span><span class="p">,</span>
             <span class="n">reply_markup</span><span class="o">=</span><span class="n">reply_markup</span>
         <span class="p">)</span>
-        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="c1"># אל תרשום ERROR אם זו רק הודעה שלא השתנתה</span>
         <span class="n">msg</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
@@ -1651,7 +1742,10 @@
                 <span class="k">if</span> <span class="s2">&quot;message is not modified&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">br</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
                     <span class="k">raise</span>
             
-        <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">reporter</span><span class="o">.</span><span class="n">report_activity</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
         
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error in show_regular_files_callback: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>

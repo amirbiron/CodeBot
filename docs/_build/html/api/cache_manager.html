@@ -204,6 +204,10 @@
 <li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -343,6 +347,8 @@
 </li>
 <li class="toctree-l2 current"><a class="reference internal" href="modules.html">workspace</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
 </ul>
@@ -393,7 +399,14 @@
 <li class="toctree-l4"><a class="reference internal" href="config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="conftest.html">conftest module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="database.html">database package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="database.html#submodules">Submodules</a></li>
@@ -692,12 +705,23 @@
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../ci-cd.html">CI/CD Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id1">חוקים קשיחים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id3">בדיקות מומלצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id4">בנייה של התיעוד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ci-cd.html#id5">קישורים</a></li>
@@ -765,6 +789,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../security.html#id3">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -860,11 +894,12 @@
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id4">קישורים</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id2">שדות חובה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id3">שדות מומלצים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id4">דוגמה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../logging_schema.html#id4">פרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../metrics.html">מדדים (Metrics)</a><ul>
@@ -885,6 +920,62 @@
 <li class="toctree-l1"><a class="reference internal" href="../runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/logging-levels.html#id2">טיפ</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/faq.html">שאלות נפוצות</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#github">GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#db">DB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#web-share">Web/Share</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#alerts">Alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#business">Business</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/error_codes.html#id1">דוגמאות מיפוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/error_codes.html#id2">הנחיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#id1">שיעור שגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#id2">אירועי ביזנס</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/alerts_playbook.html">Playbook קצר להתראות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id1">זרימה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id2">קישורים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id3">דגשים</a></li>
 </ul>
 </li>
 </ul>
@@ -1005,6 +1096,44 @@ Advanced Cache Manager with Redis</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cache_manager.CacheManager.clear_all">
+<span class="sig-name descname"><span class="pre">clear_all</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager.clear_all"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager.clear_all" title="Link to this definition"></a></dt>
+<dd><p>ניקוי כל המטמון באופן מבוקר.
+:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<ul class="simple">
+<li><p>אם Redis מושבת – מחזיר 0.</p></li>
+<li><p>אם Redis פעיל – מוחק את כל המפתחות באמצעות SCAN+DEL (best-effort).</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cache_manager.CacheManager.clear_stale">
+<span class="sig-name descname"><span class="pre">clear_stale</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">max_scan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ttl_seconds_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">60</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager.clear_stale"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager.clear_stale" title="Link to this definition"></a></dt>
+<dd><p>מחיקת מפתחות שכבר עומדים לפוג (”stale“) בצורה עדינה.</p>
+<p>היגיון:
+- אם Redis מושבת – החזר 0.
+- סריקה מדורגת (SCAN) של עד max_scan מפתחות.
+- מחיקה רק למפתחות עם TTL חיובי קטן מ-ttl_seconds_threshold, או TTL שלילי המציין שאינו קיים.
+- לא מוחקים מפתחות ללא TTL (ttl == -1) כדי להימנע מפגיעה בקאש ארוך-חיים.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>max_scan</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>ttl_seconds_threshold</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
 </dd>
 </dl>
 </dd></dl>

@@ -204,6 +204,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -343,6 +347,8 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="api/modules.html">workspace</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
 </ul>
@@ -393,7 +399,14 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html">database package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/database.html#submodules">Submodules</a></li>
@@ -692,12 +705,23 @@
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id2">מחיקה בטוחה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#performance">בדיקות ביצועים (Performance)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="ci-cd.html">CI/CD Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id1">חוקים קשיחים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id3">בדיקות מומלצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id4">בנייה של התיעוד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id5">קישורים</a></li>
@@ -765,6 +789,16 @@
 <li class="toctree-l2"><a class="reference internal" href="security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id3">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id5">הערות שימושיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -860,11 +894,12 @@
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות חובה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">שדות מומלצים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">דוגמה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="logging_schema.html#id4">פרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
@@ -887,6 +922,33 @@
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/faq.html">שאלות נפוצות</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
 <ul>
@@ -1126,6 +1188,20 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">redis://localhost:6379</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REDIS_CONNECT_TIMEOUT</span></code></p></td>
+<td><p>Timeout התחברות ל-Redis (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code> (או <code class="docutils literal notranslate"><span class="pre">1</span></code> ב-<code class="docutils literal notranslate"><span class="pre">SAFE_MODE</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REDIS_SOCKET_TIMEOUT</span></code></p></td>
+<td><p>Timeout קריאת שקע ל-Redis (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code> (או <code class="docutils literal notranslate"><span class="pre">1</span></code> ב-<code class="docutils literal notranslate"><span class="pre">SAFE_MODE</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_ENABLED</span></code></p></td>
 <td><p>הפעלת קאש פנימי</p></td>
 <td><p>לא</p></td>
@@ -1133,70 +1209,91 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_LEVEL</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_CLEAR_BUDGET_SECONDS</span></code></p></td>
+<td><p>תקציב זמן לניקוי קאש (מונע תקיעה ב-Redis)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code> ל-<code class="docutils literal notranslate"><span class="pre">clear_stale</span></code>; <code class="docutils literal notranslate"><span class="pre">2</span></code> ל-<code class="docutils literal notranslate"><span class="pre">clear_all</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DISABLE_CACHE_MAINTENANCE</span></code></p></td>
+<td><p>דילוג על פעולות ניקוי קאש (לוג בלבד)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DISABLE_PREEMPTIVE_ACTIONS</span></code></p></td>
+<td><p>דילוג על פעולות מנע (PHE) כמו ניקוי קאש</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_LEVEL</span></code></p></td>
 <td><p>רמת logging</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">INFO</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">DEBUG</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_FORMAT</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_FORMAT</span></code></p></td>
 <td><p>פורמט לוגים (<code class="docutils literal notranslate"><span class="pre">text</span></code>/<code class="docutils literal notranslate"><span class="pre">json</span></code>)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">text</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">json</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_INFO_SAMPLE_RATE</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_INFO_SAMPLE_RATE</span></code></p></td>
 <td><p>שיעור דגימה ללוגים ברמת <code class="docutils literal notranslate"><span class="pre">INFO</span></code> (0.0–1.0)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.1</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_INFO_SAMPLE_ALLOWLIST</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">LOG_INFO_SAMPLE_ALLOWLIST</span></code></p></td>
 <td><p>אירועים שלא נדגמים לעולם (מופרדים בפסיקים)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">business_metric,performance,github_sync</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">event_a,event_b</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ENVIRONMENT</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ENVIRONMENT</span></code></p></td>
 <td><p>שם הסביבה לדיווחי Sentry/לוגים (<code class="docutils literal notranslate"><span class="pre">production</span></code>/<code class="docutils literal notranslate"><span class="pre">staging</span></code>/<code class="docutils literal notranslate"><span class="pre">dev</span></code>)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">production</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">staging</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_CODE_SIZE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_CODE_SIZE</span></code></p></td>
 <td><p>גודל קוד מקסימלי לשמירה (בתווים)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">100000</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">200000</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_FILES_PER_USER</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAX_FILES_PER_USER</span></code></p></td>
 <td><p>מגבלת כמות קבצים למשתמש</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1000</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">2000</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">HIGHLIGHT_THEME</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">HIGHLIGHT_THEME</span></code></p></td>
 <td><p>ערכת צבעים להדגשת תחביר</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">github-dark</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">monokai</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GIT_CHECKPOINT_PREFIX</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GIT_CHECKPOINT_PREFIX</span></code></p></td>
 <td><p>קידומת לשמירת checkpoints</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">checkpoint</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">ckpt</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_ID</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_ID</span></code></p></td>
 <td><p>OAuth Client ID של Google</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1206,7 +1303,7 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">xxx.apps.googleusercontent.com</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_SECRET</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_CLIENT_SECRET</span></code></p></td>
 <td><p>OAuth Client Secret של Google</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1216,91 +1313,91 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">********</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_OAUTH_SCOPES</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_OAUTH_SCOPES</span></code></p></td>
 <td><p>מרחבי OAuth לברירת מחדל</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://www.googleapis.com/auth/drive.file</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">...</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></p></td>
 <td><p>מרווח חידוש טוקן בטרם פקיעה (שניות)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">120</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">300</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_MENU_V2</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_MENU_V2</span></code></p></td>
 <td><p>הפעלת תפריט Drive v2</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DOCUMENTATION_URL</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DOCUMENTATION_URL</span></code></p></td>
 <td><p>קישור לאתר התיעוד הרשמי</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://amirbiron.github.io/CodeBot/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://docs.example.com</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BOT_LABEL</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BOT_LABEL</span></code></p></td>
 <td><p>תווית תצוגה לבוט</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">CodeBot</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">CKB</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_ADD_HASH</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DRIVE_ADD_HASH</span></code></p></td>
 <td><p>הוספת hash לקבצים משותפים</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Integrations</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></code></p></td>
 <td><p>נרמול קוד בשמירה</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p>Bot</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MODE</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MODE</span></code></p></td>
 <td><p>מצב תחזוקה המדכא פעולות משתמשים</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MESSAGE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_MESSAGE</span></code></p></td>
 <td><p>הודעה למצב תחזוקה</p></td>
 <td><p>לא</p></td>
 <td><p>הודעת ברירת מחדל ידידותית</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;🚀</span> <span class="pre">אנחנו</span> <span class="pre">מעלים</span> <span class="pre">עדכון</span> <span class="pre">חדש!&quot;</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></code></p></td>
 <td><p>חימום אוטומטי לאחר יציאה מתחזוקה (שניות)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_PER_MINUTE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_PER_MINUTE</span></code></p></td>
 <td><p>מגבלת קצב בקשות לדקה</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">RECYCLE_TTL_DAYS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">RECYCLE_TTL_DAYS</span></code></p></td>
 <td><p>ימי שמירת פריטים בסל המחזור</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">7</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URL</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URL</span></code></p></td>
 <td><p>URI חלופי ל-reporter (עדיפות על <code class="docutils literal notranslate"><span class="pre">MONGODB_URL</span></code>)</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1310,7 +1407,7 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">mongodb://...</span></code></p></td>
 <td><p>Reporter</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URI</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_MONGODB_URI</span></code></p></td>
 <td><p>שם חלופי ל-URI של reporter</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1320,28 +1417,28 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">mongodb://...</span></code></p></td>
 <td><p>Reporter</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_SERVICE_ID</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REPORTER_SERVICE_ID</span></code></p></td>
 <td><p>מזהה שירות עבור הדוחות</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">srv-d29d72adbo4c73bcuep0</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">srv-xxxx</span></code></p></td>
 <td><p>Reporter</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ENABLE_INTERNAL_SHARE_WEB</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ENABLE_INTERNAL_SHARE_WEB</span></code></p></td>
 <td><p>הפעלת שירות שיתוף פנימי</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PORT</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PORT</span></code></p></td>
 <td><p>פורט להרצת שירותים פנימיים/בדיקות</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">10000</span></code> (ב-main), <code class="docutils literal notranslate"><span class="pre">5000</span></code> (ב-WebApp)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">8080</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ENCRYPTION_KEY</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ENCRYPTION_KEY</span></code></p></td>
 <td><p>מפתח הצפנה לנתונים רגישים</p></td>
 <td><p>לא</p></td>
 <td><ul class="simple">
@@ -1351,21 +1448,21 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">32-byte-key</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_DSN</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_DSN</span></code></p></td>
 <td><p>DSN לשילוב עם Sentry (שגיאות ותובנות)</p></td>
 <td><p>לא</p></td>
 <td><p>”“ (ריק)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">https://xxx&#64;o1234.ingest.sentry.io/5678</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_TRACES_SAMPLE_RATE</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_TRACES_SAMPLE_RATE</span></code></p></td>
 <td><p>דגימת Traces (0.0–1.0)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.1</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_PROFILES_SAMPLE_RATE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SENTRY_PROFILES_SAMPLE_RATE</span></code></p></td>
 <td><p>דגימת Profiles (0.0–1.0)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">0.0</span></code></p></td>

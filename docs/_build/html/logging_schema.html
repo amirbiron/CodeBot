@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>סכמת לוגים &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+  <title>סכמת לוגים ואירועים (Observability) &mdash; תיעוד Code Keeper Bot 1.0.0</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="_static/custom.css?v=2d7a82d5" />
@@ -204,6 +204,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -343,6 +347,8 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="api/modules.html">workspace</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
 </ul>
@@ -393,7 +399,14 @@
 <li class="toctree-l4"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html">database package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/database.html#submodules">Submodules</a></li>
@@ -692,12 +705,23 @@
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id2">מחיקה בטוחה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#performance">בדיקות ביצועים (Performance)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="ci-cd.html">CI/CD Guide</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id1">חוקים קשיחים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id3">בדיקות מומלצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id4">בנייה של התיעוד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ci-cd.html#id5">קישורים</a></li>
@@ -765,6 +789,16 @@
 <li class="toctree-l2"><a class="reference internal" href="security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id3">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id5">הערות שימושיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -860,11 +894,12 @@
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
 </ul>
 </li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">סכמת לוגים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#id2">שדות חובה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id3">שדות מומלצים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id4">דוגמה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#error-codes">טקסונומיית שגיאות (Error codes)</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id4">פרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
@@ -888,6 +923,62 @@
 </ul>
 </li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/faq.html">שאלות נפוצות</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#github">GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#db">DB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#web-share">Web/Share</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#alerts">Alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/events_catalog.html#business">Business</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/error_codes.html#id1">דוגמאות מיפוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/error_codes.html#id2">הנחיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/metrics_promql.html#id1">שיעור שגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/metrics_promql.html#id2">אירועי ביזנס</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/alerts_playbook.html">Playbook קצר להתראות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/alerts_playbook.html#id1">זרימה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/alerts_playbook.html#id2">קישורים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/alerts_playbook.html#id3">דגשים</a></li>
+</ul>
+</li>
+</ul>
 
         </div>
       </div>
@@ -903,9 +994,9 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">סכמת לוגים</li>
+      <li class="breadcrumb-item active">סכמת לוגים ואירועים (Observability)</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="_sources/logging_schema.rst.txt" rel="nofollow"> View page source</a>
+            <a href="_sources/logging_schema.md.txt" rel="nofollow"> View page source</a>
       </li>
   </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
         <a href="observability.html" class="btn btn-neutral float-left" title="אובזרווביליות (Observability)" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
@@ -916,64 +1007,59 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="id1">
-<h1>סכמת לוגים<a class="headerlink" href="#id1" title="Link to this heading"></a></h1>
-<section id="id2">
-<h2>שדות חובה<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+  <section id="observability">
+<h1>סכמת לוגים ואירועים (Observability)<a class="headerlink" href="#observability" title="Link to this heading"></a></h1>
+<p>מסמך זה מתאר את הסכמה המומלצת והאירועים הקנוניים שנעשה בהם שימוש במערכת.</p>
+<section id="id1">
+<h2>שדות חובה בכל אירוע<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">schema_version</span></code> (למשל <code class="docutils literal notranslate"><span class="pre">&quot;1.0&quot;</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">event</span></code> (שם קנוני ב-<code class="docutils literal notranslate"><span class="pre">snake_case</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">severity</span></code> (<code class="docutils literal notranslate"><span class="pre">info</span></code>/<code class="docutils literal notranslate"><span class="pre">warn</span></code>/<code class="docutils literal notranslate"><span class="pre">error</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">timestamp</span></code> (<code class="docutils literal notranslate"><span class="pre">ISO8601</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">request_id</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">trace_id</span></code>/<code class="docutils literal notranslate"><span class="pre">span_id</span></code> (אם OTel פעיל)</p></li>
+<li><p>schema_version: ”1.0“</p></li>
+<li><p>event: שם אירוע בפורמט snake_case (לדוגמה: file_saved)</p></li>
+<li><p>severity: info | warn | error</p></li>
+<li><p>timestamp: ISO8601 (מוסף אוטומטית ע“י structlog)</p></li>
+<li><p>request_id: מזהה בקשה קצר (ContextVar)</p></li>
+<li><p>trace_id / span_id: מוזרק אוטומטית כאשר OpenTelemetry פעיל</p></li>
+</ul>
+</section>
+<section id="id2">
+<h2>שדות מומלצים<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>user_ref / user_id</p></li>
+<li><p>resource {type, id}</p></li>
+<li><p>attributes — שדות לפי אירוע</p></li>
+<li><p>error_code — לשגיאות בלבד, קוד יציב</p></li>
+<li><p>msg_he — טקסט תיאורי בעברית</p></li>
 </ul>
 </section>
 <section id="id3">
-<h2>שדות מומלצים<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<h2>אירועים מרכזיים<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">user_ref</span></code> (מזהה לא-PII)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">resource</span></code> (<code class="docutils literal notranslate"><span class="pre">{type,</span> <span class="pre">id}</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">attributes</span></code> (שדות ייעודיים לאירוע)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">error_code</span></code> (לפי טקסונומיית השגיאות)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">msg_he</span></code> (טקסט קריא בעברית)</p></li>
+<li><p>file_saved, file_read_success, file_read_unreadable</p></li>
+<li><p>github_upload_* (saved/direct_success/error)</p></li>
+<li><p>github_zipball_fetch_error, github_zip_create_error, github_zip_persist_error</p></li>
+<li><p>github_inline_download_error, github_multi_zip_error</p></li>
+<li><p>github_safe_delete_error, github_delete_file_error</p></li>
+<li><p>github_share_selected_links_error, github_share_single_link_error</p></li>
+<li><p>repo_analysis_start/repo_analysis_done/repo_analysis_error</p></li>
+<li><p>metrics_view_error, alerts_parse_error, alert_received</p></li>
+<li><p>db_* errors (לפי מקור)</p></li>
+<li><p>business_metric (metric=…)</p></li>
+<li><p>performance (operation=…, duration_ms=…)</p></li>
+</ul>
+</section>
+<section id="sampling">
+<h2>דגימה (Sampling)<a class="headerlink" href="#sampling" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>LOG_INFO_SAMPLE_RATE שולט בדגימת לוגי info</p></li>
+<li><p>Allowlist: business_metric, performance, github_sync</p></li>
 </ul>
 </section>
 <section id="id4">
-<h2>דוגמה<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1.0&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;event&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;file_saved&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;severity&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;timestamp&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-10-15T10:23:45.123Z&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a3f2c891&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;trace_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0123abcd0123abcd0123abcd0123abcd&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;span_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;abcd0123abcd0123&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;user_ref&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;u_12345&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;resource&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;file&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;file_789&quot;</span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;attributes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;language&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1520</span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;msg_he&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;קובץ נשמר בהצלחה&quot;</span>
-<span class="p">}</span>
-</pre></div>
-</div>
-</section>
-<section id="error-codes">
-<h2>טקסונומיית שגיאות (Error codes)<a class="headerlink" href="#error-codes" title="Link to this heading"></a></h2>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">errors</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">E_FILE_DUPLICATE</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">category</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">storage</span>
-<span class="w">    </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">error</span>
-<span class="w">    </span><span class="nt">remediation</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;בדקו</span><span class="nv"> </span><span class="s">unique</span><span class="nv"> </span><span class="s">index;</span><span class="nv"> </span><span class="s">הציעו</span><span class="nv"> </span><span class="s">למשתמש</span><span class="nv"> </span><span class="s">שם</span><span class="nv"> </span><span class="s">חדש.&quot;</span>
-<span class="w">  </span><span class="nt">E_SEARCH_TIMEOUT</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">category</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">search</span>
-<span class="w">    </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">warn</span>
-<span class="w">    </span><span class="nt">remediation</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;הקטינו</span><span class="nv"> </span><span class="s">טווח</span><span class="nv"> </span><span class="s">חיפוש;</span><span class="nv"> </span><span class="s">בדקו</span><span class="nv"> </span><span class="s">אינדקס/Cache.&quot;</span>
-<span class="w">  </span><span class="nt">E_AUTH_INVALID_SESSION</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">category</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auth</span>
-<span class="w">    </span><span class="nt">severity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">warn</span>
-<span class="w">    </span><span class="nt">remediation</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ביצוע</span><span class="nv"> </span><span class="s">התחברות</span><span class="nv"> </span><span class="s">מחדש;</span><span class="nv"> </span><span class="s">בדיקת</span><span class="nv"> </span><span class="s">עוגייה.&quot;</span>
-</pre></div>
-</div>
+<h2>פרטיות<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>טשטוש שדות רגישים: token/password/secret/authorization/cookie</p></li>
+<li><p>אין לוג לתוכן קוד/שאילתות גולמיות — רק מטא-נתונים</p></li>
+</ul>
 </section>
 </section>
 

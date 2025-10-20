@@ -16,7 +16,8 @@ NC='\033[0m' # No Color
 # Check if Sphinx is installed
 if ! command -v sphinx-build &> /dev/null; then
     echo -e "${YELLOW}⚠️  Sphinx not found. Installing...${NC}"
-    pip install --break-system-packages sphinx sphinx-rtd-theme sphinx-autodoc-typehints sphinxcontrib-napoleon
+    # Install full docs requirements (includes mermaid + MyST)
+    pip install --user -r docs/requirements.txt || pip install --break-system-packages -r docs/requirements.txt
     # Add local user bin to PATH for current process if needed
     if [ -d "$HOME/.local/bin" ]; then
         export PATH="$HOME/.local/bin:$PATH"

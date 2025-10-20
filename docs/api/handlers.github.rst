@@ -3,8 +3,8 @@ handlers.github package
 
 .. automodule:: handlers.github
    :members:
-   :show-inheritance:
    :undoc-members:
+   :show-inheritance:
 
 Submodules
 ----------

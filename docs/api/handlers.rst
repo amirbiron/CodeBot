@@ -3,9 +3,8 @@ handlers package
 
 .. automodule:: handlers
    :members:
-   :show-inheritance:
    :undoc-members:
-   :noindex:
+   :show-inheritance:
 
 Subpackages
 -----------
