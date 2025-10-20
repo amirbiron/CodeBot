@@ -13,6 +13,7 @@ import logging
 import os
 import uuid
 from typing import Any, Dict
+import time
 import random
 import hashlib
 
@@ -182,6 +183,11 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     except Exception:
         pass
     if severity in {"error", "critical"}:
+        # best-effort: alert per single error (rate-limited via env)
+        try:
+            _maybe_alert_single_error(event, fields)
+        except Exception:
+            pass
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
         logger.warning(**fields)
@@ -251,5 +257,54 @@ def emit_anomaly(name: str, **fields: Any) -> None:
         fields = dict(fields or {})
         fields.setdefault("event", str(name))
         emit_event(str(name), severity="anomaly", **fields)
+    except Exception:
+        return
+
+
+# --- Optional: alert on each individual error (rate-limited) ---
+# Controlled by env ALERT_EACH_ERROR={1|true|yes} and ALERT_EACH_ERROR_COOLDOWN_SECONDS (default 120)
+_SINGLE_ERROR_ALERT_LAST_TS: Dict[str, float] = {}
+
+
+def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
+    try:
+        enabled = str(os.getenv("ALERT_EACH_ERROR", "")).lower() in {"1", "true", "yes", "on"}
+        if not enabled:
+            return
+
+        try:
+            cooldown = int(os.getenv("ALERT_EACH_ERROR_COOLDOWN_SECONDS", "120"))
+        except Exception:
+            cooldown = 120
+
+        # Build a stable key to rate-limit similar errors
+        name = str(fields.get("event") or event or "error")
+        err_code = str(fields.get("error_code") or "")
+        operation = str(fields.get("operation") or "")
+        key = "|".join([name, err_code, operation])
+
+        now = time.time()
+        last = float(_SINGLE_ERROR_ALERT_LAST_TS.get(key, 0.0) or 0.0)
+        if (now - last) < max(0, cooldown):
+            return
+        _SINGLE_ERROR_ALERT_LAST_TS[key] = now
+
+        # Keep summary privacy-friendly (avoid full exception text)
+        rid = str(fields.get("request_id") or "")
+        parts = [f"error_code={err_code or 'n/a'}", f"operation={operation or 'n/a'}"]
+        if rid:
+            parts.append(f"request_id={rid}")
+        summary = ", ".join(parts)
+
+        # Defer import to avoid import cycles and make this best-effort
+        try:
+            from internal_alerts import emit_internal_alert  # type: ignore
+            emit_internal_alert(name=name, severity="error", summary=summary)
+        except Exception:
+            # As a fallback, emit a structured event only
+            try:
+                emit_event("single_error_alert_fallback", severity="error", name=name, summary=summary)
+            except Exception:
+                pass
     except Exception:
         return
