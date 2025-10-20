@@ -54,6 +54,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#tmp">מחיקה בטוחה (רק ב-/tmp)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#pr">קומיטים ו-PR</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#id5">קישורים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#cheatsheet-github-cli-gh">Cheatsheet – GitHub CLI (gh)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">התחלה מהירה - מפתחים</a><ul>
@@ -126,6 +127,14 @@
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id5">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="branch-protection-and-pr-rules.html">Branch Protection &amp; PR Rules</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id2">כללי ענפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#pr">חוקי PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#ci-required-checks">CI – Required Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="branch-protection-and-pr-rules.html#id3">קישורים</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">מדריכים בסיסיים:</span></p>
 <ul>
@@ -167,6 +176,7 @@
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id2">טבלה מרכזית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
 </ul>
 </li>
 </ul>
@@ -1049,6 +1059,16 @@
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#google-drive-oauth-flow">Google Drive (OAuth Flow)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#telegram-webhooks-vs-polling">Telegram Webhooks vs Polling</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#github-scopes">GitHub – Scopes נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#repository-providers">Repository Providers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="repository-integrations.html">Repository Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id2">מצב תמיכה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="repository-integrations.html#id3">הערות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Guide</a><ul>
@@ -1084,6 +1104,15 @@
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#id3">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="git-lfs.html">Git LFS Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#lfs">מתי להשתמש ב‑LFS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id2">התקנה בסיסית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id3">מגבלות וגבולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="git-lfs.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/bookmarks.html">סימניות (Bookmarks)</a><ul>
@@ -1215,6 +1244,18 @@
 <li class="toctree-l1"><a class="reference internal" href="runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/logging-levels.html#id2">טיפ</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="runbooks/github_backup_restore.html">GitHub Backup &amp; Restore Runbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id2">דרישות מקדימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#checkpoint-tag">יצירת נקודת גיבוי (Checkpoint Tag)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#zip">יצירת ארכיון ZIP</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id3">שחזור – בדיקה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id4">שחזור מלא לפרודקשן (זהירות!)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id7">קישורים</a></li>
 </ul>
 </li>
 </ul>
@@ -1387,6 +1428,36 @@ export const Todo = () =&gt; {
 <li><p><a class="reference internal" href="examples.html"><span class="doc">דוגמאות שימוש</span></a></p></li>
 <li><p><a class="reference internal" href="user/github_browse.html"><span class="doc">עיון בקוד GitHub (כולל חיפוש בשם קובץ)</span></a></p></li>
 <li><p><a class="reference internal" href="webapp/overview.html"><span class="doc">המיני Web App (סקירה)</span></a></p></li>
+</ul>
+</section>
+<section id="cheatsheet-github-cli-gh">
+<h2>Cheatsheet – GitHub CLI (gh)<a class="headerlink" href="#cheatsheet-github-cli-gh" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># התחברות והגדרת הרשאות</span>
+gh<span class="w"> </span>auth<span class="w"> </span>login
+gh<span class="w"> </span>auth<span class="w"> </span>status
+
+<span class="c1"># עבודה עם Issues</span>
+gh<span class="w"> </span>issue<span class="w"> </span>list
+gh<span class="w"> </span>issue<span class="w"> </span>view<span class="w"> </span>&lt;NUMBER&gt;
+
+<span class="c1"># עבודה עם Pull Requests</span>
+gh<span class="w"> </span>pr<span class="w"> </span>status
+gh<span class="w"> </span>pr<span class="w"> </span>create<span class="w"> </span>--title<span class="w"> </span><span class="s2">&quot;feat: add docs&quot;</span><span class="w"> </span>--body<span class="w"> </span><span class="s2">&quot;Why and tests&quot;</span>
+gh<span class="w"> </span>pr<span class="w"> </span>checkout<span class="w"> </span>&lt;NUMBER&gt;
+gh<span class="w"> </span>pr<span class="w"> </span>view<span class="w"> </span>--web
+
+<span class="c1"># Checks/Workflows</span>
+gh<span class="w"> </span>run<span class="w"> </span>list
+gh<span class="w"> </span>run<span class="w"> </span>watch<span class="w"> </span>--exit-status
+
+<span class="c1"># עבודה עם Forks</span>
+gh<span class="w"> </span>repo<span class="w"> </span>fork<span class="w"> </span>--remote<span class="o">=</span><span class="nb">true</span>
+</pre></div>
+</div>
+<p>למידע נוסף:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="integrations.html"><span class="doc">Integrations</span></a></p></li>
+<li><p><a class="reference internal" href="ci-cd.html"><span class="doc">CI/CD Guide</span></a></p></li>
 </ul>
 </section>
 </section>

@@ -54,6 +54,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#tmp">מחיקה בטוחה (רק ב-/tmp)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#pr">קומיטים ו-PR</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#id5">קישורים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart-ai.html#cheatsheet-github-cli-gh">Cheatsheet – GitHub CLI (gh)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../quickstart.html">התחלה מהירה - מפתחים</a><ul>
@@ -126,6 +127,14 @@
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id5">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../branch-protection-and-pr-rules.html">Branch Protection &amp; PR Rules</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../branch-protection-and-pr-rules.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../branch-protection-and-pr-rules.html#id2">כללי ענפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../branch-protection-and-pr-rules.html#pr">חוקי PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../branch-protection-and-pr-rules.html#ci-required-checks">CI – Required Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../branch-protection-and-pr-rules.html#id3">קישורים</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">מדריכים בסיסיים:</span></p>
 <ul>
@@ -167,6 +176,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id2">טבלה מרכזית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
 </ul>
 </li>
 </ul>
@@ -1049,6 +1059,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#google-drive-oauth-flow">Google Drive (OAuth Flow)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#telegram-webhooks-vs-polling">Telegram Webhooks vs Polling</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#github-scopes">GitHub – Scopes נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#repository-providers">Repository Providers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../repository-integrations.html">Repository Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../repository-integrations.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../repository-integrations.html#id2">מצב תמיכה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../repository-integrations.html#id3">הערות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../security.html">Security Guide</a><ul>
@@ -1084,6 +1104,15 @@
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../git-lfs.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../git-lfs.html#lfs">מתי להשתמש ב‑LFS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../git-lfs.html#id2">התקנה בסיסית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../git-lfs.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../git-lfs.html#id3">מגבלות וגבולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../git-lfs.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/bookmarks.html">סימניות (Bookmarks)</a><ul>
@@ -1217,6 +1246,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/logging-levels.html#id2">טיפ</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../runbooks/github_backup_restore.html">GitHub Backup &amp; Restore Runbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id2">דרישות מקדימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#checkpoint-tag">יצירת נקודת גיבוי (Checkpoint Tag)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#zip">יצירת ארכיון ZIP</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id3">שחזור – בדיקה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id4">שחזור מלא לפרודקשן (זהירות!)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id7">קישורים</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
 <ul>
@@ -1325,7 +1366,7 @@ survives restarts, with an in-memory cache for fast reads.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="services.backoff_state.BackoffInfo">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.backoff_state.</span></span><span class="sig-name descname"><span class="pre">BackoffInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">10,</span> <span class="pre">20,</span> <span class="pre">19,</span> <span class="pre">18,</span> <span class="pre">38,</span> <span class="pre">119799,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/backoff_state.html#BackoffInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#services.backoff_state.BackoffInfo" title="Link to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.backoff_state.</span></span><span class="sig-name descname"><span class="pre">BackoffInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">10,</span> <span class="pre">20,</span> <span class="pre">22,</span> <span class="pre">15,</span> <span class="pre">2,</span> <span class="pre">446349,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/backoff_state.html#BackoffInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#services.backoff_state.BackoffInfo" title="Link to this definition"></a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
@@ -1349,7 +1390,7 @@ survives restarts, with an in-memory cache for fast reads.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="services.backoff_state.BackoffInfo.updated_at">
-<span class="sig-name descname"><span class="pre">updated_at</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">datetime.datetime(2025,</span> <span class="pre">10,</span> <span class="pre">20,</span> <span class="pre">19,</span> <span class="pre">18,</span> <span class="pre">38,</span> <span class="pre">119799,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></em><a class="headerlink" href="#services.backoff_state.BackoffInfo.updated_at" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">updated_at</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">datetime.datetime(2025,</span> <span class="pre">10,</span> <span class="pre">20,</span> <span class="pre">22,</span> <span class="pre">15,</span> <span class="pre">2,</span> <span class="pre">446349,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></em><a class="headerlink" href="#services.backoff_state.BackoffInfo.updated_at" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -1369,7 +1410,7 @@ survives restarts, with an in-memory cache for fast reads.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="services.backoff_state.BackoffInfo.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">10,</span> <span class="pre">20,</span> <span class="pre">19,</span> <span class="pre">18,</span> <span class="pre">38,</span> <span class="pre">119799,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#services.backoff_state.BackoffInfo.__init__" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">10,</span> <span class="pre">20,</span> <span class="pre">22,</span> <span class="pre">15,</span> <span class="pre">2,</span> <span class="pre">446349,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#services.backoff_state.BackoffInfo.__init__" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">

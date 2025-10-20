@@ -12,5 +12,5 @@
 
 ## קישורים
 
-- ראו גם: [Monitoring](../monitoring) ו-[Observability](../observability).  
-  עדכון מינורי לבדיקה מחדש של RTD.
+- ראו גם: [Monitoring](../monitoring) ו-[Observability](../observability).
+- מדריכים משלימים: [Git LFS](../git-lfs) · [GitHub Backup/Restore Runbook](../runbooks/github_backup_restore)
