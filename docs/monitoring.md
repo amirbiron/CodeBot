@@ -135,6 +135,16 @@ Samples (status, latency) → Adaptive Thresholds (mean+3σ)
 - `/alerts` (POST) – Webhook של Alertmanager (קיים)
  - `/predict` (ChatOps) – סיכום תחזיות וטרנדים
 
+## קישורים לתיעוד ChatOps
+
+- ראו את פרק ChatOps המלא:
+  - [ChatOps – סקירה כללית](chatops/overview)
+  - [פקודות ChatOps](chatops/commands)
+  - [Playbooks](chatops/playbooks)
+  - [הרשאות ו-Rate Limit](chatops/permissions)
+  - [פתרון תקלות](chatops/troubleshooting)
+  - [שאלות נפוצות](chatops/faq)
+
 ## טיפים
 
 - ודאו שאין דליפת סודות בלוגים/התראות (המודול מסנן מפתחות).

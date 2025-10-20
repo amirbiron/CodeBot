@@ -85,6 +85,17 @@ Code Keeper Bot - תיעוד API
 
 .. toctree::
    :maxdepth: 2
+   :caption: ChatOps
+
+   chatops/overview
+   chatops/commands
+   chatops/playbooks
+   chatops/permissions
+   chatops/troubleshooting
+   chatops/faq
+
+.. toctree::
+   :maxdepth: 2
    :caption: Observability – Advanced
 
    observability/events_catalog

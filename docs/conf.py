@@ -36,6 +36,14 @@ extensions = [
     'sphinx_autodoc_typehints',
     'sphinx_rtd_theme',
     'sphinxcontrib.mermaid',
+    # אפשר תמיכה ב-Markdown דרך MyST עבור פרקי ChatOps
+    'myst_parser',
+]
+
+# הגדרות בסיסיות עבור MyST (להימנע מאזהרות וקישורים נוחים בין עמודים)
+myst_enable_extensions = [
+    'colon_fence',
+    'deflist',
 ]
 
 # Napoleon settings for Google and NumPy style docstrings
