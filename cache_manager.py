@@ -70,16 +70,25 @@ class CacheManager:
             
             # כיבוד timeouts מה-ENV, עם ברירות מחדל שמרניות ב-SAFE_MODE
             safe_mode = str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on")
-            connect_timeout_env = (
-                (str(getattr(_cfg, 'REDIS_CONNECT_TIMEOUT', '') or '') if _cfg is not None else '')
-                or os.getenv("REDIS_CONNECT_TIMEOUT")
-            )
-            socket_timeout_env = (
-                (str(getattr(_cfg, 'REDIS_SOCKET_TIMEOUT', '') or '') if _cfg is not None else '')
-                or os.getenv("REDIS_SOCKET_TIMEOUT")
-            )
-            socket_connect_timeout = float(connect_timeout_env if connect_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
-            socket_timeout = float(socket_timeout_env if socket_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
+            # כבד קונפיג מפורש גם אם הערך 0.0, אל תשתמש ב-or שמבטל 0
+            connect_timeout_cfg = (getattr(_cfg, 'REDIS_CONNECT_TIMEOUT', None) if _cfg is not None else None)
+            socket_timeout_cfg = (getattr(_cfg, 'REDIS_SOCKET_TIMEOUT', None) if _cfg is not None else None)
+            connect_timeout_env = os.getenv("REDIS_CONNECT_TIMEOUT")
+            socket_timeout_env = os.getenv("REDIS_SOCKET_TIMEOUT")
+
+            if connect_timeout_cfg is not None:
+                socket_connect_timeout = float(connect_timeout_cfg)
+            elif connect_timeout_env is not None:
+                socket_connect_timeout = float(connect_timeout_env)
+            else:
+                socket_connect_timeout = float("1" if safe_mode else "5")
+
+            if socket_timeout_cfg is not None:
+                socket_timeout = float(socket_timeout_cfg)
+            elif socket_timeout_env is not None:
+                socket_timeout = float(socket_timeout_env)
+            else:
+                socket_timeout = float("1" if safe_mode else "5")
 
             try:
                 max_conns_env = (

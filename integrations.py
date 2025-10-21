@@ -607,8 +607,16 @@ class WebhookIntegration:
             "data": data
         }
         
-        timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10)))
-        connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
+        try:
+            _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10))
+        except Exception:
+            _total = 10
+        try:
+            _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
+        except Exception:
+            _limit = 50
+        timeout = aiohttp.ClientTimeout(total=_total)
+        connector = aiohttp.TCPConnector(limit=_limit)
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             for webhook in relevant_webhooks:
                 try:
@@ -616,7 +624,7 @@ class WebhookIntegration:
                         webhook["url"],
                         json=payload,
                         headers={"Content-Type": "application/json"},
-                        timeout=aiohttp.ClientTimeout(total=10)
+                        timeout=timeout
                     ) as response:
                         
                         if response.status == 200:
