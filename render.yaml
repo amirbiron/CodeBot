@@ -124,7 +124,11 @@ services:
       minInstances: 1
       maxInstances: 1
     
-    # Note: persistent disks via Blueprints are not used here to avoid schema issues
+    # Persistent disk for backups (Render Blueprints: use singular 'disk')
+    disk:
+      name: backups
+      mountPath: /data
+      sizeGB: 1
 
   # ===================================
   # Code Keeper Web App - Web Service
