@@ -317,6 +317,21 @@ class DatabaseManager:
             IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
         ]
 
+        # users collection indexes
+        users_indexes = [
+            # כל משתמש מזוהה ע"י user_id – אינדקס ייחודי לביצועים ועקביות
+            IndexModel([("user_id", ASCENDING)], name="user_id_unique", unique=True),
+            # username ייחודי אם קיים (sparse/partial כדי לאפשר ערכים חסרים)
+            IndexModel(
+                [("username", ASCENDING)],
+                name="username_unique",
+                unique=True,
+                sparse=True,
+            ),
+            # שימוש נפוץ לדוחות: מיון לפי פעילות אחרונה
+            IndexModel([("last_activity", DESCENDING)], name="last_activity_desc"),
+        ]
+
         # backup_ratings indexes
         backup_ratings_indexes = [
             IndexModel([("user_id", ASCENDING), ("backup_id", ASCENDING)], name="user_backup_unique", unique=True),
@@ -326,6 +341,12 @@ class DatabaseManager:
         try:
             self.collection.create_indexes(indexes)
             self.large_files_collection.create_indexes(large_files_indexes)
+            # users
+            try:
+                self.db.users.create_indexes(users_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                # הגנה רכה בסביבות ללא users collection
+                pass
             if self.backup_ratings_collection is not None:
                 self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
             # אינדקסים לשיתופים פנימיים: TTL על expires_at + אינדקסים לשימוש
@@ -367,12 +388,50 @@ class DatabaseManager:
                         pass
                     self.collection.create_indexes(indexes)
                     self.large_files_collection.create_indexes(large_files_indexes)
+                    try:
+                        self.db.users.create_indexes(users_indexes)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                     if self.backup_ratings_collection is not None:
                         self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
                 except Exception as _e:
                     emit_event("db_indexes_conflict_update_failed", severity="warn", error=str(_e))
             else:
                 emit_event("db_create_indexes_error", severity="warn", error=str(e))
+
+        # עדכון מטריקה על מספר אינדקסים פעילים (best-effort)
+        try:
+            from metrics import active_indexes  # type: ignore
+        except Exception:
+            active_indexes = None  # type: ignore
+        if active_indexes is not None:
+            try:
+                total = 0
+                try:
+                    total += len(list(self.collection.list_indexes()))
+                except Exception:
+                    pass
+                try:
+                    total += len(list(self.large_files_collection.list_indexes()))
+                except Exception:
+                    pass
+                try:
+                    total += len(list(self.db.users.list_indexes()))  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                try:
+                    if self.backup_ratings_collection is not None:
+                        total += len(list(self.backup_ratings_collection.list_indexes()))
+                except Exception:
+                    pass
+                try:
+                    if self.internal_shares_collection is not None:
+                        total += len(list(self.internal_shares_collection.list_indexes()))
+                except Exception:
+                    pass
+                active_indexes.set(float(total))  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     def close(self):
         if self.client:
