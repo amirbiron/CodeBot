@@ -3189,6 +3189,7 @@ def md_preview(file_id):
 
 @app.route('/api/share/<file_id>', methods=['POST'])
 @login_required
+@traced("share.create_single")
 def create_public_share(file_id):
     """יוצר קישור ציבורי לשיתוף הקובץ ומחזיר את ה-URL."""
     try:
@@ -3244,6 +3245,7 @@ def create_public_share(file_id):
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
+@traced("files.upload_web")
 def upload_file_web():
     """העלאת קובץ חדש דרך הווב-אפליקציה."""
     db = get_db()
@@ -3655,6 +3657,7 @@ def api_files_bulk_tag():
 
 @app.route('/api/files/create-zip', methods=['POST'])
 @login_required
+@traced("files.create_zip")
 def api_files_create_zip():
     """יצירת קובץ ZIP עם קבצים נבחרים של המשתמש."""
     try:
@@ -3709,6 +3712,7 @@ def api_files_create_zip():
 
 @app.route('/api/files/create-share-link', methods=['POST'])
 @login_required
+@traced("share.create_multi")
 def api_files_create_share_link():
     """יוצר קישור שיתוף ציבורי לקבצים נבחרים ומחזיר URL."""
     try:
@@ -3756,6 +3760,7 @@ def api_files_create_share_link():
 
 @app.route('/api/files/bulk-delete', methods=['POST'])
 @login_required
+@traced("files.bulk_delete")
 def api_files_bulk_delete():
     """מחיקה רכה (soft delete) לקבוצת קבצים – מסמן is_active=False עם תוקף שחזור.
 
