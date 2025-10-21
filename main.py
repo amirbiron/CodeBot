@@ -2844,6 +2844,45 @@ def main() -> None:
         bot = CodeKeeperBot()
         
         logger.info("Bot is starting to poll...")
+        # Cache warming: הפעלת עבודה רקע קצרה לאתחול קאש עבור משתמשים/תפריטים נפוצים
+        try:
+            async def _warm_cache(_ctx):
+                try:
+                    from database import db as _db
+                    users: list[int] = []
+                    try:
+                        # קרא מזהי משתמשים פעילים אחרונים (best-effort)
+                        coll = _db.db.users  # type: ignore[attr-defined]
+                        rows = list(getattr(coll, 'find', lambda *a, **k: [])({}, {"user_id": 1}).limit(10))  # type: ignore[attr-defined]
+                        for r in rows:
+                            uid = r.get('user_id') if isinstance(r, dict) else None
+                            if isinstance(uid, int):
+                                users.append(uid)
+                    except Exception:
+                        users = []
+                    # חמם רשימות קבצים ושמות לקומבוס/אוטוקומפליט
+                    for uid in users[:10]:
+                        try:
+                            _ = _db.get_user_files(uid, limit=50)
+                        except Exception:
+                            pass
+                        try:
+                            _ = _db.get_user_file_names(uid, limit=200)
+                        except Exception:
+                            pass
+                        try:
+                            _ = _db.get_repo_tags_with_counts(uid, max_tags=50)
+                        except Exception:
+                            pass
+                except Exception:
+                    return
+            # הרצה לאחר עלייה כדי לא לעכב startup
+            try:
+                bot.application.job_queue.run_once(_warm_cache, when=2)
+            except Exception:
+                pass
+        except Exception:
+            pass
         bot.application.run_polling(drop_pending_updates=True)
         
     except Exception as e:
