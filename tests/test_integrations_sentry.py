@@ -51,6 +51,9 @@ class _Aiohttp:
     class ClientTimeout:
         def __init__(self, total=None):
             self.total = total
+    class TCPConnector:
+        def __init__(self, limit=None):
+            self.limit = limit
     ClientSession = _Session
 
 
