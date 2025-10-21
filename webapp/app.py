@@ -76,6 +76,13 @@ except Exception:  # pragma: no cover
         except Exception:
             return ""
 
+# Alertmanager forwarding (optional)
+try:
+    from alert_forwarder import forward_alerts as _forward_alerts  # type: ignore
+except Exception:  # pragma: no cover
+    def _forward_alerts(_alerts):  # type: ignore
+        return None
+
 # Optional monitoring & resilience
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY  # type: ignore
@@ -944,6 +951,24 @@ def _metrics_after(resp):  # type: ignore[override]
     except Exception:
         pass
     return resp
+
+
+# === Alertmanager Webhook endpoint (optional integration) ===
+# מאפשר להפנות התראות מ-Alertmanager ישירות לבוט/טלגרם דרך alert_forwarder
+@app.route('/alertmanager/webhook', methods=['POST'])
+def alertmanager_webhook():
+    try:
+        payload = request.get_json(silent=True) or {}
+        alerts = payload.get('alerts') or []
+        if isinstance(alerts, list) and alerts:
+            try:
+                _forward_alerts(alerts)
+            except Exception:
+                pass
+            return jsonify({"status": "ok", "forwarded": len(alerts)}), 200
+        return jsonify({"status": "no_alerts"}), 200
+    except Exception:
+        return jsonify({"status": "error"}), 200
 
 def admin_required(f):
     """דקורטור לבדיקת הרשאות אדמין"""

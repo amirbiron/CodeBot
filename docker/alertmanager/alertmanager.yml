@@ -2,13 +2,17 @@ global:
   resolve_timeout: 5m
 
 route:
-  receiver: 'default'
+  receiver: 'webhook'
   group_by: ['alertname', 'severity']
   group_wait: 10s
   group_interval: 5m
   repeat_interval: 4h
 
 receivers:
+  - name: 'webhook'
+    webhook_configs:
+      - url: 'http://code-keeper-bot:8000/alertmanager/webhook'
+        send_resolved: true
   - name: 'default'
     # דוגמה: הוספת Slack webhook דרך env או קובץ סודי
     # slack_configs:
