@@ -114,6 +114,17 @@ app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
+# --- OpenTelemetry (optional, fail-open) ---
+try:
+    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+    _setup_otel(
+        service_name="code-keeper-webapp",
+        service_version=os.getenv("APP_VERSION", ""),
+        environment=os.getenv("ENVIRONMENT", os.getenv("ENV", "production")),
+        flask_app=app,
+    )
+except Exception:
+    pass
 # --- Correlation ID across services (request_id) ---
 try:
     from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid  # type: ignore
