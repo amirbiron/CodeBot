@@ -683,7 +683,9 @@ class AdvancedBotHandlers:
             gh_status = "unknown"
             try:
                 if aiohttp is not None and os.getenv("GITHUB_TOKEN"):
-                    async with aiohttp.ClientSession() as session:
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    connector = aiohttp.TCPConnector(limit=50)
+                    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                         async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
                             data = await resp.json()
                             remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
@@ -1137,7 +1139,9 @@ class AdvancedBotHandlers:
             if aiohttp is None or not os.getenv("GITHUB_TOKEN"):
                 await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
                 return
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=10)
+            connector = aiohttp.TCPConnector(limit=50)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
                     data = await resp.json()
             core = data.get("resources", {}).get("core", {})
