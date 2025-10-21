@@ -6,6 +6,7 @@
       this.textarea = null;
       this.loadingElement = null;
       this.isLoading = false;
+      this.loadingPromise = null;
     }
 
     loadPreference() {
@@ -64,65 +65,78 @@
     }
 
     async initCodeMirror(container, { language, value, theme }) {
-      try {
-        if (this.isLoading) return;
-        this.isLoading = true;
-        this.showLoading(container);
-        // הסתרת textarea
-        this.textarea.style.display = 'none';
-
-        // יצירת container
-        const cmWrapper = document.createElement('div');
-        cmWrapper.className = 'codemirror-container';
-        this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
-
-        if (!window.CodeMirror6) {
-          await this.loadCodeMirror();
+      // אם יש כבר טעינה פעילה, נחכה שתסתיים כדי למנוע מצב ביניים
+      if (this.isLoading && this.loadingPromise) {
+        await this.loadingPromise;
+        if (!this.cmInstance) {
+          throw new Error('codemirror_init_failed');
         }
-        const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
-
-        const langSupport = await this.getLanguageSupport(language);
-        const themeExt = await this.getTheme(theme);
-
-        const debouncedSync = this.debounce((val) => {
-          this.textarea.value = val;
-          try { this.textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
-        }, 100);
-
-        const state = EditorState.create({
-          doc: (this.textarea.value || value || ''),
-          extensions: [
-            ...basicSetup,
-            languageCompartment.of(langSupport || []),
-            themeCompartment.of(themeExt || []),
-            EditorView.lineWrapping,
-            EditorView.updateListener.of((update) => {
-              if (update.docChanged) {
-                debouncedSync(update.state.doc.toString());
-              }
-            })
-          ]
-        });
-
-        this.cmInstance = new EditorView({ state, parent: cmWrapper });
-      } catch (e) {
-        console.error('CodeMirror init failed', e);
-        this.currentEditor = 'simple';
-        this.initSimpleEditor(container, { value });
-        try {
-          // הסרת באנרי שגיאה קודמים כדי למנוע הצטברות
-          container.querySelectorAll('.editor-error-banner').forEach(el => el.remove());
-          // הודעת שגיאה ידידותית למשתמש ופעולת fallback
-          const errBanner = document.createElement('div');
-          errBanner.className = 'editor-error-banner alert alert-error';
-          errBanner.style.marginTop = '.5rem';
-          errBanner.textContent = 'טעינת העורך המתקדם נכשלה. הוחזר לעורך הפשוט.';
-          container.appendChild(errBanner);
-        } catch(_) {}
-      } finally {
-        this.hideLoading(container);
-        this.isLoading = false;
+        return;
       }
+
+      this.loadingPromise = (async () => {
+        try {
+          this.isLoading = true;
+          this.showLoading(container);
+          // הסתרת textarea
+          this.textarea.style.display = 'none';
+
+          // יצירת container
+          const cmWrapper = document.createElement('div');
+          cmWrapper.className = 'codemirror-container';
+          this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
+
+          if (!window.CodeMirror6) {
+            await this.loadCodeMirror();
+          }
+          const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
+
+          const langSupport = await this.getLanguageSupport(language);
+          const themeExt = await this.getTheme(theme);
+
+          const debouncedSync = this.debounce((val) => {
+            this.textarea.value = val;
+            try { this.textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+          }, 100);
+
+          const state = EditorState.create({
+            doc: (this.textarea.value || value || ''),
+            extensions: [
+              ...basicSetup,
+              languageCompartment.of(langSupport || []),
+              themeCompartment.of(themeExt || []),
+              EditorView.lineWrapping,
+              EditorView.updateListener.of((update) => {
+                if (update.docChanged) {
+                  debouncedSync(update.state.doc.toString());
+                }
+              })
+            ]
+          });
+
+          this.cmInstance = new EditorView({ state, parent: cmWrapper });
+        } catch (e) {
+          console.error('CodeMirror init failed', e);
+          this.currentEditor = 'simple';
+          this.initSimpleEditor(container, { value });
+          try {
+            // הסרת באנרי שגיאה קודמים כדי למנוע הצטברות
+            container.querySelectorAll('.editor-error-banner').forEach(el => el.remove());
+            // הודעת שגיאה ידידותית למשתמש ופעולת fallback
+            const errBanner = document.createElement('div');
+            errBanner.className = 'editor-error-banner alert alert-error';
+            errBanner.style.marginTop = '.5rem';
+            errBanner.textContent = 'טעינת העורך המתקדם נכשלה. הוחזר לעורך הפשוט.';
+            container.appendChild(errBanner);
+          } catch(_) {}
+          throw e;
+        } finally {
+          this.hideLoading(container);
+          this.isLoading = false;
+        }
+      })();
+
+      return await this.loadingPromise;
     }
 
     addSwitcherButton(container) {
