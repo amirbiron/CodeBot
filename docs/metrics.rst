@@ -35,6 +35,11 @@
    # P90 למשכי פעולות ידניות דרך OTel
    histogram_quantile(0.90, sum by (le) (rate(request_duration_bucket{job="webapp"}[10m])))
 
+Tracing ב-Grafana
+------------------
+- הוגדר datasource מסוג ``Jaeger`` תחת ``docker/grafana/provisioning/datasources/prometheus.yml`` (URL: ``http://jaeger:16686``).
+- ניתן לחפש שירותים ``code-keeper-webapp``/``code-keeper-bot`` ולצלול ל-spans שנרשמים דרך ``@traced``.
+
 SLO/SLI לדוגמה
 ---------------
 - זמינות שירות API: 99.9% חודשית

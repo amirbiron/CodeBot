@@ -107,3 +107,51 @@
 - הדקורטור פועל גם על פונקציות sync וגם על async.
 - כאשר מתרחשת חריגה, משך הפעולה נרשם פעם אחת בלבד עם המאפיין ``error=True``.
 - עבור Flask, האינסטרומנטציה האוטומטית מוסיפה טרייסים ברמת הבקשה; שימוש ב־`@traced` מומלץ סביב פעולות עסקיות קריטיות בתוך הידלרים או שירותים.
+
+דוקר קומפוז – הפעלה מהירה עם Jaeger
+-------------------------------------
+לריצה מקומית עם Tracing מלא (Jaeger + Grafana + Prometheus):
+
+.. code-block:: bash
+
+   # הרצת שירותי ניטור + בוט
+   docker-compose --profile monitoring up jaeger grafana prometheus code-keeper-bot mongodb
+
+   # גישה ל-Jaeger UI
+   # http://localhost:16686
+
+ברירת המחדל ב-Compose שולחת OTLP ל-``http://jaeger:4317``. ניתן לדרוס:
+
+.. code-block:: bash
+
+   export OTEL_EXPORTER_OTLP_ENDPOINT="http://tempo.staging.svc:4317"  # לדוגמה Tempo
+   export OTEL_EXPORTER_INSECURE=true
+   docker-compose up -d
+
+כיסוי דקורטור @traced
+-----------------------
+הוספנו כיסוי ידני במסלולים כבדים:
+
+- ``search.global`` (קיים)
+- ``search.suggestions`` (קיים)
+- ``files.list`` (קיים)
+- ``files.download`` (חדש)
+- ``files.bulk_favorite`` (חדש)
+- ``files.bulk_unfavorite`` (חדש)
+- ``files.bulk_tag`` (חדש)
+
+אימות ב-Staging
+----------------
+בדקו שהטרייסים מגיעים:
+
+1. הגדירו משתני סביבה בשירות:
+
+   ::
+
+      ENVIRONMENT=staging
+      APP_VERSION=1.2.3
+      OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.yourdomain:4317
+      OTEL_EXPORTER_INSECURE=false
+
+2. שלחו מספר בקשות לנתיבים הכבדים (חיפוש, הורדה, bulk tag/fav).
+3. ודאו הופעת השירותים ``code-keeper-webapp`` ו-``code-keeper-bot`` ב-Backend (Jaeger/Tempo).
