@@ -531,7 +531,7 @@ class BackupManager:
 
             if purge:
                 try:
-                    existing = db.get_user_files(user_id, limit=10000) or []
+                    existing = db.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
                     for doc in existing:
                         try:
                             fname = doc.get('file_name')

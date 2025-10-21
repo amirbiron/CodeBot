@@ -347,7 +347,8 @@ class BackupMenuHandler:
             import zipfile, json
             from database import db
             # אסוף את הקבצים של המשתמש
-            files = db.get_user_files(user_id, limit=10000) or []
+            # לשם יצירת גיבוי: מספיק לקרוא את הגרסאות האחרונות; תכולה תישלף בהמשך
+            files = db.get_user_files(user_id, limit=1000) or []
             backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
             buf = BytesIO()
             with track_performance("backup_create_full_zip"):

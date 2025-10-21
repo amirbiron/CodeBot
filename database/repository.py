@@ -581,9 +581,24 @@ class Repository:
             return None
 
     @cached(expire_seconds=120, key_prefix="user_files")
-    def get_user_files(self, user_id: int, limit: int = 50) -> List[Dict]:
+    def get_user_files(
+        self,
+        user_id: int,
+        limit: int = 50,
+        *,
+        skip: int = 0,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> List[Dict]:
+        """החזרת גרסה אחרונה לכל `file_name` של המשתמש עם תמיכה בעימוד והקרנה.
+
+        - limit: מספר פריטים מקסימלי להחזרה.
+        - skip: דילוג על מספר פריטים לאחר קיבוץ לפי `file_name` (עימוד אמיתי).
+        - projection: מילון שדות להחזרה (1/0). אם לא סופק, יוחזר המסמך המלא.
+        """
         try:
-            pipeline = [
+            eff_limit = max(1, int(limit or 50))
+            eff_skip = max(0, int(skip or 0))
+            pipeline: List[Dict[str, Any]] = [
                 {"$match": {"user_id": user_id, "$or": [
                     {"is_active": True}, {"is_active": {"$exists": False}}
                 ]}},
@@ -591,8 +606,18 @@ class Repository:
                 {"$group": {"_id": "$file_name", "latest": {"$first": "$$ROOT"}}},
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
-                {"$limit": limit},
             ]
+            # הקרנה אופציונלית לשדות דרושים בלבד
+            if projection and isinstance(projection, dict) and projection:
+                # הבטחה שתמיד יוחזר file_name אם לא נכלל
+                proj = dict(projection)
+                proj.setdefault("file_name", 1)
+                pipeline.append({"$project": proj})
+            # עימוד: דילוג ואז הגבלה
+            if eff_skip > 0:
+                pipeline.append({"$skip": eff_skip})
+            pipeline.append({"$limit": eff_limit})
+
             with track_performance("db_get_user_files"):
                 rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             return rows

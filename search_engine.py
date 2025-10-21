@@ -119,9 +119,22 @@ class SearchIndex:
         
         # קבלת כל הקבצים
         with track_performance("search_index_rebuild", labels={"repo": ""}):
-            files = db.get_user_files(user_id, limit=10000)
-            
-            for file_data in files:
+            # עימוד בטוח: שליפה במנות של 200 כדי להימנע מטעינת כל הקבצים לזיכרון
+            PAGE_SIZE = 200
+            offset = 0
+            while True:
+                try:
+                    files = db.get_user_files(user_id, limit=PAGE_SIZE, skip=offset)
+                except TypeError:
+                    # תאימות ל-stubs שלא תומכים ב-skip — קח רק עמוד ראשון ללא דילוג
+                    files = db.get_user_files(user_id, PAGE_SIZE)
+                    # אם כבר עשינו ניסיון ראשון והגענו לכאן, עצור
+                    if offset > 0:
+                        files = []
+                if not files:
+                    break
+                offset += len(files)
+                for file_data in files:
                 # גישה בטוחה לשדות שעלולים להיות חסרים במסמכים ישנים/חלקיים
                 file_name_value = str(file_data.get('file_name') or '').strip()
                 if not file_name_value:
@@ -326,10 +339,26 @@ class AdvancedSearchEngine:
             logger.error(f"דפוס regex לא תקין: {e}")
             return []
         
-        files = db.get_user_files(user_id, limit=1000)
+        # הקרנה קלה לתוכן ושדות נחוצים בלבד
+        PAGE_SIZE = 200
+        offset = 0
         results = []
-        
-        for file_data in files:
+        while True:
+            try:
+                files = db.get_user_files(
+                    user_id,
+                    limit=PAGE_SIZE,
+                    skip=offset,
+                    projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                )
+            except TypeError:
+                files = db.get_user_files(user_id, PAGE_SIZE)
+                if offset > 0:
+                    files = []
+            if not files:
+                break
+            offset += len(files)
+            for file_data in files:
             content = str(file_data.get('code') or '')
             matches = list(compiled_pattern.finditer(content))
             
@@ -355,10 +384,25 @@ class AdvancedSearchEngine:
     def _fuzzy_search(self, query: str, index: SearchIndex, user_id: int) -> List[SearchResult]:
         """חיפוש מטושטש (fuzzy)"""
         
-        files = db.get_user_files(user_id, limit=1000)
+        PAGE_SIZE = 200
+        offset = 0
         results = []
-        
-        for file_data in files:
+        while True:
+            try:
+                files = db.get_user_files(
+                    user_id,
+                    limit=PAGE_SIZE,
+                    skip=offset,
+                    projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                )
+            except TypeError:
+                files = db.get_user_files(user_id, PAGE_SIZE)
+                if offset > 0:
+                    files = []
+            if not files:
+                break
+            offset += len(files)
+            for file_data in files:
             # חיפוש מטושטש בשם הקובץ
             name_value = str(file_data.get('file_name') or '')
             name_ratio = fuzz.partial_ratio(query.lower(), name_value.lower())
@@ -414,12 +458,26 @@ class AdvancedSearchEngine:
     def _content_search(self, query: str, user_id: int) -> List[SearchResult]:
         """חיפוש מלא בתוכן"""
         
-        files = db.get_user_files(user_id, limit=1000)
+        PAGE_SIZE = 200
+        offset = 0
         results = []
-        
         query_lower = query.lower()
-        
-        for file_data in files:
+        while True:
+            try:
+                files = db.get_user_files(
+                    user_id,
+                    limit=PAGE_SIZE,
+                    skip=offset,
+                    projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                )
+            except TypeError:
+                files = db.get_user_files(user_id, PAGE_SIZE)
+                if offset > 0:
+                    files = []
+            if not files:
+                break
+            offset += len(files)
+            for file_data in files:
             content_value = str(file_data.get('code') or '')
             content_lower = content_value.lower()
             

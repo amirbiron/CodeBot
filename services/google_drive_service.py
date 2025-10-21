@@ -543,7 +543,8 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
     """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes)."""
     from database import db as _db
     import zipfile
-    files = _db.get_user_files(user_id, limit=10000) or []
+    # משוך רק שמות קבצים לשיפור ביצועים
+    files = _db.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
     repo_to_files: Dict[str, List[Dict[str, Any]]] = {}
     for doc in files:
         tags = doc.get('tags') or []
@@ -579,7 +580,7 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
     backup_id = f"backup_{user_id}_{int(time.time())}_{category}"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
-        files = _db.get_user_files(user_id, limit=10000) or []
+        files = _db.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
         if category == "by_repo":
             files = [d for d in files if any((t or '').startswith('repo:') for t in (d.get('tags') or []))]
         elif category == "large":

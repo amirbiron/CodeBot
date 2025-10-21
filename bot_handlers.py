@@ -1302,8 +1302,8 @@ class AdvancedBotHandlers:
         found_files: List[Dict[str, Any]] = []
         missing: List[str] = []
         # נקבל את רשימת הקבצים של המשתמש למסנן wildcards בזיכרון
-        all_files = db.get_user_files(user_id, limit=1000)
-        all_names = [f['file_name'] for f in all_files]
+        all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+        all_names = [f['file_name'] for f in all_files if f.get('file_name')]
 
         def _expand_pattern(pattern: str) -> List[str]:
             # תמיכה בסיסית ב-* בלבד (תחילת/סוף/אמצע)
@@ -1503,7 +1503,7 @@ class AdvancedBotHandlers:
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
-        files = db.get_user_files(user_id, limit=1000)
+        files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
         
         if not files:
             await update.message.reply_text("🏷️ עדיין אין לך קבצים עם תגיות.")

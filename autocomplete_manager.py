@@ -51,10 +51,15 @@ class AutocompleteManager:
         
     @cached(expire_seconds=180, key_prefix="autocomplete_files")
     def get_user_filenames(self, user_id: int) -> List[str]:
-        """קבלת כל שמות הקבצים של משתמש לאוטו-השלמה"""
+        """קבלת שמות קבצים לאוטו-השלמה עם הקרנה קלה והגבלת כמות בטוחה."""
         try:
-            files = db.get_user_files(user_id, limit=1000)
-            return [file['file_name'] for file in files]
+            # הקרנה מינימלית: רק file_name
+            try:
+                rows = db.get_user_files(user_id, limit=500, skip=0, projection={"file_name": 1})
+            except TypeError:
+                # תאימות ל-stubs בטסטים שלא מקבלים skip/projection
+                rows = db.get_user_files(user_id, 500)
+            return [str(r.get('file_name') or '') for r in rows if isinstance(r, dict) and r.get('file_name')]
         except Exception as e:
             logger.error(f"שגיאה בקבלת שמות קבצים לאוטו-השלמה: {e}")
             return []
@@ -63,15 +68,21 @@ class AutocompleteManager:
     def get_user_tags(self, user_id: int) -> List[str]:
         """קבלת כל התגיות של משתמש לאוטו-השלמה"""
         try:
-            files = db.get_user_files(user_id, limit=1000)
-            all_tags = set()
-            
-            for file in files:
-                tags = file.get('tags', [])
-                if tags:
-                    all_tags.update(tags)
-            
-            return sorted(list(all_tags))
+            # משיכת תגיות בלבד מהגרסאות האחרונות בכל קובץ באמצעות הקרנה
+            try:
+                rows = db.get_user_files(user_id, limit=500, projection={"tags": 1, "file_name": 1})
+            except TypeError:
+                rows = db.get_user_files(user_id, 500)
+            all_tags: Set[str] = set()
+            for doc in rows:
+                try:
+                    for t in list(doc.get('tags') or []):
+                        ts = str(t or '').strip()
+                        if ts:
+                            all_tags.add(ts)
+                except Exception:
+                    continue
+            return sorted(all_tags)
         except Exception as e:
             logger.error(f"שגיאה בקבלת תגיות לאוטו-השלמה: {e}")
             return []

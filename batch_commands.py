@@ -40,13 +40,20 @@ async def batch_analyze_command(update: Update, context: ContextTypes.DEFAULT_TY
     
     if args[0] == "all":
         # כל הקבצים
-        all_files = db.get_user_files(user_id, limit=1000)
-        files_to_analyze = [f['file_name'] for f in all_files]
+        try:
+            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+        except TypeError:
+            # תאימות ל-stubs בטסטים
+            all_files = db.get_user_files(user_id, 500)
+        files_to_analyze = [f['file_name'] for f in all_files if f.get('file_name')]
         
     elif args[0] in ['python', 'javascript', 'java', 'cpp', 'html', 'css']:
         # קבצים לפי שפה
         language = args[0]
-        all_files = db.get_user_files(user_id, limit=1000)
+        try:
+            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "programming_language": 1})
+        except TypeError:
+            all_files = db.get_user_files(user_id, 500)
         files_to_analyze = [
             f['file_name'] for f in all_files 
             if f.get('programming_language', '').lower() == language.lower()
@@ -120,11 +127,17 @@ async def batch_validate_command(update: Update, context: ContextTypes.DEFAULT_T
     files_to_validate = []
     
     if args[0] == "all":
-        all_files = db.get_user_files(user_id, limit=1000)
-        files_to_validate = [f['file_name'] for f in all_files]
+        try:
+            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+        except TypeError:
+            all_files = db.get_user_files(user_id, 500)
+        files_to_validate = [f['file_name'] for f in all_files if f.get('file_name')]
     elif args[0] in ['python', 'javascript', 'java', 'cpp']:
         language = args[0]
-        all_files = db.get_user_files(user_id, limit=1000)
+        try:
+            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "programming_language": 1})
+        except TypeError:
+            all_files = db.get_user_files(user_id, 500)
         files_to_validate = [
             f['file_name'] for f in all_files 
             if f.get('programming_language', '').lower() == language.lower()
