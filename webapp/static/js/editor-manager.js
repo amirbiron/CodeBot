@@ -110,9 +110,11 @@
         this.currentEditor = 'simple';
         this.initSimpleEditor(container, { value });
         try {
+          // הסרת באנרי שגיאה קודמים כדי למנוע הצטברות
+          container.querySelectorAll('.editor-error-banner').forEach(el => el.remove());
           // הודעת שגיאה ידידותית למשתמש ופעולת fallback
           const errBanner = document.createElement('div');
-          errBanner.className = 'alert alert-error';
+          errBanner.className = 'editor-error-banner alert alert-error';
           errBanner.style.marginTop = '.5rem';
           errBanner.textContent = 'טעינת העורך המתקדם נכשלה. הוחזר לעורך הפשוט.';
           container.appendChild(errBanner);
