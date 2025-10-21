@@ -491,7 +491,13 @@ def _trigger_preemptive_action(tr: Trend) -> None:
             # Controlled restart of a single worker (log-only in dev)
             action = "restart_worker:1"
             try:
-                emit_event("service_restart_attempt", severity="warn", service="worker-1", reason="predictive")
+                emit_event(
+                    "service_restart_attempt",
+                    severity="anomaly",
+                    service="worker-1",
+                    reason="predictive",
+                    handled=True,
+                )
             except Exception:
                 pass
         emit_event("PREDICTIVE_ACTION_TRIGGERED", severity="warn", metric=tr.metric, action=action or "none")
