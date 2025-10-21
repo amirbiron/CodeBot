@@ -2944,6 +2944,7 @@ def edit_file_page(file_id):
 
 @app.route('/download/<file_id>')
 @login_required
+@traced("files.download")
 def download_file(file_id):
     """הורדת קובץ"""
     db = get_db()
@@ -3519,6 +3520,7 @@ def api_toggle_favorite(file_id):
 
 @app.route('/api/files/bulk-favorite', methods=['POST'])
 @login_required
+@traced("files.bulk_favorite")
 def api_files_bulk_favorite():
     """הוספת is_favorite=True לקבוצת קבצים של המשתמש."""
     try:
@@ -3559,6 +3561,7 @@ def api_files_bulk_favorite():
 
 @app.route('/api/files/bulk-unfavorite', methods=['POST'])
 @login_required
+@traced("files.bulk_unfavorite")
 def api_files_bulk_unfavorite():
     """ביטול is_favorite לקבוצת קבצים של המשתמש."""
     try:
@@ -3599,6 +3602,7 @@ def api_files_bulk_unfavorite():
 
 @app.route('/api/files/bulk-tag', methods=['POST'])
 @login_required
+@traced("files.bulk_tag")
 def api_files_bulk_tag():
     """הוספת תגיות לקבוצת קבצים של המשתמש ללא כפילויות."""
     try:

@@ -96,6 +96,10 @@ services:
       
       # Backup (מבוטל לפיתוח)
       AUTO_BACKUP_ENABLED: false
+      # OpenTelemetry (optional, for local development)
+      # שליחה ל-Jaeger בתוך ה-compose; ניתן לשנות ל-Tempo חיצוני
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger-dev:4317}
+      OTEL_EXPORTER_INSECURE: ${OTEL_EXPORTER_INSECURE:-true}
     
     ports:
       - "8000:8000"
@@ -128,6 +132,22 @@ services:
         echo
         python main.py
       "
+
+  # ===================================
+  # Jaeger (Tracing backend - development)
+  # ===================================
+  jaeger-dev:
+    image: jaegertracing/all-in-one:1.57
+    container_name: code-keeper-jaeger-dev
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks:
+      - dev-network
 
   # ===================================
   # MongoDB Express (Database UI)
