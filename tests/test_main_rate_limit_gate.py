@@ -255,12 +255,9 @@ async def test_rate_limit_gate_soft_warning_message_once_per_min(monkeypatch):
     bot = mod.CodeKeeperBot()
 
     # Extract the gate handler (group -90)
-    gate_handler = None
-    for handler, group in bot.application.handlers:
-        if group == -90:
-            gate_handler = handler
-            break
-    assert gate_handler is not None
+    gates = [h for h, g in bot.application.handlers if g == -90]
+    assert len(gates) >= 2, 'expected both message and callback gates registered'
+    gate_handler = gates[1]
 
     # Make it easy to reach 80% threshold
     bot._rate_limiter.max_per_minute = 5
@@ -323,12 +320,9 @@ async def test_rate_limit_gate_soft_warning_callback_query_once_per_min(monkeypa
 
     bot = mod.CodeKeeperBot()
 
-    gate_handler = None
-    for handler, group in bot.application.handlers:
-        if group == -90:
-            gate_handler = handler
-            break
-    assert gate_handler is not None
+    gates = [h for h, g in bot.application.handlers if g == -90]
+    assert len(gates) >= 2, 'expected both message and callback gates registered'
+    gate_handler = gates[1]
 
     bot._rate_limiter.max_per_minute = 5
 
