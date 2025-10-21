@@ -7,7 +7,8 @@ rule_files:
 
 alerting:
   alertmanagers:
-    - static_configs:
+    - scheme: https
+      static_configs:
         - targets:
             # Alertmanager will be on Render as well; use its public URL env var
             - ${ALERTMANAGER_TARGET}
