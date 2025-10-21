@@ -3913,28 +3913,83 @@ def api_persistent_login():
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
 def api_ui_prefs():
-    """שמירת העדפות UI (כרגע: font_scale)."""
+    """שמירת העדפות UI: תומך בעדכונים חלקיים (font_scale/theme/editor).
+
+    קלט JSON נתמך:
+    - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
+    - theme: אחד מ-{"classic","ocean","forest"} (אופציונלי)
+    - editor: "simple" | "codemirror" (אופציונלי)
+    """
     try:
         payload = request.get_json(silent=True) or {}
-        font_scale = float(payload.get('font_scale', 1.0))
-        theme = (payload.get('theme') or '').strip().lower()
-        # הגבלה סבירה
-        if font_scale < 0.85:
-            font_scale = 0.85
-        if font_scale > 1.6:
-            font_scale = 1.6
+
         db = get_db()
         user_id = session['user_id']
-        update_fields = {'ui_prefs.font_scale': font_scale, 'updated_at': datetime.now(timezone.utc)}
-        if theme in {'classic','ocean','forest'}:
-            update_fields['ui_prefs.theme'] = theme
+        now_utc = datetime.now(timezone.utc)
+
+        update_fields: Dict[str, Any] = {'updated_at': now_utc}
+        resp_payload: Dict[str, Any] = {'ok': True}
+        # נשמור ערכים בטוחים בלבד עבור קובצי cookie
+        font_scale_cookie_value: Optional[str] = None
+        theme_cookie_value: Optional[str] = None
+
+        # עדכון גודל גופן במידת הצורך
+        if 'font_scale' in payload:
+            try:
+                font_scale = float(payload.get('font_scale'))
+                if font_scale < 0.85:
+                    font_scale = 0.85
+                if font_scale > 1.6:
+                    font_scale = 1.6
+                update_fields['ui_prefs.font_scale'] = font_scale
+                resp_payload['font_scale'] = font_scale
+                font_scale_cookie_value = f"{font_scale:.2f}"
+            except Exception:
+                return jsonify({'ok': False, 'error': 'font_scale must be a number'}), 400
+
+        # עדכון ערכת צבעים במידת הצורך
+        if 'theme' in payload:
+            theme = (payload.get('theme') or '').strip().lower()
+            if theme in {'classic', 'ocean', 'forest'}:
+                update_fields['ui_prefs.theme'] = theme
+                resp_payload['theme'] = theme
+                theme_cookie_value = theme
+
+        # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
+        if 'editor' in payload:
+            editor_type = (payload.get('editor') or '').strip().lower()
+            if editor_type in {'simple', 'codemirror'}:
+                update_fields['ui_prefs.editor'] = editor_type
+                session['preferred_editor'] = editor_type
+                resp_payload['editor'] = editor_type
+
+        # אם לא התקבל אף שדה עדכני – אין מה לעדכן
+        if len(update_fields) == 1:  # רק updated_at
+            return jsonify({'ok': True})
+
         db.users.update_one({'user_id': user_id}, {'$set': update_fields}, upsert=True)
-        # גם בקוקי כדי להשפיע מיידית בעמודים ציבוריים
-        resp = jsonify({'ok': True, 'font_scale': font_scale, 'theme': theme or None})
+
+        # עדכון קוקיז רק עבור שדות שסופקו
+        resp = jsonify(resp_payload)
         try:
-            resp.set_cookie('ui_font_scale', str(font_scale), max_age=365*24*3600, samesite='Lax')
-            if theme in {'classic','ocean','forest'}:
-                resp.set_cookie('ui_theme', theme, max_age=365*24*3600, samesite='Lax')
+            if font_scale_cookie_value is not None:
+                resp.set_cookie(
+                    'ui_font_scale',
+                    font_scale_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
+            if theme_cookie_value is not None:
+                resp.set_cookie(
+                    'ui_theme',
+                    theme_cookie_value,
+                    max_age=365*24*3600,
+                    samesite='Lax',
+                    secure=True,
+                    httponly=True,
+                )
         except Exception:
             pass
         return resp
