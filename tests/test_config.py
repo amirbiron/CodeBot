@@ -38,3 +38,12 @@ def test_load_config_missing_env(monkeypatch):
     with pytest.raises(ValueError):
         importlib.import_module("config")
 
+
+def test_mongodb_url_validation(monkeypatch):
+    # הגדרה של ערך לא תקין ל-MONGODB_URL אמורה להכשיל import
+    monkeypatch.setenv("BOT_TOKEN", "x")
+    monkeypatch.setenv("MONGODB_URL", "http://localhost:27017")
+    sys.modules.pop("config", None)
+    with pytest.raises(ValueError):
+        importlib.import_module("config")
+

@@ -1,130 +1,204 @@
-import os
-from dataclasses import dataclass
-from typing import Optional
+from __future__ import annotations
+
+from typing import List, Optional
+
+from pydantic import Field, ValidationError, field_validator
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
-@dataclass
-class BotConfig:
-    """קונפיגורציה עיקרית של הבוט"""
-    
-    # טוקן הבוט
-    BOT_TOKEN: str
-    
-    # הגדרות מסד נתונים
-    MONGODB_URL: str
-    DATABASE_NAME: str = "code_keeper_bot"
-    
-    # הגדרות Redis Cache
-    REDIS_URL: Optional[str] = None
-    CACHE_ENABLED: bool = True
-    
-    # הגדרות GitHub Gist
-    GITHUB_TOKEN: Optional[str] = None
-    
-    # הגדרות Pastebin
-    PASTEBIN_API_KEY: Optional[str] = None
-    
-    # הגדרות כלליות
-    MAX_CODE_SIZE: int = 100000  # מקסימום 100KB לקטע קוד
-    MAX_FILES_PER_USER: int = 1000
-    SUPPORTED_LANGUAGES: list = None
+class BotConfig(BaseSettings):
+    """
+    קונפיגורציה עיקרית של הבוט המבוססת על Pydantic Settings.
 
-    # סל מיחזור: כמה ימים פריט נשמר לפני מחיקה אוטומטית
-    RECYCLE_TTL_DAYS: int = 7
-    
-    # כתובת בסיס ציבורית להצגת קישורים פנימיים (לשירות web)
-    PUBLIC_BASE_URL: Optional[str] = None
-    # כתובת ה-WebApp (למקרה שהבוט רץ כ-worker ללא דומיין ציבורי)
-    WEBAPP_URL: Optional[str] = None
-    
-    # מצב תחזוקה/דיפלוי
-    MAINTENANCE_MODE: bool = False
-    MAINTENANCE_MESSAGE: str = "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"
-    MAINTENANCE_AUTO_WARMUP_SECS: int = 30
+    - קורא אוטומטית משתני סביבה ו-`.env`.
+    - מבצע המרות טיפוסים ו-Validation ברור.
+    """
 
-    # Rate limiting
-    RATE_LIMIT_PER_MINUTE: int = 30
-    
-    # הגדרות syntax highlighting
-    HIGHLIGHT_THEME: str = "github-dark"
+    # שדות חובה
+    BOT_TOKEN: str = Field(..., description="Telegram bot token")
+    MONGODB_URL: str = Field(..., description="MongoDB connection string")
 
-    # קידומת לשם נקודת שמירה ב-Git (ל-tags ולענפים בגיבוי)
-    GIT_CHECKPOINT_PREFIX: str = "checkpoint"
-
-    # Google Drive OAuth (Desktop App / Device Flow)
-    GOOGLE_CLIENT_ID: Optional[str] = None
-    GOOGLE_CLIENT_SECRET: Optional[str] = None
-    GOOGLE_OAUTH_SCOPES: str = "https://www.googleapis.com/auth/drive.file"
-    GOOGLE_TOKEN_REFRESH_MARGIN_SECS: int = 120
-
-    # Feature flags
-    DRIVE_MENU_V2: bool = True
-    DOCUMENTATION_URL: str = "https://amirbiron.github.io/CodeBot/"
-    # תווית/שם לבוט לצורך שמות קבצים ידידותיים
-    BOT_LABEL: str = "CodeBot"
-    # הוספת hash קצר לשמות קבצים (למניעת כפילויות) — כבוי כברירת מחדל
-    DRIVE_ADD_HASH: bool = False
-    # נרמול קוד לפני שמירה (הסרה/ניקוי תווים נסתרים)
-    NORMALIZE_CODE_ON_SAVE: bool = True
-
-    # Metrics DB (optional dual-write)
-    METRICS_DB_ENABLED: bool = False
-    METRICS_COLLECTION: str = "service_metrics"
-    METRICS_BATCH_SIZE: int = 50
-    METRICS_FLUSH_INTERVAL_SEC: int = 5
-    
-    def __post_init__(self):
-        if self.SUPPORTED_LANGUAGES is None:
-            self.SUPPORTED_LANGUAGES = [
-                'python', 'javascript', 'html', 'css', 'java', 'cpp', 'c',
-                'php', 'ruby', 'go', 'rust', 'typescript', 'sql', 'bash',
-                'json', 'xml', 'yaml', 'markdown', 'dockerfile', 'nginx'
-            ]
-
-def load_config() -> BotConfig:
-    """טוען את הקונפיגורציה ממשתני הסביבה"""
-    
-    bot_token = os.getenv('BOT_TOKEN')
-    if not bot_token:
-        raise ValueError("BOT_TOKEN לא נמצא במשתני הסביבה")
-    
-    mongodb_url = os.getenv('MONGODB_URL')
-    if not mongodb_url:
-        raise ValueError("MONGODB_URL לא נמצא במשתני הסביבה")
-    
-    return BotConfig(
-        BOT_TOKEN=bot_token,
-        MONGODB_URL=mongodb_url,
-        DATABASE_NAME=os.getenv('DATABASE_NAME', 'code_keeper_bot'),
-        REDIS_URL=os.getenv('REDIS_URL'),
-        CACHE_ENABLED=os.getenv('CACHE_ENABLED', 'false').lower() == 'true',
-        GITHUB_TOKEN=os.getenv('GITHUB_TOKEN'),
-        PASTEBIN_API_KEY=os.getenv('PASTEBIN_API_KEY'),
-        MAX_CODE_SIZE=int(os.getenv('MAX_CODE_SIZE', '100000')),
-        MAX_FILES_PER_USER=int(os.getenv('MAX_FILES_PER_USER', '1000')),
-        HIGHLIGHT_THEME=os.getenv('HIGHLIGHT_THEME', 'github-dark'),
-        GIT_CHECKPOINT_PREFIX=os.getenv('GIT_CHECKPOINT_PREFIX', 'checkpoint'),
-        GOOGLE_CLIENT_ID=os.getenv('GOOGLE_CLIENT_ID'),
-        GOOGLE_CLIENT_SECRET=os.getenv('GOOGLE_CLIENT_SECRET'),
-        GOOGLE_OAUTH_SCOPES=os.getenv('GOOGLE_OAUTH_SCOPES', 'https://www.googleapis.com/auth/drive.file'),
-        GOOGLE_TOKEN_REFRESH_MARGIN_SECS=int(os.getenv('GOOGLE_TOKEN_REFRESH_MARGIN_SECS', '120')),
-        DRIVE_MENU_V2=os.getenv('DRIVE_MENU_V2', 'true').lower() == 'true',
-        DOCUMENTATION_URL=os.getenv('DOCUMENTATION_URL', 'https://amirbiron.github.io/CodeBot/'),
-        BOT_LABEL=os.getenv('BOT_LABEL', 'CodeBot'),
-        DRIVE_ADD_HASH=os.getenv('DRIVE_ADD_HASH', 'false').lower() == 'true',
-        NORMALIZE_CODE_ON_SAVE=os.getenv('NORMALIZE_CODE_ON_SAVE', 'true').lower() == 'true',
-        METRICS_DB_ENABLED=os.getenv('METRICS_DB_ENABLED', 'false').lower() in {'1','true','yes','on'},
-        METRICS_COLLECTION=os.getenv('METRICS_COLLECTION', 'service_metrics'),
-        METRICS_BATCH_SIZE=int(os.getenv('METRICS_BATCH_SIZE', '50') or '50'),
-        METRICS_FLUSH_INTERVAL_SEC=int(os.getenv('METRICS_FLUSH_INTERVAL_SEC', '5') or '5'),
-        MAINTENANCE_MODE=os.getenv('MAINTENANCE_MODE', 'false').lower() == 'true',
-        MAINTENANCE_MESSAGE=os.getenv('MAINTENANCE_MESSAGE', "🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)"),
-        MAINTENANCE_AUTO_WARMUP_SECS=int(os.getenv('MAINTENANCE_AUTO_WARMUP_SECS', '30')),
-        RATE_LIMIT_PER_MINUTE=int(os.getenv('RATE_LIMIT_PER_MINUTE', '30') or '30'),
-        PUBLIC_BASE_URL=os.getenv('PUBLIC_BASE_URL'),
-        WEBAPP_URL=os.getenv('WEBAPP_URL'),
-        RECYCLE_TTL_DAYS=int(os.getenv('RECYCLE_TTL_DAYS', '7') or '7'),
+    # בסיסי DB
+    DATABASE_NAME: str = Field(
+        default="code_keeper_bot", description="MongoDB database name"
     )
 
-# יצירת אינסטנס גלובלי של הקונפיגורציה
-config = load_config()
+    # Cache/Redis
+    REDIS_URL: Optional[str] = Field(default=None, description="Redis URL")
+    CACHE_ENABLED: bool = Field(
+        default=False, description="Enable in-memory/Redis caching where applicable"
+    )
+
+    # אינטגרציות
+    GITHUB_TOKEN: Optional[str] = Field(default=None, description="GitHub token")
+    PASTEBIN_API_KEY: Optional[str] = Field(default=None, description="Pastebin API key")
+
+    # מגבלות ושדות כלליים
+    MAX_CODE_SIZE: int = Field(
+        default=100_000,
+        ge=1_000,
+        le=10_000_000,
+        description="Maximum code size in bytes",
+    )
+    MAX_FILES_PER_USER: int = Field(
+        default=1_000, ge=1, le=100_000, description="Maximum files per user"
+    )
+    SUPPORTED_LANGUAGES: List[str] = Field(
+        default_factory=lambda: [
+            "python",
+            "javascript",
+            "html",
+            "css",
+            "java",
+            "cpp",
+            "c",
+            "php",
+            "ruby",
+            "go",
+            "rust",
+            "typescript",
+            "sql",
+            "bash",
+            "json",
+            "xml",
+            "yaml",
+            "markdown",
+            "dockerfile",
+            "nginx",
+        ],
+        description="Supported languages for code highlighting and features",
+    )
+
+    # סל מיחזור
+    RECYCLE_TTL_DAYS: int = Field(
+        default=7, ge=1, description="Days to keep items in recycle bin"
+    )
+
+    # URL-ים
+    PUBLIC_BASE_URL: Optional[str] = Field(
+        default=None, description="Public base URL for sharing links"
+    )
+    WEBAPP_URL: Optional[str] = Field(
+        default=None, description="WebApp base URL (if different from public)"
+    )
+
+    # תחזוקה
+    MAINTENANCE_MODE: bool = Field(default=False, description="Maintenance gate")
+    MAINTENANCE_MESSAGE: str = Field(
+        default="🚀 אנחנו מעלים עדכון חדש!\nהבוט יחזור לפעול ממש בקרוב (1 - 3 דקות)",
+        description="User-facing maintenance message",
+    )
+    MAINTENANCE_AUTO_WARMUP_SECS: int = Field(
+        default=30, ge=1, le=600, description="Warmup seconds after maintenance"
+    )
+
+    # קצב
+    RATE_LIMIT_PER_MINUTE: int = Field(
+        default=30, ge=1, description="Default rate limit per minute"
+    )
+
+    # עיצוב
+    HIGHLIGHT_THEME: str = Field(default="github-dark", description="Pygments theme")
+
+    # Git
+    GIT_CHECKPOINT_PREFIX: str = Field(
+        default="checkpoint", description="Prefix for git checkpoints"
+    )
+
+    # Google Drive OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = Field(default=None, description="OAuth client id")
+    GOOGLE_CLIENT_SECRET: Optional[str] = Field(
+        default=None, description="OAuth client secret"
+    )
+    GOOGLE_OAUTH_SCOPES: str = Field(
+        default="https://www.googleapis.com/auth/drive.file",
+        description="OAuth scopes for Google Drive",
+    )
+    GOOGLE_TOKEN_REFRESH_MARGIN_SECS: int = Field(
+        default=120, ge=30, le=3600, description="Refresh token margin (seconds)"
+    )
+
+    # דגלים ותיעוד
+    DRIVE_MENU_V2: bool = Field(default=True, description="Enable Drive menu v2")
+    DOCUMENTATION_URL: str = Field(
+        default="https://amirbiron.github.io/CodeBot/", description="Docs URL"
+    )
+    BOT_LABEL: str = Field(default="CodeBot", description="Bot label for UI")
+    DRIVE_ADD_HASH: bool = Field(
+        default=False, description="Append hash to filenames to avoid collisions"
+    )
+    NORMALIZE_CODE_ON_SAVE: bool = Field(
+        default=True, description="Normalize hidden characters before save"
+    )
+
+    # Metrics DB
+    METRICS_DB_ENABLED: bool = Field(
+        default=False, description="Enable metrics dual-write to DB"
+    )
+    METRICS_COLLECTION: str = Field(
+        default="service_metrics", description="Metrics collection name"
+    )
+    METRICS_BATCH_SIZE: int = Field(
+        default=50, ge=1, le=10_000, description="Metrics batch size"
+    )
+    METRICS_FLUSH_INTERVAL_SEC: int = Field(
+        default=5, ge=1, le=300, description="Metrics flush interval in seconds"
+    )
+
+    # הגדרות קריאה מ-.env ומשתני סביבה
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """אפשר שרשרת קבצי .env: קודם .env.local ואז .env, בנוסף למשתני סביבה."""
+        return (
+            init_settings,
+            env_settings,
+            # local overrides
+            DotEnvSettingsSource(cls, env_file=".env.local", case_sensitive=True),
+            # default .env
+            DotEnvSettingsSource(cls, env_file=".env", case_sensitive=True),
+            file_secret_settings,
+        )
+
+    @field_validator("MONGODB_URL")
+    @classmethod
+    def _validate_mongodb_url(cls, v: str) -> str:
+        if not v or not v.startswith(("mongodb://", "mongodb+srv://")):
+            raise ValueError(
+                "MONGODB_URL must start with mongodb:// or mongodb+srv://"
+            )
+        return v
+
+
+def load_config() -> BotConfig:
+    """
+    טוען את הקונפיגורציה ומחזיר מופע של BotConfig.
+
+    נשמרת תאימות לאחור עבור טסטים/קריאות קיימות.
+    """
+    return BotConfig()
+
+
+# יצירת אינסטנס גלובלי של הקונפיגורציה בזמן import — נשמרת תאימות לטסטים
+try:
+    config = load_config()
+except ValidationError as exc:  # תאימות לטסט שמצפה ValueError בזמן import
+    # המרה ל-ValueError כדי לשמר התנהגות היסטורית
+    raise ValueError(str(exc)) from exc
