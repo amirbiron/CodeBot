@@ -2918,7 +2918,19 @@ def main() -> None:
                 pass
         except Exception:
             pass
-        bot.application.run_polling(drop_pending_updates=True)
+        # Start polling. In tests, run_polling may exist either on the
+        # application or directly on the bot stub. Support both to avoid
+        # AttributeError in minimal fakes.
+        _app = getattr(bot, "application", None)
+        _run_poll_app = getattr(_app, "run_polling", None)
+        if callable(_run_poll_app):
+            _run_poll_app(drop_pending_updates=True)
+        else:
+            _run_poll_bot = getattr(bot, "run_polling", None)
+            if callable(_run_poll_bot):
+                _run_poll_bot(drop_pending_updates=True)
+            else:
+                logger.warning("run_polling not available on application or bot; skipping.")
         
     except Exception as e:
         logger.error(f"שגיאה: {e}")
