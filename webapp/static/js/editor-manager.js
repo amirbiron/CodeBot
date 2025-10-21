@@ -5,6 +5,7 @@
       this.cmInstance = null;
       this.textarea = null;
       this.loadingElement = null;
+      this.isLoading = false;
     }
 
     loadPreference() {
@@ -64,6 +65,8 @@
 
     async initCodeMirror(container, { language, value, theme }) {
       try {
+        if (this.isLoading) return;
+        this.isLoading = true;
         this.showLoading(container);
         // הסתרת textarea
         this.textarea.style.display = 'none';
@@ -106,8 +109,17 @@
         console.error('CodeMirror init failed', e);
         this.currentEditor = 'simple';
         this.initSimpleEditor(container, { value });
+        try {
+          // הודעת שגיאה ידידותית למשתמש ופעולת fallback
+          const errBanner = document.createElement('div');
+          errBanner.className = 'alert alert-error';
+          errBanner.style.marginTop = '.5rem';
+          errBanner.textContent = 'טעינת העורך המתקדם נכשלה. הוחזר לעורך הפשוט.';
+          container.appendChild(errBanner);
+        } catch(_) {}
       } finally {
         this.hideLoading(container);
+        this.isLoading = false;
       }
     }
 
@@ -132,7 +144,12 @@
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
         if (this.currentEditor === 'codemirror') {
           const lang = this.getSelectedLanguage() || 'text';
-          await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark' });
+          try {
+            await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark' });
+          } catch (e) {
+            this.currentEditor = 'simple';
+            this.initSimpleEditor(container, { value: this.textarea.value });
+          }
         } else {
           this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
         }
@@ -176,17 +193,20 @@
       const langMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/language@6/dist/index.js');
       const searchMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/search@6/dist/index.js');
       const acMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/dist/index.js');
+      // מודולים נפרדים עבור gutters והתאמת סוגריים
+      const gutterMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/gutter@6/dist/index.js');
+      const matchBracketsMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/matchbrackets@6/dist/index.js');
 
       const basicSetup = [
-        viewMod.lineNumbers(),
-        viewMod.highlightActiveLineGutter(),
+        gutterMod.lineNumbers(),
+        gutterMod.highlightActiveLineGutter(),
         viewMod.highlightSpecialChars(),
         cmdMod.history(),
         langMod.foldGutter(),
         viewMod.drawSelection(),
         viewMod.dropCursor(),
         stateMod.EditorState.allowMultipleSelections.of(true),
-        langMod.bracketMatching(),
+        matchBracketsMod.bracketMatching(),
         acMod.closeBrackets(),
         acMod.autocompletion(),
         viewMod.rectangularSelection(),
@@ -268,11 +288,19 @@
       el.innerHTML = '<div class="spinner"><i class="fas fa-spinner fa-spin"></i> טוען עורך...</div>';
       container.classList.add('editor-transitioning');
       container.appendChild(el);
+      try {
+        const btn = container.querySelector('.btn-switch-editor');
+        if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
+      } catch(_) {}
     }
     hideLoading(container){
       const el = container.querySelector('.editor-loading');
       if (el) el.remove();
       container.classList.remove('editor-transitioning');
+      try {
+        const btn = container.querySelector('.btn-switch-editor');
+        if (btn) { btn.disabled = false; btn.classList.remove('is-loading'); }
+      } catch(_) {}
     }
   }
 
