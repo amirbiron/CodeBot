@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # Optional telegram import with safe fallback for web-only environments
 try:
-    import telegram  # type: ignore
+    import telegram
 except Exception:  # pragma: no cover - executed only when telegram is missing
     import types as _types
 
@@ -37,17 +37,17 @@ except Exception:  # pragma: no cover - executed only when telegram is missing
     )
 
 try:
-    import aiofiles  # type: ignore
+    import aiofiles
 except Exception:  # optional for tests
     aiofiles = None  # type: ignore[assignment]
 try:
-    import aiohttp  # type: ignore
+    import aiohttp
 except Exception:  # optional for tests
     aiohttp = None  # type: ignore[assignment]
 try:
-    from telegram import Message, Update, User  # type: ignore
-    from telegram.constants import ChatAction, ParseMode  # type: ignore
-    from telegram.ext import ContextTypes  # type: ignore
+    from telegram import Message, Update, User
+    from telegram.constants import ChatAction, ParseMode
+    from telegram.ext import ContextTypes
 except Exception:  # lightweight stubs for test env
     class Message:  # type: ignore[no-redef]
         pass
@@ -94,7 +94,7 @@ class CodeErrorLogger:
             self.logger.setLevel(logging.INFO)
     
     def log_code_processing_error(self, user_id: int, error_type: str, error_message: str, 
-                                context: Dict[str, Any] = None):
+                                context: Optional[Dict[str, Any]] = None) -> None:
         """רישום שגיאות עיבוד קוד"""
         context = context or {}
         log_entry = {
@@ -107,7 +107,7 @@ class CodeErrorLogger:
         
         self.logger.error(f"CODE_ERROR: {json.dumps(log_entry, ensure_ascii=False)}")
     
-    def log_code_activity(self, user_id: int, activity_type: str, details: Dict[str, Any] = None):
+    def log_code_activity(self, user_id: int, activity_type: str, details: Optional[Dict[str, Any]] = None) -> None:
         """רישום פעילות עיבוד קוד"""
         details = details or {}
         log_entry = {
@@ -362,7 +362,7 @@ class SecurityUtils:
     
     @staticmethod
     def validate_user_input(text: str, max_length: int = 10000, 
-                           forbidden_patterns: List[str] = None) -> bool:
+                           forbidden_patterns: Optional[List[str]] = None) -> bool:
         """בדיקת קלט משתמש"""
         
         if len(text) > max_length:
@@ -428,7 +428,7 @@ class TelegramUtils:
             if cache_time is not None:
                 kwargs["cache_time"] = int(cache_time)
             await query.answer(**kwargs)
-        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+        except Exception as e:
             msg = str(e).lower()
             if "query is too old" in msg or "query_id_invalid" in msg or "message to edit not found" in msg:
                 return
@@ -474,7 +474,7 @@ class TelegramUtils:
                 await query.edit_message_text(text=text, reply_markup=reply_markup)
             else:
                 await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+        except Exception as e:
             msg = str(e).lower()
             # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
             if "not modified" in msg:
@@ -492,7 +492,7 @@ class TelegramUtils:
         """עריכת מקלדת הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
         try:
             await query.edit_message_reply_markup(reply_markup=reply_markup)
-        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+        except Exception as e:
             msg = str(e).lower()
             if "not modified" in msg:
                 return
@@ -541,8 +541,8 @@ class TelegramUtils:
                 return base
 
             length = len(base)
-            opens = {i: [] for i in range(length + 1)}
-            closes = {i: [] for i in range(length + 1)}
+            opens: Dict[int, List[str]] = {i: [] for i in range(length + 1)}
+            closes: Dict[int, List[str]] = {i: [] for i in range(length + 1)}
 
             # רישום ישויות בסיסי
             ent_ranges: List[Tuple[str, int, int]] = []

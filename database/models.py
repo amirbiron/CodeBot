@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -15,18 +15,18 @@ class CodeSnippet:
     programming_language: str
     # שדות מועדפים
     is_favorite: bool = False
-    favorited_at: datetime = None
+    favorited_at: Optional[datetime] = None
     description: str = ""
-    tags: List[str] = None
+    tags: Optional[List[str]] = None
     version: int = 1
-    created_at: datetime = None
-    updated_at: datetime = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     is_active: bool = True
     # שדות סל מיחזור: מתי נמחק ומתי יפוג התוקף למחיקה סופית
-    deleted_at: datetime = None
-    deleted_expires_at: datetime = None
+    deleted_at: Optional[datetime] = None
+    deleted_expires_at: Optional[datetime] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
@@ -46,14 +46,14 @@ class LargeFile:
     file_size: int
     lines_count: int
     description: str = ""
-    tags: List[str] = None
-    created_at: datetime = None
-    updated_at: datetime = None
+    tags: Optional[List[str]] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     is_active: bool = True
-    deleted_at: datetime = None
-    deleted_expires_at: datetime = None
+    deleted_at: Optional[datetime] = None
+    deleted_expires_at: Optional[datetime] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
