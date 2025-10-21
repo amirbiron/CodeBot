@@ -557,22 +557,22 @@ class RepoAnalyzer:
         
         # בדוק עדכניות (אם הפרויקט לא עודכן יותר משנה)
         if analysis_data.get('updated_at'):
-        try:
-            updated_raw = analysis_data['updated_at']
-            if isinstance(updated_raw, str):
-                updated = datetime.fromisoformat(updated_raw.replace('Z', '+00:00'))
-                if datetime.now(updated.tzinfo) - updated > timedelta(days=365):
-                    suggestions.append({
-                        'id': 'update_project',
-                        'title': '⬆️ עדכן את הפרויקט',
-                        'why': 'הפרויקט לא עודכן יותר משנה. ייתכן שיש עדכוני אבטחה',
-                        'how': 'עדכן תלויות, בדוק deprecations, הוסף תכונות חדשות',
-                        'impact': 'high',
-                        'effort': 'high',
-                        'category': 'maintenance'
-                    })
-        except (KeyError, ValueError, TypeError) as e:
-            logger.debug(f"Could not evaluate updated_at recency: {e}")
+            try:
+                updated_raw = analysis_data['updated_at']
+                if isinstance(updated_raw, str):
+                    updated = datetime.fromisoformat(updated_raw.replace('Z', '+00:00'))
+                    if datetime.now(updated.tzinfo) - updated > timedelta(days=365):
+                        suggestions.append({
+                            'id': 'update_project',
+                            'title': '⬆️ עדכן את הפרויקט',
+                            'why': 'הפרויקט לא עודכן יותר משנה. ייתכן שיש עדכוני אבטחה',
+                            'how': 'עדכן תלויות, בדוק deprecations, הוסף תכונות חדשות',
+                            'impact': 'high',
+                            'effort': 'high',
+                            'category': 'maintenance'
+                        })
+            except (KeyError, ValueError, TypeError) as e:
+                logger.debug(f"Could not evaluate updated_at recency: {e}")
         
         # הוסף המלצות נוספות בהתאם לשפה
         main_language = analysis_data.get('language', '').lower()
