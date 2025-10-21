@@ -193,20 +193,17 @@
       const langMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/language@6/dist/index.js');
       const searchMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/search@6/dist/index.js');
       const acMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/dist/index.js');
-      // מודולים נפרדים עבור gutters והתאמת סוגריים
-      const gutterMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/gutter@6/dist/index.js');
-      const matchBracketsMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/matchbrackets@6/dist/index.js');
 
       const basicSetup = [
-        gutterMod.lineNumbers(),
-        gutterMod.highlightActiveLineGutter(),
+        viewMod.lineNumbers(),
+        viewMod.highlightActiveLineGutter(),
         viewMod.highlightSpecialChars(),
         cmdMod.history(),
         langMod.foldGutter(),
         viewMod.drawSelection(),
         viewMod.dropCursor(),
         stateMod.EditorState.allowMultipleSelections.of(true),
-        matchBracketsMod.bracketMatching(),
+        langMod.bracketMatching(),
         acMod.closeBrackets(),
         acMod.autocompletion(),
         viewMod.rectangularSelection(),
