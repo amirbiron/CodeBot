@@ -92,25 +92,17 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                                 pass
                     except Exception:
                         token = None
+                start = time.perf_counter()
+                exc: Exception | None = None
                 try:
                     if active_updown is not None:
                         try:
                             active_updown.add(1)
                         except Exception:
                             pass
-                    start = time.perf_counter()
                     return func(*args, **kwargs)
                 except Exception as e:
-                    if duration_hist is not None:
-                        try:
-                            duration_hist.record(max(0.0, time.perf_counter() - start), {"function": func.__name__, "error": True})  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
-                    if error_counter is not None:
-                        try:
-                            error_counter.add(1, {"function": func.__name__, "error_type": type(e).__name__})  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
+                    exc = e
                     # record exception in span if available
                     try:
                         if token is not None:
@@ -119,14 +111,19 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                         pass
                     raise
                 finally:
+                    # Decrement active counter
                     if active_updown is not None:
                         try:
                             active_updown.add(-1)
                         except Exception:
                             pass
+                    # Record duration exactly once; include error attribute when relevant
                     if duration_hist is not None:
                         try:
-                            duration_hist.record(max(0.0, time.perf_counter() - start), {"function": func.__name__})  # type: ignore[attr-defined]
+                            attrs = {"function": func.__name__}
+                            if exc is not None:
+                                attrs["error"] = True
+                            duration_hist.record(max(0.0, time.perf_counter() - start), attrs)  # type: ignore[attr-defined]
                         except Exception:
                             pass
                     if cm is not None:
@@ -153,30 +150,28 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                                 pass
                     except Exception:
                         token = None
+                start = time.perf_counter()
+                exc: Exception | None = None
                 try:
                     if active_updown is not None:
                         try:
                             active_updown.add(1)
                         except Exception:
                             pass
-                    start = time.perf_counter()
                     return await cast(Callable[..., Any], func)(*args, **kwargs)
                 except Exception as e:
-                    if duration_hist is not None:
-                        try:
-                            duration_hist.record(max(0.0, time.perf_counter() - start), {"function": func.__name__, "error": True})  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
-                    if error_counter is not None:
-                        try:
-                            error_counter.add(1, {"function": func.__name__, "error_type": type(e).__name__})  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
+                    exc = e
                     try:
                         if token is not None:
                             token.record_exception(e)  # type: ignore[attr-defined]
                     except Exception:
                         pass
+                    # error counter (best-effort)
+                    if error_counter is not None:
+                        try:
+                            error_counter.add(1, {"function": func.__name__, "error_type": type(e).__name__})  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
                     raise
                 finally:
                     if active_updown is not None:
@@ -186,7 +181,10 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                             pass
                     if duration_hist is not None:
                         try:
-                            duration_hist.record(max(0.0, time.perf_counter() - start), {"function": func.__name__})  # type: ignore[attr-defined]
+                            attrs = {"function": func.__name__}
+                            if exc is not None:
+                                attrs["error"] = True
+                            duration_hist.record(max(0.0, time.perf_counter() - start), attrs)  # type: ignore[attr-defined]
                         except Exception:
                             pass
                     if cm is not None:
