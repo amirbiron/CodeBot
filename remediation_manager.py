@@ -258,7 +258,7 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
             pass
         _emit_event(
             "AUTO_REMEDIATION_EXECUTED",
-            severity="warn",
+            severity="anomaly",
             incident_id=incident_id,
             name=str(name),
             handled=True,

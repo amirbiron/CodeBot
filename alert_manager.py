@@ -382,7 +382,7 @@ def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) 
     try:
         emit_event(
             "critical_alert_dispatched",
-            severity="warn",
+            severity="anomaly",
             alert_id=alert_id,
             name=name,
             handled=True,
