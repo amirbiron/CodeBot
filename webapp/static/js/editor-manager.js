@@ -7,6 +7,8 @@
       this.loadingElement = null;
       this.isLoading = false;
       this.loadingPromise = null;
+      // נשמור CDN אחיד לכל המודולים כדי למנוע חוסר תאימות בין מחלקות
+      this._cdnUrl = null;
     }
 
     loadPreference() {
@@ -202,55 +204,36 @@
     }
 
     async loadCodeMirror() {
-      // טעינה דינמית עם נפילות (fallback) כדי למנוע שגיאות bare specifiers בדפדפנים
-      const tryImports = async (urls) => {
-        let lastErr;
-        for (const u of urls) {
-          try { return await import(u); } catch (e) { lastErr = e; }
+      // בוחרים CDN אחד לכלל המודולים כדי למנוע ערבוב מחלקות/סינגלטונים
+      const cdnCandidates = [
+        { name: 'jsdelivr', url: (pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module` },
+        { name: 'unpkg',    url: (pkg) => `https://unpkg.com/${pkg}@6?module` },
+        { name: 'esm',      url: (pkg) => `https://esm.sh/${pkg}@6?bundle` }
+      ];
+
+      let chosen = null;
+      let stateMod, viewMod, cmdMod, langMod, searchMod, acMod;
+      let lastErr;
+      for (const cdn of cdnCandidates) {
+        try {
+          const u = cdn.url;
+          stateMod = await import(u('@codemirror/state'));
+          viewMod = await import(u('@codemirror/view'));
+          cmdMod = await import(u('@codemirror/commands'));
+          langMod = await import(u('@codemirror/language'));
+          searchMod = await import(u('@codemirror/search'));
+          acMod = await import(u('@codemirror/autocomplete'));
+          chosen = cdn;
+          break;
+        } catch (e) {
+          lastErr = e;
+          // ננסה את ה-CDN הבא
         }
-        throw lastErr || new Error('module_import_failed');
-      };
+      }
+      if (!chosen) throw lastErr || new Error('codemirror_core_import_failed');
 
-      // מועמדים לכל חבילה: jsDelivr (?module), unpkg (?module), esm.sh (?bundle)
-      const urls = {
-        state: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/state@6?module',
-          'https://unpkg.com/@codemirror/state@6?module',
-          'https://esm.sh/@codemirror/state@6?bundle'
-        ],
-        view: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/view@6?module',
-          'https://unpkg.com/@codemirror/view@6?module',
-          'https://esm.sh/@codemirror/view@6?bundle'
-        ],
-        commands: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/commands@6?module',
-          'https://unpkg.com/@codemirror/commands@6?module',
-          'https://esm.sh/@codemirror/commands@6?bundle'
-        ],
-        language: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/language@6?module',
-          'https://unpkg.com/@codemirror/language@6?module',
-          'https://esm.sh/@codemirror/language@6?bundle'
-        ],
-        search: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/search@6?module',
-          'https://unpkg.com/@codemirror/search@6?module',
-          'https://esm.sh/@codemirror/search@6?bundle'
-        ],
-        autocomplete: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6?module',
-          'https://unpkg.com/@codemirror/autocomplete@6?module',
-          'https://esm.sh/@codemirror/autocomplete@6?bundle'
-        ]
-      };
-
-      const stateMod = await tryImports(urls.state);
-      const viewMod = await tryImports(urls.view);
-      const cmdMod = await tryImports(urls.commands);
-      const langMod = await tryImports(urls.language);
-      const searchMod = await tryImports(urls.search);
-      const acMod = await tryImports(urls.autocomplete);
+      // שמירת ה-CDN הנבחר לשימוש בהמשך (שפות/נושא)
+      this._cdnUrl = chosen.url;
 
       const basicSetup = [
         viewMod.lineNumbers(),
@@ -285,64 +268,27 @@
         keymap: viewMod.keymap,
         Compartment: stateMod.Compartment,
         languageCompartment: new stateMod.Compartment(),
-        themeCompartment: new stateMod.Compartment()
+        themeCompartment: new stateMod.Compartment(),
+        _cdnUrl: this._cdnUrl
       };
     }
 
     async getLanguageSupport(lang) {
-      const tryImports = async (urls) => {
-        let lastErr;
-        for (const u of urls) {
-          try { return await import(u); } catch (e) { lastErr = e; }
-        }
-        throw lastErr || new Error('lang_import_failed');
+      const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
+      const pkgMap = {
+        python: '@codemirror/lang-python',
+        javascript: '@codemirror/lang-javascript',
+        html: '@codemirror/lang-html',
+        css: '@codemirror/lang-css',
+        sql: '@codemirror/lang-sql',
+        json: '@codemirror/lang-json',
+        markdown: '@codemirror/lang-markdown',
+        xml: '@codemirror/lang-xml'
       };
-      const maps = {
-        python: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6?module',
-          'https://unpkg.com/@codemirror/lang-python@6?module',
-          'https://esm.sh/@codemirror/lang-python@6?bundle'
-        ],
-        javascript: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6?module',
-          'https://unpkg.com/@codemirror/lang-javascript@6?module',
-          'https://esm.sh/@codemirror/lang-javascript@6?bundle'
-        ],
-        html: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6?module',
-          'https://unpkg.com/@codemirror/lang-html@6?module',
-          'https://esm.sh/@codemirror/lang-html@6?bundle'
-        ],
-        css: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6?module',
-          'https://unpkg.com/@codemirror/lang-css@6?module',
-          'https://esm.sh/@codemirror/lang-css@6?bundle'
-        ],
-        sql: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6?module',
-          'https://unpkg.com/@codemirror/lang-sql@6?module',
-          'https://esm.sh/@codemirror/lang-sql@6?bundle'
-        ],
-        json: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6?module',
-          'https://unpkg.com/@codemirror/lang-json@6?module',
-          'https://esm.sh/@codemirror/lang-json@6?bundle'
-        ],
-        markdown: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6?module',
-          'https://unpkg.com/@codemirror/lang-markdown@6?module',
-          'https://esm.sh/@codemirror/lang-markdown@6?bundle'
-        ],
-        xml: [
-          'https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6?module',
-          'https://unpkg.com/@codemirror/lang-xml@6?module',
-          'https://esm.sh/@codemirror/lang-xml@6?bundle'
-        ]
-      };
-      const urls = maps[lang];
-      if (!urls) return [];
+      const pkg = pkgMap[lang];
+      if (!pkg) return [];
       try {
-        const mod = await tryImports(urls);
+        const mod = await import(gen(pkg));
         switch (lang) {
           case 'python': return mod.python();
           case 'javascript': return mod.javascript();
@@ -359,15 +305,8 @@
 
     async getTheme(name) {
       if (name === 'dark') {
-        const urls = [
-          'https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6?module',
-          'https://unpkg.com/@codemirror/theme-one-dark@6?module',
-          'https://esm.sh/@codemirror/theme-one-dark@6?bundle'
-        ];
-        for (const u of urls) {
-          try { const mod = await import(u); return mod.oneDark || []; } catch(_) {}
-        }
-        return [];
+        const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
+        try { const mod = await import(gen('@codemirror/theme-one-dark')); return mod.oneDark || []; } catch(_) { return []; }
       }
       return [];
     }
