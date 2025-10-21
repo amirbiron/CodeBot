@@ -61,6 +61,10 @@ uvicorn==0.24.0
 whitenoise==6.6.0
 Flask-Compress==1.15
 
+# Rate limiting (Flask + generic)
+Flask-Limiter==3.5.0
+limits==3.10.1
+
 
 # Async Support
 aiofiles==23.2.1

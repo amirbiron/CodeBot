@@ -59,6 +59,14 @@ from metrics import (
     errors_total,
 )
 from rate_limiter import RateLimiter
+try:
+    # Optional advanced limits backend (limits + Redis)
+    from limits import RateLimitItemPerMinute
+    from limits.storage import RedisStorage
+    from limits.strategies import MovingWindowRateLimiter
+    _LIMITS_AVAILABLE = True
+except Exception:
+    _LIMITS_AVAILABLE = False
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
 from bot_handlers import AdvancedBotHandlers  # still used by legacy code
@@ -719,6 +727,18 @@ class CodeKeeperBot:
         # Rate limiter instance (לאחר בניית האפליקציה)
         try:
             self._rate_limiter = RateLimiter(max_per_minute=int(getattr(config, 'RATE_LIMIT_PER_MINUTE', 30) or 30))
+            # If advanced backend available and REDIS_URL configured, enable shadow-mode counters
+            self._advanced_limiter = None
+            if _LIMITS_AVAILABLE:
+                try:
+                    redis_url = getattr(config, 'REDIS_URL', None) or os.getenv('REDIS_URL')
+                    if redis_url:
+                        self._limits_storage = RedisStorage(str(redis_url))
+                        self._advanced_limiter = MovingWindowRateLimiter(self._limits_storage)
+                        self._per_user_global = RateLimitItemPerMinute(50)
+                        self._shadow_mode = bool(getattr(config, 'RATE_LIMIT_SHADOW_MODE', False))
+                except Exception:
+                    self._advanced_limiter = None
         except Exception:
             self._rate_limiter = RateLimiter(max_per_minute=30)
 
@@ -851,6 +871,17 @@ class CodeKeeperBot:
                     allowed = await self._rate_limiter.check_rate_limit(user_id)
                 except Exception:
                     allowed = True
+                # Optional: advanced per-user global limit in shadow mode (logging only)
+                try:
+                    adv = getattr(self, '_advanced_limiter', None)
+                    if adv is not None and hasattr(self, '_per_user_global'):
+                        key = f"tg:global:{user_id}"
+                        ok = adv.hit(self._per_user_global, key)
+                        if not ok and getattr(self, '_shadow_mode', False):
+                            logger.info("Rate limit would block (shadow mode)", extra={"user_id": user_id, "scope": "global", "limit": "global_user"})
+                        # In shadow mode we don't block based on advanced limiter; rely on in-memory gate
+                except Exception:
+                    pass
                 if not allowed:
                     # חסימה שקטה+הודעה קצרה
                     try:
