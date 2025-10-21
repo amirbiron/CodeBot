@@ -153,9 +153,11 @@ except Exception:
 
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
-    from metrics import record_request_outcome  # type: ignore
+    from metrics import record_request_outcome, record_http_request  # type: ignore
 except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
+        return None
+    def record_http_request(method, endpoint, status_code, duration_seconds):  # type: ignore
         return None
 
 # --- Search: metrics, limiter (lightweight, optional) ---
@@ -933,6 +935,12 @@ def _metrics_after(resp):  # type: ignore[override]
             dur = max(0.0, float(_time.perf_counter() - start))
             status = int(getattr(resp, "status_code", 0) or 0)
             record_request_outcome(status, dur)
+            try:
+                method = getattr(request, "method", "GET")
+                endpoint = getattr(request, "endpoint", None)
+                record_http_request(method, endpoint, status, dur)
+            except Exception:
+                pass
     except Exception:
         pass
     return resp
