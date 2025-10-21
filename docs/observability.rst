@@ -42,3 +42,36 @@
 - :doc:`alerts`
 - :doc:`sentry`
 - :doc:`runbooks/logging-levels`
+
+
+אינסטרומנטציה ידנית (Manual Instrumentation)
+---------------------------------------------
+בנוסף לאינסטרומנטציה האוטומטית של Flask/Requests/PyMongo, ניתן להוסיף טרייסים ומטריקות ידניות עם הדקורטור `@traced` מתוך המודול `observability_instrumentation`.
+
+מאפיינים:
+
+- בטוח להרצה בלי תלות ב־OpenTelemetry (No‑Op אם לא מותקן)
+- יוצר Span בשם קבוע שניתן להגדיר
+- מודד משך זמן ומסמן חריגות במטריקות (`request.duration`, `errors.total`, `requests.active`)
+
+דוגמאות שימוש:
+
+.. code-block:: python
+
+    from observability_instrumentation import traced
+
+    @traced("bookmarks.toggle")
+    def toggle_bookmark(...):
+        # קוד הפונקציה
+        pass
+
+    @traced("batch.reindex")
+    async def reindex_all(...):
+        # קוד אסינכרוני
+        ...
+
+הערות:
+
+- הדקורטור פועל גם על פונקציות sync וגם על async.
+- כאשר מתרחשת חריגה, משך הפעולה נרשם פעם אחת בלבד עם המאפיין ``error=True``.
+- עבור Flask, האינסטרומנטציה האוטומטית מוסיפה טרייסים ברמת הבקשה; שימוש ב־`@traced` מומלץ סביב פעולות עסקיות קריטיות בתוך הידלרים או שירותים.
