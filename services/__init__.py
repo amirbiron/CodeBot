@@ -1,5 +1,7 @@
-from typing import List, Optional
-from .backoff_state import BackoffState
+from typing import List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:  # type-only import to avoid hard dependency at runtime
+    from .backoff_state import BackoffState
 
 __all__: List[str] = [
     "backup_service",
@@ -8,7 +10,7 @@ __all__: List[str] = [
 ]
 
 # Optional export: github_backoff_state singleton
-github_backoff_state: Optional[BackoffState]
+github_backoff_state: Optional["BackoffState"]
 try:  # pragma: no cover
     from .backoff_state import state as _state
     github_backoff_state = _state
