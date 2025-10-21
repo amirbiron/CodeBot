@@ -85,6 +85,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id6">קישורים מהירים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id6">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id1">מטרות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id2">מדיניות</a></li>
@@ -122,6 +134,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id2">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id3">כללים כלליים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#workflow">Workflow בסיסי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#pre-commit">Pre-commit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#conventional-commits">Conventional Commits</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id4">דוגמאות שימושיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id5">קישורים</a></li>
 </ul>
@@ -159,16 +173,19 @@
 <li class="toctree-l2"><a class="reference internal" href="../installation.html#id11">תמיכה</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../configuration.html">הגדרות תצורה</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">קובץ התצורה הראשי</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">משתני סביבה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">הגדרות מתקדמות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#mongodb">הגדרת MongoDB</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#redis-cache">הגדרת Redis Cache</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">הגדרות אבטחה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">תצורה לסביבות שונות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#env">דוגמת קובץ .env מלא</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">טיפים וטריקים</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#security">Security</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#env-example">.env.example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש לסוכנים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -183,138 +200,10 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../api/main.html">main module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/config.html">config module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MONGODB_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.MONGODB_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DATABASE_NAME"><code class="docutils literal notranslate"><span class="pre">BotConfig.DATABASE_NAME</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.REDIS_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.REDIS_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.CACHE_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.CACHE_ENABLED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GITHUB_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.GITHUB_TOKEN</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.PASTEBIN_API_KEY"><code class="docutils literal notranslate"><span class="pre">BotConfig.PASTEBIN_API_KEY</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAX_CODE_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_CODE_SIZE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAX_FILES_PER_USER"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_FILES_PER_USER</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.SUPPORTED_LANGUAGES"><code class="docutils literal notranslate"><span class="pre">BotConfig.SUPPORTED_LANGUAGES</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.RECYCLE_TTL_DAYS"><code class="docutils literal notranslate"><span class="pre">BotConfig.RECYCLE_TTL_DAYS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.PUBLIC_BASE_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.PUBLIC_BASE_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.WEBAPP_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.WEBAPP_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAINTENANCE_MODE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MODE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAINTENANCE_MESSAGE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MESSAGE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAINTENANCE_AUTO_WARMUP_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_AUTO_WARMUP_SECS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.RATE_LIMIT_PER_MINUTE"><code class="docutils literal notranslate"><span class="pre">BotConfig.RATE_LIMIT_PER_MINUTE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.HIGHLIGHT_THEME"><code class="docutils literal notranslate"><span class="pre">BotConfig.HIGHLIGHT_THEME</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GIT_CHECKPOINT_PREFIX"><code class="docutils literal notranslate"><span class="pre">BotConfig.GIT_CHECKPOINT_PREFIX</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_CLIENT_ID"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_ID</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_CLIENT_SECRET"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_SECRET</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_OAUTH_SCOPES"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_OAUTH_SCOPES</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DRIVE_MENU_V2"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_MENU_V2</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DOCUMENTATION_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.DOCUMENTATION_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.__init__"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.setup_advanced_handlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.setup_advanced_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.show_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.show_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorite_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorite_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorites_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorites_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.edit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.edit_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.delete_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.delete_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.versions_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.versions_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.analyze_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.analyze_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.status_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.status_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.sentry_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.sentry_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.uptime_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.uptime_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.observe_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.observe_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.alerts_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.alerts_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.incidents_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.incidents_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.predict_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.predict_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.accuracy_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.accuracy_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.errors_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.errors_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.triage_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.triage_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.rate_limit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.rate_limit_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.enable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.enable_backoff_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.disable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.disable_backoff_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.validate_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.validate_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_help_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_help_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.download_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.download_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.tags_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.tags_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.recent_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.recent_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.info_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.info_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.search_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.search_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.broadcast_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.broadcast_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.handle_callback_query()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/config.html">config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/database.html">database package</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
@@ -474,35 +363,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.get_dispatch_log"><code class="docutils literal notranslate"><span class="pre">get_dispatch_log()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/autocomplete_manager.html">autocomplete_manager module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager"><code class="docutils literal notranslate"><span class="pre">AutocompleteManager</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/batch_commands.html">batch_commands module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.batch_analyze_command"><code class="docutils literal notranslate"><span class="pre">batch_analyze_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.batch_validate_command"><code class="docutils literal notranslate"><span class="pre">batch_validate_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.job_status_command"><code class="docutils literal notranslate"><span class="pre">job_status_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.large_file_command"><code class="docutils literal notranslate"><span class="pre">large_file_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.handle_batch_callbacks"><code class="docutils literal notranslate"><span class="pre">handle_batch_callbacks()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.setup_batch_handlers"><code class="docutils literal notranslate"><span class="pre">setup_batch_handlers()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/batch_processor.html">batch_processor module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_processor.html#batch_processor.BatchJob"><code class="docutils literal notranslate"><span class="pre">BatchJob</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_processor.html#batch_processor.BatchProcessor"><code class="docutils literal notranslate"><span class="pre">BatchProcessor</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/autocomplete_manager.html">autocomplete_manager module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/batch_commands.html">batch_commands module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/batch_processor.html">batch_processor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_commands.html">cache_commands module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
@@ -524,11 +389,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/code_processor.html">code_processor module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/config.html">config module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/config.html">config module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conftest.html">conftest module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
@@ -537,58 +398,8 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html">database package</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.html#submodules">Submodules</a></li>
 </ul>
 </li>
@@ -607,13 +418,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/fix_telegram_parse_error.html#fix_telegram_parse_error.wrap_edit_message_calls"><code class="docutils literal notranslate"><span class="pre">wrap_edit_message_calls()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/github_menu_handler.html">github_menu_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/github_menu_handler.html">github_menu_handler module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/github_upload_fix.html">github_upload_fix module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/github_upload_fix.html#github_upload_fix.github_upload_new_file"><code class="docutils literal notranslate"><span class="pre">github_upload_new_file()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/github_upload_fix.html#github_upload_fix.handle_document_fixed"><code class="docutils literal notranslate"><span class="pre">handle_document_fixed()</span></code></a></li>
@@ -651,15 +456,8 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/internal_alerts.html#internal_alerts.get_recent_alerts"><code class="docutils literal notranslate"><span class="pre">get_recent_alerts()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/large_files_handler.html">large_files_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/large_files_handler.html#large_files_handler.LargeFilesHandler"><code class="docutils literal notranslate"><span class="pre">LargeFilesHandler</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/lazy_loader.html">lazy_loader module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/lazy_loader.html#lazy_loader.FileChunk"><code class="docutils literal notranslate"><span class="pre">FileChunk</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/large_files_handler.html">large_files_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/lazy_loader.html">lazy_loader module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/main.html">main module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/metrics.html">metrics module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
@@ -696,12 +494,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/rate_limiter.html#rate_limiter.RateLimiter"><code class="docutils literal notranslate"><span class="pre">RateLimiter</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/refactor_handlers.html">refactor_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/refactor_handlers.html#refactor_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/refactor_handlers.html#refactor_handlers.RefactorHandlers"><code class="docutils literal notranslate"><span class="pre">RefactorHandlers</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/refactor_handlers.html#refactor_handlers.setup_refactor_handlers"><code class="docutils literal notranslate"><span class="pre">setup_refactor_handlers()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/refactor_handlers.html">refactor_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/refactoring_engine.html">refactoring_engine module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/refactoring_engine.html#refactoring_engine.RefactorType"><code class="docutils literal notranslate"><span class="pre">RefactorType</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/refactoring_engine.html#refactoring_engine.FunctionInfo"><code class="docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a></li>
@@ -758,18 +551,8 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/test_basic.html#test_basic.TestRequirements"><code class="docutils literal notranslate"><span class="pre">TestRequirements</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/test_bookmarks.html">test_bookmarks module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel"><code class="docutils literal notranslate"><span class="pre">TestFileBookmarkModel</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestBookmarksManager"><code class="docutils literal notranslate"><span class="pre">TestBookmarksManager</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality"><code class="docutils literal notranslate"><span class="pre">TestSyncFunctionality</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestIntegration"><code class="docutils literal notranslate"><span class="pre">TestIntegration</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.run_tests"><code class="docutils literal notranslate"><span class="pre">run_tests()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/user_stats.html">user_stats module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/user_stats.html#user_stats.UserStats"><code class="docutils literal notranslate"><span class="pre">UserStats</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/test_bookmarks.html">test_bookmarks module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/user_stats.html">user_stats module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/utils.html">utils module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/utils.html#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/utils.html#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a></li>
@@ -839,7 +622,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#device-flow">התחברות (Device Flow)</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id4">טיפול שגיאות</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id5">ניטור</a></li>
-<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#module-handlers.drive.menu">API (autodoc)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#api-autodoc">API (autodoc)</a></li>
 </ul>
 </li>
 </ul>
@@ -1149,6 +932,16 @@
 </ul>
 </li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">איכות וקונבנציות:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quality/type-safety.html">📝 Type Hints – Best Practices</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id1">אסטרטגיה: הקשחה הדרגתית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id2">פרוטוקולים וסטאבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id3">הנחיות לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id4">דוגמאות קצרות</a></li>
+</ul>
+</li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">WebApp:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/overview.html">המיני Web App (סקירה)</a><ul>
@@ -1208,6 +1001,12 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/editor.html">⌨️ עורך קוד (WebApp Editor)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#codemirror-isloading">טעינת CodeMirror ומצב isLoading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#api">שמירת העדפות משתמש – שני נתיבי API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#id1">המלצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1216,6 +1015,14 @@
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id2">קהלי יעד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id3">תצורה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/guidelines.html">📊 הנחיות Observability ואירועים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/guidelines.html#id1">תבנית אירוע/לוג – שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/guidelines.html#fail-open">עקרון Fail-Open</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/guidelines.html#id2">הנחיות טיפול בשגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/guidelines.html#request-id">קורלציה עם request_id</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/guidelines.html#id3">סטנדרטים נוספים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
@@ -1285,6 +1092,18 @@
 <li class="toctree-l1"><a class="reference internal" href="../chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/faq.html">שאלות נפוצות</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">סוכני AI:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../ai-agents/guide.html">🤖 מדריך לסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id1">נקודת פתיחה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id2">מבנה הפרויקט (בקצרה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id3">הוספת פיצ’רים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id4">סקריפטים חשובים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id5">מפת דרכים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#github-issues-chatops">GitHub Issues ו-ChatOps</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
 <ul>

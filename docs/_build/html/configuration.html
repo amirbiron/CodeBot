@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>הגדרות תצורה &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+  <title>Rate Limiting &mdash; תיעוד Code Keeper Bot 1.0.0</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="_static/custom.css?v=2d7a82d5" />
@@ -86,6 +86,18 @@
 <li class="toctree-l2"><a class="reference internal" href="ai-guidelines.html#id6">קישורים מהירים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id6">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id1">מטרות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="doc-authoring.html#id2">מדיניות</a></li>
@@ -123,6 +135,8 @@
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id2">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id3">כללים כלליים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#workflow">Workflow בסיסי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#pre-commit">Pre-commit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contributing.html#conventional-commits">Conventional Commits</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id4">דוגמאות שימושיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contributing.html#id5">קישורים</a></li>
 </ul>
@@ -160,16 +174,19 @@
 <li class="toctree-l2"><a class="reference internal" href="installation.html#id11">תמיכה</a></li>
 </ul>
 </li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">הגדרות תצורה</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#id2">קובץ התצורה הראשי</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id3">משתני סביבה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id4">הגדרות מתקדמות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#mongodb">הגדרת MongoDB</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#redis-cache">הגדרת Redis Cache</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id5">הגדרות אבטחה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id6">תצורה לסביבות שונות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#env">דוגמת קובץ .env מלא</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id7">טיפים וטריקים</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#flask">Flask</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#telegram-bot">Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#security">Security</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#id1">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#env-example">.env.example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id3">שימוש לסוכנים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -184,138 +201,10 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api/main.html">main module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/config.html">config module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.MONGODB_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.MONGODB_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DATABASE_NAME"><code class="docutils literal notranslate"><span class="pre">BotConfig.DATABASE_NAME</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.REDIS_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.REDIS_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.CACHE_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.CACHE_ENABLED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.GITHUB_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.GITHUB_TOKEN</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.PASTEBIN_API_KEY"><code class="docutils literal notranslate"><span class="pre">BotConfig.PASTEBIN_API_KEY</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.MAX_CODE_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_CODE_SIZE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.MAX_FILES_PER_USER"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_FILES_PER_USER</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.SUPPORTED_LANGUAGES"><code class="docutils literal notranslate"><span class="pre">BotConfig.SUPPORTED_LANGUAGES</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.RECYCLE_TTL_DAYS"><code class="docutils literal notranslate"><span class="pre">BotConfig.RECYCLE_TTL_DAYS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.PUBLIC_BASE_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.PUBLIC_BASE_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.WEBAPP_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.WEBAPP_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.MAINTENANCE_MODE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MODE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.MAINTENANCE_MESSAGE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MESSAGE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.MAINTENANCE_AUTO_WARMUP_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_AUTO_WARMUP_SECS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.RATE_LIMIT_PER_MINUTE"><code class="docutils literal notranslate"><span class="pre">BotConfig.RATE_LIMIT_PER_MINUTE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.HIGHLIGHT_THEME"><code class="docutils literal notranslate"><span class="pre">BotConfig.HIGHLIGHT_THEME</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.GIT_CHECKPOINT_PREFIX"><code class="docutils literal notranslate"><span class="pre">BotConfig.GIT_CHECKPOINT_PREFIX</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.GOOGLE_CLIENT_ID"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_ID</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.GOOGLE_CLIENT_SECRET"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_SECRET</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.GOOGLE_OAUTH_SCOPES"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_OAUTH_SCOPES</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DRIVE_MENU_V2"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_MENU_V2</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DOCUMENTATION_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.DOCUMENTATION_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.__init__"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.setup_advanced_handlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.setup_advanced_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.show_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.show_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorite_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorite_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorites_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorites_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.edit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.edit_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.delete_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.delete_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.versions_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.versions_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.analyze_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.analyze_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.status_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.status_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.sentry_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.sentry_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.uptime_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.uptime_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.observe_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.observe_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.alerts_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.alerts_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.incidents_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.incidents_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.predict_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.predict_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.accuracy_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.accuracy_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.errors_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.errors_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.triage_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.triage_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.rate_limit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.rate_limit_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.enable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.enable_backoff_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.disable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.disable_backoff_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.validate_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.validate_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_help_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_help_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.download_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.download_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.tags_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.tags_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.recent_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.recent_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.info_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.info_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.search_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.search_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.broadcast_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.broadcast_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.handle_callback_query()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="api/config.html">config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/database.html">database package</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
@@ -475,35 +364,11 @@
 <li class="toctree-l4"><a class="reference internal" href="api/alert_manager.html#alert_manager.get_dispatch_log"><code class="docutils literal notranslate"><span class="pre">get_dispatch_log()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/autocomplete_manager.html">autocomplete_manager module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager"><code class="docutils literal notranslate"><span class="pre">AutocompleteManager</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/backup_menu_handler.html">backup_menu_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/batch_commands.html">batch_commands module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_commands.html#batch_commands.batch_analyze_command"><code class="docutils literal notranslate"><span class="pre">batch_analyze_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_commands.html#batch_commands.batch_validate_command"><code class="docutils literal notranslate"><span class="pre">batch_validate_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_commands.html#batch_commands.job_status_command"><code class="docutils literal notranslate"><span class="pre">job_status_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_commands.html#batch_commands.large_file_command"><code class="docutils literal notranslate"><span class="pre">large_file_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_commands.html#batch_commands.handle_batch_callbacks"><code class="docutils literal notranslate"><span class="pre">handle_batch_callbacks()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_commands.html#batch_commands.setup_batch_handlers"><code class="docutils literal notranslate"><span class="pre">setup_batch_handlers()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/batch_processor.html">batch_processor module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_processor.html#batch_processor.BatchJob"><code class="docutils literal notranslate"><span class="pre">BatchJob</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/batch_processor.html#batch_processor.BatchProcessor"><code class="docutils literal notranslate"><span class="pre">BatchProcessor</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/autocomplete_manager.html">autocomplete_manager module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/batch_commands.html">batch_commands module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/batch_processor.html">batch_processor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_commands.html">cache_commands module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
@@ -525,11 +390,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/code_processor.html">code_processor module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/config.html">config module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/config.html">config module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/conftest.html">conftest module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
@@ -538,58 +399,8 @@
 <li class="toctree-l4"><a class="reference internal" href="api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/database.html">database package</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.html#submodules">Submodules</a></li>
 </ul>
 </li>
@@ -608,13 +419,7 @@
 <li class="toctree-l4"><a class="reference internal" href="api/fix_telegram_parse_error.html#fix_telegram_parse_error.wrap_edit_message_calls"><code class="docutils literal notranslate"><span class="pre">wrap_edit_message_calls()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/github_menu_handler.html">github_menu_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/github_menu_handler.html">github_menu_handler module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/github_upload_fix.html">github_upload_fix module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/github_upload_fix.html#github_upload_fix.github_upload_new_file"><code class="docutils literal notranslate"><span class="pre">github_upload_new_file()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/github_upload_fix.html#github_upload_fix.handle_document_fixed"><code class="docutils literal notranslate"><span class="pre">handle_document_fixed()</span></code></a></li>
@@ -652,15 +457,8 @@
 <li class="toctree-l4"><a class="reference internal" href="api/internal_alerts.html#internal_alerts.get_recent_alerts"><code class="docutils literal notranslate"><span class="pre">get_recent_alerts()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/large_files_handler.html">large_files_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/large_files_handler.html#large_files_handler.LargeFilesHandler"><code class="docutils literal notranslate"><span class="pre">LargeFilesHandler</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/lazy_loader.html">lazy_loader module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/lazy_loader.html#lazy_loader.FileChunk"><code class="docutils literal notranslate"><span class="pre">FileChunk</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/large_files_handler.html">large_files_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/lazy_loader.html">lazy_loader module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/main.html">main module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/metrics.html">metrics module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
@@ -697,12 +495,7 @@
 <li class="toctree-l4"><a class="reference internal" href="api/rate_limiter.html#rate_limiter.RateLimiter"><code class="docutils literal notranslate"><span class="pre">RateLimiter</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/refactor_handlers.html">refactor_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/refactor_handlers.html#refactor_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/refactor_handlers.html#refactor_handlers.RefactorHandlers"><code class="docutils literal notranslate"><span class="pre">RefactorHandlers</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/refactor_handlers.html#refactor_handlers.setup_refactor_handlers"><code class="docutils literal notranslate"><span class="pre">setup_refactor_handlers()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/refactor_handlers.html">refactor_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/refactoring_engine.html">refactoring_engine module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.RefactorType"><code class="docutils literal notranslate"><span class="pre">RefactorType</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/refactoring_engine.html#refactoring_engine.FunctionInfo"><code class="docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a></li>
@@ -759,18 +552,8 @@
 <li class="toctree-l4"><a class="reference internal" href="api/test_basic.html#test_basic.TestRequirements"><code class="docutils literal notranslate"><span class="pre">TestRequirements</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="api/test_bookmarks.html">test_bookmarks module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel"><code class="docutils literal notranslate"><span class="pre">TestFileBookmarkModel</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestBookmarksManager"><code class="docutils literal notranslate"><span class="pre">TestBookmarksManager</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality"><code class="docutils literal notranslate"><span class="pre">TestSyncFunctionality</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.TestIntegration"><code class="docutils literal notranslate"><span class="pre">TestIntegration</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/test_bookmarks.html#test_bookmarks.run_tests"><code class="docutils literal notranslate"><span class="pre">run_tests()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="api/user_stats.html">user_stats module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/user_stats.html#user_stats.UserStats"><code class="docutils literal notranslate"><span class="pre">UserStats</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="api/test_bookmarks.html">test_bookmarks module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/user_stats.html">user_stats module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/utils.html">utils module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/utils.html#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/utils.html#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a></li>
@@ -840,7 +623,7 @@
 <li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#device-flow">התחברות (Device Flow)</a></li>
 <li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#id4">טיפול שגיאות</a></li>
 <li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#id5">ניטור</a></li>
-<li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#module-handlers.drive.menu">API (autodoc)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="handlers/drive_menu.html#api-autodoc">API (autodoc)</a></li>
 </ul>
 </li>
 </ul>
@@ -1063,6 +846,7 @@
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrations.html#repository-providers">Repository Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrations.html#best-practices-monorepos">Best Practices – מאגרים גדולים/Monorepos</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="repository-integrations.html">Repository Integrations</a><ul>
@@ -1149,6 +933,16 @@
 </ul>
 </li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">איכות וקונבנציות:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="quality/type-safety.html">📝 Type Hints – Best Practices</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id1">אסטרטגיה: הקשחה הדרגתית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id2">פרוטוקולים וסטאבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id3">הנחיות לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id4">דוגמאות קצרות</a></li>
+</ul>
+</li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">WebApp:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="webapp/overview.html">המיני Web App (סקירה)</a><ul>
@@ -1208,6 +1002,12 @@
 <li class="toctree-l2"><a class="reference internal" href="webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/editor.html">⌨️ עורך קוד (WebApp Editor)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/editor.html#codemirror-isloading">טעינת CodeMirror ומצב isLoading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/editor.html#api">שמירת העדפות משתמש – שני נתיבי API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/editor.html#id1">המלצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1216,6 +1016,14 @@
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id2">קהלי יעד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id3">תצורה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/guidelines.html">📊 הנחיות Observability ואירועים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/guidelines.html#id1">תבנית אירוע/לוג – שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/guidelines.html#fail-open">עקרון Fail-Open</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/guidelines.html#id2">הנחיות טיפול בשגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/guidelines.html#request-id">קורלציה עם request_id</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/guidelines.html#id3">סטנדרטים נוספים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
@@ -1286,6 +1094,18 @@
 <li class="toctree-l1"><a class="reference internal" href="chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="chatops/faq.html">שאלות נפוצות</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">סוכני AI:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="ai-agents/guide.html">🤖 מדריך לסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id1">נקודת פתיחה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id2">מבנה הפרויקט (בקצרה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id3">הוספת פיצ’רים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id4">סקריפטים חשובים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id5">מפת דרכים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#github-issues-chatops">GitHub Issues ו-ChatOps</a></li>
+</ul>
+</li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
@@ -1330,7 +1150,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">הגדרות תצורה</li>
+      <li class="breadcrumb-item active">Rate Limiting</li>
       <li class="wy-breadcrumbs-aside">
             <a href="_sources/configuration.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -1343,545 +1163,94 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="id1">
-<h1>הגדרות תצורה<a class="headerlink" href="#id1" title="Link to this heading"></a></h1>
-<p>מדריך מפורט להגדרת Code Keeper Bot.</p>
+  <section id="rate-limiting">
+<h1>Rate Limiting<a class="headerlink" href="#rate-limiting" title="Link to this heading"></a></h1>
+<section id="environment-variables">
+<h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_ENABLED</span></code>: Enable rate limiting globally (default: <code class="docutils literal notranslate"><span class="pre">true</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_SHADOW_MODE</span></code>: Count-only mode, no blocking (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>). Recommended to start with <code class="docutils literal notranslate"><span class="pre">true</span></code> in staging.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_STRATEGY</span></code>: <code class="docutils literal notranslate"><span class="pre">moving-window</span></code> or <code class="docutils literal notranslate"><span class="pre">fixed-window</span></code> (default: <code class="docutils literal notranslate"><span class="pre">moving-window</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>: Redis connection string. Use <code class="docutils literal notranslate"><span class="pre">rediss://</span></code> with TLS in production.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ADMIN_USER_IDS</span></code>: Comma-separated Telegram user IDs that bypass some limits.</p></li>
+</ul>
+</section>
+<section id="flask">
+<h2>Flask<a class="headerlink" href="#flask" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Uses Flask-Limiter with <code class="docutils literal notranslate"><span class="pre">storage_uri</span></code> pointing to <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code> when set, otherwise in-memory fallback.</p></li>
+<li><p>429 handler returns JSON with <code class="docutils literal notranslate"><span class="pre">error</span></code>, <code class="docutils literal notranslate"><span class="pre">message</span></code>, and <code class="docutils literal notranslate"><span class="pre">retry_after</span></code> fields.</p></li>
+<li><p>Health and metrics endpoints are exempt from limiting.</p></li>
+</ul>
+</section>
+<section id="telegram-bot">
+<h2>Telegram Bot<a class="headerlink" href="#telegram-bot" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Keeps the existing lightweight in-memory limiter for a fast gate.</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">limits</span></code> + Redis are available and <code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code> is set, a per-user global limiter runs in shadow mode for visibility.</p></li>
+</ul>
+</section>
+<section id="metrics">
+<h2>Metrics<a class="headerlink" href="#metrics" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">rate_limit_hits_total{source,scope,limit,result}</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">rate_limit_blocked_total{source,scope,limit}</span></code></p></li>
+</ul>
+</section>
+<section id="security">
+<h2>Security<a class="headerlink" href="#security" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Always use <code class="docutils literal notranslate"><span class="pre">rediss://</span></code> in production (Render Redis supports TLS).</p></li>
+<li><p>Keep <code class="docutils literal notranslate"><span class="pre">ADMIN_USER_IDS</span></code> minimal.</p></li>
+</ul>
+</section>
+</section>
+<section id="config-via-pydantic-settings">
+<h1>Config via Pydantic Settings<a class="headerlink" href="#config-via-pydantic-settings" title="Link to this heading"></a></h1>
+<p>הפרויקט משתמש ב-<code class="docutils literal notranslate"><span class="pre">pydantic-settings</span></code> לטעינת קונפיגורציה בצורה עקבית בכל השכבות (בוט/ווב/שירותים).</p>
+<section id="id1">
+<h2>היררכיית טעינה<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>שרשור קבצים/ENV לפי הסדר: <code class="docutils literal notranslate"><span class="pre">.env.local</span></code> → <code class="docutils literal notranslate"><span class="pre">.env</span></code> → משתני סביבה</p></li>
+<li><p>טיפוסים מאומתים אוטומטית בזמן טעינה (Validation)</p></li>
+</ul>
+<p>דוגמה (מצומצם) מתוך <code class="docutils literal notranslate"><span class="pre">config.py</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">BotConfig</span><span class="p">(</span><span class="n">BaseSettings</span><span class="p">):</span>
+    <span class="n">BOT_TOKEN</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">MONGODB_URL</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">REDIS_URL</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">RATE_LIMIT_ENABLED</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">RATE_LIMIT_SHADOW_MODE</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+<span class="k">def</span> <span class="nf">load_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">BotConfig</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">BotConfig</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
 <section id="id2">
-<h2>קובץ התצורה הראשי<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
-<p>הבוט משתמש בקובץ <cite>config.py</cite> להגדרות הראשיות:</p>
-<dl class="py class">
-<dt class="sig sig-object py">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">config.</span></span><span class="sig-name descname"><span class="pre">BotConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">BOT_TOKEN</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MONGODB_URL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DATABASE_NAME</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'code_keeper_bot'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">REDIS_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">CACHE_ENABLED</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GITHUB_TOKEN</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">PASTEBIN_API_KEY</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAX_CODE_SIZE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAX_FILES_PER_USER</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SUPPORTED_LANGUAGES</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RECYCLE_TTL_DAYS</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">7</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">PUBLIC_BASE_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">WEBAPP_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAINTENANCE_MODE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAINTENANCE_MESSAGE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'🚀</span> <span class="pre">אנחנו</span> <span class="pre">מעלים</span> <span class="pre">עדכון</span> <span class="pre">חדש!\\nהבוט</span> <span class="pre">יחזור</span> <span class="pre">לפעול</span> <span class="pre">ממש</span> <span class="pre">בקרוב</span> <span class="pre">(1</span> <span class="pre">-</span> <span class="pre">3</span> <span class="pre">דקות)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RATE_LIMIT_PER_MINUTE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">HIGHLIGHT_THEME</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'github-dark'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GIT_CHECKPOINT_PREFIX</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'checkpoint'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_CLIENT_ID</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_CLIENT_SECRET</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_OAUTH_SCOPES</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'https://www.googleapis.com/auth/drive.file'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">120</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DRIVE_MENU_V2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DOCUMENTATION_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'https://amirbiron.github.io/CodeBot/'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">BOT_LABEL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'CodeBot'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DRIVE_ADD_HASH</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_DB_ENABLED</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_COLLECTION</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'service_metrics'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_BATCH_SIZE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_FLUSH_INTERVAL_SEC</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/config.html#BotConfig"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
-<p>קונפיגורציה עיקרית של הבוט</p>
-<dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>BOT_TOKEN</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>MONGODB_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>DATABASE_NAME</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>REDIS_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>CACHE_ENABLED</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>GITHUB_TOKEN</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>PASTEBIN_API_KEY</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>MAX_CODE_SIZE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>MAX_FILES_PER_USER</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>SUPPORTED_LANGUAGES</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a>)</p></li>
-<li><p><strong>RECYCLE_TTL_DAYS</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>PUBLIC_BASE_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>WEBAPP_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>MAINTENANCE_MODE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>MAINTENANCE_MESSAGE</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>MAINTENANCE_AUTO_WARMUP_SECS</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>RATE_LIMIT_PER_MINUTE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>HIGHLIGHT_THEME</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>GIT_CHECKPOINT_PREFIX</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>GOOGLE_CLIENT_ID</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>GOOGLE_CLIENT_SECRET</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>GOOGLE_OAUTH_SCOPES</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>GOOGLE_TOKEN_REFRESH_MARGIN_SECS</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>DRIVE_MENU_V2</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>DOCUMENTATION_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>BOT_LABEL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>DRIVE_ADD_HASH</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>NORMALIZE_CODE_ON_SAVE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>METRICS_DB_ENABLED</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>METRICS_COLLECTION</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>METRICS_BATCH_SIZE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>METRICS_FLUSH_INTERVAL_SEC</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<h2>ולידציות<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MONGODB_URL</span></code> חייב להתחיל ב-<code class="docutils literal notranslate"><span class="pre">mongodb://</span></code> או <code class="docutils literal notranslate"><span class="pre">mongodb+srv://</span></code> – אחרת תיזרק שגיאת ולידציה.</p></li>
 </ul>
-</dd>
-</dl>
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">BOT_TOKEN</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">MONGODB_URL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">DATABASE_NAME</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'code_keeper_bot'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">REDIS_URL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">CACHE_ENABLED</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">GITHUB_TOKEN</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">PASTEBIN_API_KEY</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">MAX_CODE_SIZE</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">100000</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">MAX_FILES_PER_USER</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1000</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">SUPPORTED_LANGUAGES</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">RECYCLE_TTL_DAYS</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">7</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">PUBLIC_BASE_URL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">WEBAPP_URL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">MAINTENANCE_MODE</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">MAINTENANCE_MESSAGE</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'🚀</span> <span class="pre">אנחנו</span> <span class="pre">מעלים</span> <span class="pre">עדכון</span> <span class="pre">חדש!\nהבוט</span> <span class="pre">יחזור</span> <span class="pre">לפעול</span> <span class="pre">ממש</span> <span class="pre">בקרוב</span> <span class="pre">(1</span> <span class="pre">-</span> <span class="pre">3</span> <span class="pre">דקות)'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">30</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">RATE_LIMIT_PER_MINUTE</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">30</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">HIGHLIGHT_THEME</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'github-dark'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">GIT_CHECKPOINT_PREFIX</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'checkpoint'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">GOOGLE_CLIENT_ID</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">GOOGLE_CLIENT_SECRET</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">GOOGLE_OAUTH_SCOPES</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'https://www.googleapis.com/auth/drive.file'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">120</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">DRIVE_MENU_V2</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">DOCUMENTATION_URL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'https://amirbiron.github.io/CodeBot/'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">BOT_LABEL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'CodeBot'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">DRIVE_ADD_HASH</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">True</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">METRICS_DB_ENABLED</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">METRICS_COLLECTION</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'service_metrics'</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">METRICS_BATCH_SIZE</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">50</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">METRICS_FLUSH_INTERVAL_SEC</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">5</span></em></dt>
-<dd></dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">BOT_TOKEN</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MONGODB_URL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DATABASE_NAME</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'code_keeper_bot'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">REDIS_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">CACHE_ENABLED</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GITHUB_TOKEN</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">PASTEBIN_API_KEY</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAX_CODE_SIZE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAX_FILES_PER_USER</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SUPPORTED_LANGUAGES</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RECYCLE_TTL_DAYS</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">7</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">PUBLIC_BASE_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">WEBAPP_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAINTENANCE_MODE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAINTENANCE_MESSAGE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'🚀</span> <span class="pre">אנחנו</span> <span class="pre">מעלים</span> <span class="pre">עדכון</span> <span class="pre">חדש!\\nהבוט</span> <span class="pre">יחזור</span> <span class="pre">לפעול</span> <span class="pre">ממש</span> <span class="pre">בקרוב</span> <span class="pre">(1</span> <span class="pre">-</span> <span class="pre">3</span> <span class="pre">דקות)'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MAINTENANCE_AUTO_WARMUP_SECS</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RATE_LIMIT_PER_MINUTE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">HIGHLIGHT_THEME</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'github-dark'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GIT_CHECKPOINT_PREFIX</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'checkpoint'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_CLIENT_ID</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_CLIENT_SECRET</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_OAUTH_SCOPES</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'https://www.googleapis.com/auth/drive.file'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">120</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DRIVE_MENU_V2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DOCUMENTATION_URL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'https://amirbiron.github.io/CodeBot/'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">BOT_LABEL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'CodeBot'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DRIVE_ADD_HASH</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NORMALIZE_CODE_ON_SAVE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_DB_ENABLED</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_COLLECTION</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'service_metrics'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_BATCH_SIZE</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">METRICS_FLUSH_INTERVAL_SEC</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em><span class="sig-paren">)</span></dt>
-<dd><dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>BOT_TOKEN</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>MONGODB_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>DATABASE_NAME</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>REDIS_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>CACHE_ENABLED</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>GITHUB_TOKEN</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>PASTEBIN_API_KEY</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>MAX_CODE_SIZE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>MAX_FILES_PER_USER</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>SUPPORTED_LANGUAGES</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a>)</p></li>
-<li><p><strong>RECYCLE_TTL_DAYS</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>PUBLIC_BASE_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>WEBAPP_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>MAINTENANCE_MODE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>MAINTENANCE_MESSAGE</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>MAINTENANCE_AUTO_WARMUP_SECS</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>RATE_LIMIT_PER_MINUTE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>HIGHLIGHT_THEME</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>GIT_CHECKPOINT_PREFIX</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>GOOGLE_CLIENT_ID</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>GOOGLE_CLIENT_SECRET</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>GOOGLE_OAUTH_SCOPES</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>GOOGLE_TOKEN_REFRESH_MARGIN_SECS</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>DRIVE_MENU_V2</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>DOCUMENTATION_URL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>BOT_LABEL</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>DRIVE_ADD_HASH</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>NORMALIZE_CODE_ON_SAVE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>METRICS_DB_ENABLED</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
-<li><p><strong>METRICS_COLLECTION</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>METRICS_BATCH_SIZE</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>METRICS_FLUSH_INTERVAL_SEC</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>None</p>
-</dd>
-</dl>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py">
-<span class="sig-prename descclassname"><span class="pre">config.</span></span><span class="sig-name descname"><span class="pre">load_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/config.html#load_config"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
-<dd><p>טוען את הקונפיגורציה ממשתני הסביבה</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="api/config.html#config.BotConfig" title="config.BotConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">BotConfig</span></code></a></span></p>
-</dd>
-</dl>
-</dd></dl>
-
+</section>
+<section id="env-example">
+<h2>.env.example<a class="headerlink" href="#env-example" title="Link to this heading"></a></h2>
+<p>מומלץ לעדכן קובץ דוגמה <code class="docutils literal notranslate"><span class="pre">.env.example</span></code> עם השדות העיקריים (ללא סודות):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">BOT_TOKEN</span><span class="o">=</span><span class="n">changeme</span>
+<span class="n">MONGODB_URL</span><span class="o">=</span><span class="n">mongodb</span><span class="p">:</span><span class="o">//</span><span class="n">localhost</span><span class="p">:</span><span class="mi">27017</span><span class="o">/</span><span class="n">codebot</span>
+<span class="n">REDIS_URL</span><span class="o">=</span>
+<span class="n">RATE_LIMIT_ENABLED</span><span class="o">=</span><span class="n">true</span>
+<span class="n">RATE_LIMIT_SHADOW_MODE</span><span class="o">=</span><span class="n">true</span>
+<span class="n">ADMIN_USER_IDS</span><span class="o">=</span>
+</pre></div>
+</div>
 </section>
 <section id="id3">
-<h2>משתני סביבה<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
-<p>רשימת כל משתני הסביבה הנתמכים:</p>
-<p><strong>הגדרות בסיסיות:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Telegram Bot</span>
-<span class="nv">BOT_TOKEN</span><span class="o">=</span>your_bot_token_here
-<span class="nv">BOT_USERNAME</span><span class="o">=</span>@YourBotUsername
-
-<span class="c1"># Database</span>
-<span class="nv">MONGODB_URL</span><span class="o">=</span>mongodb://localhost:27017/code_keeper
-<span class="nv">DATABASE_NAME</span><span class="o">=</span>code_keeper
-
-<span class="c1"># Admin Users</span>
-<span class="nv">ADMIN_USER_IDS</span><span class="o">=</span><span class="m">123456789</span>,987654321
-</pre></div>
-</div>
-<p><strong>הגדרות GitHub:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># GitHub Integration</span>
-<span class="nv">GITHUB_TOKEN</span><span class="o">=</span>ghp_xxxxxxxxxxxxxxxxxxxx
-<span class="nv">GITHUB_USERNAME</span><span class="o">=</span>your_username
-<span class="nv">GITHUB_DEFAULT_REPO</span><span class="o">=</span>code-snippets
-</pre></div>
-</div>
-<p><strong>הגדרות אבטחה:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Encryption</span>
-<span class="nv">ENCRYPTION_KEY</span><span class="o">=</span>your-32-byte-encryption-key-here
-<span class="nv">ENABLE_ENCRYPTION</span><span class="o">=</span><span class="nb">true</span>
-
-<span class="c1"># Rate Limiting</span>
-<span class="nv">RATE_LIMIT_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nv">MAX_REQUESTS_PER_MINUTE</span><span class="o">=</span><span class="m">30</span>
-<span class="nv">MAX_FILES_PER_USER</span><span class="o">=</span><span class="m">1000</span>
-</pre></div>
-</div>
-<p><strong>הגדרות ביצועים:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Cache</span>
-<span class="nv">REDIS_URL</span><span class="o">=</span>redis://localhost:6379
-<span class="nv">CACHE_TTL</span><span class="o">=</span><span class="m">3600</span>
-
-<span class="c1"># Performance</span>
-<span class="nv">MAX_WORKERS</span><span class="o">=</span><span class="m">4</span>
-<span class="nv">CONNECTION_POOL_SIZE</span><span class="o">=</span><span class="m">10</span>
-<span class="nv">REQUEST_TIMEOUT</span><span class="o">=</span><span class="m">30</span>
-</pre></div>
-</div>
-<p><strong>הגדרות גיבוי:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Backup</span>
-<span class="nv">BACKUP_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nv">BACKUP_INTERVAL</span><span class="o">=</span><span class="m">3600</span>
-<span class="nv">BACKUP_PATH</span><span class="o">=</span>/var/backups/code-keeper
-<span class="nv">BACKUP_RETENTION_DAYS</span><span class="o">=</span><span class="m">30</span>
-</pre></div>
-</div>
-</section>
-<section id="id4">
-<h2>הגדרות מתקדמות<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
-<p><strong>הגדרת Webhooks:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># עבור production עם webhooks</span>
-<span class="n">WEBHOOK_URL</span> <span class="o">=</span> <span class="s2">&quot;https://your-domain.com/webhook&quot;</span>
-<span class="n">WEBHOOK_PORT</span> <span class="o">=</span> <span class="mi">8443</span>
-<span class="n">WEBHOOK_LISTEN</span> <span class="o">=</span> <span class="s2">&quot;0.0.0.0&quot;</span>
-</pre></div>
-</div>
-<p><strong>הגדרת Logging:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># רמות לוג</span>
-<span class="n">LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span>  <span class="c1"># DEBUG, INFO, WARNING, ERROR, CRITICAL</span>
-<span class="n">LOG_FILE</span> <span class="o">=</span> <span class="s2">&quot;/var/log/code-keeper/bot.log&quot;</span>
-<span class="n">LOG_FORMAT</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">%(asctime)s</span><span class="s2"> - </span><span class="si">%(name)s</span><span class="s2"> - </span><span class="si">%(levelname)s</span><span class="s2"> - </span><span class="si">%(message)s</span><span class="s2">&quot;</span>
-</pre></div>
-</div>
-<p><strong>הגדרת שפות תכנות נתמכות:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">SUPPORTED_LANGUAGES</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s1">&#39;python&#39;</span><span class="p">,</span> <span class="s1">&#39;javascript&#39;</span><span class="p">,</span> <span class="s1">&#39;java&#39;</span><span class="p">,</span> <span class="s1">&#39;cpp&#39;</span><span class="p">,</span> <span class="s1">&#39;c&#39;</span><span class="p">,</span>
-    <span class="s1">&#39;csharp&#39;</span><span class="p">,</span> <span class="s1">&#39;go&#39;</span><span class="p">,</span> <span class="s1">&#39;rust&#39;</span><span class="p">,</span> <span class="s1">&#39;ruby&#39;</span><span class="p">,</span> <span class="s1">&#39;php&#39;</span><span class="p">,</span>
-    <span class="s1">&#39;swift&#39;</span><span class="p">,</span> <span class="s1">&#39;kotlin&#39;</span><span class="p">,</span> <span class="s1">&#39;typescript&#39;</span><span class="p">,</span> <span class="s1">&#39;scala&#39;</span><span class="p">,</span>
-    <span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="s1">&#39;matlab&#39;</span><span class="p">,</span> <span class="s1">&#39;sql&#39;</span><span class="p">,</span> <span class="s1">&#39;bash&#39;</span><span class="p">,</span> <span class="s1">&#39;powershell&#39;</span>
-<span class="p">]</span>
-</pre></div>
-</div>
-<p><strong>הגדרת גבולות:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># גבולות גודל</span>
-<span class="n">MAX_FILE_SIZE</span> <span class="o">=</span> <span class="mi">10</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>  <span class="c1"># 10MB</span>
-<span class="n">MAX_CODE_LENGTH</span> <span class="o">=</span> <span class="mi">100000</span>  <span class="c1"># תווים</span>
-<span class="n">MAX_FILENAME_LENGTH</span> <span class="o">=</span> <span class="mi">255</span>
-
-<span class="c1"># גבולות כמות</span>
-<span class="n">MAX_FILES_PER_USER</span> <span class="o">=</span> <span class="mi">1000</span>
-<span class="n">MAX_SEARCH_RESULTS</span> <span class="o">=</span> <span class="mi">50</span>
-<span class="n">MAX_BATCH_SIZE</span> <span class="o">=</span> <span class="mi">10</span>
-</pre></div>
-</div>
-</section>
-<section id="mongodb">
-<h2>הגדרת MongoDB<a class="headerlink" href="#mongodb" title="Link to this heading"></a></h2>
-<p><strong>אינדקסים מומלצים:</strong></p>
-<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="c1">// אינדקס לחיפוש מהיר</span>
-<span class="nx">db</span><span class="p">.</span><span class="nx">code_snippets</span><span class="p">.</span><span class="nx">createIndex</span><span class="p">({</span><span class="w"> </span><span class="s2">&quot;user_id&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;created_at&quot;</span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="w"> </span><span class="p">})</span>
-<span class="nx">db</span><span class="p">.</span><span class="nx">code_snippets</span><span class="p">.</span><span class="nx">createIndex</span><span class="p">({</span><span class="w"> </span><span class="s2">&quot;programming_language&quot;</span><span class="o">:</span><span class="w"> </span><span class="mf">1</span><span class="w"> </span><span class="p">})</span>
-<span class="nx">db</span><span class="p">.</span><span class="nx">code_snippets</span><span class="p">.</span><span class="nx">createIndex</span><span class="p">({</span><span class="w"> </span><span class="s2">&quot;file_name&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="w"> </span><span class="p">})</span>
-
-<span class="c1">// אינדקס לחיפוש טקסט מלא</span>
-<span class="nx">db</span><span class="p">.</span><span class="nx">code_snippets</span><span class="p">.</span><span class="nx">createIndex</span><span class="p">({</span><span class="w"> </span><span class="s2">&quot;code&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;note&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="w"> </span><span class="p">})</span>
-</pre></div>
-</div>
-<p><strong>הגדרות ביצועים:</strong></p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># mongod.conf</span>
-<span class="nt">storage</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">wiredTiger</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">engineConfig</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">cacheSizeGB</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-
-<span class="nt">net</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">maxIncomingConnections</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
-</pre></div>
-</div>
-</section>
-<section id="redis-cache">
-<h2>הגדרת Redis Cache<a class="headerlink" href="#redis-cache" title="Link to this heading"></a></h2>
-<p><strong>תצורת Redis:</strong></p>
-<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="c1"># redis.conf</span>
-<span class="na">maxmemory 256mb</span>
-<span class="na">maxmemory-policy allkeys-lru</span>
-
-<span class="c1"># Persistence</span>
-<span class="na">save 900 1</span>
-<span class="na">save 300 10</span>
-<span class="na">save 60 10000</span>
-</pre></div>
-</div>
-<p><strong>שימוש בקאש:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># הפעלת קאש</span>
-<span class="n">CACHE_ENABLED</span> <span class="o">=</span> <span class="kc">True</span>
-
-<span class="c1"># מה לשמור בקאש</span>
-<span class="n">CACHE_USER_DATA</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">CACHE_SEARCH_RESULTS</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">CACHE_STATISTICS</span> <span class="o">=</span> <span class="kc">True</span>
-</pre></div>
-</div>
-<p><strong>עמידות לתקלות Redis ו-SAFE_MODE:</strong></p>
-<ul>
-<li><p>ניתן לקבוע timeouts ללקוח Redis דרך משתני סביבה:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">REDIS_CONNECT_TIMEOUT</span><span class="o">=</span><span class="m">5</span><span class="w">   </span><span class="c1"># או 1 כאשר SAFE_MODE=1</span>
-<span class="nv">REDIS_SOCKET_TIMEOUT</span><span class="o">=</span><span class="m">5</span><span class="w">    </span><span class="c1"># או 1 כאשר SAFE_MODE=1</span>
-</pre></div>
-</div>
-</li>
-<li><p>פעולות ניקוי הקאש מוגבלות בזמן כדי שלא יחסמו את השרת אם Redis איטי/קפוא:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">CACHE_CLEAR_BUDGET_SECONDS</span><span class="o">=</span><span class="m">1</span><span class="w">  </span><span class="c1"># עבור clear_stale (ברירת מחדל 1)</span>
-<span class="c1"># clear_all משתמש בברירת מחדל 2 שניות</span>
-</pre></div>
-</div>
-</li>
-<li><p>ניתן לדלג לחלוטין על פעולות ניקוי/מנע ולרשום לוג בלבד:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">DISABLE_CACHE_MAINTENANCE</span><span class="o">=</span><span class="m">1</span>
-<span class="nv">DISABLE_PREEMPTIVE_ACTIONS</span><span class="o">=</span><span class="m">1</span>
-<span class="nv">SAFE_MODE</span><span class="o">=</span><span class="m">1</span><span class="w">  </span><span class="c1"># מפעיל ברירות מחדל שמרניות ודילוגים בטוחים</span>
-</pre></div>
-</div>
-</li>
+<h2>שימוש לסוכנים<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>סוכן AI צריך להסתמך על API אחיד של <code class="docutils literal notranslate"><span class="pre">config</span></code> כדי למנוע פערים בין שכבות.</p></li>
+<li><p>אין להטמיע סודות בקוד; שימוש ב-ENV בלבד.</p></li>
 </ul>
-</section>
-<section id="id5">
-<h2>הגדרות אבטחה<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
-<p><strong>הצפנת נתונים:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># הצפנת קוד בדאטאבייס</span>
-<span class="n">ENCRYPT_CODE</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">ENCRYPTION_ALGORITHM</span> <span class="o">=</span> <span class="s2">&quot;AES-256-GCM&quot;</span>
-
-<span class="c1"># הצפנת תקשורת</span>
-<span class="n">USE_HTTPS</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">SSL_CERT_PATH</span> <span class="o">=</span> <span class="s2">&quot;/path/to/cert.pem&quot;</span>
-<span class="n">SSL_KEY_PATH</span> <span class="o">=</span> <span class="s2">&quot;/path/to/key.pem&quot;</span>
-</pre></div>
-</div>
-<p><strong>הגנה מפני התקפות:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Anti-spam</span>
-<span class="n">SPAM_DETECTION_ENABLED</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">MAX_MESSAGES_PER_MINUTE</span> <span class="o">=</span> <span class="mi">10</span>
-
-<span class="c1"># Input validation</span>
-<span class="n">STRICT_INPUT_VALIDATION</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">SANITIZE_HTML</span> <span class="o">=</span> <span class="kc">True</span>
-
-<span class="c1"># Session security</span>
-<span class="n">SESSION_TIMEOUT</span> <span class="o">=</span> <span class="mi">3600</span>
-<span class="n">REQUIRE_AUTHENTICATION</span> <span class="o">=</span> <span class="kc">True</span>
-</pre></div>
-</div>
-</section>
-<section id="id6">
-<h2>תצורה לסביבות שונות<a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
-<p><strong>Development:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env.development</span>
-<span class="n">DEBUG</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="n">LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;DEBUG&quot;</span>
-<span class="n">MONGODB_URL</span> <span class="o">=</span> <span class="s2">&quot;mongodb://localhost:27017/code_keeper_dev&quot;</span>
-</pre></div>
-</div>
-<p><strong>Staging:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env.staging</span>
-<span class="n">DEBUG</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="n">LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;INFO&quot;</span>
-<span class="n">MONGODB_URL</span> <span class="o">=</span> <span class="s2">&quot;mongodb://staging-db:27017/code_keeper_staging&quot;</span>
-</pre></div>
-</div>
-<p><strong>Production:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env.production</span>
-<span class="n">DEBUG</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="n">LOG_LEVEL</span> <span class="o">=</span> <span class="s2">&quot;WARNING&quot;</span>
-<span class="n">MONGODB_URL</span> <span class="o">=</span> <span class="s2">&quot;mongodb://prod-db:27017/code_keeper&quot;</span>
-<span class="n">USE_WEBHOOK</span> <span class="o">=</span> <span class="kc">True</span>
-</pre></div>
-</div>
-</section>
-<section id="env">
-<h2>דוגמת קובץ .env מלא<a class="headerlink" href="#env" title="Link to this heading"></a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># === Telegram Configuration ===</span>
-<span class="nv">BOT_TOKEN</span><span class="o">=</span><span class="m">123456789</span>:ABCdefGHIjklMNOpqrsTUVwxyz
-<span class="nv">BOT_USERNAME</span><span class="o">=</span>@CodeKeeperBot
-
-<span class="c1"># === Database Configuration ===</span>
-<span class="nv">MONGODB_URL</span><span class="o">=</span>mongodb://localhost:27017/code_keeper
-<span class="nv">DATABASE_NAME</span><span class="o">=</span>code_keeper
-
-<span class="c1"># === GitHub Integration ===</span>
-<span class="nv">GITHUB_TOKEN</span><span class="o">=</span>ghp_xxxxxxxxxxxxxxxxxxxx
-<span class="nv">GITHUB_USERNAME</span><span class="o">=</span>myusername
-
-<span class="c1"># === Security ===</span>
-<span class="nv">ENCRYPTION_KEY</span><span class="o">=</span>my-super-secret-32-byte-key-here!
-<span class="nv">ADMIN_USER_IDS</span><span class="o">=</span><span class="m">123456789</span>,987654321
-
-<span class="c1"># === Performance ===</span>
-<span class="nv">REDIS_URL</span><span class="o">=</span>redis://localhost:6379
-<span class="nv">MAX_WORKERS</span><span class="o">=</span><span class="m">4</span>
-
-<span class="c1"># === Features ===</span>
-<span class="nv">BACKUP_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nv">CACHE_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<span class="nv">RATE_LIMIT_ENABLED</span><span class="o">=</span><span class="nb">true</span>
-</pre></div>
-</div>
-</section>
-<section id="id7">
-<h2>טיפים וטריקים<a class="headerlink" href="#id7" title="Link to this heading"></a></h2>
-<ol class="arabic">
-<li><p><strong>שמור את קובץ .env מחוץ ל-Git:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;.env&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>.gitignore
-</pre></div>
-</div>
-</li>
-<li><p><strong>השתמש בסיסמאות חזקות:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">secrets</span>
-<span class="n">encryption_key</span> <span class="o">=</span> <span class="n">secrets</span><span class="o">.</span><span class="n">token_hex</span><span class="p">(</span><span class="mi">32</span><span class="p">)</span>
-</pre></div>
-</div>
-</li>
-<li><p><strong>בדוק הגדרות בהפעלה:</strong></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">config</span>
-<span class="n">config</span><span class="o">.</span><span class="n">validate</span><span class="p">()</span>
-</pre></div>
-</div>
-</li>
-<li><p><strong>גבה את ההגדרות:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env<span class="w"> </span>.env.backup
-</pre></div>
-</div>
-</li>
-</ol>
 </section>
 </section>
 

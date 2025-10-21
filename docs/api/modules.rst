@@ -12,6 +12,7 @@ workspace
    batch_commands
    batch_processor
    bot_handlers
+   bot_rate_limiter
    cache_commands
    cache_manager
    chatops
@@ -24,6 +25,7 @@ workspace
    duplicate_detector
    file_manager
    fix_telegram_parse_error
+   get-pip
    github_menu_handler
    github_upload_fix
    handlers

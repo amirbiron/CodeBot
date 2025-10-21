@@ -3,9 +3,10 @@
 <!DOCTYPE html>
 <html class="writer-html5" lang="he" data-content_root="../">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>lazy_loader &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+  <title>📊 הנחיות Observability ואירועים &mdash; תיעוד Code Keeper Bot 1.0.0</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=80d5e7a1" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
       <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=2d7a82d5" />
@@ -17,11 +18,11 @@
       <script src="../_static/doctools.js?v=9a2dae69"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
       <script src="../_static/translations.js?v=714bf7a6"></script>
-      <script src="https://unpkg.com/mermaid@10.2.0/dist/mermaid.min.js"></script>
-      <script>mermaid.initialize({startOnLoad:true});</script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="../genindex.html" />
-    <link rel="search" title="חיפוש" href="../search.html" /> 
+    <link rel="search" title="חיפוש" href="../search.html" />
+    <link rel="next" title="סכמת לוגים ואירועים (Observability)" href="../logging_schema.html" />
+    <link rel="prev" title="אובזרווביליות (Observability)" href="../observability.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -85,6 +86,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../ai-guidelines.html#id6">קישורים מהירים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id6">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id1">מטרות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../doc-authoring.html#id2">מדיניות</a></li>
@@ -122,6 +135,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id2">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id3">כללים כלליים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#workflow">Workflow בסיסי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#pre-commit">Pre-commit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contributing.html#conventional-commits">Conventional Commits</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id4">דוגמאות שימושיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contributing.html#id5">קישורים</a></li>
 </ul>
@@ -159,16 +174,19 @@
 <li class="toctree-l2"><a class="reference internal" href="../installation.html#id11">תמיכה</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../configuration.html">הגדרות תצורה</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">קובץ התצורה הראשי</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">משתני סביבה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">הגדרות מתקדמות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#mongodb">הגדרת MongoDB</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#redis-cache">הגדרת Redis Cache</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">הגדרות אבטחה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">תצורה לסביבות שונות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#env">דוגמת קובץ .env מלא</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">טיפים וטריקים</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#security">Security</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#env-example">.env.example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש לסוכנים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -183,138 +201,10 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../api/main.html">main module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../api/config.html">config module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.BOT_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_TOKEN</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MONGODB_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.MONGODB_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DATABASE_NAME"><code class="docutils literal notranslate"><span class="pre">BotConfig.DATABASE_NAME</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.REDIS_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.REDIS_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.CACHE_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.CACHE_ENABLED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GITHUB_TOKEN"><code class="docutils literal notranslate"><span class="pre">BotConfig.GITHUB_TOKEN</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.PASTEBIN_API_KEY"><code class="docutils literal notranslate"><span class="pre">BotConfig.PASTEBIN_API_KEY</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAX_CODE_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_CODE_SIZE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAX_FILES_PER_USER"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAX_FILES_PER_USER</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.SUPPORTED_LANGUAGES"><code class="docutils literal notranslate"><span class="pre">BotConfig.SUPPORTED_LANGUAGES</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.RECYCLE_TTL_DAYS"><code class="docutils literal notranslate"><span class="pre">BotConfig.RECYCLE_TTL_DAYS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.PUBLIC_BASE_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.PUBLIC_BASE_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.WEBAPP_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.WEBAPP_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAINTENANCE_MODE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MODE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAINTENANCE_MESSAGE"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_MESSAGE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.MAINTENANCE_AUTO_WARMUP_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.MAINTENANCE_AUTO_WARMUP_SECS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.RATE_LIMIT_PER_MINUTE"><code class="docutils literal notranslate"><span class="pre">BotConfig.RATE_LIMIT_PER_MINUTE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.HIGHLIGHT_THEME"><code class="docutils literal notranslate"><span class="pre">BotConfig.HIGHLIGHT_THEME</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GIT_CHECKPOINT_PREFIX"><code class="docutils literal notranslate"><span class="pre">BotConfig.GIT_CHECKPOINT_PREFIX</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_CLIENT_ID"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_ID</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_CLIENT_SECRET"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_CLIENT_SECRET</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_OAUTH_SCOPES"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_OAUTH_SCOPES</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS"><code class="docutils literal notranslate"><span class="pre">BotConfig.GOOGLE_TOKEN_REFRESH_MARGIN_SECS</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DRIVE_MENU_V2"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_MENU_V2</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DOCUMENTATION_URL"><code class="docutils literal notranslate"><span class="pre">BotConfig.DOCUMENTATION_URL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.BOT_LABEL"><code class="docutils literal notranslate"><span class="pre">BotConfig.BOT_LABEL</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.DRIVE_ADD_HASH"><code class="docutils literal notranslate"><span class="pre">BotConfig.DRIVE_ADD_HASH</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.NORMALIZE_CODE_ON_SAVE"><code class="docutils literal notranslate"><span class="pre">BotConfig.NORMALIZE_CODE_ON_SAVE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_FLUSH_INTERVAL_SEC"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_FLUSH_INTERVAL_SEC</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">BotConfig.__init__()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.__init__"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.__init__()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.setup_advanced_handlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.setup_advanced_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.show_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.show_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorite_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorite_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.favorites_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.favorites_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.edit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.edit_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.delete_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.delete_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.versions_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.versions_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.analyze_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.analyze_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.status_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.status_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.sentry_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.sentry_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.uptime_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.uptime_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.observe_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.observe_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.alerts_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.alerts_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.incidents_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.incidents_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.predict_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.predict_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.accuracy_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.accuracy_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.errors_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.errors_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.triage_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.triage_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.rate_limit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.rate_limit_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.enable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.enable_backoff_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.disable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.disable_backoff_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.validate_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.validate_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.share_help_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.share_help_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.download_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.download_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.tags_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.tags_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.recent_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.recent_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.info_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.info_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.search_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.search_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.broadcast_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.broadcast_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.handle_callback_query()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../api/config.html">config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../api/database.html">database package</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
@@ -474,35 +364,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.get_dispatch_log"><code class="docutils literal notranslate"><span class="pre">get_dispatch_log()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/autocomplete_manager.html">autocomplete_manager module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/autocomplete_manager.html#autocomplete_manager.AutocompleteManager"><code class="docutils literal notranslate"><span class="pre">AutocompleteManager</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/batch_commands.html">batch_commands module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.batch_analyze_command"><code class="docutils literal notranslate"><span class="pre">batch_analyze_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.batch_validate_command"><code class="docutils literal notranslate"><span class="pre">batch_validate_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.job_status_command"><code class="docutils literal notranslate"><span class="pre">job_status_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.large_file_command"><code class="docutils literal notranslate"><span class="pre">large_file_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.handle_batch_callbacks"><code class="docutils literal notranslate"><span class="pre">handle_batch_callbacks()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_commands.html#batch_commands.setup_batch_handlers"><code class="docutils literal notranslate"><span class="pre">setup_batch_handlers()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/batch_processor.html">batch_processor module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_processor.html#batch_processor.BatchJob"><code class="docutils literal notranslate"><span class="pre">BatchJob</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/batch_processor.html#batch_processor.BatchProcessor"><code class="docutils literal notranslate"><span class="pre">BatchProcessor</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.check_db_connection"><code class="docutils literal notranslate"><span class="pre">check_db_connection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/autocomplete_manager.html">autocomplete_manager module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/batch_commands.html">batch_commands module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/batch_processor.html">batch_processor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_commands.html">cache_commands module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
@@ -524,11 +390,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/code_processor.html">code_processor module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/config.html">config module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig"><code class="docutils literal notranslate"><span class="pre">BotConfig</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/config.html">config module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conftest.html">conftest module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
@@ -537,58 +399,8 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_help_page"><code class="docutils literal notranslate"><span class="pre">show_help_page()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.setup_favorites_category_handlers"><code class="docutils literal notranslate"><span class="pre">setup_favorites_category_handlers()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_repo_zip_import"><code class="docutils literal notranslate"><span class="pre">start_repo_zip_import()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_zip_create_flow"><code class="docutils literal notranslate"><span class="pre">start_zip_create_flow()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_by_repo_menu_callback"><code class="docutils literal notranslate"><span class="pre">show_by_repo_menu_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files"><code class="docutils literal notranslate"><span class="pre">show_all_files()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_large_files_direct"><code class="docutils literal notranslate"><span class="pre">show_large_files_direct()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_github_menu"><code class="docutils literal notranslate"><span class="pre">show_github_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_all_files_callback"><code class="docutils literal notranslate"><span class="pre">show_all_files_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_favorites_page_callback"><code class="docutils literal notranslate"><span class="pre">show_favorites_page_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_regular_files_page_callback"><code class="docutils literal notranslate"><span class="pre">show_regular_files_page_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_recycle_bin"><code class="docutils literal notranslate"><span class="pre">show_recycle_bin()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_restore"><code class="docutils literal notranslate"><span class="pre">recycle_restore()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.recycle_purge"><code class="docutils literal notranslate"><span class="pre">recycle_purge()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.share_single_by_id"><code class="docutils literal notranslate"><span class="pre">share_single_by_id()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_duplicate_callback"><code class="docutils literal notranslate"><span class="pre">handle_duplicate_callback()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_menu"><code class="docutils literal notranslate"><span class="pre">handle_file_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_file"><code class="docutils literal notranslate"><span class="pre">handle_view_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_code"><code class="docutils literal notranslate"><span class="pre">handle_edit_code()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_code"><code class="docutils literal notranslate"><span class="pre">receive_new_code()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_name"><code class="docutils literal notranslate"><span class="pre">handle_edit_name()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_edit_note"><code class="docutils literal notranslate"><span class="pre">handle_edit_note()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.receive_new_name"><code class="docutils literal notranslate"><span class="pre">receive_new_name()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_versions_history"><code class="docutils literal notranslate"><span class="pre">handle_versions_history()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_download_file"><code class="docutils literal notranslate"><span class="pre">handle_download_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_confirmation"><code class="docutils literal notranslate"><span class="pre">handle_delete_confirmation()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_delete_file"><code class="docutils literal notranslate"><span class="pre">handle_delete_file()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_file_info"><code class="docutils literal notranslate"><span class="pre">handle_file_info()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_callback_query"><code class="docutils literal notranslate"><span class="pre">handle_callback_query()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.cancel"><code class="docutils literal notranslate"><span class="pre">cancel()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.get_save_conversation_handler"><code class="docutils literal notranslate"><span class="pre">get_save_conversation_handler()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_view_version"><code class="docutils literal notranslate"><span class="pre">handle_view_version()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_revert_version"><code class="docutils literal notranslate"><span class="pre">handle_revert_version()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_preview_button"><code class="docutils literal notranslate"><span class="pre">handle_preview_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_autocomplete_button"><code class="docutils literal notranslate"><span class="pre">handle_autocomplete_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.handle_batch_button"><code class="docutils literal notranslate"><span class="pre">handle_batch_button()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_repos_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_repos_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_files_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_files_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_zips_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_zips_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_batch_actions_menu"><code class="docutils literal notranslate"><span class="pre">show_batch_actions_menu()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.execute_batch_on_current_selection"><code class="docutils literal notranslate"><span class="pre">execute_batch_on_current_selection()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html">database package</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/database.html#database.init_database"><code class="docutils literal notranslate"><span class="pre">init_database()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.html#submodules">Submodules</a></li>
 </ul>
 </li>
@@ -607,13 +419,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/fix_telegram_parse_error.html#fix_telegram_parse_error.wrap_edit_message_calls"><code class="docutils literal notranslate"><span class="pre">wrap_edit_message_calls()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/github_menu_handler.html">github_menu_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.safe_html_escape"><code class="docutils literal notranslate"><span class="pre">safe_html_escape()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.format_bytes"><code class="docutils literal notranslate"><span class="pre">format_bytes()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/github_menu_handler.html#github_menu_handler.GitHubMenuHandler"><code class="docutils literal notranslate"><span class="pre">GitHubMenuHandler</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/github_menu_handler.html">github_menu_handler module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/github_upload_fix.html">github_upload_fix module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/github_upload_fix.html#github_upload_fix.github_upload_new_file"><code class="docutils literal notranslate"><span class="pre">github_upload_new_file()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/github_upload_fix.html#github_upload_fix.handle_document_fixed"><code class="docutils literal notranslate"><span class="pre">handle_document_fixed()</span></code></a></li>
@@ -651,15 +457,8 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/internal_alerts.html#internal_alerts.get_recent_alerts"><code class="docutils literal notranslate"><span class="pre">get_recent_alerts()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/large_files_handler.html">large_files_handler module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/large_files_handler.html#large_files_handler.LargeFilesHandler"><code class="docutils literal notranslate"><span class="pre">LargeFilesHandler</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/lazy_loader.html">lazy_loader module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/lazy_loader.html#lazy_loader.FileChunk"><code class="docutils literal notranslate"><span class="pre">FileChunk</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/lazy_loader.html#lazy_loader.LazyLoader"><code class="docutils literal notranslate"><span class="pre">LazyLoader</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/large_files_handler.html">large_files_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/lazy_loader.html">lazy_loader module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/main.html">main module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/metrics.html">metrics module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
@@ -696,12 +495,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/rate_limiter.html#rate_limiter.RateLimiter"><code class="docutils literal notranslate"><span class="pre">RateLimiter</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/refactor_handlers.html">refactor_handlers module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/refactor_handlers.html#refactor_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/refactor_handlers.html#refactor_handlers.RefactorHandlers"><code class="docutils literal notranslate"><span class="pre">RefactorHandlers</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/refactor_handlers.html#refactor_handlers.setup_refactor_handlers"><code class="docutils literal notranslate"><span class="pre">setup_refactor_handlers()</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/refactor_handlers.html">refactor_handlers module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/refactoring_engine.html">refactoring_engine module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/refactoring_engine.html#refactoring_engine.RefactorType"><code class="docutils literal notranslate"><span class="pre">RefactorType</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/refactoring_engine.html#refactoring_engine.FunctionInfo"><code class="docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a></li>
@@ -758,18 +552,8 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/test_basic.html#test_basic.TestRequirements"><code class="docutils literal notranslate"><span class="pre">TestRequirements</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="../api/test_bookmarks.html">test_bookmarks module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestFileBookmarkModel"><code class="docutils literal notranslate"><span class="pre">TestFileBookmarkModel</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestBookmarksManager"><code class="docutils literal notranslate"><span class="pre">TestBookmarksManager</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestSyncFunctionality"><code class="docutils literal notranslate"><span class="pre">TestSyncFunctionality</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.TestIntegration"><code class="docutils literal notranslate"><span class="pre">TestIntegration</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../api/test_bookmarks.html#test_bookmarks.run_tests"><code class="docutils literal notranslate"><span class="pre">run_tests()</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../api/user_stats.html">user_stats module</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="../api/user_stats.html#user_stats.UserStats"><code class="docutils literal notranslate"><span class="pre">UserStats</span></code></a></li>
-</ul>
-</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/test_bookmarks.html">test_bookmarks module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/user_stats.html">user_stats module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/utils.html">utils module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/utils.html#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/utils.html#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a></li>
@@ -839,7 +623,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#device-flow">התחברות (Device Flow)</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id4">טיפול שגיאות</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#id5">ניטור</a></li>
-<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#module-handlers.drive.menu">API (autodoc)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../handlers/drive_menu.html#api-autodoc">API (autodoc)</a></li>
 </ul>
 </li>
 </ul>
@@ -1062,6 +846,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#repository-providers">Repository Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../integrations.html#best-practices-monorepos">Best Practices – מאגרים גדולים/Monorepos</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../repository-integrations.html">Repository Integrations</a><ul>
@@ -1148,6 +933,16 @@
 </ul>
 </li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">איכות וקונבנציות:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../quality/type-safety.html">📝 Type Hints – Best Practices</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id1">אסטרטגיה: הקשחה הדרגתית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id2">פרוטוקולים וסטאבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id3">הנחיות לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id4">דוגמאות קצרות</a></li>
+</ul>
+</li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">WebApp:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/overview.html">המיני Web App (סקירה)</a><ul>
@@ -1207,14 +1002,28 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/editor.html">⌨️ עורך קוד (WebApp Editor)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#codemirror-isloading">טעינת CodeMirror ומצב isLoading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#api">שמירת העדפות משתמש – שני נתיבי API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#id1">המלצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
-<ul>
+<ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../observability.html">אובזרווביליות (Observability)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id1">מטרות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id2">קהלי יעד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id3">תצורה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">📊 הנחיות Observability ואירועים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#id1">תבנית אירוע/לוג – שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#fail-open">עקרון Fail-Open</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id2">הנחיות טיפול בשגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#request-id">קורלציה עם request_id</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id3">סטנדרטים נוספים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
@@ -1285,32 +1094,44 @@
 <li class="toctree-l1"><a class="reference internal" href="../chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/faq.html">שאלות נפוצות</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">סוכני AI:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../ai-agents/guide.html">🤖 מדריך לסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id1">נקודת פתיחה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id2">מבנה הפרויקט (בקצרה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id3">הוספת פיצ’רים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id4">סקריפטים חשובים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id5">מפת דרכים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#github-issues-chatops">GitHub Issues ו-ChatOps</a></li>
+</ul>
+</li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#github">GitHub</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#db">DB</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#web-share">Web/Share</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#alerts">Alerts</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/events_catalog.html#business">Business</a></li>
+<li class="toctree-l1"><a class="reference internal" href="events_catalog.html">קטלוג אירועים קנוניים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="events_catalog.html#github">GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="events_catalog.html#db">DB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="events_catalog.html#web-share">Web/Share</a></li>
+<li class="toctree-l2"><a class="reference internal" href="events_catalog.html#alerts">Alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="events_catalog.html#business">Business</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../observability/error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../observability/error_codes.html#id1">דוגמאות מיפוי</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/error_codes.html#id2">הנחיות</a></li>
+<li class="toctree-l1"><a class="reference internal" href="error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="error_codes.html#id1">דוגמאות מיפוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="error_codes.html#id2">הנחיות</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../observability/metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#id1">שיעור שגיאות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/metrics_promql.html#id2">אירועי ביזנס</a></li>
+<li class="toctree-l1"><a class="reference internal" href="metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics_promql.html#id1">שיעור שגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics_promql.html#id2">אירועי ביזנס</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../observability/alerts_playbook.html">Playbook קצר להתראות</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id1">זרימה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id2">קישורים בקוד</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../observability/alerts_playbook.html#id3">דגשים</a></li>
+<li class="toctree-l1"><a class="reference internal" href="alerts_playbook.html">Playbook קצר להתראות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="alerts_playbook.html#id1">זרימה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="alerts_playbook.html#id2">קישורים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="alerts_playbook.html#id3">דגשים</a></li>
 </ul>
 </li>
 </ul>
@@ -1329,344 +1150,123 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
-      <li class="breadcrumb-item active">lazy_loader</li>
+      <li class="breadcrumb-item active">📊 הנחיות Observability ואירועים</li>
       <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/observability/guidelines.md.txt" rel="nofollow"> View page source</a>
       </li>
-  </ul>
+  </ul><div class="rst-breadcrumbs-buttons" role="navigation" aria-label="Sequential page navigation">
+        <a href="../observability.html" class="btn btn-neutral float-left" title="אובזרווביליות (Observability)" accesskey="p"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../logging_schema.html" class="btn btn-neutral float-right" title="סכמת לוגים ואירועים (Observability)" accesskey="n">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+  </div>
   <hr/>
 </div>
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <h1>הראה קוד מקור ל lazy_loader</h1><div class="highlight"><pre>
-<span></span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">מנהל Lazy Loading לקבצים גדולים</span>
-<span class="sd">Lazy Loading Manager for Large Files</span>
-<span class="sd">&quot;&quot;&quot;</span>
-
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">import</span> <span class="nn">asyncio</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Generator</span><span class="p">,</span> <span class="n">Tuple</span>
-<span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
-<span class="kn">from</span> <span class="nn">cache_manager</span> <span class="kn">import</span> <span class="n">cache</span><span class="p">,</span> <span class="n">cached</span>
-<span class="kn">from</span> <span class="nn">html</span> <span class="kn">import</span> <span class="n">escape</span> <span class="k">as</span> <span class="n">html_escape</span>
-
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-
-<div class="viewcode-block" id="FileChunk">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.FileChunk">[תיעוד]</a>
-<span class="nd">@dataclass</span>
-<span class="k">class</span> <span class="nc">FileChunk</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;חלק מקובץ גדול&quot;&quot;&quot;</span>
-    <span class="n">file_name</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">chunk_index</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">start_line</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">end_line</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">content</span><span class="p">:</span> <span class="nb">str</span>
-    <span class="n">total_chunks</span><span class="p">:</span> <span class="nb">int</span>
-    <span class="n">total_lines</span><span class="p">:</span> <span class="nb">int</span></div>
-
-
-<div class="viewcode-block" id="LazyLoader">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader">[תיעוד]</a>
-<span class="k">class</span> <span class="nc">LazyLoader</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;מנהל Lazy Loading לקבצים גדולים&quot;&quot;&quot;</span>
-    
-<div class="viewcode-block" id="LazyLoader.__init__">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.__init__">[תיעוד]</a>
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">=</span> <span class="mi">50</span>  <span class="c1"># מספר שורות בכל chunk</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">max_file_size</span> <span class="o">=</span> <span class="mi">5000</span>  <span class="c1"># מעל 5000 שורות = קובץ גדול</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">preview_lines</span> <span class="o">=</span> <span class="mi">20</span>  <span class="c1"># שורות לתצוגה מקדימה</span></div>
-
-    
-<div class="viewcode-block" id="LazyLoader.is_large_file">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.is_large_file">[תיעוד]</a>
-    <span class="k">def</span> <span class="nf">is_large_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;בדיקה אם קובץ נחשב גדול&quot;&quot;&quot;</span>
-        <span class="n">lines_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">code</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">))</span>
-        <span class="k">return</span> <span class="n">lines_count</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_file_size</span></div>
-
-    
-<div class="viewcode-block" id="LazyLoader.create_chunks">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.create_chunks">[תיעוד]</a>
-    <span class="k">def</span> <span class="nf">create_chunks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">FileChunk</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;חלוקת קובץ גדול לchunks&quot;&quot;&quot;</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">lines</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
-            <span class="n">total_lines</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
-            <span class="n">chunks</span> <span class="o">=</span> <span class="p">[]</span>
-            
-            <span class="c1"># חישוב מספר chunks</span>
-            <span class="n">total_chunks</span> <span class="o">=</span> <span class="p">(</span><span class="n">total_lines</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span>
-            
-            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">total_chunks</span><span class="p">):</span>
-                <span class="n">start_line</span> <span class="o">=</span> <span class="n">i</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span>
-                <span class="n">end_line</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">start_line</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span> <span class="n">total_lines</span><span class="p">)</span>
-                
-                <span class="n">chunk_content</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="n">start_line</span><span class="p">:</span><span class="n">end_line</span><span class="p">])</span>
-                
-                <span class="n">chunk</span> <span class="o">=</span> <span class="n">FileChunk</span><span class="p">(</span>
-                    <span class="n">file_name</span><span class="o">=</span><span class="n">file_name</span><span class="p">,</span>
-                    <span class="n">chunk_index</span><span class="o">=</span><span class="n">i</span><span class="p">,</span>
-                    <span class="n">start_line</span><span class="o">=</span><span class="n">start_line</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>  <span class="c1"># 1-based indexing למשתמש</span>
-                    <span class="n">end_line</span><span class="o">=</span><span class="n">end_line</span><span class="p">,</span>
-                    <span class="n">content</span><span class="o">=</span><span class="n">chunk_content</span><span class="p">,</span>
-                    <span class="n">total_chunks</span><span class="o">=</span><span class="n">total_chunks</span><span class="p">,</span>
-                    <span class="n">total_lines</span><span class="o">=</span><span class="n">total_lines</span>
-                <span class="p">)</span>
-                
-                <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
-            
-            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;קובץ </span><span class="si">{</span><span class="n">file_name</span><span class="si">}</span><span class="s2"> חולק ל-</span><span class="si">{</span><span class="n">total_chunks</span><span class="si">}</span><span class="s2"> chunks (</span><span class="si">{</span><span class="n">total_lines</span><span class="si">}</span><span class="s2"> שורות)&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">chunks</span>
-            
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בחלוקת קובץ לchunks: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="p">[]</span></div>
-
-    
-<div class="viewcode-block" id="LazyLoader.get_file_chunk">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.get_file_chunk">[תיעוד]</a>
-    <span class="nd">@cached</span><span class="p">(</span><span class="n">expire_seconds</span><span class="o">=</span><span class="mi">600</span><span class="p">,</span> <span class="n">key_prefix</span><span class="o">=</span><span class="s2">&quot;file_chunks&quot;</span><span class="p">)</span>  <span class="c1"># cache ל-10 דקות</span>
-    <span class="k">def</span> <span class="nf">get_file_chunk</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">file_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chunk_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">FileChunk</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;קבלת chunk ספציפי מקובץ&quot;&quot;&quot;</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">file_data</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_latest_version</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="p">)</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">file_data</span><span class="p">:</span>
-                <span class="k">return</span> <span class="kc">None</span>
-            
-            <span class="n">code</span> <span class="o">=</span> <span class="n">file_data</span><span class="p">[</span><span class="s1">&#39;code&#39;</span><span class="p">]</span>
-            <span class="n">chunks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_chunks</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">file_name</span><span class="p">)</span>
-            
-            <span class="k">if</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">chunk_index</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunks</span><span class="p">):</span>
-                <span class="k">return</span> <span class="n">chunks</span><span class="p">[</span><span class="n">chunk_index</span><span class="p">]</span>
-            
-            <span class="k">return</span> <span class="kc">None</span>
-            
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בקבלת chunk: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="kc">None</span></div>
-
-    
-<div class="viewcode-block" id="LazyLoader.get_file_summary">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.get_file_summary">[תיעוד]</a>
-    <span class="k">def</span> <span class="nf">get_file_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">file_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">programming_language</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">any</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;יוצר סיכום של קובץ גדול&quot;&quot;&quot;</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">lines</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
-            <span class="n">total_lines</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
-            
-            <span class="c1"># ניתוח מבנה הקוד</span>
-            <span class="n">structure</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_analyze_file_structure</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">programming_language</span><span class="p">)</span>
-            
-            <span class="c1"># יצירת סיכום</span>
-            <span class="n">summary</span> <span class="o">=</span> <span class="p">{</span>
-                <span class="s1">&#39;file_name&#39;</span><span class="p">:</span> <span class="n">file_name</span><span class="p">,</span>
-                <span class="s1">&#39;language&#39;</span><span class="p">:</span> <span class="n">programming_language</span><span class="p">,</span>
-                <span class="s1">&#39;total_lines&#39;</span><span class="p">:</span> <span class="n">total_lines</span><span class="p">,</span>
-                <span class="s1">&#39;total_chunks&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">total_lines</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span><span class="p">,</span>
-                <span class="s1">&#39;structure&#39;</span><span class="p">:</span> <span class="n">structure</span><span class="p">,</span>
-                <span class="s1">&#39;preview_lines&#39;</span><span class="p">:</span> <span class="nb">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">preview_lines</span><span class="p">,</span> <span class="n">total_lines</span><span class="p">),</span>
-                <span class="s1">&#39;is_large&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_large_file</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
-            <span class="p">}</span>
-            
-            <span class="k">return</span> <span class="n">summary</span>
-            
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה ביצירת סיכום קובץ: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="p">{}</span></div>
-
-    
-    <span class="k">def</span> <span class="nf">_analyze_file_structure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">language</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">any</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;ניתוח מבנה מתקדם של קובץ גדול&quot;&quot;&quot;</span>
-        <span class="n">structure</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s1">&#39;functions&#39;</span><span class="p">:</span> <span class="p">[],</span>
-            <span class="s1">&#39;classes&#39;</span><span class="p">:</span> <span class="p">[],</span>
-            <span class="s1">&#39;imports&#39;</span><span class="p">:</span> <span class="p">[],</span>
-            <span class="s1">&#39;main_sections&#39;</span><span class="p">:</span> <span class="p">[]</span>
-        <span class="p">}</span>
-        
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">lines</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
-            <span class="n">current_section</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="n">section_start</span> <span class="o">=</span> <span class="mi">0</span>
-            
-            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="mi">1</span><span class="p">):</span>
-                <span class="n">line_stripped</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-                
-                <span class="k">if</span> <span class="ow">not</span> <span class="n">line_stripped</span><span class="p">:</span>
-                    <span class="k">continue</span>
-                
-                <span class="c1"># זיהוי פונקציות (Python)</span>
-                <span class="k">if</span> <span class="n">language</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;python&#39;</span><span class="p">:</span>
-                    <span class="k">if</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;def &#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;async def &#39;</span><span class="p">):</span>
-                        <span class="n">func_name</span> <span class="o">=</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;(&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;def &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;async def &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-                        <span class="n">structure</span><span class="p">[</span><span class="s1">&#39;functions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
-                            <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">func_name</span><span class="p">,</span>
-                            <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">i</span><span class="p">,</span>
-                            <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;async&#39;</span> <span class="k">if</span> <span class="s1">&#39;async&#39;</span> <span class="ow">in</span> <span class="n">line_stripped</span> <span class="k">else</span> <span class="s1">&#39;sync&#39;</span>
-                        <span class="p">})</span>
-                    
-                    <span class="k">elif</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;class &#39;</span><span class="p">):</span>
-                        <span class="n">class_name</span> <span class="o">=</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;(&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;class &#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-                        <span class="n">structure</span><span class="p">[</span><span class="s1">&#39;classes&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
-                            <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="n">class_name</span><span class="p">,</span>
-                            <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">i</span>
-                        <span class="p">})</span>
-                    
-                    <span class="k">elif</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;import &#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;from &#39;</span><span class="p">):</span>
-                        <span class="n">structure</span><span class="p">[</span><span class="s1">&#39;imports&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
-                            <span class="s1">&#39;statement&#39;</span><span class="p">:</span> <span class="n">line_stripped</span><span class="p">,</span>
-                            <span class="s1">&#39;line&#39;</span><span class="p">:</span> <span class="n">i</span>
-                        <span class="p">})</span>
-                
-                <span class="c1"># זיהוי sections עיקריים (הערות גדולות, docstrings)</span>
-                <span class="k">if</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&quot;&quot;&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;&#39;&#39;&#39;&quot;</span><span class="p">):</span>
-                    <span class="k">if</span> <span class="n">current_section</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                        <span class="n">current_section</span> <span class="o">=</span> <span class="p">{</span>
-                            <span class="s1">&#39;start&#39;</span><span class="p">:</span> <span class="n">i</span><span class="p">,</span>
-                            <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;docstring&#39;</span>
-                        <span class="p">}</span>
-                    <span class="k">else</span><span class="p">:</span>
-                        <span class="n">current_section</span><span class="p">[</span><span class="s1">&#39;end&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
-                        <span class="n">structure</span><span class="p">[</span><span class="s1">&#39;main_sections&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_section</span><span class="p">)</span>
-                        <span class="n">current_section</span> <span class="o">=</span> <span class="kc">None</span>
-                
-                <span class="k">elif</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;#&#39;</span> <span class="o">*</span> <span class="mi">3</span><span class="p">):</span>  <span class="c1"># ### או יותר</span>
-                    <span class="n">structure</span><span class="p">[</span><span class="s1">&#39;main_sections&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
-                        <span class="s1">&#39;start&#39;</span><span class="p">:</span> <span class="n">i</span><span class="p">,</span>
-                        <span class="s1">&#39;end&#39;</span><span class="p">:</span> <span class="n">i</span><span class="p">,</span>
-                        <span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;section_header&#39;</span><span class="p">,</span>
-                        <span class="s1">&#39;title&#39;</span><span class="p">:</span> <span class="n">line_stripped</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;#&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
-                    <span class="p">})</span>
-            
-            <span class="k">return</span> <span class="n">structure</span>
-            
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בניתוח מבנה קובץ: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">structure</span>
-    
-<div class="viewcode-block" id="LazyLoader.format_chunk_message">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.format_chunk_message">[תיעוד]</a>
-    <span class="k">def</span> <span class="nf">format_chunk_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk</span><span class="p">:</span> <span class="n">FileChunk</span><span class="p">,</span> <span class="n">programming_language</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;פורמט הודעה לchunk&quot;&quot;&quot;</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="kn">from</span> <span class="nn">utils</span> <span class="kn">import</span> <span class="n">get_language_emoji</span>
-            <span class="n">emoji</span> <span class="o">=</span> <span class="n">get_language_emoji</span><span class="p">(</span><span class="n">programming_language</span><span class="p">)</span>
-            
-            <span class="n">header</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">emoji</span><span class="si">}</span><span class="s2"> &lt;b&gt;</span><span class="si">{</span><span class="n">html_escape</span><span class="p">(</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&lt;/b&gt;</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;📄 &lt;b&gt;חלק </span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">chunk_index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">total_chunks</span><span class="si">}</span><span class="s2">&lt;/b&gt; &quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;(שורות </span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">start_line</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">end_line</span><span class="si">}</span><span class="s2"> מתוך </span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">total_lines</span><span class="si">}</span><span class="s2">)</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-            <span class="p">)</span>
-            
-            <span class="n">code_content</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;&lt;pre&gt;&lt;code&gt;</span><span class="si">{</span><span class="n">html_escape</span><span class="p">(</span><span class="n">chunk</span><span class="o">.</span><span class="n">content</span><span class="p">)</span><span class="si">}</span><span class="s2">&lt;/code&gt;&lt;/pre&gt;&quot;</span>
-            
-            <span class="k">return</span> <span class="n">header</span> <span class="o">+</span> <span class="n">code_content</span>
-            
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בפורמט chunk: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;❌ שגיאה בהצגת חלק מהקובץ </span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="si">}</span><span class="s2">&quot;</span></div>
-
-    
-<div class="viewcode-block" id="LazyLoader.get_navigation_keyboard">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.get_navigation_keyboard">[תיעוד]</a>
-    <span class="k">def</span> <span class="nf">get_navigation_keyboard</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">chunk</span><span class="p">:</span> <span class="n">FileChunk</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;יוצר מקלדת ניווט לchunks&quot;&quot;&quot;</span>
-        <span class="kn">from</span> <span class="nn">telegram</span> <span class="kn">import</span> <span class="n">InlineKeyboardButton</span><span class="p">,</span> <span class="n">InlineKeyboardMarkup</span>
-        
-        <span class="n">keyboard</span> <span class="o">=</span> <span class="p">[]</span>
-        
-        <span class="c1"># שורה ראשונה - ניווט</span>
-        <span class="n">nav_row</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="k">if</span> <span class="n">chunk</span><span class="o">.</span><span class="n">chunk_index</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="n">nav_row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">InlineKeyboardButton</span><span class="p">(</span>
-                <span class="s2">&quot;⬅️ קודם&quot;</span><span class="p">,</span> 
-                <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;chunk:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">chunk_index</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">))</span>
-        
-        <span class="n">nav_row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">InlineKeyboardButton</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">chunk_index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">total_chunks</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
-            <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;chunk_info:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="p">))</span>
-        
-        <span class="k">if</span> <span class="n">chunk</span><span class="o">.</span><span class="n">chunk_index</span> <span class="o">&lt;</span> <span class="n">chunk</span><span class="o">.</span><span class="n">total_chunks</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="n">nav_row</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">InlineKeyboardButton</span><span class="p">(</span>
-                <span class="s2">&quot;➡️ הבא&quot;</span><span class="p">,</span> 
-                <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;chunk:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">chunk_index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="p">))</span>
-        
-        <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nav_row</span><span class="p">)</span>
-        
-        <span class="c1"># שורה שנייה - פעולות</span>
-        <span class="n">actions_row</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;📖 הצג מלא&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;show_full:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">),</span>
-            <span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;✏️ ערוך&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;edit_file:</span><span class="si">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">file_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="p">]</span>
-        <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">actions_row</span><span class="p">)</span>
-        
-        <span class="c1"># שורה שלישית - חזרה</span>
-        <span class="n">keyboard</span><span class="o">.</span><span class="n">append</span><span class="p">([</span>
-            <span class="n">InlineKeyboardButton</span><span class="p">(</span><span class="s2">&quot;🏠 תפריט ראשי&quot;</span><span class="p">,</span> <span class="n">callback_data</span><span class="o">=</span><span class="s2">&quot;main_menu&quot;</span><span class="p">)</span>
-        <span class="p">])</span>
-        
-        <span class="k">return</span> <span class="n">InlineKeyboardMarkup</span><span class="p">(</span><span class="n">keyboard</span><span class="p">)</span></div>
-
-    
-<div class="viewcode-block" id="LazyLoader.show_large_file_lazy">
-<a class="viewcode-back" href="../modules/index.html#lazy_loader.LazyLoader.show_large_file_lazy">[תיעוד]</a>
-    <span class="k">async</span> <span class="k">def</span> <span class="nf">show_large_file_lazy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">file_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chunk_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;הצגת קובץ גדול עם lazy loading&quot;&quot;&quot;</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">chunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_file_chunk</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="p">,</span> <span class="n">chunk_index</span><span class="p">)</span>
-            
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
-                <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;❌ לא ניתן לטעון את הקובץ &#39;</span><span class="si">{</span><span class="n">html_escape</span><span class="p">(</span><span class="n">file_name</span><span class="p">)</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">,</span>
-                    <span class="n">parse_mode</span><span class="o">=</span><span class="s1">&#39;HTML&#39;</span>
-                <span class="p">)</span>
-                <span class="k">return</span>
-            
-            <span class="c1"># קבלת מידע על הקובץ</span>
-            <span class="n">file_data</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_latest_version</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="p">)</span>
-            <span class="n">programming_language</span> <span class="o">=</span> <span class="n">file_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;programming_language&#39;</span><span class="p">,</span> <span class="s1">&#39;text&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">file_data</span> <span class="k">else</span> <span class="s1">&#39;text&#39;</span>
-            
-            <span class="c1"># פורמט ההודעה</span>
-            <span class="n">message</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">format_chunk_message</span><span class="p">(</span><span class="n">chunk</span><span class="p">,</span> <span class="n">programming_language</span><span class="p">)</span>
-            
-            <span class="c1"># מקלדת ניווט</span>
-            <span class="n">keyboard</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_navigation_keyboard</span><span class="p">(</span><span class="n">chunk</span><span class="p">,</span> <span class="n">user_id</span><span class="p">)</span>
-            
-            <span class="c1"># שליחה או עדכון הודעה</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="s1">&#39;callback_query&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="p">:</span>
-                <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span>
-                    <span class="n">message</span><span class="p">,</span>
-                    <span class="n">parse_mode</span><span class="o">=</span><span class="s1">&#39;HTML&#39;</span><span class="p">,</span>
-                    <span class="n">reply_markup</span><span class="o">=</span><span class="n">keyboard</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span>
-                    <span class="n">message</span><span class="p">,</span>
-                    <span class="n">parse_mode</span><span class="o">=</span><span class="s1">&#39;HTML&#39;</span><span class="p">,</span>
-                    <span class="n">reply_markup</span><span class="o">=</span><span class="n">keyboard</span>
-                <span class="p">)</span>
-                
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בהצגת קובץ גדול: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">await</span> <span class="n">update</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">reply_text</span><span class="p">(</span><span class="s2">&quot;❌ שגיאה בטעינת הקובץ&quot;</span><span class="p">)</span></div>
-</div>
-
-
-<span class="c1"># יצירת instance גלובלי</span>
-<span class="n">lazy_loader</span> <span class="o">=</span> <span class="n">LazyLoader</span><span class="p">()</span>
+  <section id="observability">
+<h1>📊 הנחיות Observability ואירועים<a class="headerlink" href="#observability" title="Link to this heading"></a></h1>
+<p>מטרה: לקבוע תבנית ברורה ללוגים ולאירועים, להפחית רעש, ולאפשר תחקור מהיר בעזרת request_id.</p>
+<hr class="docutils" />
+<section id="id1">
+<h2>תבנית אירוע/לוג – שדות חובה<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>request_id: מזהה מתואם לבקשה/פעולה</p></li>
+<li><p>user_id: אם קיים</p></li>
+<li><p>operation: שם פעולה תמציתי (למשל: toggle_bookmark)</p></li>
+<li><p>severity: info | warning | anomaly | error</p></li>
+<li><p>handled: true/false – האם השגיאה טופלה אוטומטית</p></li>
+</ul>
+<p>דוגמה עם emit_event:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">emit_event</span><span class="p">(</span>
+    <span class="s2">&quot;alert_received&quot;</span><span class="p">,</span>
+    <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;anomaly&quot;</span><span class="p">,</span>           <span class="c1"># אירועי התראה תמיד anomaly</span>
+    <span class="n">handled</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>                  <span class="c1"># טופל אוטומטית → לא ייחשב כשגיאה קשה</span>
+    <span class="n">request_id</span><span class="o">=</span><span class="n">request_id</span><span class="p">,</span>
+    <span class="n">operation</span><span class="o">=</span><span class="s2">&quot;github_rate_limit_check&quot;</span><span class="p">,</span>
+    <span class="n">summary</span><span class="o">=</span><span class="s2">&quot;repo=example, window=1h&quot;</span><span class="p">,</span>
+<span class="p">)</span>
 </pre></div>
+</div>
+<p>הימנעו מ-<code class="docutils literal notranslate"><span class="pre">print()</span></code>; השתמשו ב-<code class="docutils literal notranslate"><span class="pre">logger.info/warning/exception</span></code> וב-<code class="docutils literal notranslate"><span class="pre">emit_event</span></code> לשדות מובנים.</p>
+</section>
+<hr class="docutils" />
+<section id="fail-open">
+<h2>עקרון Fail-Open<a class="headerlink" href="#fail-open" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>מערכת observability לעולם לא מפילה את היישום.</p></li>
+<li><p>כשלי לוג/מטריקות → לוג רך והמשך עבודה.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="p">:</span>
+    <span class="n">metrics</span><span class="o">.</span><span class="n">rate_limit_hits</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s2">&quot;webapp&quot;</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;route&quot;</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="s2">&quot;default&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">=</span><span class="s2">&quot;allowed&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">inc</span><span class="p">()</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;metrics_increment_failed&quot;</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;handled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="id2">
+<h2>הנחיות טיפול בשגיאות<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>No bare except: החליפו <code class="docutils literal notranslate"><span class="pre">except:</span></code> ב-<code class="docutils literal notranslate"><span class="pre">except</span> <span class="pre">Exception</span> <span class="pre">as</span> <span class="pre">e:</span></code></p></li>
+<li><p>חריגים שכדאי לתפוס ספציפית:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">PyMongoError</span></code> (שגיאות DB) – לוג + <code class="docutils literal notranslate"><span class="pre">handled=True</span></code> אם יש חלופה/ניסיון חוזר</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">InvalidId</span></code> (BSON) – החזירו 400/404 לפי הקשר</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">KeyError</span></code>/<code class="docutils literal notranslate"><span class="pre">ValueError</span></code> – החזירו 400 אם הקלט לא חוקי</p></li>
+</ul>
+</li>
+<li><p>404 לעומת 500:</p>
+<ul>
+<li><p>404: משאב לא נמצא/מזהה לא תקין</p></li>
+<li><p>500: שגיאה פנימית בלתי צפויה</p></li>
+</ul>
+</li>
+</ul>
+<p>דוגמה:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="p">:</span>
+    <span class="n">doc</span> <span class="o">=</span> <span class="n">collection</span><span class="o">.</span><span class="n">find_one</span><span class="p">({</span><span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="n">oid</span><span class="p">})</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">doc</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;not_found&quot;</span><span class="p">}),</span> <span class="mi">404</span>
+<span class="k">except</span> <span class="n">InvalidId</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;invalid_object_id&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;handled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)})</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;invalid_id&quot;</span><span class="p">}),</span> <span class="mi">400</span>
+<span class="k">except</span> <span class="n">PyMongoError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;db_error&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;db_error&quot;</span><span class="p">}),</span> <span class="mi">500</span>
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="request-id">
+<h2>קורלציה עם request_id<a class="headerlink" href="#request-id" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>תמיד קושרים <code class="docutils literal notranslate"><span class="pre">request_id</span></code> בהתחלה ומעבירים אותו הלאה.</p></li>
+<li><p>מוסיפים לכותרות HTTP/תגובה כשאפשר, כדי להקל על תחקור.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">request_id</span> <span class="o">=</span> <span class="n">generate_request_id</span><span class="p">()</span>
+<span class="n">bind_request_id</span><span class="p">(</span><span class="n">request_id</span><span class="p">)</span>
+<span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;request_started&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">request_id</span><span class="o">=</span><span class="n">request_id</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<hr class="docutils" />
+<section id="id3">
+<h2>סטנדרטים נוספים<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>אירועי <code class="docutils literal notranslate"><span class="pre">alert_received</span></code> → תמיד <code class="docutils literal notranslate"><span class="pre">severity=&quot;anomaly&quot;</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">handled=true</span></code> צובע לוגים בכתום ומסייע לסוכני triage להבדיל משגיאות קשות</p></li>
+<li><p>שדות מומלצים נוספים: <code class="docutils literal notranslate"><span class="pre">file_id</span></code>, <code class="docutils literal notranslate"><span class="pre">duration_ms</span></code>, <code class="docutils literal notranslate"><span class="pre">count</span></code>, <code class="docutils literal notranslate"><span class="pre">limit</span></code>, <code class="docutils literal notranslate"><span class="pre">scope</span></code></p></li>
+</ul>
+</section>
+</section>
+
 
            </div>
           </div>
-          <footer>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../observability.html" class="btn btn-neutral float-left" title="אובזרווביליות (Observability)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../logging_schema.html" class="btn btn-neutral float-right" title="סכמת לוגים ואירועים (Observability)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
 
   <hr/>
 
