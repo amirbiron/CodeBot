@@ -265,8 +265,8 @@ class PastebinIntegration:
         }
         
         try:
-        timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 15)))
-        connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
+            timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 15)))
+            connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
                     result = await response.text()
