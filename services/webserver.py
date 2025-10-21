@@ -137,6 +137,8 @@ def create_app() -> web.Application:
 
         # Forward via helper (Slack/Telegram) and emit events
         try:
+            # Log only a lightweight counter at info level here; per-alert severities
+            # are handled inside alert_forwarder.forward_alerts.
             emit_event("alert_received", severity="info", count=int(len(alerts)))
         except Exception:
             pass

@@ -131,7 +131,7 @@ def _grafana_annotate(text: str) -> None:
 def _restart_service(name: str) -> bool:
     # Placeholder: in this project we don't manage processes; emit event only
     try:
-        _emit_event("service_restart_attempt", severity="warn", service=str(name))
+        _emit_event("service_restart_attempt", severity="anomaly", service=str(name), handled=True)
         return True
     except Exception:
         return False
@@ -150,7 +150,7 @@ def _clear_internal_cache() -> bool:
                     _cache.delete_pattern("*")  # type: ignore[call-arg]
                 except Exception:
                     pass
-        _emit_event("cache_clear_attempt", severity="warn")
+        _emit_event("cache_clear_attempt", severity="anomaly", handled=True)
         return True
     except Exception:
         return False
@@ -163,7 +163,7 @@ def _reconnect_mongodb() -> bool:
             mgr = DatabaseManager()
             # Touch db attribute to initialize
             _ = getattr(mgr, "db", None)
-        _emit_event("mongodb_reconnect_attempt", severity="warn")
+        _emit_event("mongodb_reconnect_attempt", severity="anomaly", handled=True)
         return True
     except Exception:
         return False
@@ -256,7 +256,13 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
                 actual_incidents_total.labels(metric=str(metric)).inc()
         except Exception:
             pass
-        _emit_event("AUTO_REMEDIATION_EXECUTED", severity="error", incident_id=incident_id, name=str(name))
+        _emit_event(
+            "AUTO_REMEDIATION_EXECUTED",
+            severity="anomaly",
+            incident_id=incident_id,
+            name=str(name),
+            handled=True,
+        )
 
         try:
             _grafana_annotate(f"{name} — action={action} recurring={recurring}")
