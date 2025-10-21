@@ -958,6 +958,31 @@ def _metrics_after(resp):  # type: ignore[override]
 @app.route('/alertmanager/webhook', methods=['POST'])
 def alertmanager_webhook():
     try:
+        # --- Basic authentication/guard ---
+        secret = os.getenv('ALERTMANAGER_WEBHOOK_SECRET', '').strip()
+        allow_ips = {ip.strip() for ip in (os.getenv('ALERTMANAGER_IP_ALLOWLIST') or '').split(',') if ip.strip()}
+
+        def _client_ip() -> str:
+            try:
+                xff = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+                return xff or (request.remote_addr or '')
+            except Exception:
+                return request.remote_addr or ''
+
+        ok_secret = True
+        ok_ip = True
+        # If a secret is configured, require matching header or query token
+        if secret:
+            token = request.headers.get('X-Alertmanager-Token') or request.args.get('token') or ''
+            ok_secret = (token.strip() == secret)
+        # If an IP allow-list is configured, require client IP in the list
+        if allow_ips:
+            ok_ip = (_client_ip() in allow_ips)
+
+        # Enforce guards when configured
+        if (secret and not ok_secret) or (allow_ips and not ok_ip):
+            return jsonify({"status": "forbidden"}), 403
+
         payload = request.get_json(silent=True) or {}
         alerts = payload.get('alerts') or []
         if isinstance(alerts, list) and alerts:

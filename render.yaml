@@ -37,6 +37,11 @@ services:
         value: https://your-webapp.onrender.com/alertmanager/webhook
     autoDeploy: true
     healthCheckPath: /
+
+  # ===================================
+  # Code Keeper Bot - Web Service (Python Bot)
+  # ===================================
+  - type: web
     name: code-keeper-bot
     env: python
     region: oregon # או virginia, frankfurt, singapore
