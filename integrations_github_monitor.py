@@ -18,7 +18,9 @@ async def fetch_rate_limit(token: Optional[str] = None) -> Dict[str, Any]:
     if aiohttp is None or not tok:
         return {}
     try:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=10)
+        connector = aiohttp.TCPConnector(limit=50)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.get(
                 "https://api.github.com/rate_limit",
                 headers={"Authorization": f"token {tok}"},

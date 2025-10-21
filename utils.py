@@ -870,7 +870,9 @@ class FileUtils:
         """הורדת קובץ מ-URL"""
         
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=20)
+            connector = aiohttp.TCPConnector(limit=50)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         logger.error(f"שגיאה בהורדת קובץ: {response.status}")

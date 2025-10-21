@@ -265,7 +265,9 @@ class PastebinIntegration:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15)
+            connector = aiohttp.TCPConnector(limit=50)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
                     result = await response.text()
                     
@@ -297,8 +299,9 @@ class PastebinIntegration:
         
         try:
             raw_url = f"https://pastebin.com/raw/{paste_id}"
-            
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=10)
+            connector = aiohttp.TCPConnector(limit=50)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get(raw_url) as response:
                     if response.status == 200:
                         content = await response.text()
@@ -594,7 +597,9 @@ class WebhookIntegration:
             "data": data
         }
         
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=10)
+        connector = aiohttp.TCPConnector(limit=50)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             for webhook in relevant_webhooks:
                 try:
                     async with session.post(
