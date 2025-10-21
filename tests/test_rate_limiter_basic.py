@@ -83,6 +83,23 @@ async def test_rate_limiter_usage_ratio_zero_when_no_records():
 
 
 @pytest.mark.asyncio
+async def test_rate_limiter_usage_ratio_after_cleanup_partial():
+    # cover partial paths: cleanup of some entries then ratio calc
+    rl = RateLimiter(max_per_minute=4)
+    uid = 77
+    # two hits now
+    assert await rl.check_rate_limit(uid) is True
+    assert await rl.check_rate_limit(uid) is True
+    # inject an old entry to be cleaned
+    from datetime import datetime, timedelta, timezone
+    too_old = datetime.now(timezone.utc) - timedelta(seconds=120)
+    rl._requests[uid].insert(0, too_old)  # noqa: SLF001 (test internal)
+    ratio = await rl.get_current_usage_ratio(uid)
+    # only the 2 recent should count out of 4 → 0.5
+    assert 0.49 <= ratio <= 0.51
+
+
+@pytest.mark.asyncio
 async def test_rate_limiter_usage_ratio_soft_warning_path():
     rl = RateLimiter(max_per_minute=5)
     uid = 42

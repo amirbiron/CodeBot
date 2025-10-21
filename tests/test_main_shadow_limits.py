@@ -72,6 +72,55 @@ async def test_main_global_shadow_limit_logs(monkeypatch, caplog):
 
 
 @pytest.mark.asyncio
+async def test_main_global_gate_shadow_adv_logs_only(monkeypatch):
+    # Arrange: build bot and force advanced limiter in shadow mode to report would-block
+    monkeypatch.setenv("BOT_TOKEN", "x")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    from main import CodeKeeperBot
+    bot = CodeKeeperBot()
+
+    class _Adv:
+        def hit(self, limit, key):  # always indicate block at advanced layer
+            return False
+
+    bot._advanced_limiter = _Adv()  # type: ignore[attr-defined]
+    if not hasattr(bot, "_per_user_global"):
+        bot._per_user_global = object()  # type: ignore[attr-defined]
+    bot._shadow_mode = True  # type: ignore[attr-defined]
+
+    # Find gate
+    gate = None
+    for (args, kwargs) in getattr(bot.application, 'handlers', []):
+        if args:
+            handler = args[0]
+            cb = getattr(handler, 'callback', None)
+            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
+                gate = cb
+                break
+            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
+                gate = handler
+                break
+    assert gate is not None
+
+    class _User:
+        def __init__(self, id):
+            self.id = id
+    class _Msg:
+        async def reply_text(self, *a, **k):
+            return None
+    class _Upd:
+        def __init__(self, id):
+            self.effective_user = _User(id)
+            self.message = _Msg()
+            self.callback_query = None
+    class _Ctx:
+        user_data = {}
+
+    # Act: Single call should not raise; advanced limiter logs only in shadow mode
+    await gate(_Upd(333), _Ctx())
+
+
+@pytest.mark.asyncio
 async def test_main_global_gate_admin_bypass(monkeypatch):
     # Arrange: mark user as admin, disable external deps
     monkeypatch.setenv("ADMIN_USER_IDS", "555")
