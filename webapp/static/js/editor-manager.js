@@ -202,13 +202,55 @@
     }
 
     async loadCodeMirror() {
-      // טעינה דינמית של מודולים מצדי ה-CDN והגדרת חלון גלובלי יחיד
-      const stateMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js');
-      const viewMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/index.js');
-      const cmdMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/commands@6/dist/index.js');
-      const langMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/language@6/dist/index.js');
-      const searchMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/search@6/dist/index.js');
-      const acMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/dist/index.js');
+      // טעינה דינמית עם נפילות (fallback) כדי למנוע שגיאות bare specifiers בדפדפנים
+      const tryImports = async (urls) => {
+        let lastErr;
+        for (const u of urls) {
+          try { return await import(u); } catch (e) { lastErr = e; }
+        }
+        throw lastErr || new Error('module_import_failed');
+      };
+
+      // מועמדים לכל חבילה: jsDelivr (?module), unpkg (?module), esm.sh (?bundle)
+      const urls = {
+        state: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/state@6?module',
+          'https://unpkg.com/@codemirror/state@6?module',
+          'https://esm.sh/@codemirror/state@6?bundle'
+        ],
+        view: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/view@6?module',
+          'https://unpkg.com/@codemirror/view@6?module',
+          'https://esm.sh/@codemirror/view@6?bundle'
+        ],
+        commands: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/commands@6?module',
+          'https://unpkg.com/@codemirror/commands@6?module',
+          'https://esm.sh/@codemirror/commands@6?bundle'
+        ],
+        language: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/language@6?module',
+          'https://unpkg.com/@codemirror/language@6?module',
+          'https://esm.sh/@codemirror/language@6?bundle'
+        ],
+        search: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/search@6?module',
+          'https://unpkg.com/@codemirror/search@6?module',
+          'https://esm.sh/@codemirror/search@6?bundle'
+        ],
+        autocomplete: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6?module',
+          'https://unpkg.com/@codemirror/autocomplete@6?module',
+          'https://esm.sh/@codemirror/autocomplete@6?bundle'
+        ]
+      };
+
+      const stateMod = await tryImports(urls.state);
+      const viewMod = await tryImports(urls.view);
+      const cmdMod = await tryImports(urls.commands);
+      const langMod = await tryImports(urls.language);
+      const searchMod = await tryImports(urls.search);
+      const acMod = await tryImports(urls.autocomplete);
 
       const basicSetup = [
         viewMod.lineNumbers(),
@@ -248,20 +290,59 @@
     }
 
     async getLanguageSupport(lang) {
-      const map = {
-        python: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js'],
-        javascript: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js'],
-        html: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js'],
-        css: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js'],
-        sql: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6/dist/index.js'],
-        json: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6/dist/index.js'],
-        markdown: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js'],
-        xml: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6/dist/index.js']
+      const tryImports = async (urls) => {
+        let lastErr;
+        for (const u of urls) {
+          try { return await import(u); } catch (e) { lastErr = e; }
+        }
+        throw lastErr || new Error('lang_import_failed');
       };
-      const urls = map[lang];
+      const maps = {
+        python: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6?module',
+          'https://unpkg.com/@codemirror/lang-python@6?module',
+          'https://esm.sh/@codemirror/lang-python@6?bundle'
+        ],
+        javascript: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6?module',
+          'https://unpkg.com/@codemirror/lang-javascript@6?module',
+          'https://esm.sh/@codemirror/lang-javascript@6?bundle'
+        ],
+        html: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6?module',
+          'https://unpkg.com/@codemirror/lang-html@6?module',
+          'https://esm.sh/@codemirror/lang-html@6?bundle'
+        ],
+        css: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6?module',
+          'https://unpkg.com/@codemirror/lang-css@6?module',
+          'https://esm.sh/@codemirror/lang-css@6?bundle'
+        ],
+        sql: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6?module',
+          'https://unpkg.com/@codemirror/lang-sql@6?module',
+          'https://esm.sh/@codemirror/lang-sql@6?bundle'
+        ],
+        json: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6?module',
+          'https://unpkg.com/@codemirror/lang-json@6?module',
+          'https://esm.sh/@codemirror/lang-json@6?bundle'
+        ],
+        markdown: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6?module',
+          'https://unpkg.com/@codemirror/lang-markdown@6?module',
+          'https://esm.sh/@codemirror/lang-markdown@6?bundle'
+        ],
+        xml: [
+          'https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6?module',
+          'https://unpkg.com/@codemirror/lang-xml@6?module',
+          'https://esm.sh/@codemirror/lang-xml@6?bundle'
+        ]
+      };
+      const urls = maps[lang];
       if (!urls) return [];
       try {
-        const mod = await import(urls[0]);
+        const mod = await tryImports(urls);
         switch (lang) {
           case 'python': return mod.python();
           case 'javascript': return mod.javascript();
@@ -278,10 +359,15 @@
 
     async getTheme(name) {
       if (name === 'dark') {
-        try {
-          const mod = await import('https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js');
-          return mod.oneDark;
-        } catch(_) { return []; }
+        const urls = [
+          'https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6?module',
+          'https://unpkg.com/@codemirror/theme-one-dark@6?module',
+          'https://esm.sh/@codemirror/theme-one-dark@6?bundle'
+        ];
+        for (const u of urls) {
+          try { const mod = await import(u); return mod.oneDark || []; } catch(_) {}
+        }
+        return [];
       }
       return [];
     }
