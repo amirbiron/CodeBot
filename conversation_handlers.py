@@ -2595,12 +2595,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "batch_analyze_cpp": "cpp",
             }
             if data == "batch_analyze_all":
-                all_files = db.get_user_files(user_id, limit=1000)
-                files = [f['file_name'] for f in all_files]
+                # משוך רק שמות קבצים בהקרנה קלה כדי לחסוך בזיכרון
+                all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+                files = [f['file_name'] for f in all_files if f.get('file_name')]
             else:
                 language = language_map[data]
-                all_files = db.get_user_files(user_id, limit=1000)
-                files = [f['file_name'] for f in all_files if f.get('programming_language', '').lower() == language]
+                all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "programming_language": 1})
+                files = [f['file_name'] for f in all_files if str(f.get('programming_language', '')).lower() == language and f.get('file_name')]
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
                 return ConversationHandler.END
@@ -2617,8 +2618,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             from database import db
             from batch_processor import batch_processor
             user_id = update.effective_user.id
-            all_files = db.get_user_files(user_id, limit=1000)
-            files = [f['file_name'] for f in all_files]
+            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+            files = [f['file_name'] for f in all_files if f.get('file_name')]
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
                 return ConversationHandler.END
@@ -3319,7 +3320,7 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    files = db.get_user_files(user_id, limit=1000)
+    files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
     repo_to_count: Dict[str, int] = {}
     for f in files:
         for t in f.get('tags', []) or []:
@@ -3361,17 +3362,17 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'zips':
             # הצג את כל הקבצים הרגילים
-            files_docs = db.get_user_files(user_id, limit=1000)
+            files_docs = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'large':
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
             items = [cast(str, f['file_name']) for f in large_files if f.get('file_name')]
         elif t == 'other':
-            files_docs = db.get_user_files(user_id, limit=1000)
+            files_docs = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
             files_docs = [f for f in files_docs if not any((tg or '').startswith('repo:') for tg in (f.get('tags') or []))]
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         else:
-            files_docs = db.get_user_files(user_id, limit=1000)
+            files_docs = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
 
         if not items:

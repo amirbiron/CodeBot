@@ -3284,7 +3284,7 @@ class GitHubMenuHandler:
         query = update.callback_query
         try:
             # קריאת נתונים
-            all_files = db.get_user_files(user_id, limit=1000)
+            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
             large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
             large_names = {lf.get('file_name') for lf in large_files if lf.get('file_name')}
 
@@ -3348,7 +3348,8 @@ class GitHubMenuHandler:
         from database import db
         query = update.callback_query
         try:
-            files = db.get_user_files(user_id, limit=1000)
+            # צריך גם tags כדי לספור לפי repo:
+            files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
             repo_to_count: dict[str, int] = {}
             for f in files:
                 for t in f.get('tags', []) or []:

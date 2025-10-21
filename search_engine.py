@@ -119,51 +119,64 @@ class SearchIndex:
         
         # קבלת כל הקבצים
         with track_performance("search_index_rebuild", labels={"repo": ""}):
-            files = db.get_user_files(user_id, limit=10000)
-            
-            for file_data in files:
-                # גישה בטוחה לשדות שעלולים להיות חסרים במסמכים ישנים/חלקיים
-                file_name_value = str(file_data.get('file_name') or '').strip()
-                if not file_name_value:
-                    # אין טעם לאנדקס רשומה ללא שם קובץ
-                    continue
-
-                file_key = f"{user_id}:{file_name_value}"
-
-                code_text: str = str(file_data.get('code') or '')
-                content_lower = code_text.lower()
-
-                # אינדקס מילים
-                words = re.findall(r'\b\w+\b', content_lower)
-                for word in set(words):
-                    if len(word) >= 2:
-                        self.word_index[word].add(file_key)
-
-                # אינדקס פונקציות (best-effort)
+            # עימוד בטוח: שליפה במנות של 200 כדי להימנע מטעינת כל הקבצים לזיכרון
+            PAGE_SIZE = 200
+            offset = 0
+            while True:
                 try:
-                    language_for_parse = str(file_data.get('programming_language') or '').strip()
-                    functions = code_processor.extract_functions(code_text, language_for_parse)
-                    for func in functions:
-                        func_name = str(func.get('name') or '').lower()
-                        if func_name:
-                            self.function_index[func_name].add(file_key)
-                except Exception:
-                    # אל נעצור אינדוקס בגלל שגיאה בזיהוי פונקציות
-                    pass
+                    files = db.get_user_files(user_id, limit=PAGE_SIZE, skip=offset)
+                except TypeError:
+                    # תאימות ל-stubs שלא תומכים ב-skip — קח רק עמוד ראשון ללא דילוג
+                    files = db.get_user_files(user_id, PAGE_SIZE)
+                    # אם כבר עשינו ניסיון ראשון והגענו לכאן, עצור
+                    if offset > 0:
+                        files = []
+                if not files:
+                    break
+                offset += len(files)
+                for file_data in files:
+                    # גישה בטוחה לשדות שעלולים להיות חסרים במסמכים ישנים/חלקיים
+                    file_name_value = str(file_data.get('file_name') or '').strip()
+                    if not file_name_value:
+                        # אין טעם לאנדקס רשומה ללא שם קובץ
+                        continue
 
-                # אינדקס שפות
-                language_value = str(file_data.get('programming_language') or '').strip()
-                if language_value:
-                    self.language_index[language_value].add(file_key)
+                    file_key = f"{user_id}:{file_name_value}"
 
-                # אינדקס תגיות
-                try:
-                    for tag in list(file_data.get('tags') or []):
-                        tag_value = str(tag or '').lower().strip()
-                        if tag_value:
-                            self.tag_index[tag_value].add(file_key)
-                except Exception:
-                    pass
+                    code_text: str = str(file_data.get('code') or '')
+                    content_lower = code_text.lower()
+
+                    # אינדקס מילים
+                    words = re.findall(r'\b\w+\b', content_lower)
+                    for word in set(words):
+                        if len(word) >= 2:
+                            self.word_index[word].add(file_key)
+
+                    # אינדקס פונקציות (best-effort)
+                    try:
+                        language_for_parse = str(file_data.get('programming_language') or '').strip()
+                        functions = code_processor.extract_functions(code_text, language_for_parse)
+                        for func in functions:
+                            func_name = str(func.get('name') or '').lower()
+                            if func_name:
+                                self.function_index[func_name].add(file_key)
+                    except Exception:
+                        # אל נעצור אינדוקס בגלל שגיאה בזיהוי פונקציות
+                        pass
+
+                    # אינדקס שפות
+                    language_value = str(file_data.get('programming_language') or '').strip()
+                    if language_value:
+                        self.language_index[language_value].add(file_key)
+
+                    # אינדקס תגיות
+                    try:
+                        for tag in list(file_data.get('tags') or []):
+                            tag_value = str(tag or '').lower().strip()
+                            if tag_value:
+                                self.tag_index[tag_value].add(file_key)
+                    except Exception:
+                        pass
         
         self.last_update = datetime.now(timezone.utc)
         logger.info(f"אינדקס נבנה: {len(self.word_index)} מילים, {len(self.function_index)} פונקציות")
@@ -326,62 +339,93 @@ class AdvancedSearchEngine:
             logger.error(f"דפוס regex לא תקין: {e}")
             return []
         
-        files = db.get_user_files(user_id, limit=1000)
+        # הקרנה קלה לתוכן ושדות נחוצים בלבד
+        PAGE_SIZE = 200
+        offset = 0
         results = []
-        
-        for file_data in files:
-            content = str(file_data.get('code') or '')
-            matches = list(compiled_pattern.finditer(content))
-            
-            if matches:
-                score = len(matches)
-                result = self._create_search_result(file_data, pattern, score)
+        while True:
+            try:
+                files = db.get_user_files(
+                    user_id,
+                    limit=PAGE_SIZE,
+                    skip=offset,
+                    projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                )
+            except TypeError:
+                files = db.get_user_files(user_id, PAGE_SIZE)
+                if offset > 0:
+                    files = []
+            if not files:
+                break
+            offset += len(files)
+            for file_data in files:
+                content = str(file_data.get('code') or '')
+                matches = list(compiled_pattern.finditer(content))
                 
-                # הוספת מידע על ההתאמות
-                result.matches = [
-                    {
-                        "start": match.start(),
-                        "end": match.end(),
-                        "text": match.group(),
-                        "line": content[:match.start()].count('\n') + 1
-                    }
-                    for match in matches[:10]  # מקסימום 10 התאמות
-                ]
-                
-                results.append(result)
+                if matches:
+                    score = len(matches)
+                    result = self._create_search_result(file_data, pattern, score)
+                    
+                    # הוספת מידע על ההתאמות
+                    result.matches = [
+                        {
+                            "start": match.start(),
+                            "end": match.end(),
+                            "text": match.group(),
+                            "line": content[:match.start()].count('\n') + 1
+                        }
+                        for match in matches[:10]  # מקסימום 10 התאמות
+                    ]
+                    
+                    results.append(result)
         
         return results
     
     def _fuzzy_search(self, query: str, index: SearchIndex, user_id: int) -> List[SearchResult]:
         """חיפוש מטושטש (fuzzy)"""
         
-        files = db.get_user_files(user_id, limit=1000)
+        PAGE_SIZE = 200
+        offset = 0
         results = []
-        
-        for file_data in files:
-            # חיפוש מטושטש בשם הקובץ
-            name_value = str(file_data.get('file_name') or '')
-            name_ratio = fuzz.partial_ratio(query.lower(), name_value.lower())
-            
-            # חיפוש מטושטש בתוכן
-            content_value = str(file_data.get('code') or '')
-            content_ratio = fuzz.partial_ratio(query.lower(), content_value.lower())
-            
-            # חיפוש מטושטש בתגיות
+        while True:
             try:
-                tags_list = [str(t or '') for t in (file_data.get('tags') or [])]
-            except Exception:
-                tags_list = []
-            tags_text = ' '.join(tags_list)
-            tags_ratio = fuzz.partial_ratio(query.lower(), tags_text.lower())
-            
-            # ניקוד משולב
-            max_ratio = max(name_ratio, content_ratio, tags_ratio)
-            
-            if max_ratio >= 60:  # סף מינימלי
-                score = max_ratio / 100.0
-                result = self._create_search_result(file_data, query, score)
-                results.append(result)
+                files = db.get_user_files(
+                    user_id,
+                    limit=PAGE_SIZE,
+                    skip=offset,
+                    projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                )
+            except TypeError:
+                files = db.get_user_files(user_id, PAGE_SIZE)
+                if offset > 0:
+                    files = []
+            if not files:
+                break
+            offset += len(files)
+            for file_data in files:
+                # חיפוש מטושטש בשם הקובץ
+                name_value = str(file_data.get('file_name') or '')
+                name_ratio = fuzz.partial_ratio(query.lower(), name_value.lower())
+                
+                # חיפוש מטושטש בתוכן
+                content_value = str(file_data.get('code') or '')
+                content_ratio = fuzz.partial_ratio(query.lower(), content_value.lower())
+                
+                # חיפוש מטושטש בתגיות
+                try:
+                    tags_list = [str(t or '') for t in (file_data.get('tags') or [])]
+                except Exception:
+                    tags_list = []
+                tags_text = ' '.join(tags_list)
+                tags_ratio = fuzz.partial_ratio(query.lower(), tags_text.lower())
+                
+                # ניקוד משולב
+                max_ratio = max(name_ratio, content_ratio, tags_ratio)
+                
+                if max_ratio >= 60:  # סף מינימלי
+                    score = max_ratio / 100.0
+                    result = self._create_search_result(file_data, query, score)
+                    results.append(result)
         
         return results
     
@@ -414,38 +458,52 @@ class AdvancedSearchEngine:
     def _content_search(self, query: str, user_id: int) -> List[SearchResult]:
         """חיפוש מלא בתוכן"""
         
-        files = db.get_user_files(user_id, limit=1000)
+        PAGE_SIZE = 200
+        offset = 0
         results = []
-        
         query_lower = query.lower()
-        
-        for file_data in files:
-            content_value = str(file_data.get('code') or '')
-            content_lower = content_value.lower()
-            
-            # ספירת הופעות
-            occurrences = content_lower.count(query_lower)
-            
-            if occurrences > 0:
-                # חישוב ניקוד לפי תדירות ואורך המסמך
-                denom = max(1, len(content_value))
-                score = min(occurrences / (denom / 1000), 10.0)
+        while True:
+            try:
+                files = db.get_user_files(
+                    user_id,
+                    limit=PAGE_SIZE,
+                    skip=offset,
+                    projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                )
+            except TypeError:
+                files = db.get_user_files(user_id, PAGE_SIZE)
+                if offset > 0:
+                    files = []
+            if not files:
+                break
+            offset += len(files)
+            for file_data in files:
+                content_value = str(file_data.get('code') or '')
+                content_lower = content_value.lower()
                 
-                result = self._create_search_result(file_data, query, score)
+                # ספירת הופעות
+                occurrences = content_lower.count(query_lower)
                 
-                # יצירת קטע תצוגה מקדימה
-                preview_start = content_lower.find(query_lower)
-                if preview_start >= 0:
-                    start = max(0, preview_start - 50)
-                    end = min(len(content_value), preview_start + len(query) + 50)
-                    result.snippet_preview = content_value[start:end]
+                if occurrences > 0:
+                    # חישוב ניקוד לפי תדירות ואורך המסמך
+                    denom = max(1, len(content_value))
+                    score = min(occurrences / (denom / 1000), 10.0)
                     
-                    # סימון המילה שנמצאה
-                    relative_start = preview_start - start
-                    relative_end = relative_start + len(query)
-                    result.highlight_ranges = [(relative_start, relative_end)]
-                
-                results.append(result)
+                    result = self._create_search_result(file_data, query, score)
+                    
+                    # יצירת קטע תצוגה מקדימה
+                    preview_start = content_lower.find(query_lower)
+                    if preview_start >= 0:
+                        start = max(0, preview_start - 50)
+                        end = min(len(content_value), preview_start + len(query) + 50)
+                        result.snippet_preview = content_value[start:end]
+                        
+                        # סימון המילה שנמצאה
+                        relative_start = preview_start - start
+                        relative_end = relative_start + len(query)
+                        result.highlight_ranges = [(relative_start, relative_end)]
+                    
+                    results.append(result)
         
         return results
     
