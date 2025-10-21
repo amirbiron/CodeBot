@@ -98,6 +98,147 @@ async def test_main_global_gate_admin_bypass(monkeypatch):
     # Extract the added gate handler from application handlers (group -90)
     gate = None
     for (args, kwargs) in getattr(bot.application, 'handlers', []):
+        if args:
+            handler = args[0]
+            cb = getattr(handler, 'callback', None)
+            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
+                gate = cb
+                break
+            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
+                gate = handler
+                break
+    assert gate is not None, "_rate_limit_gate not registered"
+
+    # Act: call with admin user; should not raise
+    try:
+        await gate(_Upd(555), _Ctx())
+    except Exception as e:
+        pytest.fail(f"Admin bypass should not raise, got: {e}")
+
+
+@pytest.mark.asyncio
+async def test_main_global_gate_soft_warning_and_block(monkeypatch):
+    # Arrange
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    monkeypatch.setenv("BOT_TOKEN", "x")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    from main import CodeKeeperBot, ApplicationHandlerStop
+    bot = CodeKeeperBot()
+
+    # Find gate
+    gate = None
+    for (args, kwargs) in getattr(bot.application, 'handlers', []):
+        if args:
+            handler = args[0]
+            cb = getattr(handler, 'callback', None)
+            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
+                gate = cb
+                break
+            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
+                gate = handler
+                break
+    assert gate is not None
+
+    # Fake update/context
+    class _User:
+        def __init__(self, id):
+            self.id = id
+    class _Msg:
+        async def reply_text(self, *a, **k):
+            return None
+    class _Upd:
+        def __init__(self, id):
+            self.effective_user = _User(id)
+            self.callback_query = None
+            self.message = _Msg()
+    class _Ctx:
+        user_data = {}
+
+    upd = _Upd(111)
+    ctx = _Ctx()
+
+    # Drive usage near limit: 30/min default; perform 30 allowed calls
+    for _ in range(30):
+        await gate(upd, ctx)
+    # Next call should block
+    with pytest.raises(ApplicationHandlerStop):
+        await gate(upd, ctx)
+
+
+@pytest.mark.asyncio
+async def test_main_global_gate_blocks_callback_query(monkeypatch):
+    # Arrange a callback_query path to cover cq.answer branch
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    monkeypatch.setenv("BOT_TOKEN", "x")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    from main import CodeKeeperBot, ApplicationHandlerStop
+    bot = CodeKeeperBot()
+
+    # Find gate
+    gate = None
+    for (args, kwargs) in getattr(bot.application, 'handlers', []):
+        if args:
+            handler = args[0]
+            cb = getattr(handler, 'callback', None)
+            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
+                gate = cb
+                break
+            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
+                gate = handler
+                break
+    assert gate is not None
+
+    class _User:
+        def __init__(self, id):
+            self.id = id
+    class _CQ:
+        async def answer(self, *a, **k):
+            return None
+    class _Upd:
+        def __init__(self, id):
+            self.effective_user = _User(id)
+            self.message = None
+            self.callback_query = _CQ()
+    class _Ctx:
+        user_data = {}
+
+    upd = _Upd(222)
+    ctx = _Ctx()
+    # Saturate the limiter first
+    for _ in range(30):
+        await gate(upd, ctx)
+    # Now expect block via callback_query path
+    with pytest.raises(ApplicationHandlerStop):
+        await gate(upd, ctx)
+
+
+@pytest.mark.asyncio
+async def test_main_global_gate_admin_bypass(monkeypatch):
+    # Arrange: mark user as admin, disable external deps
+    monkeypatch.setenv("ADMIN_USER_IDS", "555")
+    monkeypatch.setenv("BOT_TOKEN", "x")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    from main import CodeKeeperBot
+    bot = CodeKeeperBot()
+
+    # Prepare fake update/context and call the internal gate
+    class _User:
+        def __init__(self, id):
+            self.id = id
+    class _Msg:
+        async def reply_text(self, *a, **k):
+            return None
+    class _Upd:
+        def __init__(self, id):
+            self.effective_user = _User(id)
+            self.message = _Msg()
+            self.callback_query = None
+    class _Ctx:
+        user_data = {}
+
+    # Extract the added gate handler from application handlers (group -90)
+    gate = None
+    for (args, kwargs) in getattr(bot.application, 'handlers', []):
         if args and callable(getattr(args[1], 'callback', None)):
             cb = args[1].callback
             if cb.__name__ == '_rate_limit_gate':

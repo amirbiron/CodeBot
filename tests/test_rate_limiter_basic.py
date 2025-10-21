@@ -75,6 +75,14 @@ async def test_rate_limiter_usage_ratio_soft_warning_path():
 
 
 @pytest.mark.asyncio
+async def test_rate_limiter_usage_ratio_zero_when_no_records():
+    rl = RateLimiter(max_per_minute=10)
+    uid = 999
+    ratio = await rl.get_current_usage_ratio(uid)
+    assert ratio == 0.0
+
+
+@pytest.mark.asyncio
 async def test_rate_limiter_usage_ratio_soft_warning_path():
     rl = RateLimiter(max_per_minute=5)
     uid = 42
