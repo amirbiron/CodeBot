@@ -17,7 +17,21 @@
 תצורה
 ------
 - Structured logging באמצעות ``structlog``.
-- OpenTelemetry IDs (אם קיימים).
+- OpenTelemetry (אופציונלי): אתחול אוטומטי עם OTLP Exporter.
+  
+  משתני סביבה עיקריים:
+  
+  - ``OTEL_EXPORTER_OTLP_ENDPOINT``: ברירת מחדל ``http://localhost:4317``
+  - ``OTEL_EXPORTER_INSECURE``: ``true``/``false`` (ברירת מחדל ``false``)
+  - ``ENVIRONMENT`` / ``ENV``: שם סביבה לדיווח resource
+  - ``APP_VERSION``: גרסה לשיוך ל-``service.version``
+  
+  אינסטרומנטציה אוטומטית:
+  - Flask (כשקיים אובייקט ``app``)
+  - Requests
+  - PyMongo
+  
+  עבור Flask האתחול קורה ב-``webapp/app.py``. עבור תהליכים ללא Flask (למשל הבוט), האתחול קורה ב-``main.py`` ללא ``flask_app``.
 - Prometheus דרך נקודת קצה ``/metrics``.
 - Sentry לטיפול בשגיאות.
 

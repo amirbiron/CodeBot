@@ -12,6 +12,7 @@ workspace
    batch_commands
    batch_processor
    bot_handlers
+   bot_rate_limiter
    cache_commands
    cache_manager
    chatops
@@ -38,6 +39,8 @@ workspace
    metrics
    monitoring
    observability
+   observability_instrumentation
+   observability_otel
    predictive_engine
    rate_limiter
    refactor_handlers

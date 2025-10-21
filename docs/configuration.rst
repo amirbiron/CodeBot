@@ -34,3 +34,51 @@ Security
 
 - Always use ``rediss://`` in production (Render Redis supports TLS).
 - Keep ``ADMIN_USER_IDS`` minimal.
+
+Config via Pydantic Settings
+============================
+
+הפרויקט משתמש ב-``pydantic-settings`` לטעינת קונפיגורציה בצורה עקבית בכל השכבות (בוט/ווב/שירותים).
+
+היררכיית טעינה
+---------------
+
+- שרשור קבצים/ENV לפי הסדר: ``.env.local`` → ``.env`` → משתני סביבה
+- טיפוסים מאומתים אוטומטית בזמן טעינה (Validation)
+
+דוגמה (מצומצם) מתוך ``config.py``::
+
+   class BotConfig(BaseSettings):
+       BOT_TOKEN: str
+       MONGODB_URL: str
+       REDIS_URL: str | None = None
+       RATE_LIMIT_ENABLED: bool = True
+       RATE_LIMIT_SHADOW_MODE: bool = False
+
+   def load_config() -> BotConfig:
+       return BotConfig()
+
+ולידציות
+---------
+
+- ``MONGODB_URL`` חייב להתחיל ב-``mongodb://`` או ``mongodb+srv://`` – אחרת תיזרק שגיאת ולידציה.
+
+.env.example
+------------
+
+מומלץ לעדכן קובץ דוגמה ``.env.example`` עם השדות העיקריים (ללא סודות):
+
+::
+
+   BOT_TOKEN=changeme
+   MONGODB_URL=mongodb://localhost:27017/codebot
+   REDIS_URL=
+   RATE_LIMIT_ENABLED=true
+   RATE_LIMIT_SHADOW_MODE=true
+   ADMIN_USER_IDS=
+
+שימוש לסוכנים
+-------------
+
+- סוכן AI צריך להסתמך על API אחיד של ``config`` כדי למנוע פערים בין שכבות.
+- אין להטמיע סודות בקוד; שימוש ב-ENV בלבד.
