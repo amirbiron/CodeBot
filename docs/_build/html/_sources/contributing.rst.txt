@@ -21,6 +21,24 @@ Workflow בסיסי
 3. בניית תיעוד: ``sphinx-build -b html docs docs/_build/html -W --keep-going``
 4. פתיחת PR עם תיאור What/Why/Tests ורולבק
 
+Pre-commit
+----------
+
+התקנה והרצה:
+
+::
+
+   pre-commit install
+   pre-commit run --all-files
+
+Hooks הכלולים (עיקריים): Black, isort, Flake8, MyPy, Bandit.
+
+Conventional Commits
+--------------------
+
+- שימוש: ``feat|fix|docs|test|refactor|chore|perf``
+- מומלץ לקומפלס הודעת קומיט ב-HEREDOC עבור ריבוי שורות.
+
 דוגמאות שימושיות
 -----------------
 

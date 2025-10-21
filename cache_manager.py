@@ -18,6 +18,29 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# מטריקות Prometheus (best-effort)
+try:  # pragma: no cover
+    from prometheus_client import Counter, Histogram
+except Exception:  # pragma: no cover
+    Counter = Histogram = None  # type: ignore
+
+# Cache metrics (labels kept minimal)
+cache_hits_total = (
+    Counter("cache_hits_total", "Total cache hits", ["backend"]) if Counter else None
+)
+cache_misses_total = (
+    Counter("cache_misses_total", "Total cache misses", ["backend"]) if Counter else None
+)
+cache_op_duration_seconds = (
+    Histogram(
+        "cache_op_duration_seconds",
+        "Cache operation duration in seconds",
+        ["operation", "backend"],
+    )
+    if Histogram
+    else None
+)
+
 class CacheManager:
     """מנהל Cache מתקדם עם Redis"""
     
@@ -46,6 +69,12 @@ class CacheManager:
             socket_connect_timeout = float(connect_timeout_env if connect_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
             socket_timeout = float(socket_timeout_env if socket_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
 
+            try:
+                max_conns_env = os.getenv("REDIS_MAX_CONNECTIONS")
+                max_connections = int(max_conns_env) if max_conns_env not in (None, "") else 50
+            except Exception:
+                max_connections = 50
+
             self.redis_client = redis.from_url(
                 redis_url,
                 decode_responses=True,
@@ -53,6 +82,7 @@ class CacheManager:
                 socket_timeout=socket_timeout,
                 retry_on_timeout=True,
                 health_check_interval=30,
+                max_connections=max_connections,
             )
             
             # בדיקת חיבור
@@ -80,21 +110,34 @@ class CacheManager:
         """קבלת ערך מה-cache"""
         if not self.is_enabled:
             return None
-            
+
+        backend = "redis"
+        timer_ctx = cache_op_duration_seconds.labels(operation="get", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             value = self.redis_client.get(key)
             if value:
+                if cache_hits_total is not None:
+                    cache_hits_total.labels(backend=backend).inc()
                 return json.loads(value)
+            if cache_misses_total is not None:
+                cache_misses_total.labels(backend=backend).inc()
         except Exception as e:
             logger.error(f"שגיאה בקריאה מ-cache: {e}")
-        
+        finally:
+            try:
+                if timer_ctx:
+                    timer_ctx()  # stop timer
+            except Exception:
+                pass
         return None
     
     def set(self, key: str, value: Any, expire_seconds: int = 300) -> bool:
         """שמירת ערך ב-cache"""
         if not self.is_enabled:
             return False
-            
+
+        backend = "redis"
+        timer_ctx = cache_op_duration_seconds.labels(operation="set", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             serialized = json.dumps(value, default=str, ensure_ascii=False)
             # תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire
@@ -116,23 +159,39 @@ class CacheManager:
         except Exception as e:
             logger.error(f"שגיאה בכתיבה ל-cache: {e}")
             return False
+        finally:
+            try:
+                if timer_ctx:
+                    timer_ctx()
+            except Exception:
+                pass
     
     def delete(self, key: str) -> bool:
         """מחיקת ערך מה-cache"""
         if not self.is_enabled:
             return False
-            
+
+        backend = "redis"
+        timer_ctx = cache_op_duration_seconds.labels(operation="delete", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             return bool(self.redis_client.delete(key))
         except Exception as e:
             logger.error(f"שגיאה במחיקה מ-cache: {e}")
             return False
+        finally:
+            try:
+                if timer_ctx:
+                    timer_ctx()
+            except Exception:
+                pass
     
     def delete_pattern(self, pattern: str) -> int:
         """מחיקת כל המפתחות שמתאימים לתבנית"""
         if not self.is_enabled:
             return 0
-            
+
+        backend = "redis"
+        timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             keys = self.redis_client.keys(pattern)
             if keys:
@@ -141,6 +200,12 @@ class CacheManager:
         except Exception as e:
             logger.error(f"שגיאה במחיקת תבנית מ-cache: {e}")
             return 0
+        finally:
+            try:
+                if timer_ctx:
+                    timer_ctx()
+            except Exception:
+                pass
     
     def invalidate_user_cache(self, user_id: int):
         """מחיקת כל ה-cache של משתמש ספציפי"""

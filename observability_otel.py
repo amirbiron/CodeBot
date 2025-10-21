@@ -2,11 +2,13 @@
 OpenTelemetry setup (safe, optional, idempotent).
 
 This module configures tracing (OTLP exporter) and auto-instrumentation for:
+
 - Flask (when a Flask app instance is provided)
 - requests (HTTP client)
 - PyMongo
 
 Design goals:
+
 - Fail-open: if OpenTelemetry packages are not installed or misconfigured,
   setup_telemetry silently returns without raising.
 - Idempotent: multiple calls are safe; only the first successful init takes effect.
