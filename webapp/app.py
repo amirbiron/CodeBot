@@ -125,6 +125,15 @@ try:
     )
 except Exception:
     pass
+
+# Manual tracing decorator (fail-open)
+try:  # type: ignore
+    from observability_instrumentation import traced  # type: ignore
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
 # --- Correlation ID across services (request_id) ---
 try:
     from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid  # type: ignore
@@ -1206,6 +1215,7 @@ def _safe_search(user_id: int, query: str, **kwargs):
 
 
 @app.route('/api/search/global', methods=['POST'])
+@traced("search.global")
 @login_required
 @_search_limiter_decorator("30 per minute")
 def api_search_global():
@@ -1524,6 +1534,7 @@ def api_search_global():
 
 
 @app.route('/api/search/suggestions', methods=['GET'])
+@traced("search.suggestions")
 @login_required
 def api_search_suggestions():
     """הצעות השלמה אוטומטיות לחיפוש על בסיס אינדקס המנוע."""
@@ -1941,6 +1952,7 @@ def dashboard():
                              bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/files')
+@traced("files.list")
 @login_required
 def files():
     """רשימת כל הקבצים של המשתמש"""

@@ -35,6 +35,38 @@
 - Prometheus דרך נקודת קצה ``/metrics``.
 - Sentry לטיפול בשגיאות.
 
+בחירת Backend ל־Traces
+-----------------------
+מומלץ להתחיל עם אחד מהבאים (כולם תומכים ב־OTLP):
+
+- Jaeger (פשוט לפריסה מקומית/דוקר)
+- Grafana Tempo (סקיילבל, מתאים לשילוב עם Grafana/Prometheus)
+- Grafana Cloud (שירות מנוהל)
+
+הגדרת OTLP לסביבות
+--------------------
+הגדירו משתני סביבה בכל סביבה:
+
+.. code-block:: bash
+
+    # Staging
+    export ENVIRONMENT=staging
+    export APP_VERSION=1.2.3
+    export OTEL_EXPORTER_OTLP_ENDPOINT="http://tempo.staging.svc:4317"
+    export OTEL_EXPORTER_INSECURE=true
+
+    # Production
+    export ENVIRONMENT=production
+    export APP_VERSION=1.2.3
+    export OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp.prod.example.com:4317"
+    export OTEL_EXPORTER_INSECURE=false
+
+הערות:
+
+- ב־gRPC ברירת המחדל היא יציאה 4317.
+- כאשר עובדים מול TLS פרטי/מאולתר, ניתן להגדיר ``OTEL_EXPORTER_INSECURE=true``.
+- ודאו פתיחת פיירוול/Ingress ליצוא ה־OTLP מהאפליקציה.
+
 קישורים
 --------
 - :doc:`logging_schema`
