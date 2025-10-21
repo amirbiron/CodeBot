@@ -1,85 +1,85 @@
 # Base/shared runtime dependencies (no dev/test tools)
 
 # Core Telegram Bot
-python-telegram-bot[job-queue]==20.7
+python-telegram-bot[job-queue]==22.5
 
 # Build tooling (needed for wheels during installs)
 setuptools>=78.1.1,<81
 
 # Database
-pymongo==4.10.1
-motor==3.3.2
+pymongo==4.15.3
+motor==3.7.1
 
 # Code Processing & Language Detection
-pygments==2.17.2
+pygments==2.19.2
 python-magic==0.4.27
 chardet==5.2.0
 langdetect==1.0.9
-textstat==0.7.3
+textstat==0.7.10
 
 # Web Requests & APIs
-requests==2.31.0
-aiohttp==3.10.10
-httpx==0.25.2
+requests==2.32.5
+aiohttp==3.13.1
+httpx==0.28.1
 
 # Google APIs (Drive OAuth + Client)
-google-api-python-client==2.141.0
-google-auth==2.34.0
-google-auth-oauthlib==1.2.1
+google-api-python-client==2.185.0
+google-auth==2.41.1
+google-auth-oauthlib==1.2.2
 
 # GitHub Integration
-PyGithub==2.1.1
+PyGithub==2.8.1
 
 # File Processing & Env
-python-dotenv==1.0.0
+python-dotenv==1.1.1
 # pathlib2 הוסר: לא נחוץ ב-Python 3
 
 # Image Processing (for syntax highlighting images)
-Pillow==11.0.0
-cairosvg==2.7.1
+Pillow==12.0.0
+cairosvg==2.8.2
 
 # Utilities
-python-dateutil==2.8.2
-pytz==2023.3
-click==8.1.7
-arrow==1.3.0
+python-dateutil==2.9.0.post0
+pytz==2025.2
+click==8.3.0
+arrow==1.4.0
 
 # Logging & Monitoring
-structlog==23.2.0
-sentry-sdk[flask]==1.39.2
-psutil==6.0.0
-prometheus-client==0.20.0
+structlog==25.4.0
+sentry-sdk[flask]==2.42.1
+psutil==7.1.1
+prometheus-client==0.23.1
 
 # Security
-bcrypt==4.1.2
-cryptography==43.0.1
+bcrypt==5.0.0
+cryptography==46.0.3
 
 # Web Server & HTTP layer
-Flask==3.0.0
+Flask==3.1.2
 gunicorn==23.0.0
-uvicorn==0.24.0
-whitenoise==6.6.0
-Flask-Compress==1.15
+uvicorn==0.38.0
+whitenoise==6.11.0
+Flask-Compress==1.20
 
 
 # Async Support
-aiofiles==23.2.1
+aiofiles==25.1.0
 
 # Cache
-redis==5.0.4
+redis==6.4.0
 
 # Configuration
-pydantic==2.9.2
-pydantic-core==2.23.4
-pydantic-settings==2.1.0
+pydantic==2.12.3
+pydantic-core==2.41.4
+pydantic-settings==2.11.0
 
 # HTML/Text Processing
-beautifulsoup4==4.12.2
+beautifulsoup4==4.14.2
 markdown==3.9
-html2text==2020.1.16
+html2text==2025.4.15
 
 # Version Control Integration
-gitpython==3.1.41
+gitpython==3.1.45
 
 # API Rate Limiting
 ratelimit==2.2.1
@@ -90,7 +90,7 @@ rapidfuzz==3.14.1
 
 # CLI Tools
 rich==14.2.0
-typer==0.19.2
+typer==0.20.0
 
 # Resilience utilities
 tenacity==9.1.2
