@@ -97,6 +97,9 @@ class VirtualList {
         // הוספת מאזיני אירועים
         this.attachEventListeners();
         
+        // חישוב הטווח הנראה לפני רינדור ראשוני
+        this.updateVisibleRange();
+        
         // רינדור ראשוני
         this.render();
     }
@@ -307,11 +310,36 @@ class InfiniteScroll {
     }
     
     showErrorMessage() {
-        this.loadingIndicator.innerHTML = `
-            <p class="text-danger">שגיאה בטעינת קבצים נוספים</p>
-            <button class="btn btn-sm btn-primary" onclick="this.retry()">נסה שנית</button>
-        `;
+        // ניקוי תוכן קיים
+        this.loadingIndicator.innerHTML = '';
+        
+        // יצירת אלמנטים
+        const errorMessage = document.createElement('p');
+        errorMessage.className = 'text-danger';
+        errorMessage.textContent = 'שגיאה בטעינת קבצים נוספים';
+        
+        const retryButton = document.createElement('button');
+        retryButton.className = 'btn btn-sm btn-primary';
+        retryButton.textContent = 'נסה שנית';
+        
+        // הוספת event listener עם binding נכון
+        retryButton.addEventListener('click', () => {
+            this.retry();
+        });
+        
+        // הוספה ל-DOM
+        this.loadingIndicator.appendChild(errorMessage);
+        this.loadingIndicator.appendChild(retryButton);
         this.loadingIndicator.style.display = 'flex';
+    }
+    
+    retry() {
+        // איפוס מצב השגיאה
+        this.loading = false;
+        this.hideLoadingIndicator();
+        
+        // ניסיון טעינה מחדש
+        this.triggerLoadMore();
     }
     
     reset() {
