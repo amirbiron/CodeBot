@@ -369,16 +369,32 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
 
     class _Resp:
         def __init__(self, content):
-            self.content = content
+            self._content = content
+            self.headers = {"Content-Length": str(len(content))}
         def raise_for_status(self):
             return None
+        def iter_content(self, chunk_size=131072):
+            # simple chunker
+            for i in range(0, len(self._content), chunk_size):
+                yield self._content[i:i+chunk_size]
 
-    def _req_get(_url, timeout=60):
+    def _req_get(_url, headers=None, stream=False, timeout=60):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr('repo/file1.txt', b'hello')
             z.writestr('repo/file2.txt', b'world')
         return _Resp(buf.getvalue())
+
+    # Also cover the path where Content-Length is larger than MAX_ZIP_TOTAL_BYTES → link fallback
+    async def _run_and_assert_ok():
+        upd2, ctx2 = Update(), Context()
+        session2 = handler.get_user_session(51)
+        session2["selected_repo"] = "o/r"
+        await asyncio.wait_for(handler.handle_menu_callback(upd2, ctx2), timeout=2.0)
+        upd2.callback_query.data = "download_zip:"
+        await asyncio.wait_for(handler.handle_menu_callback(upd2, ctx2), timeout=2.0)
+        assert upd2.callback_query.message.docs, "ZIP not sent"
+
 
     class _Repo:
         full_name = "o/r"

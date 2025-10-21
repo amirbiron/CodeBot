@@ -680,13 +680,32 @@ class GitHubMenuHandler:
             except TypeError:
                 # גרסאות PyGithub ישנות לא מקבלות ref; ננסה ללא ref
                 url = repo.get_archive_link("zipball")
-            resp = requests.get(url, timeout=60)
+            # הורדה במצב זרימה + מניעת דחיסה מיותרת
+            _headers = {"Accept-Encoding": "identity"}
+            resp = requests.get(url, headers=_headers, stream=True, timeout=60)
             resp.raise_for_status()
             # עבודה ב-/tmp בלבד
             tmp_dir = tempfile.mkdtemp(prefix="codebot-gh-import-")
             zip_path = os.path.join(tmp_dir, "repo.zip")
+            # בדיקת Content-Length מול תקרת IMPORT_MAX_TOTAL_BYTES (safety)
+            try:
+                _cl = int(resp.headers.get("Content-Length", "0"))
+            except Exception:
+                _cl = 0
+            if _cl and _cl > IMPORT_MAX_TOTAL_BYTES:
+                await query.edit_message_text("❌ ה‑ZIP גדול מדי לייבוא ישיר ברמת התוכן (מעל 20MB). נסה ייבוא סלקטיבי או ZIP חלקי.")
+                return
+            # כתיבה בזרם לדיסק תוך שמירה על תקרה
+            written = 0
             with open(zip_path, "wb") as f:
-                f.write(resp.content)
+                for chunk in resp.iter_content(chunk_size=128 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    written += len(chunk)
+                    if written > IMPORT_MAX_TOTAL_BYTES:
+                        await query.edit_message_text("❌ ה‑ZIP חורג ממגבלת ייבוא התוכן (20MB). נסה ייבוא סלקטיבי.")
+                        return
             # חליצה לתת-תיקייה ייעודית
             extracted_dir = os.path.join(tmp_dir, "repo")
             os.makedirs(extracted_dir, exist_ok=True)
@@ -2189,10 +2208,38 @@ class GitHubMenuHandler:
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
-                        r = requests.get(url, timeout=60)
+                        # הורדה במצב זרימה + מניעת דחיסה מיותרת
+                        headers = {"Accept-Encoding": "identity"}
+                        r = requests.get(url, headers=headers, stream=True, timeout=60)
                         r.raise_for_status()
+                        # בדיקת גודל מראש (אם ידוע) מול מגבלת שליחת קובץ לטלגרם
+                        try:
+                            cl_header = r.headers.get("Content-Length")
+                            content_length = int(cl_header) if cl_header else 0
+                        except Exception:
+                            content_length = 0
+                        if content_length and content_length > MAX_ZIP_TOTAL_BYTES:
+                            # גדול מדי לשליחה בבוט – שלח קישור ישיר להורדה
+                            await query.edit_message_text(
+                                f"⚠️ ה‑ZIP גדול ({format_bytes(content_length)}). להורדה: <a href=\"{url}\">קישור ישיר</a>",
+                                parse_mode="HTML",
+                            )
+                            return
+                        # צבירת הנתונים בבטיחות עד לגבול המותר
+                        tmp_buf = BytesIO()
+                        for chunk in r.iter_content(chunk_size=128 * 1024):
+                            if not chunk:
+                                continue
+                            tmp_buf.write(chunk)
+                            if tmp_buf.tell() > MAX_ZIP_TOTAL_BYTES:
+                                await query.edit_message_text(
+                                    f"⚠️ ה‑ZIP חורג מהמגבלה ({format_bytes(tmp_buf.tell())} > {format_bytes(MAX_ZIP_TOTAL_BYTES)}). להורדה: <a href=\"{url}\">קישור ישיר</a>",
+                                    parse_mode="HTML",
+                                )
+                                return
+                        tmp_buf.seek(0)
                         # בנה ZIP חדש עם metadata.json משולב כדי לאפשר רישום בגיבויים
-                        src_buf = BytesIO(r.content)
+                        src_buf = tmp_buf
                         with _zip.ZipFile(src_buf, "r") as zin:
                             # ספר קבצים (דלג על תיקיות)
                             file_names = [n for n in zin.namelist() if not n.endswith("/")]
@@ -2229,9 +2276,15 @@ class GitHubMenuHandler:
                             filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
                             out_buf.name = filename
                             caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
-                            await query.message.reply_document(
-                                document=out_buf, filename=filename, caption=caption
-                            )
+                            try:
+                                await query.message.reply_document(
+                                    document=out_buf, filename=filename, caption=caption
+                                )
+                            except Exception:
+                                # נפילה בטלגרם (למשל 413) – שלח קישור ישיר
+                                await query.message.reply_text(
+                                    f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
+                                )
                             # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
                             try:
                                 backup_id = metadata.get("backup_id")
@@ -3947,7 +4000,7 @@ class GitHubMenuHandler:
                     "user_id": user_id,
                     "file_name": safe_name,
                     "content": content,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                     "tags": ["pasted"],
                 }
                 res = db.collection.insert_one(doc)

@@ -151,11 +151,14 @@ async def test_import_repo_message_mentions_expected_duration(monkeypatch):
             return _Repo()
     class _Resp:
         def __init__(self):
-            self.content = b"PK\x03\x04dummy"  # minimal zip-like bytes
+            self._content = b"PK\x03\x04dummy"  # minimal zip-like bytes
+            self.headers = {"Content-Length": str(len(self._content))}
         def raise_for_status(self):
             return None
+        def iter_content(self, chunk_size=131072):
+            yield self._content
     monkeypatch.setattr(gh, "Github", _Gh)
-    monkeypatch.setattr(gh.requests, "get", lambda url, timeout=60: _Resp())
+    monkeypatch.setattr(gh.requests, "get", lambda url, headers=None, stream=False, timeout=60: _Resp())
 
     upd, ctx = _Update(), _Context()
     # חקוי בחירת ענף כפי שנעשה בזרימה לפני לחיצה על "ייבא"
