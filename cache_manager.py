@@ -18,27 +18,58 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# מטריקות Prometheus (best-effort)
+# מטריקות Prometheus (best-effort) — רישום חסין כפילויות
 try:  # pragma: no cover
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Histogram, REGISTRY  # type: ignore
 except Exception:  # pragma: no cover
-    Counter = Histogram = None  # type: ignore
+    Counter = Histogram = REGISTRY = None  # type: ignore
 
-# Cache metrics (labels kept minimal)
-cache_hits_total = (
-    Counter("cache_hits_total", "Total cache hits", ["backend"]) if Counter else None
+
+def _ensure_metric(name: str, create_fn):
+    """יוצר או מחזיר מטריקה קיימת באותו שם מ-REGISTRY.
+
+    המטרה: למנוע ValueError על רישום כפול כאשר המודול נטען מחדש (importlib.reload).
+    """
+    # אם prometheus_client לא זמין, נחזיר None כדי שהקוד יקצר דרך best-effort
+    if REGISTRY is None:
+        try:
+            return create_fn()  # ייתכן שמחזיר None ממילא
+        except Exception:
+            return None
+
+    try:
+        # שימוש ב-API פנימי אך יציב יחסית כדי לאתר קולקטור קיים
+        existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)  # type: ignore[attr-defined]
+        if existing is not None:
+            return existing
+    except Exception:
+        # נפילה שקטה — ננסה ליצור ונחזור אם תתרחש כפילות
+        pass
+
+    try:
+        return create_fn()
+    except Exception:
+        # במקרה של ValueError: Duplicated timeseries... נחפש ונחזיר את הקיים
+        try:
+            return getattr(REGISTRY, "_names_to_collectors", {}).get(name)  # type: ignore[attr-defined]
+        except Exception:
+            return None
+
+
+# Cache metrics (labels kept minimal) — נרשמות באופן אידמפוטנטי
+cache_hits_total = _ensure_metric(
+    "cache_hits_total", lambda: Counter("cache_hits_total", "Total cache hits", ["backend"]) if Counter else None
 )
-cache_misses_total = (
-    Counter("cache_misses_total", "Total cache misses", ["backend"]) if Counter else None
+cache_misses_total = _ensure_metric(
+    "cache_misses_total", lambda: Counter("cache_misses_total", "Total cache misses", ["backend"]) if Counter else None
 )
-cache_op_duration_seconds = (
-    Histogram(
+cache_op_duration_seconds = _ensure_metric(
+    "cache_op_duration_seconds",
+    lambda: Histogram(
         "cache_op_duration_seconds",
         "Cache operation duration in seconds",
         ["operation", "backend"],
-    )
-    if Histogram
-    else None
+    ) if Histogram else None,
 )
 
 class CacheManager:
