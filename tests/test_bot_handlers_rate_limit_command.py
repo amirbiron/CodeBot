@@ -3,6 +3,11 @@ import importlib
 import pytest
 
 
+class _App:
+    def add_handler(self, *args, **kwargs):
+        pass
+
+
 @pytest.mark.asyncio
 async def test_rate_limit_command_handles_no_token(monkeypatch):
     import bot_handlers as bh
@@ -23,7 +28,7 @@ async def test_rate_limit_command_handles_no_token(monkeypatch):
     update = types.SimpleNamespace(message=_Msg(), effective_user=types.SimpleNamespace(id=1))
     context = types.SimpleNamespace()
 
-    h = bh.AdvancedBotHandlers(application=types.SimpleNamespace())
+    h = bh.AdvancedBotHandlers(application=_App())
     await h.rate_limit_command(update, context)
 
     assert any('אין GITHUB_TOKEN' in t for t in update.message.texts)
@@ -77,7 +82,7 @@ async def test_rate_limit_command_happy_path(monkeypatch):
     update = types.SimpleNamespace(message=_Msg(), effective_user=types.SimpleNamespace(id=1))
     context = types.SimpleNamespace()
 
-    h = bh.AdvancedBotHandlers(application=types.SimpleNamespace())
+    h = bh.AdvancedBotHandlers(application=_App())
     await h.rate_limit_command(update, context)
 
     out = '\n'.join(update.message.texts)

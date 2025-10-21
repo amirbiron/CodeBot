@@ -473,22 +473,29 @@ class TelegramUtils:
 
     @staticmethod
     async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode: Optional[str] = None) -> None:
-        """עריכת טקסט הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
+        """עריכת טקסט הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'.
+
+        תומך גם במימושי בדיקות שבהם `edit_message_text` היא פונקציה סינכרונית
+        שמחזירה `None` (לא awaitable), וגם במימושים אסינכרוניים רגילים.
+        """
         try:
-            if parse_mode is None:
-                await query.edit_message_text(text=text, reply_markup=reply_markup)
-            else:
-                await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
+            edit_func = getattr(query, "edit_message_text", None)
+            if not callable(edit_func):
+                return
+
+            kwargs = {"text": text, "reply_markup": reply_markup}
+            if parse_mode is not None:
+                kwargs["parse_mode"] = parse_mode
+
+            result = edit_func(**kwargs)
+
+            # אם חזר coroutine – צריך להמתין; אחרת זו פונקציה סינכרונית ואין מה להמתין
+            if asyncio.iscoroutine(result):
+                await result
         except Exception as e:
             msg = str(e).lower()
             # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
-            if "not modified" in msg:
-                return
-            raise
-        except Exception as e:
-            # רשת/ספריות שונות עלולות להשליך מחלקה אחרת אך עם אותו מסר
-            msg = str(e).lower()
-            if "not modified" in msg:
+            if "not modified" in msg or "message is not modified" in msg:
                 return
             raise
 

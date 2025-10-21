@@ -3382,7 +3382,7 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
 
         if not items:
-            await query.edit_message_text("❌ לא נמצאו קבצים לקטגוריה שנבחרה")
+            await TelegramUtils.safe_edit_message_text(query, "❌ לא נמצאו קבצים לקטגוריה שנבחרה")
             return ConversationHandler.END
 
         # שמור רשימה בזיכרון זמני כדי לאפשר בחירה זריזה
@@ -3415,13 +3415,14 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard.append([InlineKeyboardButton("✅ בחר הכל", callback_data="batch_select_all")])
         keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="batch_menu")])
 
-        await query.edit_message_text(
+        await TelegramUtils.safe_edit_message_text(
+            query,
             f"בחר/י קובץ לניתוח/בדיקה, או לחץ על 'בחר הכל' כדי לעבד את כל הקבצים ({total}).",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     except Exception as e:
         logger.error(f"Error in show_batch_files_menu: {e}")
-        await query.edit_message_text("❌ שגיאה בטעינת רשימת קבצים ל-Batch")
+        await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בטעינת רשימת קבצים ל-Batch")
     return ConversationHandler.END
 
 async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
