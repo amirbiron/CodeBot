@@ -18,6 +18,7 @@ async def fetch_rate_limit(token: Optional[str] = None) -> Dict[str, Any]:
     if aiohttp is None or not tok:
         return {}
     try:
+        # Load configuration with sensible defaults
         try:
             from config import config  # type: ignore
             _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10))
@@ -25,9 +26,23 @@ async def fetch_rate_limit(token: Optional[str] = None) -> Dict[str, Any]:
         except Exception:
             _total = 10
             _limit = 50
-        timeout = aiohttp.ClientTimeout(total=_total)
-        connector = aiohttp.TCPConnector(limit=_limit)
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+
+        # Build ClientSession kwargs only if supported by the provided aiohttp shim
+        session_kwargs: Dict[str, Any] = {}
+        try:
+            if hasattr(aiohttp, "ClientTimeout"):
+                session_kwargs["timeout"] = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
+        except Exception:
+            # Fallback: omit timeout if construction fails (e.g., in tests)
+            pass
+        try:
+            if hasattr(aiohttp, "TCPConnector"):
+                session_kwargs["connector"] = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
+        except Exception:
+            # Fallback: omit connector if construction fails
+            pass
+
+        async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[arg-type]
             async with session.get(
                 "https://api.github.com/rate_limit",
                 headers={"Authorization": f"token {tok}"},
