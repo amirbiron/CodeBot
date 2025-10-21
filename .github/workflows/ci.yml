@@ -51,6 +51,9 @@ jobs:
         run: isort --check-only --diff . || true
       - name: 🏷️ Type Check (MyPy)
         run: |
+          # Run focused strict checks for modules we hardened
+          mypy services/code_service.py services/__init__.py code_preview.py autocomplete_manager.py --config-file mypy.ini --show-error-codes
+          # Run broad, permissive pass for the rest (non-blocking for now)
           mypy . --ignore-missing-imports --show-error-codes | tee mypy-output.txt || true
           if grep -E '\[(attr-defined|return-value)\]' mypy-output.txt; then
             echo "Found mypy attr-defined/return-value errors above"
