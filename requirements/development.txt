@@ -2,20 +2,20 @@
 -r production.txt
 
 # Test frameworks
-pytest==7.4.3
-pytest-asyncio==0.21.1
+pytest==8.4.2
+pytest-asyncio==1.2.0
 pytest-cov==7.0.0
 pytest-mock==3.15.1
 pytest-json-report==1.5.0
-faker==19.12.0
-freezegun==1.2.2
+faker==37.11.0
+freezegun==1.5.5
 
 # Code quality & tooling
-black==23.11.0
-flake8==6.1.0
-isort==5.13.2
+black==25.9.0
+flake8==7.3.0
+isort==7.0.0
 mypy==1.18.2
-bandit==1.7.5
+bandit==1.8.6
 safety>=3.0.0
 ruff
 pip-audit
