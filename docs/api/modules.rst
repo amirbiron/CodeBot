@@ -25,6 +25,7 @@ workspace
    duplicate_detector
    file_manager
    fix_telegram_parse_error
+   get-pip
    github_menu_handler
    github_upload_fix
    handlers

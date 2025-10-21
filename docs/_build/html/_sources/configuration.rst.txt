@@ -82,3 +82,19 @@ Config via Pydantic Settings
 
 - סוכן AI צריך להסתמך על API אחיד של ``config`` כדי למנוע פערים בין שכבות.
 - אין להטמיע סודות בקוד; שימוש ב-ENV בלבד.
+
+פרמטרי קונפיגורציה מרכזיים (חדשים)
+------------------------------------
+להלן פרמטרים שנוספו ל־``config.py`` ומומלץ להכיר:
+
+- ``AIOHTTP_POOL_LIMIT`` – גודל בריכת חיבורים ברירת מחדל ל‑aiohttp
+- ``AIOHTTP_TIMEOUT_TOTAL`` – Timeout כולל לשיחות aiohttp (שניות)
+- ``REDIS_MAX_CONNECTIONS`` / ``REDIS_CONNECT_TIMEOUT`` / ``REDIS_SOCKET_TIMEOUT`` – כוונון חיבורי Redis
+- ``SEARCH_PAGE_SIZE`` – גודל דף ברירת מחדל לעימוד חיפוש בצד ה‑DB
+- ``UI_PAGE_SIZE`` – גודל דף ברירת מחדל לרשימות ב‑UI
+
+איחוד תיעוד קונפיגורציה
+------------------------
+- עמוד זה (:doc:`configuration`) מספק הסברים ו‑best‑practices.
+- עמוד :doc:`environment-variables` מכיל טבלת רפרנס מלאה עם דוגמאות.
+- מומלץ להתחיל מכאן ואז לעבור לרפרנס לפי צורך.
