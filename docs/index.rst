@@ -97,6 +97,7 @@ Code Keeper Bot - תיעוד API
    sentry
    runbooks/logging-levels
    runbooks/github_backup_restore
+   runbooks/slo
 
 .. toctree::
    :maxdepth: 2
