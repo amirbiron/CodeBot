@@ -176,7 +176,7 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     try:
         if severity in {"error", "critical"}:
             _RECENT_ERRORS.append({
-                "ts": datetime.utcnow().isoformat(),
+                "ts": datetime.now(timezone.utc).isoformat(),
                 "event": str(event),
                 "error_code": str(fields.get("error_code") or ""),
                 "error": str(fields.get("error") or fields.get("message") or ""),

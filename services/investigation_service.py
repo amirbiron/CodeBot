@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover
 
 def _now_iso() -> str:
     try:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
     except Exception:
         return ""
 

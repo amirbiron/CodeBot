@@ -680,13 +680,32 @@ class GitHubMenuHandler:
             except TypeError:
                 # גרסאות PyGithub ישנות לא מקבלות ref; ננסה ללא ref
                 url = repo.get_archive_link("zipball")
-            resp = requests.get(url, timeout=60)
+            # הורדה במצב זרימה + מניעת דחיסה מיותרת
+            _headers = {"Accept-Encoding": "identity"}
+            resp = requests.get(url, headers=_headers, stream=True, timeout=60)
             resp.raise_for_status()
             # עבודה ב-/tmp בלבד
             tmp_dir = tempfile.mkdtemp(prefix="codebot-gh-import-")
             zip_path = os.path.join(tmp_dir, "repo.zip")
+            # בדיקת Content-Length מול תקרת IMPORT_MAX_TOTAL_BYTES (safety)
+            try:
+                _cl = int(resp.headers.get("Content-Length", "0"))
+            except Exception:
+                _cl = 0
+            if _cl and _cl > IMPORT_MAX_TOTAL_BYTES:
+                await query.edit_message_text("❌ ה‑ZIP גדול מדי לייבוא ישיר ברמת התוכן (מעל 20MB). נסה ייבוא סלקטיבי או ZIP חלקי.")
+                return
+            # כתיבה בזרם לדיסק תוך שמירה על תקרה
+            written = 0
             with open(zip_path, "wb") as f:
-                f.write(resp.content)
+                for chunk in resp.iter_content(chunk_size=128 * 1024):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    written += len(chunk)
+                    if written > IMPORT_MAX_TOTAL_BYTES:
+                        await query.edit_message_text("❌ ה‑ZIP חורג ממגבלת ייבוא התוכן (20MB). נסה ייבוא סלקטיבי.")
+                        return
             # חליצה לתת-תיקייה ייעודית
             extracted_dir = os.path.join(tmp_dir, "repo")
             os.makedirs(extracted_dir, exist_ok=True)
@@ -3981,7 +4000,7 @@ class GitHubMenuHandler:
                     "user_id": user_id,
                     "file_name": safe_name,
                     "content": content,
-                    "created_at": datetime.utcnow(),
+                    "created_at": datetime.now(timezone.utc),
                     "tags": ["pasted"],
                 }
                 res = db.collection.insert_one(doc)

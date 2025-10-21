@@ -584,12 +584,12 @@ def export_bookmarks():
             return jsonify({'ok': False, 'error': 'Failed to export'}), 500
         
         from flask import make_response
-        from datetime import datetime
+        from datetime import datetime, timezone
         import json
         
         export_data = {
             "version": "1.0",
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "user_id": user_id,
             "files": result['files'],
             "total_bookmarks": result['total_bookmarks']
