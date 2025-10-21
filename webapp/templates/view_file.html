@@ -223,7 +223,7 @@
     .file-header {
         flex-direction: column;
     }
-    
+
     .file-actions {
         width: 100%;
         justify-content: stretch;
@@ -418,7 +418,7 @@ function copyCode() {
             }
         }
     }
-    
+
     if (!code) {
         // נסיון אחרון - לקחת את כל הטקסט מה-highlight div
         const highlightDiv = document.querySelector('.source .highlight');
@@ -433,7 +433,7 @@ function copyCode() {
             code = tempDiv.textContent || tempDiv.innerText;
         }
     }
-    
+
     if (code) {
         navigator.clipboard.writeText(code).then(() => {
             const feedback = document.getElementById('copyFeedback');
