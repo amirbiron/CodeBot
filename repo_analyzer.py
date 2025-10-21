@@ -160,16 +160,16 @@ class RepoAnalyzer:
                                 workflows = repo.get_contents(".github/workflows")
                                 if workflows:
                                     analysis['has_ci_cd'] = True
-                            except:
-                                pass
+                            except GithubException as e:
+                                logger.debug(f"Could not access workflows dir: {e}")
                         
                         # הוסף תוכן התיקייה לסריקה (רק עומק 1)
                         if files_analyzed < self.MAX_FILES - 10:  # השאר מקום לקבצים חשובים
                             try:
                                 sub_contents = repo.get_contents(file_content.path)
                                 contents.extend(sub_contents[:10])  # הגבל תת-תיקיות
-                            except:
-                                pass
+                            except GithubException as e:
+                                logger.debug(f"Could not list subdir {file_content.path}: {e}")
                                 
                     elif file_content.type == "file":
                         files_analyzed += 1
@@ -191,8 +191,8 @@ class RepoAnalyzer:
                                             analysis['documentation_quality'] = 'good'
                                         else:
                                             analysis['documentation_quality'] = 'basic'
-                            except:
-                                pass
+                            except (ValueError, UnicodeDecodeError) as e:
+                                logger.debug(f"Could not parse README content: {e}")
                         
                         if file_name.upper() in ['LICENSE', 'LICENSE.MD', 'LICENSE.TXT']:
                             analysis['has_license'] = True
@@ -236,8 +236,8 @@ class RepoAnalyzer:
                                     config_content = base64.b64decode(file_content.content).decode('utf-8')
                                     deps = self._extract_dependencies(file_name, config_content)
                                     analysis['dependencies'].extend(deps)
-                            except:
-                                pass
+                            except (ValueError, UnicodeDecodeError) as e:
+                                logger.debug(f"Could not parse config {file_name}: {e}")
             
             # חשב ציון איכות כללי
             analysis['quality_score'] = self._calculate_quality_score(analysis)
@@ -558,19 +558,21 @@ class RepoAnalyzer:
         # בדוק עדכניות (אם הפרויקט לא עודכן יותר משנה)
         if analysis_data.get('updated_at'):
             try:
-                updated = datetime.fromisoformat(analysis_data['updated_at'].replace('Z', '+00:00'))
-                if datetime.now(updated.tzinfo) - updated > timedelta(days=365):
-                    suggestions.append({
-                        'id': 'update_project',
-                        'title': '⬆️ עדכן את הפרויקט',
-                        'why': 'הפרויקט לא עודכן יותר משנה. ייתכן שיש עדכוני אבטחה',
-                        'how': 'עדכן תלויות, בדוק deprecations, הוסף תכונות חדשות',
-                        'impact': 'high',
-                        'effort': 'high',
-                        'category': 'maintenance'
-                    })
-            except:
-                pass
+                updated_raw = analysis_data['updated_at']
+                if isinstance(updated_raw, str):
+                    updated = datetime.fromisoformat(updated_raw.replace('Z', '+00:00'))
+                    if datetime.now(updated.tzinfo) - updated > timedelta(days=365):
+                        suggestions.append({
+                            'id': 'update_project',
+                            'title': '⬆️ עדכן את הפרויקט',
+                            'why': 'הפרויקט לא עודכן יותר משנה. ייתכן שיש עדכוני אבטחה',
+                            'how': 'עדכן תלויות, בדוק deprecations, הוסף תכונות חדשות',
+                            'impact': 'high',
+                            'effort': 'high',
+                            'category': 'maintenance'
+                        })
+            except (KeyError, ValueError, TypeError) as e:
+                logger.debug(f"Could not evaluate updated_at recency: {e}")
         
         # הוסף המלצות נוספות בהתאם לשפה
         main_language = analysis_data.get('language', '').lower()
