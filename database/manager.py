@@ -338,6 +338,12 @@ class DatabaseManager:
             IndexModel([("created_at", DESCENDING)], name="created_at_desc"),
         ]
 
+        # metrics collection (service_metrics) TTL for automatic cleanup (e.g., 30 days)
+        metrics_indexes = [
+            IndexModel([("ts", DESCENDING)], name="ts_desc"),
+            IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
+        ]
+
         try:
             self.collection.create_indexes(indexes)
             self.large_files_collection.create_indexes(large_files_indexes)
@@ -346,6 +352,12 @@ class DatabaseManager:
                 self.db.users.create_indexes(users_indexes)  # type: ignore[attr-defined]
             except Exception:
                 # הגנה רכה בסביבות ללא users collection
+                pass
+            # metrics (best-effort if enabled)
+            try:
+                collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
+                self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
+            except Exception:
                 pass
             if self.backup_ratings_collection is not None:
                 self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
@@ -390,6 +402,11 @@ class DatabaseManager:
                     self.large_files_collection.create_indexes(large_files_indexes)
                     try:
                         self.db.users.create_indexes(users_indexes)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    try:
+                        collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
+                        self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
                     except Exception:
                         pass
                     if self.backup_ratings_collection is not None:

@@ -39,9 +39,10 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
     token = os.getenv("SENTRY_AUTH_TOKEN") or ""
     url = f"{_api_base()}/{path.lstrip('/')}"
     timeout = aiohttp.ClientTimeout(total=8)  # type: ignore[attr-defined]
+    connector = aiohttp.TCPConnector(limit=50)
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:  # type: ignore[call-arg]
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:  # type: ignore[call-arg]
             async with session.get(url, headers=headers, params=params or {}) as resp:
                 if resp.status != 200:
                     return None
