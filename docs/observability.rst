@@ -26,6 +26,11 @@
   - ``ENVIRONMENT`` / ``ENV``: שם סביבה לדיווח resource
   - ``APP_VERSION``: גרסה לשיוך ל-``service.version``
   
+  מדיניות Fail‑Open::
+  אינסטרומנטציה ותיעוד חייבים להיות "שקופים" לפעולה העסקית. אם OTel/Prometheus אינם זמינים
+  (ייבוא נכשל, חיבור חסום, או שגיאת תצורה) – המודולים עובדים במצב ``no‑op`` ללא חריגה
+  המשביתה את האפליקציה. זה מאפשר להפעיל tracing/metrics בהדרגה ללא סיכון לזמינות.
+  
   אינסטרומנטציה אוטומטית:
   - Flask (כשקיים אובייקט ``app``)
   - Requests
@@ -74,6 +79,7 @@
 - :doc:`alerts`
 - :doc:`sentry`
 - :doc:`runbooks/logging-levels`
+- Datasource של Jaeger ב‑Grafana מוגדר תחת ``docker/grafana/provisioning/datasources/prometheus.yml``
 
 
 אינסטרומנטציה ידנית (Manual Instrumentation)
@@ -127,6 +133,13 @@
    export OTEL_EXPORTER_OTLP_ENDPOINT="http://tempo.staging.svc:4317"  # לדוגמה Tempo
    export OTEL_EXPORTER_INSECURE=true
    docker-compose up -d
+
+Quick start – אימות ספאנים ב־Jaeger
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1. הריצו את השירותים עם הפרופיל ``monitoring`` (ראו פקודה לעיל).
+2. ודאו ש‑``OTEL_EXPORTER_OTLP_ENDPOINT`` מצביע ל‑``http://jaeger:4317`` (ברירת המחדל ב‑Compose).
+3. פתחו את Jaeger ב‑``http://localhost:16686`` ובחרו את השירות ``code-keeper-bot`` או ``code-keeper-webapp``.
+4. הריצו פעולות כבדות (חיפוש/הורדה/פעולות bulk) ואמתו הופעת spans עם שמות העסקיים מהדקורטור ``@traced``.
 
 כיסוי דקורטור @traced
 -----------------------

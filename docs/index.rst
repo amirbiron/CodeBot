@@ -32,6 +32,8 @@ Code Keeper Bot - תיעוד API
    installation
    configuration
    environment-variables
+   performance-scaling
+   large-files-runbook
 
 .. toctree::
    :maxdepth: 2
@@ -52,11 +54,13 @@ Code Keeper Bot - תיעוד API
 
    examples
    testing
+   testing-rate-limit-examples
    performance-tests
    ci-cd
    conversation-handlers
    troubleshooting
    development
+   development/pre-commit
    integrations
    repository-integrations
    security
@@ -90,6 +94,7 @@ Code Keeper Bot - תיעוד API
    :caption: Observability
 
    observability
+   rate-limiting
    observability/guidelines
    logging_schema
    metrics
@@ -115,6 +120,7 @@ Code Keeper Bot - תיעוד API
    :caption: סוכני AI:
 
    ai-agents/guide
+   agents/rate-limiting
 
 .. toctree::
    :maxdepth: 2

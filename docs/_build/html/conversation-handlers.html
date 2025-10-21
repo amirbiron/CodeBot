@@ -96,6 +96,7 @@
 <li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id3">החרגות חשובות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#pydantic-settings">קונפיגורציה (Pydantic Settings)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id6">קישורים</a></li>
 </ul>
@@ -189,6 +190,8 @@
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#env-example">.env.example</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -196,6 +199,18 @@
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#id4">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#pagination">עימוד (Pagination)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#projection">Projection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="large-files-runbook.html#id1">מגבלות ופולבקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="large-files-runbook.html#id2">הנחיות הפעלה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="large-files-runbook.html#id3">ניטור</a></li>
 </ul>
 </li>
 </ul>
@@ -471,6 +486,7 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.metrics_content_type"><code class="docutils literal notranslate"><span class="pre">metrics_content_type()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -682,6 +698,7 @@
 <li class="toctree-l3"><a class="reference internal" href="database/index.html#statistics-operations">Statistics Operations</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="database/index.html#users">אינדקסים בקולקציית users</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="database/indexing.html">MongoDB Indexing Cookbook</a><ul>
@@ -782,6 +799,11 @@
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id3">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="testing-rate-limit-examples.html">דוגמאות טסטים – Rate Limiting ואסינכרוניות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="testing-rate-limit-examples.html#rate-limiting-redis-mock">Rate Limiting (Redis Mock)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing-rate-limit-examples.html#id1">טסטים אסינכרוניים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-tests.html#id2">סימון טסטים</a></li>
@@ -843,6 +865,13 @@
 <li class="toctree-l2"><a class="reference internal" href="development.html#endpoint-webapp">הוספת Endpoint ל‑WebApp</a></li>
 <li class="toctree-l2"><a class="reference internal" href="development.html#schema">עדכון Schema במסד הנתונים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="development.html#id1">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="development/pre-commit.html">Pre-commit Hooks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="development/pre-commit.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development/pre-commit.html#id2">התקנה והרצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development/pre-commit.html#hooks">Hooks פעילים (עיקריים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="development/pre-commit.html#id3">טיפים לפתרון בעיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="integrations.html">Integrations</a><ul>
@@ -949,8 +978,11 @@
 <li class="toctree-l1"><a class="reference internal" href="quality/type-safety.html">📝 Type Hints – Best Practices</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id1">אסטרטגיה: הקשחה הדרגתית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id2">פרוטוקולים וסטאבים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id3">הנחיות לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id4">דוגמאות קצרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id3">דוגמאות מהקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#mypy">הגדרות MyPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id4">מסלול מיגרציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id5">הנחיות לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quality/type-safety.html#id6">דוגמאות קצרות</a></li>
 </ul>
 </li>
 </ul>
@@ -1026,7 +1058,26 @@
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id1">מטרות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id2">קהלי יעד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id3">תצורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#backend-traces">בחירת Backend ל־Traces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#otlp">הגדרת OTLP לסביבות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="observability.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#manual-instrumentation">אינסטרומנטציה ידנית (Manual Instrumentation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#jaeger">דוקר קומפוז – הפעלה מהירה עם Jaeger</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="observability.html#quick-start-jaeger">Quick start – אימות ספאנים ב־Jaeger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="rate-limiting.html">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#id1">מבוא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#shadow-mode">Shadow Mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#softwarning-80">Soft‑Warning (80%)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#admin-bypass">Admin Bypass</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#monitoring">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="rate-limiting.html#id2">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="observability/guidelines.html">📊 הנחיות Observability ואירועים</a><ul>
@@ -1048,7 +1099,11 @@
 <li class="toctree-l1"><a class="reference internal" href="metrics.html">מדדים (Metrics)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="metrics.html#id1">נקודת קצה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="metrics.html#id2">מטריקות קיימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#opentelemetry">מטריקות OpenTelemetry (אם זמינות)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="metrics.html#promql">דוגמאות PromQL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#tracing-grafana">Tracing ב-Grafana</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#slo-sli">SLO/SLI לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="metrics.html#prometheus-alerting-rules">התראות (Prometheus alerting rules)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="alerts.html">התראות (Alerts)</a><ul>
@@ -1075,6 +1130,13 @@
 <li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="runbooks/github_backup_restore.html#id7">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="runbooks/slo.html">Runbooks – SLO Incidents</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/slo.html#higherrorrate">HighErrorRate</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/slo.html#sloavailabilitybreach-99-9">SLOAvailabilityBreach (זמינות &lt; 99.9%)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/slo.html#slolatencyp95breach-p95-0-5s">SLOLatencyP95Breach (P95 &gt; 0.5s)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="runbooks/slo.html#id1">דשבורד</a></li>
 </ul>
 </li>
 </ul>
@@ -1114,6 +1176,19 @@
 <li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id4">סקריפטים חשובים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#id5">מפת דרכים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ai-agents/guide.html#github-issues-chatops">GitHub Issues ו-ChatOps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#pydantic-settings">קונפיגורציה (Pydantic Settings)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="agents/rate-limiting.html#id6">קישורים</a></li>
 </ul>
 </li>
 </ul>
@@ -1468,7 +1543,34 @@
 <h3>GitHub – תפריט ושיחת העלאה<a class="headerlink" href="#github" title="Link to this heading"></a></h3>
 <div class="literal-block-wrapper docutils container" id="id14">
 <div class="code-block-caption"><span class="caption-text">github_menu_handler.py – github_menu_command</span><a class="headerlink" href="#id14" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>            <span class="k">if</span> <span class="ow">not</span> <span class="n">root</span><span class="p">:</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>                <span class="k">return</span>
+            <span class="c1"># כתיבה בזרם לדיסק תוך שמירה על תקרה</span>
+            <span class="n">written</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">zip_path</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">resp</span><span class="o">.</span><span class="n">iter_content</span><span class="p">(</span><span class="n">chunk_size</span><span class="o">=</span><span class="mi">128</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                    <span class="n">written</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">written</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_TOTAL_BYTES</span><span class="p">:</span>
+                        <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="s2">&quot;❌ ה‑ZIP חורג ממגבלת ייבוא התוכן (20MB). נסה ייבוא סלקטיבי.&quot;</span><span class="p">)</span>
+                        <span class="k">return</span>
+            <span class="c1"># חליצה לתת-תיקייה ייעודית</span>
+            <span class="n">extracted_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s2">&quot;repo&quot;</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="c1"># מדוד זמן חליצה</span>
+            <span class="k">with</span> <span class="n">track_performance</span><span class="p">(</span><span class="s2">&quot;github_zip_extract&quot;</span><span class="p">):</span>
+                <span class="k">with</span> <span class="n">_zip</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">zip_path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">zf</span><span class="p">:</span>
+                    <span class="n">zf</span><span class="o">.</span><span class="n">extractall</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">)</span>
+            <span class="c1"># מצא שורש (github zip מוסיף תיקיית prefix)</span>
+            <span class="c1"># נבחר תיקייה הראשונה מתחת extracted_dir</span>
+            <span class="n">roots</span> <span class="o">=</span> <span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">)]</span>
+            <span class="n">root</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">roots</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
+                    <span class="n">root</span> <span class="o">=</span> <span class="n">p</span>
+                    <span class="k">break</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">root</span><span class="p">:</span>
                 <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="s2">&quot;❌ לא נמצאו קבצים לאחר חליצה&quot;</span><span class="p">)</span>
                 <span class="k">return</span>
             <span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
@@ -1537,33 +1639,6 @@
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="k">pass</span>
             <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;✅ ייבוא הושלם: </span><span class="si">{</span><span class="n">saved</span><span class="si">}</span><span class="s2"> חדשים, </span><span class="si">{</span><span class="n">updated</span><span class="si">}</span><span class="s2"> עודכנו, </span><span class="si">{</span><span class="n">skipped</span><span class="si">}</span><span class="s2"> דילוגים.</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;🔖 תיוג: &lt;code&gt;</span><span class="si">{</span><span class="n">repo_tag</span><span class="si">}</span><span class="s2">&lt;/code&gt; (ו-&lt;code&gt;</span><span class="si">{</span><span class="n">source_tag</span><span class="si">}</span><span class="s2">&lt;/code&gt;)</span><span class="se">\n\n</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;ℹ️ זהו ייבוא תוכן — לא נוצר גיבוי ZIP.</span><span class="se">\n</span><span class="s2">&quot;</span>
-                <span class="sa">f</span><span class="s2">&quot;תוכל למצוא את הקבצים ב׳🗂 לפי ריפו׳.&quot;</span><span class="p">,</span>
-                <span class="n">parse_mode</span><span class="o">=</span><span class="s2">&quot;HTML&quot;</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;github_import_repo_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span> <span class="n">repo</span><span class="o">=</span><span class="n">repo_full</span><span class="p">,</span> <span class="n">branch</span><span class="o">=</span><span class="n">branch</span><span class="p">)</span>
-            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="k">pass</span>
-            <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;❌ שגיאה בייבוא: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">finally</span><span class="p">:</span>
-            <span class="c1"># ניקוי בטוח של tmp ושל קובץ ה-ZIP</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">zip_path</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">zip_path</span><span class="p">):</span>
-                    <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">zip_path</span><span class="p">)</span>
-            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="k">pass</span>
-            <span class="n">_safe_rmtree_tmp</span><span class="p">(</span><span class="n">extracted_dir</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
-            <span class="n">_safe_rmtree_tmp</span><span class="p">(</span><span class="n">tmp_dir</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
-
-    <span class="k">async</span> <span class="k">def</span> <span class="nf">github_menu_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;מציג תפריט GitHub&quot;&quot;&quot;</span>
-        <span class="n">user_id</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">effective_user</span><span class="o">.</span><span class="n">id</span>
-
-        <span class="n">session</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_user_session</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>

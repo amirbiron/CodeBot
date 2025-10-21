@@ -85,6 +85,11 @@ return jsonify({
 - צמצמו `ADMIN_USER_IDS` למינימום.
 - מערכת הלימיטים היא Fail-Open: אם Redis נופל – לא חוסמים משתמשים.
 
+קונפיגורציה (Pydantic Settings)
+--------------------------------
+- הפרמטרים זמינים דרך `config.py` ונטענים מה‑ENV/`.env(.local)`.
+- ראו גם: :doc:`../configuration` ו‑:doc:`../environment-variables`.
+
 ---
 
 ## תקלות נפוצות
