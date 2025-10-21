@@ -478,32 +478,32 @@ class AdvancedSearchEngine:
                 break
             offset += len(files)
             for file_data in files:
-            content_value = str(file_data.get('code') or '')
-            content_lower = content_value.lower()
-            
-            # ספירת הופעות
-            occurrences = content_lower.count(query_lower)
-            
-            if occurrences > 0:
-                # חישוב ניקוד לפי תדירות ואורך המסמך
-                denom = max(1, len(content_value))
-                score = min(occurrences / (denom / 1000), 10.0)
+                content_value = str(file_data.get('code') or '')
+                content_lower = content_value.lower()
                 
-                result = self._create_search_result(file_data, query, score)
+                # ספירת הופעות
+                occurrences = content_lower.count(query_lower)
                 
-                # יצירת קטע תצוגה מקדימה
-                preview_start = content_lower.find(query_lower)
-                if preview_start >= 0:
-                    start = max(0, preview_start - 50)
-                    end = min(len(content_value), preview_start + len(query) + 50)
-                    result.snippet_preview = content_value[start:end]
+                if occurrences > 0:
+                    # חישוב ניקוד לפי תדירות ואורך המסמך
+                    denom = max(1, len(content_value))
+                    score = min(occurrences / (denom / 1000), 10.0)
                     
-                    # סימון המילה שנמצאה
-                    relative_start = preview_start - start
-                    relative_end = relative_start + len(query)
-                    result.highlight_ranges = [(relative_start, relative_end)]
-                
-                results.append(result)
+                    result = self._create_search_result(file_data, query, score)
+                    
+                    # יצירת קטע תצוגה מקדימה
+                    preview_start = content_lower.find(query_lower)
+                    if preview_start >= 0:
+                        start = max(0, preview_start - 50)
+                        end = min(len(content_value), preview_start + len(query) + 50)
+                        result.snippet_preview = content_value[start:end]
+                        
+                        # סימון המילה שנמצאה
+                        relative_start = preview_start - start
+                        relative_end = relative_start + len(query)
+                        result.highlight_ranges = [(relative_start, relative_end)]
+                    
+                    results.append(result)
         
         return results
     
