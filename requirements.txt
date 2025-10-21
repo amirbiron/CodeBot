@@ -1,3 +1,15 @@
-# Meta aggregator for local development. Do NOT edit versions here.
-# Source of truth lives under requirements/.
+# requirements.txt — Aggregator ברור
+
+# קובץ זה משמש כאגרגטור נוח לסביבת פיתוח מקומית.
+# אין לקבע כאן גרסאות. מקור האמת לתלויות נמצא תחת התיקייה `requirements/`.
+#
+# לפיתוח מקומי (מומלץ):
+#   pip install -r requirements/development.txt
+#
+# לייצור (מומלץ עם constraints לנעילה דטרמיניסטית):
+#   pip install -r requirements/production.txt -c constraints.txt
+#   # ליצירת constraints מקומי/ב-CI:
+#   # pip freeze | sort > constraints.txt
+#
+# ברירת מחדל — הפניה ל-development לנוחות מקומית
 -r requirements/development.txt
