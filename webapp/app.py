@@ -45,6 +45,12 @@ if ROOT_DIR not in sys.path:
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
 
+# קונפיגורציה מרכזית (Pydantic Settings)
+try:  # שמירה על יציבות גם בסביבות דוקס/CI
+    from config import config as cfg  # type: ignore
+except Exception:  # pragma: no cover
+    cfg = None  # type: ignore
+
 # Search engine & types
 try:
     from search_engine import search_engine, SearchType, SearchFilter, SortOrder  # type: ignore
@@ -219,19 +225,27 @@ else:
     limiter = None  # type: ignore
 
 # הגדרות
-MONGODB_URL = os.getenv('MONGODB_URL')
-DATABASE_NAME = os.getenv('DATABASE_NAME', 'code_keeper_bot')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+if cfg is not None:
+    MONGODB_URL = cfg.MONGODB_URL
+    DATABASE_NAME = cfg.DATABASE_NAME
+    BOT_TOKEN = cfg.BOT_TOKEN
+    WEBAPP_URL = (cfg.WEBAPP_URL or 'https://code-keeper-webapp.onrender.com')
+    PUBLIC_BASE_URL = (cfg.PUBLIC_BASE_URL or '')
+    DOCUMENTATION_URL = (cfg.DOCUMENTATION_URL.rstrip('/') + '/')
+else:
+    # Fallback נדיר בסביבות דוקס בלבד
+    MONGODB_URL = os.getenv('MONGODB_URL')
+    DATABASE_NAME = os.getenv('DATABASE_NAME', 'code_keeper_bot')
+    BOT_TOKEN = os.getenv('BOT_TOKEN')
+    WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
+    PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
+    _DOCS_URL_RAW = (os.getenv('DOCUMENTATION_URL') or 'https://amirbiron.github.io/CodeBot/')
+    DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/')
+
 BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
 BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
-WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
-PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
 _ttl_env = os.getenv('PUBLIC_SHARE_TTL_DAYS', '7')
 FA_SRI_HASH = (os.getenv('FA_SRI_HASH') or '').strip()
-# URL בסיסי לתיעוד (לשימוש בקישורי עזרה מה-UI)
-# מנרמל תמיד לסלאש מסיים כדי למנוע חיבור URL שבור
-_DOCS_URL_RAW = (os.getenv('DOCUMENTATION_URL') or 'https://amirbiron.github.io/CodeBot/')
-DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/')
 
 # --- Cache TTLs (seconds) for heavy endpoints/pages ---
 def _int_env(name: str, default: int, lo: int = 30, hi: int = 180) -> int:
