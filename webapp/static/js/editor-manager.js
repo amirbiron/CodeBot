@@ -16,6 +16,7 @@
         const saved = localStorage.getItem('preferredEditor');
         if (saved === 'codemirror' || saved === 'simple') return saved;
       } catch(_) {}
+      // ברירת מחדל: עורך רגיל (textarea)
       return 'simple';
     }
 
@@ -89,12 +90,14 @@
           this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
 
           if (!window.CodeMirror6) {
-            await this.loadCodeMirror();
+            // מגן נגד תקיעת טעינה שקטה של מודולים חיצוניים
+            // מוגדל ל~30s כדי לאפשר כשל/ניסיון בכל CDN (8s * 3) + שוליים
+            await this.withTimeout(this.loadCodeMirror(), 30000, 'codemirror_core_load');
           }
           const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
 
-          const langSupport = await this.getLanguageSupport(language);
-          const themeExt = await this.getTheme(theme);
+          const langSupport = await this.withTimeout(this.getLanguageSupport(language), 6000, 'codemirror_lang_load');
+          const themeExt = await this.withTimeout(this.getTheme(theme), 6000, 'codemirror_theme_load');
 
           const debouncedSync = this.debounce((val) => {
             this.textarea.value = val;
@@ -217,12 +220,23 @@
       for (const cdn of cdnCandidates) {
         try {
           const u = cdn.url;
-          stateMod = await import(u('@codemirror/state'));
-          viewMod = await import(u('@codemirror/view'));
-          cmdMod = await import(u('@codemirror/commands'));
-          langMod = await import(u('@codemirror/language'));
-          searchMod = await import(u('@codemirror/search'));
-          acMod = await import(u('@codemirror/autocomplete'));
+          // טוענים את כל מודולי הבסיס במקביל עם timeout הגיוני
+          const [
+            state,
+            view,
+            cmd,
+            lang,
+            search,
+            ac
+          ] = await Promise.all([
+            this.withTimeout(import(u('@codemirror/state')), 8000, '@codemirror/state'),
+            this.withTimeout(import(u('@codemirror/view')), 8000, '@codemirror/view'),
+            this.withTimeout(import(u('@codemirror/commands')), 8000, '@codemirror/commands'),
+            this.withTimeout(import(u('@codemirror/language')), 8000, '@codemirror/language'),
+            this.withTimeout(import(u('@codemirror/search')), 8000, '@codemirror/search'),
+            this.withTimeout(import(u('@codemirror/autocomplete')), 8000, '@codemirror/autocomplete')
+          ]);
+          stateMod = state; viewMod = view; cmdMod = cmd; langMod = lang; searchMod = search; acMod = ac;
           chosen = cdn;
           break;
         } catch (e) {
@@ -317,6 +331,24 @@
         clearTimeout(t);
         t = setTimeout(() => fn(...args), wait);
       };
+    }
+
+    // מגן כללי ל-async שמונע תקיעות שקטות ומדווח הקשר לשגיאה
+    withTimeout(promise, ms, label) {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const id = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          const err = new Error(`timeout_${label || 'operation'}`);
+          err.code = 'ETIMEOUT';
+          reject(err);
+        }, ms);
+        Promise.resolve(promise).then(
+          (val) => { if (!settled) { settled = true; clearTimeout(id); resolve(val); } },
+          (err) => { if (!settled) { settled = true; clearTimeout(id); reject(err); } }
+        );
+      });
     }
 
     showLoading(container){
