@@ -14,10 +14,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 try:
     # rapidfuzz מספק API דומה אך מהיר וללא קומפילציה
-    from rapidfuzz import fuzz, process  # type: ignore
+    from rapidfuzz import fuzz as _rf_fuzz, process as _rf_process
+    fuzz = _rf_fuzz
+    process = _rf_process
 except Exception:  # pragma: no cover
     # נפילה שקטה ל-fuzzywuzzy אם rapidfuzz לא מותקן, לשמירה אחורה
-    from fuzzywuzzy import fuzz, process  # type: ignore
+    from fuzzywuzzy import fuzz as _fz_fuzz, process as _fz_process
+    fuzz = _fz_fuzz
+    process = _fz_process
 
 from services import code_service as code_processor
 from config import config
@@ -26,19 +30,19 @@ from database import db
 logger = logging.getLogger(__name__)
 
 # Structured events + metrics (safe fallbacks)
-try:  # type: ignore
-    from observability import emit_event  # type: ignore
+try:
+    from observability import emit_event
 except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+    def emit_event(event: str, severity: str = "info", **fields):
         return None
 
-try:  # type: ignore
-    from metrics import track_performance, business_events_total  # type: ignore
+try:
+    from metrics import track_performance, business_events_total
 except Exception:  # pragma: no cover
-    business_events_total = None  # type: ignore
+    business_events_total = None
     from contextlib import contextmanager
     @contextmanager
-    def track_performance(operation: str, labels=None):  # type: ignore
+    def track_performance(operation: str, labels=None):
         yield
 
 class SearchType(Enum):
@@ -283,7 +287,7 @@ class AdvancedSearchEngine:
             return []
         
         # מציאת קבצים מתאימים
-        file_scores = defaultdict(float)
+        file_scores: Dict[str, float] = defaultdict(float)
         
         for word in query_words:
             matching_files = index.word_index.get(word, set())
@@ -385,7 +389,7 @@ class AdvancedSearchEngine:
         """חיפוש פונקציות"""
         
         query_lower = query.lower()
-        file_scores = defaultdict(float)
+        file_scores: Dict[str, float] = defaultdict(float)
         
         # חיפוש בשמות פונקציות
         for func_name, files in index.function_index.items():
@@ -523,8 +527,8 @@ class AdvancedSearchEngine:
         
         elif sort_order == SortOrder.SIZE_ASC:
             return sorted(results, key=lambda x: len(x.content))
-        
-        return results
+        else:
+            return results
     
     def _create_search_result(self, file_data: Dict, query: str, score: float) -> SearchResult:
         """יצירת אובייקט תוצאת חיפוש"""

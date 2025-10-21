@@ -9,19 +9,19 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 # Structured logging + metrics (safe fallbacks for tests)
-try:  # type: ignore
-    from observability import emit_event  # type: ignore
+try:
+    from observability import emit_event
 except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+    def emit_event(event: str, severity: str = "info", **fields):
         return None
 
-try:  # type: ignore
-    from metrics import track_performance  # type: ignore
+try:
+    from metrics import track_performance
 except Exception:  # pragma: no cover
     from contextlib import contextmanager
 
     @contextmanager
-    def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):  # type: ignore
+    def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):
         yield
 
 logger = logging.getLogger(__name__)
