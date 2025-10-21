@@ -2,10 +2,11 @@ import logging
 import os
 from types import SimpleNamespace
 from datetime import timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from typing import Optional as _Optional  # for type hints below without shadowing
 try:
-    from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+    from pymongo import MongoClient as _MongoClient, IndexModel as _IndexModel, ASCENDING as _ASC, DESCENDING as _DESC, TEXT as _TEXT
+    MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT = _MongoClient, _IndexModel, _ASC, _DESC, _TEXT
     _PYMONGO_AVAILABLE = True
 except Exception:  # ModuleNotFoundError or any import-time error
     MongoClient = None  # type: ignore
@@ -18,9 +19,9 @@ except Exception:  # ModuleNotFoundError or any import-time error
 from config import config
 try:
     # Structured logging events
-    from observability import emit_event  # type: ignore
+    from observability import emit_event
 except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+    def emit_event(event: str, severity: str = "info", **fields):
         return None
 
 logger = logging.getLogger(__name__)
@@ -291,7 +292,7 @@ class DatabaseManager:
     def save_snippet(self, snippet) -> bool:
         return self._get_repo().save_code_snippet(snippet)
 
-    def search_snippets(self, user_id: int, search_term: str = "", programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
+    def search_snippets(self, user_id: int, search_term: str = "", programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         return self._get_repo().search_code(
             user_id,
             query=search_term,
@@ -344,7 +345,7 @@ class DatabaseManager:
     def save_code_snippet(self, snippet) -> bool:
         return self._get_repo().save_code_snippet(snippet)
 
-    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: List[str] = None) -> bool:
+    def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
         return self._get_repo().save_file(user_id, file_name, code, programming_language, extra_tags)
 
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
@@ -362,7 +363,7 @@ class DatabaseManager:
     def get_user_files(self, user_id: int, limit: int = 50) -> List[Dict]:
         return self._get_repo().get_user_files(user_id, limit)
 
-    def search_code(self, user_id: int, query: str, programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
+    def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         return self._get_repo().search_code(user_id, query, programming_language, tags, limit)
 
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
@@ -462,7 +463,7 @@ class DatabaseManager:
     def get_selected_repo(self, user_id: int) -> Optional[str]:
         return self._get_repo().get_selected_repo(user_id)
 
-    def save_user(self, user_id: int, username: str = None) -> bool:
+    def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         return self._get_repo().save_user(user_id, username)
 
     # Google Drive tokens & preferences

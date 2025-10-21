@@ -4,32 +4,36 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from bson import ObjectId  # type: ignore
+    from bson import ObjectId as _BsonObjectId
+    _HAS_BSON = True
 except Exception:
+    _HAS_BSON = False
     class ObjectId(str):  # minimal stub for tests without bson
         pass
+if _HAS_BSON:
+    ObjectId = _BsonObjectId  # type: ignore[assignment]
 
 from cache_manager import cache, cached
 from .manager import DatabaseManager
 from utils import normalize_code
 from config import config
 try:
-    from observability import emit_event  # type: ignore
+    from observability import emit_event
 except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+    def emit_event(event: str, severity: str = "info", **fields):
         return None
 from .models import CodeSnippet, LargeFile
 
 logger = logging.getLogger(__name__)
 
 # Optional performance instrumentation
-try:  # type: ignore
-    from metrics import track_performance  # type: ignore
+try:
+    from metrics import track_performance
 except Exception:  # pragma: no cover
     from contextlib import contextmanager
 
     @contextmanager
-    def track_performance(_operation: str, labels=None):  # type: ignore
+    def track_performance(_operation: str, labels=None):
         yield
 
 
@@ -221,7 +225,7 @@ class Repository:
                         "name": "file_name",
                         "language": "programming_language",
                     }.get(sort_by_eff, "favorited_at")
-                    filtered: List[Dict[str, Any]] = []
+                    filtered_items: List[Dict[str, Any]] = []
                     for d in docs_list:
                         if not isinstance(d, dict):
                             continue
@@ -233,22 +237,22 @@ class Repository:
                             continue
                         if language and str(d.get('programming_language') or '').lower() != str(language).lower():
                             continue
-                        filtered.append(d)
-                    by_name: Dict[str, Dict[str, Any]] = {}
-                    for d in filtered:
+                        filtered_items.append(d)
+                    latest_by_name: Dict[str, Dict[str, Any]] = {}
+                    for d in filtered_items:
                         name = str(d.get('file_name') or '')
-                        prev = by_name.get(name)
+                        prev = latest_by_name.get(name)
                         if prev is None or int(d.get('version', 0) or 0) > int(prev.get('version', 0) or 0):
-                            by_name[name] = d
-                    items = list(by_name.values())
+                            latest_by_name[name] = d
+                    items = list(latest_by_name.values())
                     def _key(d: Dict[str, Any]):
                         val = d.get(sort_key_eff)
                         return (val is None, val)
                     items.sort(key=_key, reverse=(sort_key_eff == 'favorited_at'))
                     items = items[: max(1, int(limit or 50))]
-                    out: List[Dict[str, Any]] = []
+                    results_out: List[Dict[str, Any]] = []
                     for d in items:
-                        out.append({
+                        results_out.append({
                             'file_name': d.get('file_name'),
                             'programming_language': d.get('programming_language'),
                             'tags': d.get('tags'),
@@ -257,7 +261,7 @@ class Repository:
                             'updated_at': d.get('updated_at'),
                             'code': d.get('code'),
                         })
-                    return out
+                    return results_out
             except Exception:
                 pass
             sort_by = (sort_by or "date").lower()
@@ -288,7 +292,7 @@ class Repository:
             try:
                 docs_list = getattr(self.manager.collection, 'docs')
                 if isinstance(docs_list, list):
-                    filtered: List[Dict[str, Any]] = []
+                    filtered_items: List[Dict[str, Any]] = []
                     for d in docs_list:
                         if not isinstance(d, dict):
                             continue
@@ -301,15 +305,15 @@ class Repository:
                             continue
                         if language and str(d.get('programming_language') or '').lower() != str(language).lower():
                             continue
-                        filtered.append(d)
+                        filtered_items.append(d)
                     # אחרון לכל שם קובץ
-                    by_name: Dict[str, Dict[str, Any]] = {}
-                    for d in filtered:
+                    latest_by_name: Dict[str, Dict[str, Any]] = {}
+                    for d in filtered_items:
                         name = str(d.get('file_name') or '')
-                        prev = by_name.get(name)
+                        prev = latest_by_name.get(name)
                         if prev is None or int(d.get('version', 0) or 0) > int(prev.get('version', 0) or 0):
-                            by_name[name] = d
-                    items = list(by_name.values())
+                            latest_by_name[name] = d
+                    items = list(latest_by_name.values())
                     # מיון
                     def _key(d: Dict[str, Any]):
                         val = d.get(sort_key)
@@ -318,9 +322,9 @@ class Repository:
                     # תיחום
                     items = items[: max(1, int(limit or 50))]
                     # הקרנה
-                    out: List[Dict[str, Any]] = []
+                    results_out: List[Dict[str, Any]] = []
                     for d in items:
-                        out.append({
+                        results_out.append({
                             'file_name': d.get('file_name'),
                             'programming_language': d.get('programming_language'),
                             'tags': d.get('tags'),
@@ -329,7 +333,7 @@ class Repository:
                             'updated_at': d.get('updated_at'),
                             'code': d.get('code'),
                         })
-                    return out
+                    return results_out
             except Exception:
                 pass
             return []
@@ -598,7 +602,7 @@ class Repository:
             return []
 
     @cached(expire_seconds=300, key_prefix="search_code")
-    def search_code(self, user_id: int, query: str, programming_language: str = None, tags: List[str] = None, limit: int = 20) -> List[Dict]:
+    def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         try:
             search_filter: Dict[str, Any] = {"user_id": user_id, "$or": [
                 {"is_active": True}, {"is_active": {"$exists": False}}
