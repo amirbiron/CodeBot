@@ -241,6 +241,24 @@ services:
       - monitoring
 
   # ===================================
+  # Alertmanager (אופציונלי)
+  # ===================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: code-keeper-alertmanager
+    restart: unless-stopped
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    networks:
+      - code-keeper-network
+    profiles:
+      - monitoring
+
+  # ===================================
   # Grafana Dashboard (אופציונלי)
   # ===================================
   grafana:
