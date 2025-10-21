@@ -119,8 +119,8 @@ class SearchIndex:
         
         # קבלת כל הקבצים
         with track_performance("search_index_rebuild", labels={"repo": ""}):
-            # עימוד בטוח: שליפה במנות של 200 כדי להימנע מטעינת כל הקבצים לזיכרון
-            PAGE_SIZE = 200
+            # עימוד בטוח: שליפה במנות קונפיגורביליות (ברירת מחדל 200)
+            PAGE_SIZE = int(getattr(config, "SEARCH_PAGE_SIZE", 200))
             offset = 0
             while True:
                 try:
@@ -340,7 +340,7 @@ class AdvancedSearchEngine:
             return []
         
         # הקרנה קלה לתוכן ושדות נחוצים בלבד
-        PAGE_SIZE = 200
+        PAGE_SIZE = int(getattr(config, "SEARCH_PAGE_SIZE", 200))
         offset = 0
         results = []
         while True:
@@ -384,7 +384,7 @@ class AdvancedSearchEngine:
     def _fuzzy_search(self, query: str, index: SearchIndex, user_id: int) -> List[SearchResult]:
         """חיפוש מטושטש (fuzzy)"""
         
-        PAGE_SIZE = 200
+        PAGE_SIZE = int(getattr(config, "SEARCH_PAGE_SIZE", 200))
         offset = 0
         results = []
         while True:
@@ -458,7 +458,7 @@ class AdvancedSearchEngine:
     def _content_search(self, query: str, user_id: int) -> List[SearchResult]:
         """חיפוש מלא בתוכן"""
         
-        PAGE_SIZE = 200
+        PAGE_SIZE = int(getattr(config, "SEARCH_PAGE_SIZE", 200))
         offset = 0
         results = []
         query_lower = query.lower()
