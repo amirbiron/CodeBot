@@ -265,8 +265,18 @@ class PastebinIntegration:
         }
         
         try:
-            timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 15)))
-            connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
+            # שמור תאימות לאחור: ברירת מחדל 15s ל-Pastebin, ניתן לדרוס ב-ENV/Config
+            try:
+                env_total = os.getenv("AIOHTTP_TIMEOUT_TOTAL")
+                _total = int(env_total) if env_total not in (None, "") else 15
+            except Exception:
+                _total = 15
+            try:
+                _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
+            except Exception:
+                _limit = 50
+            timeout = aiohttp.ClientTimeout(total=_total)
+            connector = aiohttp.TCPConnector(limit=_limit)
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
                     result = await response.text()

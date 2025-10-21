@@ -875,12 +875,19 @@ class FileUtils:
         """הורדת קובץ מ-URL"""
         
         try:
-            timeout_total = (
-                int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 20)) if config is not None else 20
-            )
-            pool_limit = (
-                int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)) if config is not None else 50
-            )
+            # שמור תאימות לאחור: ברירת מחדל 20s להורדות אלא אם הוגדר במפורש ב-ENV
+            try:
+                env_total = os.getenv("AIOHTTP_TIMEOUT_TOTAL")
+                timeout_total = int(env_total) if env_total not in (None, "") else 20
+            except Exception:
+                timeout_total = 20
+            try:
+                env_limit = os.getenv("AIOHTTP_POOL_LIMIT")
+                pool_limit = int(env_limit) if env_limit not in (None, "") else (
+                    int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)) if config is not None else 50
+                )
+            except Exception:
+                pool_limit = 50
             timeout = aiohttp.ClientTimeout(total=timeout_total)
             connector = aiohttp.TCPConnector(limit=pool_limit)
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
