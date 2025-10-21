@@ -153,9 +153,9 @@ def main():
         inserted_ids.append(str(res.inserted_id))
 
     logger.info("Seed completed.")
-    logger.info("user_id=%s", user_id)
+    print("user_id=", user_id)
     for i, _id in enumerate(inserted_ids, 1):
-        logger.info("file_id_%s=%s", i, _id)
+        print(f"file_id_{i}= {_id}")
 
 
 if __name__ == "__main__":
