@@ -109,6 +109,12 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                             token.record_exception(e)  # type: ignore[attr-defined]
                     except Exception:
                         pass
+                    # error counter (best-effort) to align with async path
+                    if error_counter is not None:
+                        try:
+                            error_counter.add(1, {"function": func.__name__, "error_type": type(e).__name__})  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
                     raise
                 finally:
                     # Decrement active counter
