@@ -26,6 +26,18 @@ from typing import List
 
 from pymongo import MongoClient
 
+# Observability (fail-open):
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+try:  # type: ignore
+    from internal_alerts import emit_internal_alert  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):  # type: ignore
+        return None
+
 
 def normalize_tags(tags: List[str]) -> List[str]:
     if not isinstance(tags, list):
@@ -56,6 +68,20 @@ def main() -> int:
 
     mongo_url = os.getenv('MONGODB_URL')
     if not mongo_url:
+        try:
+            emit_event(
+                'cleanup_repo_tags_missing_mongo_url',
+                severity='anomaly',
+                operation='cleanup_repo_tags',
+                handled=True,
+            )
+            emit_internal_alert(
+                name='cleanup_repo_tags_missing_mongo_url',
+                severity='anomaly',
+                summary='MONGODB_URL is not set',
+            )
+        except Exception:
+            pass
         print('ERROR: MONGODB_URL is not set', file=sys.stderr)
         return 2
     dbname = os.getenv('DATABASE_NAME', 'code_keeper_bot')
@@ -100,6 +126,19 @@ def main() -> int:
     except Exception:
         backfilled = 0
 
+    try:
+        emit_event(
+            'cleanup_repo_tags_summary',
+            severity='info',
+            operation='cleanup_repo_tags',
+            total=int(total),
+            changed=int(changed),
+            index_cleared=int(index_cleared),
+            favorites_backfilled=int(backfilled),
+            apply=bool(args.apply),
+        )
+    except Exception:
+        pass
     print(f"Scanned: {total} docs; Changed: {changed}; Index cleared: {index_cleared}; Favorites backfilled: {backfilled}; Apply: {args.apply}")
     return 0
 

@@ -13,6 +13,28 @@ from database.bookmark import VALID_COLORS as MODEL_VALID_COLORS
 
 logger = logging.getLogger(__name__)
 
+# Observability: structured events and internal alerts (fail-open stubs)
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+try:  # type: ignore
+    from internal_alerts import emit_internal_alert  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):  # type: ignore
+        return None
+
+
+def _get_request_id() -> str:
+    try:
+        rid = getattr(request, "_req_id", "")
+        if not rid:
+            rid = request.headers.get("X-Request-ID", "")
+        return rid or ""
+    except Exception:
+        return ""
+
 # יצירת Blueprint
 bookmarks_bp = Blueprint('bookmarks', __name__, url_prefix='/api/bookmarks')
 
@@ -167,6 +189,27 @@ def toggle_bookmark(file_id):
         return jsonify(result)
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_toggle_error",
+                severity="anomaly",
+                operation="bookmarks.toggle",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                file_id=str(file_id),
+                error=str(e),
+            )
+            emit_internal_alert(
+                name="bookmarks_toggle_failed",
+                severity="anomaly",
+                summary=f"file_id={file_id}, request_id={rid or 'n/a'}",
+                user_id=int(uid) if uid is not None else None,
+            )
+        except Exception:
+            pass
         logger.error(f"Error in toggle_bookmark: {e}", exc_info=True)
         return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
@@ -197,6 +240,21 @@ def get_file_bookmarks(file_id):
         })
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_get_file_error",
+                severity="anomaly",
+                operation="bookmarks.get_file",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                file_id=str(file_id),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error getting file bookmarks: {e}")
         return jsonify({'ok': False, 'error': 'Failed to get bookmarks'}), 500
 
@@ -240,6 +298,20 @@ def get_all_bookmarks():
         return jsonify(result)
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_get_all_error",
+                severity="anomaly",
+                operation="bookmarks.get_all",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error getting all bookmarks: {e}")
         return jsonify({'ok': False, 'error': 'Failed to get bookmarks'}), 500
 
@@ -274,6 +346,22 @@ def update_bookmark_note(file_id, line_number):
         return jsonify(result)
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_update_note_error",
+                severity="anomaly",
+                operation="bookmarks.update_note",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                file_id=str(file_id),
+                line_number=int(line_number),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error updating bookmark note: {e}")
         return jsonify({'ok': False, 'error': 'Failed to update note'}), 500
 
@@ -301,6 +389,22 @@ def update_bookmark_color(file_id, line_number):
             result = bm_manager.update_bookmark_color(user_id, file_id, line_number, color)
         return jsonify(result)
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_update_color_error",
+                severity="anomaly",
+                operation="bookmarks.update_color",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                file_id=str(file_id),
+                line_number=int(line_number),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error updating bookmark color: {e}")
         return jsonify({'ok': False, 'error': 'Failed to update color'}), 500
 
@@ -322,6 +426,22 @@ def delete_bookmark(file_id, line_number):
         return jsonify(result)
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_delete_error",
+                severity="anomaly",
+                operation="bookmarks.delete",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                file_id=str(file_id),
+                line_number=int(line_number),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error deleting bookmark: {e}")
         return jsonify({'ok': False, 'error': 'Failed to delete bookmark'}), 500
 
@@ -339,6 +459,21 @@ def clear_file_bookmarks(file_id):
         return jsonify(result)
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_clear_file_error",
+                severity="anomaly",
+                operation="bookmarks.clear_file",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                file_id=str(file_id),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error clearing file bookmarks: {e}")
         return jsonify({'ok': False, 'error': 'Failed to clear bookmarks'}), 500
 
@@ -365,6 +500,19 @@ def check_file_sync(file_id):
         return jsonify(result)
         
     except Exception as e:
+        rid = _get_request_id()
+        try:
+            emit_event(
+                "bookmarks_check_sync_error",
+                severity="anomaly",
+                operation="bookmarks.check_sync",
+                handled=True,
+                request_id=rid,
+                file_id=str(file_id),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error checking file sync: {e}")
         return jsonify({'ok': False, 'error': 'Failed to check sync'}), 500
 
@@ -385,6 +533,20 @@ def get_bookmark_stats():
         })
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_get_stats_error",
+                severity="anomaly",
+                operation="bookmarks.get_stats",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error getting bookmark stats: {e}")
         return jsonify({'ok': False, 'error': 'Failed to get stats'}), 500
 
@@ -421,6 +583,26 @@ def export_bookmarks():
         return response
         
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_export_error",
+                severity="anomaly",
+                operation="bookmarks.export",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                error=str(e),
+            )
+            emit_internal_alert(
+                name="bookmarks_export_failed",
+                severity="anomaly",
+                summary=f"request_id={rid or 'n/a'}",
+                user_id=int(uid) if uid is not None else None,
+            )
+        except Exception:
+            pass
         logger.error(f"Error exporting bookmarks: {e}")
         return jsonify({'ok': False, 'error': 'Failed to export'}), 500
 
@@ -445,6 +627,20 @@ def get_prefs():
             'valid_colors': list(MODEL_VALID_COLORS),
         })
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_get_prefs_error",
+                severity="anomaly",
+                operation="bookmarks.get_prefs",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error getting bookmark prefs: {e}")
         return jsonify({'ok': False, 'error': 'Failed to get prefs'}), 500
 
@@ -471,6 +667,20 @@ def set_prefs():
         )
         return jsonify({'ok': True, 'default_color': color})
     except Exception as e:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        try:
+            emit_event(
+                "bookmarks_set_prefs_error",
+                severity="anomaly",
+                operation="bookmarks.set_prefs",
+                handled=True,
+                request_id=rid,
+                user_id=int(uid) if uid is not None else None,
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.error(f"Error setting bookmark prefs: {e}")
         return jsonify({'ok': False, 'error': 'Failed to set prefs'}), 500
 
@@ -501,5 +711,18 @@ def not_found(error):
 
 @bookmarks_bp.errorhandler(500)
 def internal_error(error):
+    try:
+        rid = _get_request_id()
+        uid = session.get('user_id')
+        emit_event(
+            "bookmarks_internal_error",
+            severity="error",
+            operation="bookmarks.internal_error",
+            request_id=rid,
+            user_id=int(uid) if uid is not None else None,
+            error=str(error),
+        )
+    except Exception:
+        pass
     logger.error(f"Internal error: {error}")
     return jsonify({'ok': False, 'error': 'Internal server error'}), 500
