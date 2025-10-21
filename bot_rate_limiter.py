@@ -47,7 +47,20 @@ def check_rate_limit(user_id: int, scope: str, limit_name: str = "default") -> b
         return True
     shadow_mode = os.getenv("RATE_LIMIT_SHADOW_MODE", "false").lower() in {"1", "true", "yes"}
     key = _get_user_key(user_id, scope)
-    ok = _limiter.hit(LIMITS[limit_name], key)
+    try:
+        ok = _limiter.hit(LIMITS[limit_name], key)
+    except Exception as e:
+        # Fail-open: אל תחסום את המשתמש אם Redis/אחסון לא זמין
+        try:
+            logger.error("rate_limiter_storage_error_fail_open", extra={
+                "scope": scope,
+                "limit": limit_name,
+                "user_id": int(user_id),
+                "error": str(e),
+            })
+        except Exception:
+            pass
+        return True
     # metrics/logging (best-effort)
     try:
         from metrics import rate_limit_hits, rate_limit_blocked  # type: ignore
