@@ -42,6 +42,13 @@ async def test_rate_limiter_cleanup_all_expired_limit_1():
     user_id = 88
     # מלא
     assert await limiter.check_rate_limit(user_id) is True
+    assert await limiter.check_rate_limit(user_id) is False
+    # הפוך את הרשומה היחידה לישנה
+    from datetime import datetime, timedelta, timezone
+    too_old = datetime.now(timezone.utc) - timedelta(seconds=120)
+    limiter._requests[user_id] = [too_old]
+    # צריך להתנקה לחלוטין ולאפשר
+    assert await limiter.check_rate_limit(user_id) is True
 
 
 def test_limits_packages_present():
@@ -51,10 +58,3 @@ def test_limits_packages_present():
         import limits  # type: ignore
     except Exception as e:
         raise AssertionError(f"Rate limiting deps missing: {e}")
-    assert await limiter.check_rate_limit(user_id) is False
-    # הפוך את הרשומה היחידה לישנה
-    from datetime import datetime, timedelta, timezone
-    too_old = datetime.now(timezone.utc) - timedelta(seconds=120)
-    limiter._requests[user_id] = [too_old]
-    # צריך להתנקה לחלוטין ולאפשר
-    assert await limiter.check_rate_limit(user_id) is True
