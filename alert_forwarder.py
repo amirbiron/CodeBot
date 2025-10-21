@@ -71,10 +71,11 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
             severity = labels.get("severity") or labels.get("level") or "info"
             emit_event(
                 "alert_received",
-                severity="error" if str(severity).lower() in {"error", "critical"} else "warn",
+                severity="anomaly",
                 alertname=str(labels.get("alertname") or labels.get("name") or ""),
                 severity_label=str(severity),
                 status=str(alert.get("status") or ""),
+                handled=False,
             )
             _post_to_slack(text)
             _post_to_telegram(text)

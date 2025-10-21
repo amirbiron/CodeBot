@@ -137,7 +137,7 @@ def create_app() -> web.Application:
 
         # Forward via helper (Slack/Telegram) and emit events
         try:
-            emit_event("alert_received", severity="info", count=int(len(alerts)))
+            emit_event("alert_received", severity="anomaly", count=int(len(alerts)))
         except Exception:
             pass
         try:
