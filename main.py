@@ -934,6 +934,12 @@ class CodeKeeperBot:
                     except Exception:
                         pass
 
+        # חשיפה לצרכי בדיקות: שמור הפניה לשער ברמת האובייקט
+        try:
+            self._rate_limit_gate = _rate_limit_gate  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
         # הוסף כשכבת סינון מוקדמת עבור הודעות ולחיצות
         try:
             self.application.add_handler(MessageHandler(filters.ALL, _rate_limit_gate), group=-90)
