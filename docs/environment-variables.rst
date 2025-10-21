@@ -343,6 +343,36 @@
      - ``10000`` (ב-main), ``5000`` (ב-WebApp)
      - ``8080``
      - Bot/WebApp
+   * - ``AIOHTTP_POOL_LIMIT``
+     - גודל בריכת חיבורים ל‑aiohttp
+     - לא
+     - ``50``
+     - ``100``
+     - Bot/WebApp
+   * - ``AIOHTTP_TIMEOUT_TOTAL``
+     - Timeout כולל לשיחות aiohttp (שניות)
+     - לא
+     - ``10``
+     - ``30``
+     - Bot/WebApp
+   * - ``REDIS_MAX_CONNECTIONS``
+     - גודל בריכת חיבורים ל‑Redis
+     - לא
+     - ``50``
+     - ``200``
+     - Bot/WebApp
+   * - ``SEARCH_PAGE_SIZE``
+     - גודל דף חיפוש בצד ה‑DB
+     - לא
+     - ``200``
+     - ``500``
+     - Bot/WebApp
+   * - ``UI_PAGE_SIZE``
+     - גודל דף ליסטים ב‑UI
+     - לא
+     - ``10``
+     - ``20``
+     - WebApp
    * - ``ENCRYPTION_KEY``
      - מפתח הצפנה לנתונים רגישים
      - לא

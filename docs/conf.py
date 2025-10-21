@@ -97,7 +97,7 @@ exclude_patterns = [
     '_build',
     'Thumbs.db',
     '.DS_Store',
-    'api/get-pip.rst',
+    'api/get-pip.rst',  # exclude from toctree; module is not needed in RTD
     '_templates/**',  # exclude RST templates not in toctree
     # הימנעות מכפילויות ותוכן שלא בתוכן העניינים כאשר MyST פעיל
     'logging_schema.rst',  # יש גם logging_schema.md שמוכלל

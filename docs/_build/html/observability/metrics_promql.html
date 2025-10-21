@@ -94,6 +94,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id3">החרגות חשובות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#pydantic-settings">קונפיגורציה (Pydantic Settings)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id6">קישורים</a></li>
 </ul>
@@ -187,6 +188,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#env-example">.env.example</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -194,6 +197,18 @@
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id4">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../large-files-runbook.html#id1">מגבלות ופולבקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../large-files-runbook.html#id2">הנחיות הפעלה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../large-files-runbook.html#id3">ניטור</a></li>
 </ul>
 </li>
 </ul>
@@ -469,6 +484,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.metrics_content_type"><code class="docutils literal notranslate"><span class="pre">metrics_content_type()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -680,6 +696,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../database/index.html#statistics-operations">Statistics Operations</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#users">אינדקסים בקולקציית users</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../database/indexing.html">MongoDB Indexing Cookbook</a><ul>
@@ -780,6 +797,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id3">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../testing-rate-limit-examples.html">דוגמאות טסטים – Rate Limiting ואסינכרוניות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../testing-rate-limit-examples.html#rate-limiting-redis-mock">Rate Limiting (Redis Mock)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing-rate-limit-examples.html#id1">טסטים אסינכרוניים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-tests.html#id2">סימון טסטים</a></li>
@@ -841,6 +863,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../development.html#endpoint-webapp">הוספת Endpoint ל‑WebApp</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../development.html#schema">עדכון Schema במסד הנתונים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../development.html#id1">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../development/pre-commit.html">Pre-commit Hooks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../development/pre-commit.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/pre-commit.html#id2">התקנה והרצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/pre-commit.html#hooks">Hooks פעילים (עיקריים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/pre-commit.html#id3">טיפים לפתרון בעיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../integrations.html">Integrations</a><ul>
@@ -947,8 +976,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../quality/type-safety.html">📝 Type Hints – Best Practices</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id1">אסטרטגיה: הקשחה הדרגתית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id2">פרוטוקולים וסטאבים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id3">הנחיות לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id4">דוגמאות קצרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id3">דוגמאות מהקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#mypy">הגדרות MyPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id4">מסלול מיגרציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id5">הנחיות לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quality/type-safety.html#id6">דוגמאות קצרות</a></li>
 </ul>
 </li>
 </ul>
@@ -1024,7 +1056,26 @@
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id1">מטרות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id2">קהלי יעד</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id3">תצורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#backend-traces">בחירת Backend ל־Traces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#otlp">הגדרת OTLP לסביבות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#manual-instrumentation">אינסטרומנטציה ידנית (Manual Instrumentation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#jaeger">דוקר קומפוז – הפעלה מהירה עם Jaeger</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability.html#quick-start-jaeger">Quick start – אימות ספאנים ב־Jaeger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../rate-limiting.html">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#id1">מבוא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#shadow-mode">Shadow Mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#softwarning-80">Soft‑Warning (80%)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#admin-bypass">Admin Bypass</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#monitoring">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../rate-limiting.html#id2">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="guidelines.html">📊 הנחיות Observability ואירועים</a><ul>
@@ -1046,7 +1097,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../metrics.html">מדדים (Metrics)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../metrics.html#id1">נקודת קצה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../metrics.html#id2">מטריקות קיימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#opentelemetry">מטריקות OpenTelemetry (אם זמינות)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../metrics.html#promql">דוגמאות PromQL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#tracing-grafana">Tracing ב-Grafana</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#slo-sli">SLO/SLI לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../metrics.html#prometheus-alerting-rules">התראות (Prometheus alerting rules)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../alerts.html">התראות (Alerts)</a><ul>
@@ -1073,6 +1128,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/github_backup_restore.html#id7">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../runbooks/slo.html">Runbooks – SLO Incidents</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#higherrorrate">HighErrorRate</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#sloavailabilitybreach-99-9">SLOAvailabilityBreach (זמינות &lt; 99.9%)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#slolatencyp95breach-p95-0-5s">SLOLatencyP95Breach (P95 &gt; 0.5s)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#id1">דשבורד</a></li>
 </ul>
 </li>
 </ul>
@@ -1112,6 +1174,19 @@
 <li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id4">סקריפטים חשובים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#id5">מפת דרכים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../ai-agents/guide.html#github-issues-chatops">GitHub Issues ו-ChatOps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#pydantic-settings">קונפיגורציה (Pydantic Settings)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../agents/rate-limiting.html#id6">קישורים</a></li>
 </ul>
 </li>
 </ul>
