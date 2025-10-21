@@ -34,6 +34,34 @@ class BotConfig(BaseSettings):
     CACHE_ENABLED: bool = Field(
         default=False, description="Enable in-memory/Redis caching where applicable"
     )
+    REDIS_MAX_CONNECTIONS: int = Field(
+        default=50,
+        ge=1,
+        le=100_000,
+        description="Redis connection pool max size",
+    )
+    REDIS_CONNECT_TIMEOUT: Optional[float] = Field(
+        default=None,
+        description="Redis socket_connect_timeout (seconds); if None, uses SAFE_MODE defaults",
+    )
+    REDIS_SOCKET_TIMEOUT: Optional[float] = Field(
+        default=None,
+        description="Redis socket_timeout (seconds); if None, uses SAFE_MODE defaults",
+    )
+
+    # HTTP client pooling/timeouts (aiohttp)
+    AIOHTTP_POOL_LIMIT: int = Field(
+        default=50,
+        ge=1,
+        le=10_000,
+        description="Default TCPConnector limit for aiohttp client sessions",
+    )
+    AIOHTTP_TIMEOUT_TOTAL: int = Field(
+        default=10,
+        ge=1,
+        le=300,
+        description="Default total timeout (seconds) for aiohttp client sessions",
+    )
 
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = Field(default=True, description="Enable rate limiting globally")
@@ -150,6 +178,20 @@ class BotConfig(BaseSettings):
     )
     NORMALIZE_CODE_ON_SAVE: bool = Field(
         default=True, description="Normalize hidden characters before save"
+    )
+
+    # Pagination defaults
+    SEARCH_PAGE_SIZE: int = Field(
+        default=200,
+        ge=1,
+        le=10_000,
+        description="Default page size for DB-backed search pagination",
+    )
+    UI_PAGE_SIZE: int = Field(
+        default=10,
+        ge=1,
+        le=200,
+        description="Default UI pagination size for chat menus (e.g., lists)",
     )
 
     # Observability / Sentry

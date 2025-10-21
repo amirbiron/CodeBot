@@ -457,7 +457,11 @@ class BackupMenuHandler:
             return
         
         # עימוד תוצאות
-        PAGE_SIZE = 10
+        try:
+            from config import config as _cfg  # type: ignore
+            PAGE_SIZE = int(getattr(_cfg, 'UI_PAGE_SIZE', 10)) if hasattr(_cfg, 'UI_PAGE_SIZE') else 10
+        except Exception:
+            PAGE_SIZE = 10
         total = len(backups)
         # ברירת מחדל: שמור עמוד אחרון שסיירנו בו אם לא סופק
         try:

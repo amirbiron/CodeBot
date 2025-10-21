@@ -98,8 +98,11 @@ async def test_download_zip_repo_error_does_not_open_backups_list(monkeypatch):
         def get_repo(self, _):
             return _Repo()
 
-    def _req_get(_url, timeout=60):
-        raise Exception("boom")
+    class _Resp:
+        def raise_for_status(self):
+            raise Exception("boom")
+    def _req_get(_url, headers=None, stream=False, timeout=60):
+        return _Resp()
 
     # Patch environment
     monkeypatch.setattr(gh, "Github", _Gh)

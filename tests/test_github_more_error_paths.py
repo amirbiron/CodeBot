@@ -30,7 +30,10 @@ async def test_zipball_fetch_error_emits_and_counts(monkeypatch):
         content = b""
         def raise_for_status(self):
             raise RuntimeError("fetch-fail")
-    monkeypatch.setattr(gh, "requests", types.SimpleNamespace(get=lambda *a, **k: _Resp()))
+    # Ensure our stub matches the new signature with headers/stream
+    def _req_get(url, headers=None, stream=False, timeout=60):
+        return _Resp()
+    monkeypatch.setattr(gh, "requests", types.SimpleNamespace(get=_req_get))
 
     events = {"evts": []}
     def _emit(evt, severity="info", **fields):

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import html
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 try:  # Optional sentry integration
@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover
 
 def _now_iso() -> str:
     try:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
     except Exception:
         return ""
 

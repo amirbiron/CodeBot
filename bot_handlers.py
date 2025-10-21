@@ -683,8 +683,15 @@ class AdvancedBotHandlers:
             gh_status = "unknown"
             try:
                 if aiohttp is not None and os.getenv("GITHUB_TOKEN"):
-                    timeout = aiohttp.ClientTimeout(total=10)
-                    connector = aiohttp.TCPConnector(limit=50)
+                    try:
+                        from config import config as _cfg  # type: ignore
+                        _total = int(getattr(_cfg, "AIOHTTP_TIMEOUT_TOTAL", 10))
+                        _limit = int(getattr(_cfg, "AIOHTTP_POOL_LIMIT", 50))
+                    except Exception:
+                        _total = 10
+                        _limit = 50
+                    timeout = aiohttp.ClientTimeout(total=_total)
+                    connector = aiohttp.TCPConnector(limit=_limit)
                     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                         async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
                             data = await resp.json()
@@ -1139,8 +1146,15 @@ class AdvancedBotHandlers:
             if aiohttp is None or not os.getenv("GITHUB_TOKEN"):
                 await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
                 return
-            timeout = aiohttp.ClientTimeout(total=10)
-            connector = aiohttp.TCPConnector(limit=50)
+            try:
+                from config import config as _cfg  # type: ignore
+                _total = int(getattr(_cfg, "AIOHTTP_TIMEOUT_TOTAL", 10))
+                _limit = int(getattr(_cfg, "AIOHTTP_POOL_LIMIT", 50))
+            except Exception:
+                _total = 10
+                _limit = 50
+            timeout = aiohttp.ClientTimeout(total=_total)
+            connector = aiohttp.TCPConnector(limit=_limit)
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
                     data = await resp.json()
