@@ -136,6 +136,11 @@ class BotConfig(BaseSettings):
         default=True, description="Normalize hidden characters before save"
     )
 
+    # Observability / Sentry
+    SENTRY_DSN: Optional[str] = Field(
+        default=None, description="Sentry DSN for error reporting"
+    )
+
     # Metrics DB
     METRICS_DB_ENABLED: bool = Field(
         default=False, description="Enable metrics dual-write to DB"

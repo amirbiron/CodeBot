@@ -126,7 +126,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     try:
         if context.args and len(context.args) > 0 and str(context.args[0]).strip().lower() == "webapp_login":
             import hashlib, time
-            webapp_url = (config.WEBAPP_URL or os.getenv('WEBAPP_URL') or 'https://code-keeper-webapp.onrender.com')
+            webapp_url = (config.WEBAPP_URL or 'https://code-keeper-webapp.onrender.com')
             timestamp = int(time.time())
             secret = os.getenv('SECRET_KEY', 'dev-secret-key')
             token_data = f"{user_id}:{timestamp}:{secret}"
