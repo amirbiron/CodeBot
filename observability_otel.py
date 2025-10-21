@@ -108,12 +108,15 @@ def setup_telemetry(
         resource = Resource.create(resource_attrs)
 
         # ----- Tracing -----
-        endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-        insecure = _str2bool(os.getenv("OTEL_EXPORTER_INSECURE", "false"))
-        span_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
-        tracer_provider = TracerProvider(resource=resource)
-        tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
-        trace.set_tracer_provider(tracer_provider)
+        # אין להשתמש ב-localhost כברירת מחדל בעננים (Render וכד')
+        # אם לא הוגדר OTEL_EXPORTER_OTLP_ENDPOINT – דלג בשקט על אתחול OTel
+        endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or ""
+        if endpoint.strip():
+            insecure = _str2bool(os.getenv("OTEL_EXPORTER_INSECURE", "false"))
+            span_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
+            tracer_provider = TracerProvider(resource=resource)
+            tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
+            trace.set_tracer_provider(tracer_provider)
 
         # ----- Metrics (best-effort) -----
         if _METRICS_AVAILABLE:

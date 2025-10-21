@@ -109,6 +109,10 @@ services:
       # Monitoring
       SENTRY_DSN: ${SENTRY_DSN}
       ENABLE_METRICS: ${ENABLE_METRICS:-false}
+      # OpenTelemetry (optional)
+      # ברירת מחדל בדוקר: ינסה לשלוח ל-Jaeger בתוך הרשת של compose
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
+      OTEL_EXPORTER_INSECURE: ${OTEL_EXPORTER_INSECURE:-true}
     
     ports:
       - "${BOT_PORT:-8000}:8000"
@@ -253,6 +257,27 @@ services:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
+    networks:
+      - code-keeper-network
+    profiles:
+      - monitoring
+
+  # ===================================
+  # Jaeger (Tracing backend - optional)
+  # ===================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: code-keeper-jaeger
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      # Jaeger UI
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      # OTLP gRPC receiver (for local testing outside the compose network)
+      - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317"
+      # OTLP HTTP receiver (optional)
+      - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318"
     networks:
       - code-keeper-network
     profiles:
