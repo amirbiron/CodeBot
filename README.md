@@ -119,15 +119,39 @@ source venv/bin/activate
 
 ### 3. התקנת תלויות
 
-```bash
-pip install -r requirements/production.txt -c constraints.txt
-```
+יש שתי דרכים עיקריות להתקין תלויות — פיתוח מול ייצור:
 
-> מבנה דרישות חדש:
-> - `requirements/base.txt` – תלויות בסיס משותפות.
-> - `requirements/production.txt` – מרחיב את base לייצור.
-> - `requirements/development.txt` – מרחיב את production לכלי פיתוח/טסטים.
-> - `constraints.txt` – נוצר אוטומטית בבילד (`pip freeze`) ומשמש כ‑constraints לנעילה.
+- פיתוח מקומי (ברירת מחדל):
+
+  ```bash
+  # אגרגטור נוח שמפנה ל-development
+  pip install -r requirements.txt
+
+  # (אופציונלי) שימוש ב-constraints לנעילה דטרמיניסטית
+  pip freeze | sort > constraints.txt
+  pip install -r requirements/development.txt -c constraints.txt
+  ```
+
+- ייצור (מומלץ עם constraints):
+
+  ```bash
+  pip install -r requirements/production.txt -c constraints.txt
+  # ליצירת constraints אם אין:
+  pip freeze | sort > constraints.txt
+  ```
+
+- טסטים מינימליים (Smoke/CI מהיר):
+
+  ```bash
+  pip install -r requirements/minimal.txt
+  ```
+
+מבנה הדרישות:
+- `requirements/base.txt` – תלויות בסיס משותפות.
+- `requirements/production.txt` – מרחיב את base לייצור.
+- `requirements/development.txt` – מרחיב את production לכלי פיתוח/טסטים.
+- `requirements/minimal.txt` – מינימום תלות להרצות Smoke/CI קלות.
+- `constraints.txt` – נוצר אוטומטית (`pip freeze`) ומשמש כ‑constraints לנעילה.
 
 ### 4. הורדת מודלי שפה נוספים (אופציונלי)
 
