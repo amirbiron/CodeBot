@@ -8,17 +8,19 @@ async def test_rate_limit_command_handles_no_token(monkeypatch):
     import bot_handlers as bh
     importlib.reload(bh)
 
-    # Ensure no token
+    # Ensure no token and mark user as admin
     monkeypatch.delenv('GITHUB_TOKEN', raising=False)
 
-    # Stub message to collect replies
+    # Stub is_admin to True
+    monkeypatch.setattr(bh.AdvancedBotHandlers, '_is_admin', lambda self, uid: True)
+
     class _Msg:
         def __init__(self):
             self.texts = []
         async def reply_text(self, t):
             self.texts.append(t)
 
-    update = types.SimpleNamespace(message=_Msg())
+    update = types.SimpleNamespace(message=_Msg(), effective_user=types.SimpleNamespace(id=1))
     context = types.SimpleNamespace()
 
     h = bh.AdvancedBotHandlers(application=types.SimpleNamespace())
@@ -32,8 +34,9 @@ async def test_rate_limit_command_happy_path(monkeypatch):
     import bot_handlers as bh
     importlib.reload(bh)
 
-    # Provide token and stub aiohttp
+    # Provide token and stub aiohttp; mark user as admin
     monkeypatch.setenv('GITHUB_TOKEN', 't')
+    monkeypatch.setattr(bh.AdvancedBotHandlers, '_is_admin', lambda self, uid: True)
 
     class _Resp:
         def __init__(self, data):
@@ -71,7 +74,7 @@ async def test_rate_limit_command_happy_path(monkeypatch):
         async def reply_text(self, t):
             self.texts.append(t)
 
-    update = types.SimpleNamespace(message=_Msg())
+    update = types.SimpleNamespace(message=_Msg(), effective_user=types.SimpleNamespace(id=1))
     context = types.SimpleNamespace()
 
     h = bh.AdvancedBotHandlers(application=types.SimpleNamespace())
