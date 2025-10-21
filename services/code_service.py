@@ -11,14 +11,16 @@ Code Service Module
 - חיפוש בקוד
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 from utils import normalize_code
 
 # Thin wrapper around existing code_processor to allow future swap/refactor
+# We keep a loose type here to avoid importing heavy optional deps during type checking/runtime.
 try:
-    from code_processor import code_processor  # type: ignore
+    from code_processor import code_processor as _cp
+    code_processor: Optional[Any] = _cp
 except Exception:  # optional deps (e.g., cairosvg) might be missing locally
-    code_processor = None  # type: ignore[assignment]
+    code_processor = None
 
 
 def _fallback_detect_language(code: str, filename: str) -> str:

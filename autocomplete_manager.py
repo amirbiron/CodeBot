@@ -4,12 +4,18 @@ Autocomplete Manager for File Names and Tags
 """
 
 import logging
-from typing import List, Dict, Set
+from typing import Any, List, Dict, Set
+
+fuzz: Any
+process: Any
+_HAS_FUZZY: bool = False
+
 try:
-    from rapidfuzz import fuzz, process  # type: ignore
+    from rapidfuzz import fuzz as _rf_fuzz, process as _rf_process
+    fuzz = _rf_fuzz
+    process = _rf_process
     _HAS_FUZZY = True
 except Exception:
-    _HAS_FUZZY = False
     # Minimal fallbacks
     class _Fuzz:
         @staticmethod
@@ -23,15 +29,15 @@ except Exception:
             # crude overlap measure
             common = sum(1 for ch in set(a) if ch in b)
             return int(100 * common / max(len(set(a + b)), 1))
-    fuzz = _Fuzz()  # type: ignore
+    fuzz = _Fuzz()
     class _Process:
         @staticmethod
-        def extract(query: str, choices, scorer=None, limit=5):
+        def extract(query: str, choices: List[str], scorer: Any = None, limit: int = 5) -> List[tuple[str, int]]:
             scorer = scorer or (lambda x, y: 0)
-            scored = [(c, int(scorer(query, c))) for c in choices]
+            scored: List[tuple[str, int]] = [(c, int(scorer(query, c))) for c in choices]
             scored.sort(key=lambda t: t[1], reverse=True)
             return [(c, s) for c, s in scored[:limit]]
-    process = _Process()  # type: ignore
+    process = _Process()
 from database import db
 from cache_manager import cache, cached
 
@@ -40,7 +46,7 @@ logger = logging.getLogger(__name__)
 class AutocompleteManager:
     """מנהל אוטו-השלמה חכם"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.min_similarity = 60  # אחוז דמיון מינימלי לאוטו-השלמה
         
     @cached(expire_seconds=180, key_prefix="autocomplete_files")
@@ -70,7 +76,7 @@ class AutocompleteManager:
             logger.error(f"שגיאה בקבלת תגיות לאוטו-השלמה: {e}")
             return []
     
-    def suggest_filenames(self, user_id: int, partial_name: str, limit: int = 5) -> List[Dict[str, any]]:
+    def suggest_filenames(self, user_id: int, partial_name: str, limit: int = 5) -> List[Dict[str, Any]]:
         """הצעות שמות קבצים בהתבסס על קלט חלקי"""
         if not partial_name or len(partial_name) < 2:
             return []
@@ -113,7 +119,7 @@ class AutocompleteManager:
             logger.error(f"שגיאה בהצעת שמות קבצים: {e}")
             return []
     
-    def suggest_tags(self, user_id: int, partial_tag: str, limit: int = 5) -> List[Dict[str, any]]:
+    def suggest_tags(self, user_id: int, partial_tag: str, limit: int = 5) -> List[Dict[str, Any]]:
         """הצעות תגיות בהתבסס על קלט חלקי"""
         if not partial_tag or len(partial_tag) < 1:
             return []
@@ -192,7 +198,7 @@ class AutocompleteManager:
             logger.error(f"שגיאה בקבלת קבצים אחרונים: {e}")
             return []
     
-    def invalidate_cache(self, user_id: int):
+    def invalidate_cache(self, user_id: int) -> None:
         """ביטול cache של אוטו-השלמה למשתמש"""
         cache.delete_pattern(f"autocomplete_*:*:user:{user_id}:*")
 

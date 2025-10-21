@@ -25,29 +25,29 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 # Optional telegram import with safe fallback for web-only environments
 try:
-    import telegram  # type: ignore
+    import telegram
 except Exception:  # pragma: no cover - executed only when telegram is missing
     import types as _types
 
     class _BadRequest(Exception):
         pass
 
-    telegram = _types.SimpleNamespace(  # type: ignore[assignment]
+    telegram = _types.SimpleNamespace(
         error=_types.SimpleNamespace(BadRequest=_BadRequest)
     )
 
 try:
-    import aiofiles  # type: ignore
+    import aiofiles
 except Exception:  # optional for tests
-    aiofiles = None  # type: ignore[assignment]
+    aiofiles = None
 try:
-    import aiohttp  # type: ignore
+    import aiohttp
 except Exception:  # optional for tests
-    aiohttp = None  # type: ignore[assignment]
+    aiohttp = None
 try:
-    from telegram import Message, Update, User  # type: ignore
-    from telegram.constants import ChatAction, ParseMode  # type: ignore
-    from telegram.ext import ContextTypes  # type: ignore
+    from telegram import Message, Update, User
+    from telegram.constants import ChatAction, ParseMode
+    from telegram.ext import ContextTypes
 except Exception:  # lightweight stubs for test env
     class Message:  # type: ignore[no-redef]
         pass
@@ -55,11 +55,11 @@ except Exception:  # lightweight stubs for test env
         pass
     class User:  # type: ignore[no-redef]
         pass
-    ChatAction = None  # type: ignore[assignment]
-    ParseMode = None  # type: ignore[assignment]
+    ChatAction = None
+    ParseMode = None
     class _ContextTypes:
         DEFAULT_TYPE = object
-    ContextTypes = _ContextTypes  # type: ignore[assignment]
+    ContextTypes = _ContextTypes
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class CodeErrorLogger:
             self.logger.setLevel(logging.INFO)
     
     def log_code_processing_error(self, user_id: int, error_type: str, error_message: str, 
-                                context: Dict[str, Any] = None):
+                                context: Optional[Dict[str, Any]] = None) -> None:
         """רישום שגיאות עיבוד קוד"""
         context = context or {}
         log_entry = {
@@ -107,7 +107,7 @@ class CodeErrorLogger:
         
         self.logger.error(f"CODE_ERROR: {json.dumps(log_entry, ensure_ascii=False)}")
     
-    def log_code_activity(self, user_id: int, activity_type: str, details: Dict[str, Any] = None):
+    def log_code_activity(self, user_id: int, activity_type: str, details: Optional[Dict[str, Any]] = None) -> None:
         """רישום פעילות עיבוד קוד"""
         details = details or {}
         log_entry = {
@@ -362,7 +362,7 @@ class SecurityUtils:
     
     @staticmethod
     def validate_user_input(text: str, max_length: int = 10000, 
-                           forbidden_patterns: List[str] = None) -> bool:
+                           forbidden_patterns: Optional[List[str]] = None) -> bool:
         """בדיקת קלט משתמש"""
         
         if len(text) > max_length:
@@ -420,7 +420,7 @@ class TelegramUtils:
     async def safe_answer(query, text: Optional[str] = None, show_alert: bool = False, cache_time: Optional[int] = None) -> None:
         """מענה בטוח ל-CallbackQuery: מתעלם משגיאות 'Query is too old'/'query_id_invalid'."""
         try:
-            kwargs = {}
+            kwargs: Dict[str, Any] = {}
             if text is not None:
                 kwargs["text"] = text
             if show_alert:
@@ -428,7 +428,7 @@ class TelegramUtils:
             if cache_time is not None:
                 kwargs["cache_time"] = int(cache_time)
             await query.answer(**kwargs)
-        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+        except Exception as e:
             msg = str(e).lower()
             if "query is too old" in msg or "query_id_invalid" in msg or "message to edit not found" in msg:
                 return
@@ -474,7 +474,7 @@ class TelegramUtils:
                 await query.edit_message_text(text=text, reply_markup=reply_markup)
             else:
                 await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+        except Exception as e:
             msg = str(e).lower()
             # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
             if "not modified" in msg:
@@ -492,7 +492,7 @@ class TelegramUtils:
         """עריכת מקלדת הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
         try:
             await query.edit_message_reply_markup(reply_markup=reply_markup)
-        except telegram.error.BadRequest as e:  # type: ignore[attr-defined]
+        except Exception as e:
             msg = str(e).lower()
             if "not modified" in msg:
                 return
@@ -541,8 +541,8 @@ class TelegramUtils:
                 return base
 
             length = len(base)
-            opens = {i: [] for i in range(length + 1)}
-            closes = {i: [] for i in range(length + 1)}
+            opens: Dict[int, List[str]] = {i: [] for i in range(length + 1)}
+            closes: Dict[int, List[str]] = {i: [] for i in range(length + 1)}
 
             # רישום ישויות בסיסי
             ent_ranges: List[Tuple[str, int, int]] = []
@@ -923,7 +923,7 @@ class ConfigUtils:
     """כלים לקונפיגורציה"""
     
     @staticmethod
-    def load_json_config(file_path: str, default: Dict = None) -> Dict:
+    def load_json_config(file_path: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """טעינת קונפיגורציה מקובץ JSON"""
         
         if default is None:
@@ -942,7 +942,7 @@ class ConfigUtils:
             return default
     
     @staticmethod
-    def save_json_config(file_path: str, config: Dict) -> bool:
+    def save_json_config(file_path: str, config: Dict[str, Any]) -> bool:
         """שמירת קונפיגורציה לקובץ JSON"""
         
         try:
@@ -960,8 +960,8 @@ class ConfigUtils:
 class CacheUtils:
     """כלים לקאש זמני"""
     
-    _cache = {}
-    _cache_times = {}
+    _cache: Dict[str, Any] = {}
+    _cache_times: Dict[str, float] = {}
     
     @classmethod
     def set(cls, key: str, value: Any, ttl: int = 300):
@@ -996,7 +996,7 @@ class CacheUtils:
         cls._cache_times.clear()
 
 # פונקציות עזר גלובליות
-def get_memory_usage() -> Dict[str, float]:
+def get_memory_usage() -> Dict[str, Any]:
     """קבלת נתוני זיכרון"""
     try:
         import psutil
@@ -1004,14 +1004,14 @@ def get_memory_usage() -> Dict[str, float]:
         memory_info = process.memory_info()
         
         return {
-            "rss_mb": memory_info.rss / 1024 / 1024,
-            "vms_mb": memory_info.vms / 1024 / 1024,
-            "percent": process.memory_percent()
+            "rss_mb": float(memory_info.rss) / 1024 / 1024,
+            "vms_mb": float(memory_info.vms) / 1024 / 1024,
+            "percent": float(process.memory_percent()),
         }
     except ImportError:
         return {"error": "psutil לא מותקן"}
 
-def setup_logging(level: str = "INFO", log_file: str = None) -> logging.Logger:
+def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> logging.Logger:
     """הגדרת לוגים"""
     
     # הגדרת רמת לוג
@@ -1024,10 +1024,10 @@ def setup_logging(level: str = "INFO", log_file: str = None) -> logging.Logger:
     )
     
     # הגדרת handlers
-    handlers = [logging.StreamHandler(sys.stdout)]
+    handlers: List[logging.Handler] = [logging.StreamHandler(sys.stdout)]
     
     if log_file:
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler: logging.Handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
     
@@ -1040,7 +1040,7 @@ def setup_logging(level: str = "INFO", log_file: str = None) -> logging.Logger:
     
     return logging.getLogger(__name__)
 
-def generate_summary_stats(files_data: List[Dict]) -> Dict[str, Any]:
+def generate_summary_stats(files_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """יצירת סיכום סטטיסטיקות"""
     
     if not files_data:
@@ -1050,22 +1050,22 @@ def generate_summary_stats(files_data: List[Dict]) -> Dict[str, Any]:
     total_size = sum(len(f.get('code', '')) for f in files_data)
     
     languages = [f.get('language', 'unknown') for f in files_data]
-    language_counts = {lang: languages.count(lang) for lang in set(languages)}
+    language_counts: Dict[str, int] = {lang: languages.count(lang) for lang in set(languages)}
     
-    all_tags = []
+    all_tags: List[str] = []
     for f in files_data:
         all_tags.extend(f.get('tags', []))
     
-    tag_counts = {tag: all_tags.count(tag) for tag in set(all_tags)}
+    tag_counts: Dict[str, int] = {tag: all_tags.count(tag) for tag in set(all_tags)}
     
     return {
         "total_files": total_files,
         "total_size": total_size,
         "total_size_formatted": TextUtils.format_file_size(total_size),
         "languages": language_counts,
-        "most_used_language": max(language_counts, key=language_counts.get) if language_counts else None,
+        "most_used_language": (max(language_counts, key=lambda k: language_counts[k]) if language_counts else None),
         "tags": tag_counts,
-        "most_used_tag": max(tag_counts, key=tag_counts.get) if tag_counts else None,
+        "most_used_tag": (max(tag_counts, key=lambda k: tag_counts[k]) if tag_counts else None),
         "average_file_size": total_size // total_files if total_files > 0 else 0
     }
 
