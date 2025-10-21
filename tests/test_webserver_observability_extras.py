@@ -136,3 +136,81 @@ async def test_record_request_outcome_failure_emits_anomaly_event(monkeypatch):
     idx = names.index("record_request_outcome_failed")
     _, sev, fields = events[idx]
     assert sev == "anomaly" and fields.get("handled") is True
+
+
+@pytest.mark.asyncio
+async def test_metrics_view_error_emits_event_and_returns_500(monkeypatch):
+    import services.webserver as ws
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    def boom_metrics():  # type: ignore
+        raise RuntimeError("metrics boom")
+
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+    monkeypatch.setattr(ws, "metrics_endpoint_bytes", boom_metrics)
+
+    app = ws.create_app()
+
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/metrics") as resp:
+                assert resp.status == 500
+                text = await resp.text()
+                assert "metrics error" in text
+    finally:
+        await runner.cleanup()
+
+    names = [e[0] for e in events]
+    assert "metrics_view_error" in names
+
+
+@pytest.mark.asyncio
+async def test_share_view_error_and_not_found_events(monkeypatch):
+    import services.webserver as ws
+    import integrations as integ
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    def boom_share(_share_id: str):
+        raise RuntimeError("share boom")
+
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+    monkeypatch.setattr(integ.code_sharing, "get_internal_share", boom_share)
+
+    app = ws.create_app()
+
+    from aiohttp import web
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/share/boom") as resp:
+                # Handler should degrade to 404 after logging and anomaly
+                assert resp.status == 404
+    finally:
+        await runner.cleanup()
+
+    names = [e[0] for e in events]
+    assert "share_view_error" in names
+    assert "share_view_not_found" in names
