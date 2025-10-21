@@ -4372,10 +4372,10 @@ def check_configuration():
     for var_name, var_value in required_vars.items():
         if not var_value:
             missing.append(var_name)
-            logger.warning("Environment variable is not configured", extra={"var_name": var_name})
+            logger.warning("Environment variable is not configured: %s", var_name, extra={"var_name": var_name})
     
     if missing:
-        logger.warning("Missing required environment variables", extra={"missing": missing})
+        logger.warning("Missing required environment variables: %s", ", ".join(missing), extra={"missing": missing})
         logger.warning("Please configure them in Render Dashboard or .env file")
     
     # בדיקת חיבור ל-MongoDB
