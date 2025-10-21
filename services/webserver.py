@@ -10,12 +10,27 @@ try:
     try:
         from utils import install_sensitive_filter  # type: ignore
         install_sensitive_filter()
-    except Exception:
-        pass
+    except Exception as e:
+        # תיעוד חריגה במקום pass בלבד – זרימה אוטומטית מטופלת כאנומליה
+        try:
+            from observability import emit_event  # type: ignore
+            emit_event(
+                "install_sensitive_filter_failed",
+                severity="anomaly",
+                operation="startup",
+                handled=True,
+                error=str(e),
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "install_sensitive_filter_failed", extra={"operation": "startup", "handled": True}
+            )
     init_sentry()
-except Exception:
-    # Fail-open: don't block service startup if observability init fails
-    pass
+except Exception as e:
+    # Fail-open: אל תחסום עלייה – אך רשום אזהרה במקום pass
+    logging.getLogger(__name__).warning(
+        "observability_init_failed", extra={"operation": "startup", "handled": True, "error": str(e)}
+    )
 
 from aiohttp import web
 import json
@@ -65,22 +80,58 @@ def create_app() -> web.Application:
         start = time.perf_counter()
         try:
             bind_request_id(req_id)
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                emit_event(
+                    "bind_request_id_failed",
+                    severity="anomaly",
+                    operation="request_id_middleware",
+                    handled=True,
+                    request_id=req_id,
+                    error=str(e),
+                )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "bind_request_id_failed", extra={"operation": "request_id_middleware", "handled": True}
+                )
         # המשך עיבוד
         response = await handler(request)
         try:
             if hasattr(response, "headers") and req_id:
                 response.headers["X-Request-ID"] = req_id
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                emit_event(
+                    "set_request_id_header_failed",
+                    severity="anomaly",
+                    operation="request_id_middleware",
+                    handled=True,
+                    request_id=req_id,
+                    error=str(e),
+                )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "set_request_id_header_failed", extra={"operation": "request_id_middleware", "handled": True}
+                )
         # Update unified request metrics (best-effort)
         try:
             duration = max(0.0, float(time.perf_counter() - start))
             status = int(getattr(response, "status", 0) or 0)
             record_request_outcome(status, duration)
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                emit_event(
+                    "record_request_outcome_failed",
+                    severity="anomaly",
+                    operation="request_metrics",
+                    handled=True,
+                    request_id=req_id,
+                    error=str(e),
+                )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "record_request_outcome_failed", extra={"operation": "request_metrics", "handled": True}
+                )
         return response
 
     app = web.Application(middlewares=[_request_id_mw])
@@ -145,9 +196,20 @@ def create_app() -> web.Application:
         try:
             from alert_forwarder import forward_alerts  # type: ignore
             forward_alerts(alerts)
-        except Exception:
-            # Soft-fail; already logged by helper as needed
-            pass
+        except Exception as e:
+            # Soft-fail; דווח כאנומליה מטופלת
+            try:
+                emit_event(
+                    "alerts_forward_failed",
+                    severity="anomaly",
+                    operation="alerts_forward",
+                    handled=True,
+                    error=str(e),
+                )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "alerts_forward_failed", extra={"operation": "alerts_forward", "handled": True}
+                )
 
         return web.json_response({"status": "ok", "forwarded": len(alerts)})
 
@@ -248,9 +310,20 @@ def create_app() -> web.Application:
     # Always expose /healthz alias for platform probes
     try:
         app.router.add_get("/healthz", health)
-    except Exception:
-        # Ignore if already registered
-        pass
+    except Exception as e:
+        # Ignore if already registered – אך תעד כאנומליה מטופלת
+        try:
+            emit_event(
+                "healthz_route_register_failed",
+                severity="anomaly",
+                operation="startup",
+                handled=True,
+                error=str(e),
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "healthz_route_register_failed", extra={"operation": "startup", "handled": True}
+            )
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/alerts", alerts_get_view)

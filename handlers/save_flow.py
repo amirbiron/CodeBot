@@ -12,6 +12,18 @@ from utils import normalize_code  # נרמול קלט כדי להסיר תווי
 
 logger = logging.getLogger(__name__)
 
+# Observability (fail-open): unify error/event reporting
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+try:  # type: ignore
+    from internal_alerts import emit_internal_alert  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):  # type: ignore
+        return None
+
 # הגדרות מצב איסוף
 LONG_COLLECT_MAX_BYTES = 300 * 1024  # 300KB
 LONG_COLLECT_TIMEOUT_SECONDS = 15 * 60  # 15 דקות
@@ -86,6 +98,17 @@ def _schedule_long_collect_timeout(update, context: ContextTypes.DEFAULT_TYPE) -
         )
         context.user_data['long_collect_job'] = job
     except Exception as e:
+        try:
+            emit_event(
+                "long_collect_schedule_timeout_failed",
+                severity="anomaly",
+                operation="save_flow.schedule_timeout",
+                handled=True,
+                user_id=getattr(getattr(update, 'effective_user', None), 'id', None),
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.warning(f"Failed scheduling timeout: {e}")
 
 
@@ -118,6 +141,16 @@ async def long_collect_timeout_job(context: ContextTypes.DEFAULT_TYPE):
         )
         # נשארים בסטייט, אך נעולים להוספה נוספת עד /done או /cancel
     except Exception as e:
+        try:
+            emit_event(
+                "long_collect_timeout_job_failed",
+                severity="anomaly",
+                operation="save_flow.timeout_job",
+                handled=True,
+                error=str(e),
+            )
+        except Exception:
+            pass
         logger.warning(f"Timeout job failed: {e}")
 
 async def start_save_flow(update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -423,6 +456,23 @@ async def save_file_final(update, context, filename, user_id):
                 reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True),
             )
     except Exception as e:
+        try:
+            emit_event(
+                "save_file_failed",
+                severity="anomaly",
+                operation="save_flow.save_file_final",
+                handled=True,
+                user_id=int(user_id),
+                file_name=str(filename),
+                error=str(e),
+            )
+            emit_internal_alert(
+                name="save_file_failed",
+                severity="anomaly",
+                summary=f"user_id={user_id}, file_name={filename}",
+            )
+        except Exception:
+            pass
         logger.error(f"Failed to save file for user {user_id}: {e}")
         await update.message.reply_text(
             "🤖 המערכת החכמה שלנו נתקלה בבעיה זמנית.\n"

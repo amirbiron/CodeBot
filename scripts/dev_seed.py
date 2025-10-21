@@ -99,6 +99,18 @@ def is_local_mongo(url: str) -> bool:
 
 logger = logging.getLogger(__name__)
 
+# Observability (fail-open): structured events and internal alerts
+try:  # type: ignore
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+        return None
+try:  # type: ignore
+    from internal_alerts import emit_internal_alert  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):  # type: ignore
+        return None
+
 
 def main():
     allow_nonlocal = "--allow-nonlocal" in sys.argv
@@ -107,6 +119,21 @@ def main():
 
     if not allow_nonlocal and not is_local_mongo(mongo_url):
         logger.error("Refusing to seed non-local MongoDB. Pass --allow-nonlocal to override.")
+        try:
+            emit_event(
+                "dev_seed_refused_nonlocal",
+                severity="anomaly",
+                operation="dev_seed",
+                handled=True,
+                mongo_url=str(mongo_url),
+            )
+            emit_internal_alert(
+                name="dev_seed_refused_nonlocal",
+                severity="anomaly",
+                summary="Attempted to seed non-local MongoDB",
+            )
+        except Exception:
+            pass
         sys.exit(1)
 
     client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000, tz_aware=True)
@@ -153,9 +180,19 @@ def main():
         inserted_ids.append(str(res.inserted_id))
 
     logger.info("Seed completed.")
-    print("user_id=", user_id)
+    try:
+        emit_event(
+            "dev_seed_completed",
+            severity="info",
+            operation="dev_seed",
+            user_id=int(user_id),
+            inserted_count=int(len(inserted_ids)),
+        )
+    except Exception:
+        pass
+    # Replace CLI prints with structured logs for observability
     for i, _id in enumerate(inserted_ids, 1):
-        print(f"file_id_{i}= {_id}")
+        logger.info("seed_inserted_id", extra={"user_id": int(user_id), "index": int(i), "file_id": str(_id)})
 
 
 if __name__ == "__main__":
