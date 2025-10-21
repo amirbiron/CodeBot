@@ -2594,14 +2594,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "batch_analyze_java": "java",
                 "batch_analyze_cpp": "cpp",
             }
-                if data == "batch_analyze_all":
-                    # משוך רק שמות קבצים בהקרנה קלה כדי לחסוך בזיכרון
-                    all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
-                    files = [f['file_name'] for f in all_files if f.get('file_name')]
+            if data == "batch_analyze_all":
+                # משוך רק שמות קבצים בהקרנה קלה כדי לחסוך בזיכרון
+                all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+                files = [f['file_name'] for f in all_files if f.get('file_name')]
             else:
                 language = language_map[data]
-                    all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "programming_language": 1})
-                    files = [f['file_name'] for f in all_files if str(f.get('programming_language', '')).lower() == language and f.get('file_name')]
+                all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "programming_language": 1})
+                files = [f['file_name'] for f in all_files if str(f.get('programming_language', '')).lower() == language and f.get('file_name')]
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
                 return ConversationHandler.END

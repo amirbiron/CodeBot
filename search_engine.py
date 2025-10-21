@@ -135,48 +135,48 @@ class SearchIndex:
                     break
                 offset += len(files)
                 for file_data in files:
-                # גישה בטוחה לשדות שעלולים להיות חסרים במסמכים ישנים/חלקיים
-                file_name_value = str(file_data.get('file_name') or '').strip()
-                if not file_name_value:
-                    # אין טעם לאנדקס רשומה ללא שם קובץ
-                    continue
+                    # גישה בטוחה לשדות שעלולים להיות חסרים במסמכים ישנים/חלקיים
+                    file_name_value = str(file_data.get('file_name') or '').strip()
+                    if not file_name_value:
+                        # אין טעם לאנדקס רשומה ללא שם קובץ
+                        continue
 
-                file_key = f"{user_id}:{file_name_value}"
+                    file_key = f"{user_id}:{file_name_value}"
 
-                code_text: str = str(file_data.get('code') or '')
-                content_lower = code_text.lower()
+                    code_text: str = str(file_data.get('code') or '')
+                    content_lower = code_text.lower()
 
-                # אינדקס מילים
-                words = re.findall(r'\b\w+\b', content_lower)
-                for word in set(words):
-                    if len(word) >= 2:
-                        self.word_index[word].add(file_key)
+                    # אינדקס מילים
+                    words = re.findall(r'\b\w+\b', content_lower)
+                    for word in set(words):
+                        if len(word) >= 2:
+                            self.word_index[word].add(file_key)
 
-                # אינדקס פונקציות (best-effort)
-                try:
-                    language_for_parse = str(file_data.get('programming_language') or '').strip()
-                    functions = code_processor.extract_functions(code_text, language_for_parse)
-                    for func in functions:
-                        func_name = str(func.get('name') or '').lower()
-                        if func_name:
-                            self.function_index[func_name].add(file_key)
-                except Exception:
-                    # אל נעצור אינדוקס בגלל שגיאה בזיהוי פונקציות
-                    pass
+                    # אינדקס פונקציות (best-effort)
+                    try:
+                        language_for_parse = str(file_data.get('programming_language') or '').strip()
+                        functions = code_processor.extract_functions(code_text, language_for_parse)
+                        for func in functions:
+                            func_name = str(func.get('name') or '').lower()
+                            if func_name:
+                                self.function_index[func_name].add(file_key)
+                    except Exception:
+                        # אל נעצור אינדוקס בגלל שגיאה בזיהוי פונקציות
+                        pass
 
-                # אינדקס שפות
-                language_value = str(file_data.get('programming_language') or '').strip()
-                if language_value:
-                    self.language_index[language_value].add(file_key)
+                    # אינדקס שפות
+                    language_value = str(file_data.get('programming_language') or '').strip()
+                    if language_value:
+                        self.language_index[language_value].add(file_key)
 
-                # אינדקס תגיות
-                try:
-                    for tag in list(file_data.get('tags') or []):
-                        tag_value = str(tag or '').lower().strip()
-                        if tag_value:
-                            self.tag_index[tag_value].add(file_key)
-                except Exception:
-                    pass
+                    # אינדקס תגיות
+                    try:
+                        for tag in list(file_data.get('tags') or []):
+                            tag_value = str(tag or '').lower().strip()
+                            if tag_value:
+                                self.tag_index[tag_value].add(file_key)
+                    except Exception:
+                        pass
         
         self.last_update = datetime.now(timezone.utc)
         logger.info(f"אינדקס נבנה: {len(self.word_index)} מילים, {len(self.function_index)} פונקציות")
