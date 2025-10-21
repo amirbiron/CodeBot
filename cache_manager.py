@@ -112,7 +112,7 @@ class CacheManager:
             return None
 
         backend = "redis"
-        timer = cache_op_duration_seconds.labels(operation="get", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="get", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             value = self.redis_client.get(key)
             if value:
@@ -125,8 +125,8 @@ class CacheManager:
             logger.error(f"שגיאה בקריאה מ-cache: {e}")
         finally:
             try:
-                if timer:
-                    timer.observe_duration()  # type: ignore[attr-defined]
+                if timer_ctx:
+                    timer_ctx()  # stop timer
             except Exception:
                 pass
         return None
@@ -137,7 +137,7 @@ class CacheManager:
             return False
 
         backend = "redis"
-        timer = cache_op_duration_seconds.labels(operation="set", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="set", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             serialized = json.dumps(value, default=str, ensure_ascii=False)
             # תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire
@@ -161,8 +161,8 @@ class CacheManager:
             return False
         finally:
             try:
-                if timer:
-                    timer.observe_duration()  # type: ignore[attr-defined]
+                if timer_ctx:
+                    timer_ctx()
             except Exception:
                 pass
     
@@ -172,7 +172,7 @@ class CacheManager:
             return False
 
         backend = "redis"
-        timer = cache_op_duration_seconds.labels(operation="delete", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="delete", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             return bool(self.redis_client.delete(key))
         except Exception as e:
@@ -180,8 +180,8 @@ class CacheManager:
             return False
         finally:
             try:
-                if timer:
-                    timer.observe_duration()  # type: ignore[attr-defined]
+                if timer_ctx:
+                    timer_ctx()
             except Exception:
                 pass
     
@@ -191,7 +191,7 @@ class CacheManager:
             return 0
 
         backend = "redis"
-        timer = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
         try:
             keys = self.redis_client.keys(pattern)
             if keys:
@@ -202,8 +202,8 @@ class CacheManager:
             return 0
         finally:
             try:
-                if timer:
-                    timer.observe_duration()  # type: ignore[attr-defined]
+                if timer_ctx:
+                    timer_ctx()
             except Exception:
                 pass
     

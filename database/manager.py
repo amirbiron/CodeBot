@@ -536,6 +536,13 @@ class DatabaseManager:
     def get_user_files(self, user_id: int, limit: int = 50) -> List[Dict]:
         return self._get_repo().get_user_files(user_id, limit)
 
+    def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
+        """עטיפה נוחה לשמות הקבצים הייחודיים של המשתמש (גרסה אחרונה לכל קובץ).
+
+        משתמש ב־Repository למימוש בפועל.
+        """
+        return self._get_repo().get_user_file_names(user_id, limit)
+
     def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         return self._get_repo().search_code(user_id, query, programming_language, tags, limit)
 
