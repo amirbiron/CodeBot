@@ -2244,7 +2244,15 @@ class GitHubMenuHandler:
                             # ספר קבצים (דלג על תיקיות)
                             file_names = [n for n in zin.namelist() if not n.endswith("/")]
                             file_count = len(file_names)
-                            total_bytes = len(r.content)
+                            # חישוב גודל ה-ZIP מתוך הבאפר שצברנו, ללא תלות ב-Response.content
+                            try:
+                                total_bytes = tmp_buf.getbuffer().nbytes
+                            except Exception:
+                                # fallback סביר אם getbuffer לא קיים
+                                _pos = tmp_buf.tell()
+                                tmp_buf.seek(0, 2)
+                                total_bytes = tmp_buf.tell()
+                                tmp_buf.seek(_pos)
                             # צור ZIP חדש עם metadata
                             out_buf = BytesIO()
                             with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
