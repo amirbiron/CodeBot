@@ -40,6 +40,8 @@ workspace
    metrics
    monitoring
    observability
+   observability_instrumentation
+   observability_otel
    predictive_engine
    rate_limiter
    refactor_handlers

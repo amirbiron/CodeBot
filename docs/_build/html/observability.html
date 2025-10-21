@@ -369,6 +369,7 @@
 <li class="toctree-l3"><a class="reference internal" href="api/batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_rate_limiter.html">bot_rate_limiter module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_commands.html">cache_commands module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
@@ -1184,9 +1185,22 @@
 </section>
 <section id="id3">
 <h2>תצורה<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
-<ul class="simple">
+<ul>
 <li><p>Structured logging באמצעות <code class="docutils literal notranslate"><span class="pre">structlog</span></code>.</p></li>
-<li><p>OpenTelemetry IDs (אם קיימים).</p></li>
+<li><p>OpenTelemetry (אופציונלי): אתחול אוטומטי עם OTLP Exporter.</p>
+<p>משתני סביבה עיקריים:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">OTEL_EXPORTER_OTLP_ENDPOINT</span></code>: ברירת מחדל <code class="docutils literal notranslate"><span class="pre">http://localhost:4317</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OTEL_EXPORTER_INSECURE</span></code>: <code class="docutils literal notranslate"><span class="pre">true</span></code>/<code class="docutils literal notranslate"><span class="pre">false</span></code> (ברירת מחדל <code class="docutils literal notranslate"><span class="pre">false</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ENVIRONMENT</span></code> / <code class="docutils literal notranslate"><span class="pre">ENV</span></code>: שם סביבה לדיווח resource</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">APP_VERSION</span></code>: גרסה לשיוך ל-<code class="docutils literal notranslate"><span class="pre">service.version</span></code></p></li>
+</ul>
+<p>אינסטרומנטציה אוטומטית:
+- Flask (כשקיים אובייקט <code class="docutils literal notranslate"><span class="pre">app</span></code>)
+- Requests
+- PyMongo</p>
+<p>עבור Flask האתחול קורה ב-<code class="docutils literal notranslate"><span class="pre">webapp/app.py</span></code>. עבור תהליכים ללא Flask (למשל הבוט), האתחול קורה ב-<code class="docutils literal notranslate"><span class="pre">main.py</span></code> ללא <code class="docutils literal notranslate"><span class="pre">flask_app</span></code>.</p>
+</li>
 <li><p>Prometheus דרך נקודת קצה <code class="docutils literal notranslate"><span class="pre">/metrics</span></code>.</p></li>
 <li><p>Sentry לטיפול בשגיאות.</p></li>
 </ul>

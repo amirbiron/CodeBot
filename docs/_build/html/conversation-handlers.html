@@ -371,6 +371,7 @@
 <li class="toctree-l3"><a class="reference internal" href="api/batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/bot_rate_limiter.html">bot_rate_limiter module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_commands.html">cache_commands module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
@@ -1560,7 +1561,19 @@
 </div>
 <div class="literal-block-wrapper docutils container" id="id15">
 <div class="code-block-caption"><span class="caption-text">main.py – הגדרת upload_conv_handler (FILE_UPLOAD/REPO_SELECT/FOLDER_SELECT)</span><a class="headerlink" href="#id15" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>                        <span class="bp">self</span><span class="o">.</span><span class="n">_shadow_mode</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;RATE_LIMIT_SHADOW_MODE&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>        <span class="c1"># Rate limiter instance (לאחר בניית האפליקציה)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_rate_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="n">max_per_minute</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;RATE_LIMIT_PER_MINUTE&#39;</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">30</span><span class="p">))</span>
+            <span class="c1"># If advanced backend available and REDIS_URL configured, enable shadow-mode counters</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_advanced_limiter</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">_LIMITS_AVAILABLE</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">redis_url</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;REDIS_URL&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s1">&#39;REDIS_URL&#39;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">redis_url</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_limits_storage</span> <span class="o">=</span> <span class="n">RedisStorage</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">redis_url</span><span class="p">))</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_advanced_limiter</span> <span class="o">=</span> <span class="n">MovingWindowRateLimiter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_limits_storage</span><span class="p">)</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_per_user_global</span> <span class="o">=</span> <span class="n">RateLimitItemPerMinute</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_shadow_mode</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;RATE_LIMIT_SHADOW_MODE&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
                 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">_advanced_limiter</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
@@ -1569,18 +1582,6 @@
     <span class="k">def</span> <span class="nf">_install_correlation_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;רישום Handler מוקדם שמייצר ומקשר request_id ומודד מטריקות בסיסיות.&quot;&quot;&quot;</span>
         <span class="k">async</span> <span class="k">def</span> <span class="nf">_pre_update</span><span class="p">(</span><span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
-            <span class="c1"># request_id קצר ונוח</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">req_id</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;request_id&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="s2">&quot;user_data&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
-            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="n">req_id</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">req_id</span><span class="p">:</span>
-                <span class="n">req_id</span> <span class="o">=</span> <span class="n">generate_request_id</span><span class="p">()</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="s2">&quot;user_data&quot;</span><span class="p">):</span>
-                        <span class="n">context</span><span class="o">.</span><span class="n">user_data</span><span class="p">[</span><span class="s2">&quot;request_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">req_id</span>
-                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                    <span class="k">pass</span>
 </pre></div>
 </div>
 </div>

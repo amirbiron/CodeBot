@@ -12,6 +12,7 @@ workspace
    batch_commands
    batch_processor
    bot_handlers
+   bot_rate_limiter
    cache_commands
    cache_manager
    chatops
