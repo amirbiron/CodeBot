@@ -5,7 +5,7 @@ Code Preview Manager
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from html import escape as html_escape
 from utils import get_language_emoji
 from cache_manager import cache, cached
@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 class CodePreviewManager:
     """מנהל תצוגה מקדימה של קוד"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.max_preview_lines = 15  # מקסימום שורות בתצוגה מקדימה
         self.max_line_length = 80   # מקסימום תווים בשורה
     
-    def create_preview(self, code: str, file_name: str, programming_language: str) -> Dict[str, any]:
+    def create_preview(self, code: str, file_name: str, programming_language: str) -> Dict[str, Any]:
         """יוצר תצוגה מקדימה של קוד"""
         try:
             lines = code.split('\n')
@@ -68,7 +68,7 @@ class CodePreviewManager:
                 'language': 'text'
             }
     
-    def _analyze_code_structure(self, code: str, language: str) -> Dict[str, any]:
+    def _analyze_code_structure(self, code: str, language: str) -> Dict[str, Any]:
         """ניתוח מבנה הקוד לתצוגה מקדימה"""
         stats = {
             'functions': 0,
@@ -154,7 +154,7 @@ class CodePreviewManager:
         
         return patterns.get(language.lower(), default_patterns)
     
-    def format_preview_message(self, file_name: str, preview_info: Dict) -> str:
+    def format_preview_message(self, file_name: str, preview_info: Dict[str, Any]) -> str:
         """יוצר הודעה מעוצבת לתצוגה מקדימה"""
         try:
             emoji = preview_info['emoji']
