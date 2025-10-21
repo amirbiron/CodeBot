@@ -47,7 +47,7 @@ repos:
     rev: 1.7.5
     hooks:
       - id: bandit
-        args: ["-c", "bandit.yaml"]
+        # אל תשתמש בקובץ קונפיג חיצוני כדי למנוע כשל כשאינו קיים
 
 # Pre-commit global settings
 default_language_version:
