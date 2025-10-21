@@ -8,6 +8,35 @@ services:
   # Code Keeper Bot - Web Service
   # ===================================
   - type: web
+    name: code-keeper-prometheus
+    env: docker
+    plan: starter
+    dockerfilePath: docker/prometheus/Dockerfile
+    envVars:
+      - key: WEBAPP_HOST
+        # e.g. your webapp host (without https://)
+        value: your-webapp.onrender.com
+      - key: ALERTMANAGER_TARGET
+        # host:port of Alertmanager public service on Render
+        value: your-alertmanager.onrender.com:443
+      - key: PORT
+        value: 9090
+    autoDeploy: true
+    healthCheckPath: /
+
+  - type: web
+    name: code-keeper-alertmanager
+    env: docker
+    plan: starter
+    dockerfilePath: docker/alertmanager/Dockerfile
+    envVars:
+      - key: PORT
+        value: 9093
+      - key: ALERT_WEBHOOK_URL
+        # Webhook of your webapp to forward alerts to Telegram
+        value: https://your-webapp.onrender.com/alertmanager/webhook
+    autoDeploy: true
+    healthCheckPath: /
     name: code-keeper-bot
     env: python
     region: oregon # או virginia, frankfurt, singapore
