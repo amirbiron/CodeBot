@@ -601,6 +601,9 @@ def manage_mongo_lock():
         return True
 
 # =============================================================================
+# Global reference to the current bot instance
+# משמש כדי לאפשר ל-main() לעשות reuse של אינסטנס קיים (לצרכי טסטים/אתחול)
+CURRENT_BOT: CodeKeeperBot | None = None  # יוגדר בתוך CodeKeeperBot.__init__
 
 class CodeKeeperBot:
     """
@@ -753,6 +756,13 @@ class CodeKeeperBot:
                     self._advanced_limiter = None
         except Exception:
             self._rate_limiter = RateLimiter(max_per_minute=30)
+
+        # חשיפה גלובלית של האובייקט הנוכחי עבור main()/טסטים
+        try:
+            global CURRENT_BOT
+            CURRENT_BOT = self
+        except Exception:
+            pass
 
     def _install_correlation_layer(self) -> None:
         """רישום Handler מוקדם שמייצר ומקשר request_id ומודד מטריקות בסיסיות."""
@@ -2853,7 +2863,8 @@ def main() -> None:
         # --- המשך הקוד הקיים שלך ---
         logger.info("Lock acquired. Initializing CodeKeeperBot...")
         
-        bot = CodeKeeperBot()
+        # נשתמש באינסטנס קיים אם כבר נוצר (למשל ע"י טסט), אחרת ניצור חדש
+        bot = CURRENT_BOT or CodeKeeperBot()
         
         logger.info("Bot is starting to poll...")
         # Cache warming: הפעלת עבודה רקע קצרה לאתחול קאש עבור משתמשים/תפריטים נפוצים
