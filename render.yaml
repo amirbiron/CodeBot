@@ -49,11 +49,12 @@ services:
         
       - key: HIGHLIGHT_THEME
         value: github-dark
-      # OpenTelemetry (ניתן לשנות ב-Dashboard לכל סביבה)
-      - key: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: http://localhost:4317
-      - key: OTEL_EXPORTER_INSECURE
-        value: true
+      # OpenTelemetry – אל תשאירו localhost בענן; עדכנו בדשבורד פר סביבה
+      # דוגמה ל-staging (Tempo ב-cluster):
+      # - key: OTEL_EXPORTER_OTLP_ENDPOINT
+      #   value: https://otlp.staging.example.com:4317
+      # - key: OTEL_EXPORTER_INSECURE
+      #   value: false
       - key: RATE_LIMIT_SHADOW_MODE
         value: true
       - key: RATE_LIMIT_STRATEGY
@@ -131,11 +132,12 @@ services:
         
       - key: LOG_LEVEL
         value: INFO
-      # OpenTelemetry (ניתן לשנות ב-Dashboard לכל סביבה)
-      - key: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: http://localhost:4317
-      - key: OTEL_EXPORTER_INSECURE
-        value: true
+      # OpenTelemetry – אל תשאירו localhost בענן; עדכנו בדשבורד פר סביבה
+      # דוגמה ל-staging (Tempo ב-cluster):
+      # - key: OTEL_EXPORTER_OTLP_ENDPOINT
+      #   value: https://otlp.staging.example.com:4317
+      # - key: OTEL_EXPORTER_INSECURE
+      #   value: false
       - key: RATE_LIMIT_SHADOW_MODE
         value: true
       - key: RATE_LIMIT_STRATEGY
