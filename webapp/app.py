@@ -379,7 +379,7 @@ def get_db():
             except Exception:
                 pass
         except Exception as e:
-            print(f"Failed to connect to MongoDB: {e}")
+            logger.exception("Failed to connect to MongoDB")
             raise
     return db
 
@@ -729,7 +729,7 @@ def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
             pass
         return doc
     except Exception as e:
-        print(f"Error fetching internal share: {e}")
+        logger.exception("Error fetching internal share")
         return None
 
 # Telegram Login Widget Verification
@@ -1687,7 +1687,7 @@ def token_auth():
         return redirect(url_for('dashboard'))
         
     except Exception as e:
-        print(f"Error in token auth: {e}")
+        logger.exception("Error in token auth")
         return render_template('login.html', 
                              bot_username=BOT_USERNAME_CLEAN,
                              error="שגיאה בהתחברות. אנא נסה שנית.")
@@ -1817,7 +1817,7 @@ def dashboard():
                              bot_username=BOT_USERNAME_CLEAN)
                              
     except Exception as e:
-        print(f"Error in dashboard: {e}")
+        logger.exception("Error in dashboard")
         import traceback
         traceback.print_exc()
         # נסה להציג דשבורד ריק במקרה של שגיאה
@@ -4292,13 +4292,13 @@ def not_found(e):
 
 @app.errorhandler(500)
 def server_error(e):
-    print(f"Server error: {e}")
+    logger.exception("Server error")
     return render_template('500.html'), 500
 
 @app.errorhandler(Exception)
 def handle_exception(e):
     """טיפול בכל שגיאה אחרת"""
-    print(f"Unhandled exception: {e}")
+    logger.exception("Unhandled exception")
     import traceback
     traceback.print_exc()
     return render_template('500.html'), 500
@@ -4372,34 +4372,34 @@ def check_configuration():
     for var_name, var_value in required_vars.items():
         if not var_value:
             missing.append(var_name)
-            print(f"WARNING: {var_name} is not configured!")
+            logger.warning("Environment variable is not configured: %s", var_name, extra={"var_name": var_name})
     
     if missing:
-        print(f"Missing required environment variables: {', '.join(missing)}")
-        print("Please configure them in Render Dashboard or .env file")
+        logger.warning("Missing required environment variables: %s", ", ".join(missing), extra={"missing": missing})
+        logger.warning("Please configure them in Render Dashboard or .env file")
     
     # בדיקת חיבור ל-MongoDB
     if MONGODB_URL:
         try:
             test_client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
             test_client.server_info()
-            print("✓ MongoDB connection successful")
+            logger.info("MongoDB connection successful")
             test_client.close()
         except Exception as e:
-            print(f"✗ MongoDB connection failed: {e}")
+            logger.warning("MongoDB connection failed", exc_info=e)
     
     return len(missing) == 0
 
 if __name__ == '__main__':
-    print("Starting Code Keeper Web App...")
-    print(f"BOT_USERNAME: {BOT_USERNAME}")
-    print(f"DATABASE_NAME: {DATABASE_NAME}")
-    print(f"WEBAPP_URL: {WEBAPP_URL}")
+    logger.info("Starting Code Keeper Web App...")
+    logger.info("BOT_USERNAME: %s", BOT_USERNAME)
+    logger.info("DATABASE_NAME: %s", DATABASE_NAME)
+    logger.info("WEBAPP_URL: %s", WEBAPP_URL)
     
     if check_configuration():
-        print("Configuration check passed ✓")
+        logger.info("Configuration check passed")
     else:
-        print("WARNING: Configuration issues detected!")
+        logger.warning("Configuration issues detected")
     
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=os.getenv('DEBUG', 'false').lower() == 'true')

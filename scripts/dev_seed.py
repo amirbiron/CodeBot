@@ -8,6 +8,7 @@ Safety: Only runs against MongoDB pointed by env vars; refuses to run if not loc
 """
 import os
 import sys
+import logging
 import socket
 import ipaddress
 from urllib.parse import urlparse
@@ -96,13 +97,16 @@ def is_local_mongo(url: str) -> bool:
         return _is_loopback_host(host)
 
 
+logger = logging.getLogger(__name__)
+
+
 def main():
     allow_nonlocal = "--allow-nonlocal" in sys.argv
     mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017/code_keeper")
     db_name = os.getenv("DATABASE_NAME", "code_keeper_bot")
 
     if not allow_nonlocal and not is_local_mongo(mongo_url):
-        print("Refusing to seed non-local MongoDB. Pass --allow-nonlocal to override.")
+        logger.error("Refusing to seed non-local MongoDB. Pass --allow-nonlocal to override.")
         sys.exit(1)
 
     client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000, tz_aware=True)
@@ -148,7 +152,7 @@ def main():
         res = db.code_snippets.insert_one(doc)
         inserted_ids.append(str(res.inserted_id))
 
-    print("Seed completed.")
+    logger.info("Seed completed.")
     print("user_id=", user_id)
     for i, _id in enumerate(inserted_ids, 1):
         print(f"file_id_{i}= {_id}")
@@ -157,6 +161,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        print("Seed failed:", e)
+    except Exception:
+        logger.exception("Seed failed")
         sys.exit(1)
