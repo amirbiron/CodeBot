@@ -215,7 +215,7 @@
       ];
 
       let chosen = null;
-      let stateMod, viewMod, cmdMod, langMod, searchMod, acMod;
+      let stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod;
       let lastErr;
       for (const cdn of cdnCandidates) {
         try {
@@ -227,16 +227,18 @@
             cmd,
             lang,
             search,
-            ac
+            ac,
+            gutter
           ] = await Promise.all([
             this.withTimeout(import(u('@codemirror/state')), 8000, '@codemirror/state'),
             this.withTimeout(import(u('@codemirror/view')), 8000, '@codemirror/view'),
             this.withTimeout(import(u('@codemirror/commands')), 8000, '@codemirror/commands'),
             this.withTimeout(import(u('@codemirror/language')), 8000, '@codemirror/language'),
             this.withTimeout(import(u('@codemirror/search')), 8000, '@codemirror/search'),
-            this.withTimeout(import(u('@codemirror/autocomplete')), 8000, '@codemirror/autocomplete')
+            this.withTimeout(import(u('@codemirror/autocomplete')), 8000, '@codemirror/autocomplete'),
+            this.withTimeout(import(u('@codemirror/gutter')), 8000, '@codemirror/gutter')
           ]);
-          stateMod = state; viewMod = view; cmdMod = cmd; langMod = lang; searchMod = search; acMod = ac;
+          stateMod = state; viewMod = view; cmdMod = cmd; langMod = lang; searchMod = search; acMod = ac; gutterMod = gutter;
           chosen = cdn;
           break;
         } catch (e) {
@@ -250,8 +252,8 @@
       this._cdnUrl = chosen.url;
 
       const basicSetup = [
-        viewMod.lineNumbers(),
-        viewMod.highlightActiveLineGutter(),
+        gutterMod.lineNumbers(),
+        gutterMod.highlightActiveLineGutter(),
         viewMod.highlightSpecialChars(),
         cmdMod.history(),
         langMod.foldGutter(),
@@ -283,7 +285,9 @@
         Compartment: stateMod.Compartment,
         languageCompartment: new stateMod.Compartment(),
         themeCompartment: new stateMod.Compartment(),
-        _cdnUrl: this._cdnUrl
+        _cdnUrl: this._cdnUrl,
+        // Expose modules for diagnostics
+        _mods: { stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod }
       };
     }
 
