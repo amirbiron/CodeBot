@@ -256,7 +256,13 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
                 actual_incidents_total.labels(metric=str(metric)).inc()
         except Exception:
             pass
-        _emit_event("AUTO_REMEDIATION_EXECUTED", severity="error", incident_id=incident_id, name=str(name))
+        _emit_event(
+            "AUTO_REMEDIATION_EXECUTED",
+            severity="warn",
+            incident_id=incident_id,
+            name=str(name),
+            handled=True,
+        )
 
         try:
             _grafana_annotate(f"{name} — action={action} recurring={recurring}")

@@ -380,7 +380,13 @@ def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) 
     # Grafana annotation
     _dispatch("grafana", alert_id, _send_grafana_annotation, name, summary)
     try:
-        emit_event("critical_alert_dispatched", severity="error", alert_id=alert_id, name=name)
+        emit_event(
+            "critical_alert_dispatched",
+            severity="warn",
+            alert_id=alert_id,
+            name=name,
+            handled=True,
+        )
     except Exception:
         pass
 
