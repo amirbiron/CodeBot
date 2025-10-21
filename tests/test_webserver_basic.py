@@ -80,3 +80,36 @@ async def test_share_found_returns_html(monkeypatch):
     finally:
         await runner.cleanup()
 
+
+@pytest.mark.asyncio
+async def test_alerts_parse_error_emits_event(monkeypatch):
+    # Simulate invalid JSON body to trigger alerts_parse_error path
+    import services.webserver as ws
+
+    captured = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        captured.append((event, severity, fields))
+
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+    app = ws.create_app()
+
+    from aiohttp import web
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"http://127.0.0.1:{port}/alerts", data="{this is not json}"
+            ) as resp:
+                assert resp.status == 400
+    finally:
+        await runner.cleanup()
+
+    names = [e[0] for e in captured]
+    assert "alerts_parse_error" in names
+
