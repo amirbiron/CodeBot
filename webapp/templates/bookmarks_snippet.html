@@ -1,4 +1,4 @@
-<!-- 
+<!--
     Bookmarks System HTML Snippet
     להוספה בקובץ view_file.html או בכל עמוד שמציג קוד
 -->
@@ -7,7 +7,7 @@
 <input type="hidden" id="fileId" value="{{ file.id }}">
 
 <!-- Bookmarks Toggle Button -->
-<button 
+<button
     id="toggleBookmarksBtn" 
     class="bookmarks-toggle-btn"
     aria-label="פתח פאנל סימניות"
@@ -19,12 +19,12 @@
 </button>
 
 <!-- Bookmarks Panel -->
-<aside 
+<aside
     id="bookmarksPanel" 
     class="bookmarks-panel"
     role="complementary"
     aria-label="פאנל סימניות">
-    
+
     <!-- Panel Header -->
     <div class="bookmarks-panel-header">
         <h2>
@@ -43,22 +43,22 @@
                 <button class="color-swatch" data-default-color="orange" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-orange);"></button>
                 <button class="color-swatch" data-default-color="pink" style="width:16px;height:16px;border-radius:50%;border:1px solid rgba(0,0,0,0.2);background: var(--bookmark-pink);"></button>
             </div>
-            <button 
+            <button
                 id="exportBookmarks"
                 title="ייצא סימניות"
                 aria-label="ייצא סימניות לקובץ JSON">
                 <span aria-hidden="true">💾</span>
                 ייצא
             </button>
-            <button 
+            <button
                 id="clearAllBookmarks"
                 title="מחק הכל"
                 aria-label="מחק את כל הסימניות">
                 <span aria-hidden="true">🗑️</span>
                 נקה הכל
             </button>
-            
-            <button 
+
+            <button
                 id="closePanel"
                 onclick="document.getElementById('bookmarksPanel').classList.remove('open')"
                 title="סגור"
@@ -67,7 +67,7 @@
             </button>
         </div>
     </div>
-    
+
     <!-- Bookmarks List -->
     <div class="bookmarks-list" role="list">
         <!-- Bookmarks will be dynamically inserted here -->
