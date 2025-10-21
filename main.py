@@ -120,6 +120,18 @@ except Exception:
     # אל תכשיל את האפליקציה אם תצורת observability נכשלה
     pass
 
+# Optional: Initialize OpenTelemetry for the bot process as well (no Flask app here)
+try:
+    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+    _setup_otel(
+        service_name="code-keeper-bot",
+        service_version=os.getenv("APP_VERSION", ""),
+        environment=os.getenv("ENVIRONMENT", os.getenv("ENV", "production")),
+        flask_app=None,
+    )
+except Exception:
+    pass
+
 logger = logging.getLogger(__name__)
 
 # רשימת קידודים לניסיון קריאת קבצים (ניתנת לדריסה בטסטים)
