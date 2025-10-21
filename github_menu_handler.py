@@ -208,7 +208,11 @@ class GitHubMenuHandler:
                 items = list(repo.get_branches())
             except Exception:
                 items = []
-            page_size = 10
+            try:
+                from config import config as _cfg  # type: ignore
+                page_size = int(getattr(_cfg, 'UI_PAGE_SIZE', 10))
+            except Exception:
+                page_size = 10
             start = page * page_size
             end = min(start + page_size, len(items))
             for br in items[start:end]:
@@ -228,7 +232,11 @@ class GitHubMenuHandler:
                 items = list(repo.get_tags())
             except Exception:
                 items = []
-            page_size = 10
+            try:
+                from config import config as _cfg  # type: ignore
+                page_size = int(getattr(_cfg, 'UI_PAGE_SIZE', 10))
+            except Exception:
+                page_size = 10
             start = page * page_size
             end = min(start + page_size, len(items))
             for tg in items[start:end]:
@@ -4842,7 +4850,11 @@ class GitHubMenuHandler:
         if context.user_data.get("multi_mode") is None:
             context.user_data["multi_mode"] = False
         # עימוד
-        page_size = 10
+        try:
+            from config import config as _cfg  # type: ignore
+            page_size = int(getattr(_cfg, 'UI_PAGE_SIZE', 10))
+        except Exception:
+            page_size = 10
         # ודא ששורת הכלים (חיפוש/בחירת ref) תמיד נשמרת בראש כל עמוד
         # נבנה את המטריצה כך שהשורה הראשונה תהיה תמיד הכלים, ולא תיספר לעימוד
         # מצא אינדקס תחילת הפריטים לעימוד אחרי breadcrumbs ושורת כלים
@@ -5385,7 +5397,11 @@ class GitHubMenuHandler:
         repo = g.get_repo(repo_name)
         branches = list(repo.get_branches())
         page = context.user_data.get("pr_branches_page", 0)
-        page_size = 10
+        try:
+            from config import config as _cfg  # type: ignore
+            page_size = int(getattr(_cfg, 'UI_PAGE_SIZE', 10))
+        except Exception:
+            page_size = 10
         total_pages = max(1, (len(branches) + page_size - 1) // page_size)
         page = min(max(0, page), total_pages - 1)
         start = page * page_size
@@ -5472,7 +5488,11 @@ class GitHubMenuHandler:
         repo = g.get_repo(repo_name)
         pulls = list(repo.get_pulls(state="open", sort="created", direction="desc"))
         page = context.user_data.get("pr_list_page", 0)
-        page_size = 10
+        try:
+            from config import config as _cfg  # type: ignore
+            page_size = int(getattr(_cfg, 'UI_PAGE_SIZE', 10))
+        except Exception:
+            page_size = 10
         total_pages = max(1, (len(pulls) + page_size - 1) // page_size)
         page = min(max(0, page), total_pages - 1)
         start = page * page_size

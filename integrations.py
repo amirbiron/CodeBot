@@ -10,6 +10,7 @@ import json
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
+import os
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -265,8 +266,18 @@ class PastebinIntegration:
         }
         
         try:
-            timeout = aiohttp.ClientTimeout(total=15)
-            connector = aiohttp.TCPConnector(limit=50)
+            # שמור תאימות לאחור: ברירת מחדל 15s ל-Pastebin, ניתן לדרוס ב-ENV/Config
+            try:
+                env_total = os.getenv("AIOHTTP_TIMEOUT_TOTAL")
+                _total = int(env_total) if env_total not in (None, "") else 15
+            except Exception:
+                _total = 15
+            try:
+                _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
+            except Exception:
+                _limit = 50
+            timeout = aiohttp.ClientTimeout(total=_total)
+            connector = aiohttp.TCPConnector(limit=_limit)
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
                     result = await response.text()
@@ -299,8 +310,8 @@ class PastebinIntegration:
         
         try:
             raw_url = f"https://pastebin.com/raw/{paste_id}"
-            timeout = aiohttp.ClientTimeout(total=10)
-            connector = aiohttp.TCPConnector(limit=50)
+            timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10)))
+            connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get(raw_url) as response:
                     if response.status == 200:
@@ -597,8 +608,16 @@ class WebhookIntegration:
             "data": data
         }
         
-        timeout = aiohttp.ClientTimeout(total=10)
-        connector = aiohttp.TCPConnector(limit=50)
+        try:
+            _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10))
+        except Exception:
+            _total = 10
+        try:
+            _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
+        except Exception:
+            _limit = 50
+        timeout = aiohttp.ClientTimeout(total=_total)
+        connector = aiohttp.TCPConnector(limit=_limit)
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             for webhook in relevant_webhooks:
                 try:
@@ -606,7 +625,7 @@ class WebhookIntegration:
                         webhook["url"],
                         json=payload,
                         headers={"Content-Type": "application/json"},
-                        timeout=aiohttp.ClientTimeout(total=10)
+                        timeout=timeout
                     ) as response:
                         
                         if response.status == 200:
