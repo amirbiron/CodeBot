@@ -5,6 +5,8 @@
       this.cmInstance = null;
       this.textarea = null;
       this.loadingElement = null;
+      this.isLoading = false;
+      this.loadingPromise = null;
     }
 
     loadPreference() {
@@ -63,52 +65,78 @@
     }
 
     async initCodeMirror(container, { language, value, theme }) {
-      try {
-        this.showLoading(container);
-        // הסתרת textarea
-        this.textarea.style.display = 'none';
-
-        // יצירת container
-        const cmWrapper = document.createElement('div');
-        cmWrapper.className = 'codemirror-container';
-        this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
-
-        if (!window.CodeMirror6) {
-          await this.loadCodeMirror();
+      // אם יש כבר טעינה פעילה, נחכה שתסתיים כדי למנוע מצב ביניים
+      if (this.isLoading && this.loadingPromise) {
+        await this.loadingPromise;
+        if (!this.cmInstance) {
+          throw new Error('codemirror_init_failed');
         }
-        const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
-
-        const langSupport = await this.getLanguageSupport(language);
-        const themeExt = await this.getTheme(theme);
-
-        const debouncedSync = this.debounce((val) => {
-          this.textarea.value = val;
-          try { this.textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
-        }, 100);
-
-        const state = EditorState.create({
-          doc: (this.textarea.value || value || ''),
-          extensions: [
-            ...basicSetup,
-            languageCompartment.of(langSupport || []),
-            themeCompartment.of(themeExt || []),
-            EditorView.lineWrapping,
-            EditorView.updateListener.of((update) => {
-              if (update.docChanged) {
-                debouncedSync(update.state.doc.toString());
-              }
-            })
-          ]
-        });
-
-        this.cmInstance = new EditorView({ state, parent: cmWrapper });
-      } catch (e) {
-        console.error('CodeMirror init failed', e);
-        this.currentEditor = 'simple';
-        this.initSimpleEditor(container, { value });
-      } finally {
-        this.hideLoading(container);
+        return;
       }
+
+      this.loadingPromise = (async () => {
+        try {
+          this.isLoading = true;
+          this.showLoading(container);
+          // הסתרת textarea
+          this.textarea.style.display = 'none';
+
+          // יצירת container
+          const cmWrapper = document.createElement('div');
+          cmWrapper.className = 'codemirror-container';
+          this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
+
+          if (!window.CodeMirror6) {
+            await this.loadCodeMirror();
+          }
+          const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
+
+          const langSupport = await this.getLanguageSupport(language);
+          const themeExt = await this.getTheme(theme);
+
+          const debouncedSync = this.debounce((val) => {
+            this.textarea.value = val;
+            try { this.textarea.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+          }, 100);
+
+          const state = EditorState.create({
+            doc: (this.textarea.value || value || ''),
+            extensions: [
+              ...basicSetup,
+              languageCompartment.of(langSupport || []),
+              themeCompartment.of(themeExt || []),
+              EditorView.lineWrapping,
+              EditorView.updateListener.of((update) => {
+                if (update.docChanged) {
+                  debouncedSync(update.state.doc.toString());
+                }
+              })
+            ]
+          });
+
+          this.cmInstance = new EditorView({ state, parent: cmWrapper });
+        } catch (e) {
+          console.error('CodeMirror init failed', e);
+          this.currentEditor = 'simple';
+          this.initSimpleEditor(container, { value });
+          try {
+            // הסרת באנרי שגיאה קודמים כדי למנוע הצטברות
+            container.querySelectorAll('.editor-error-banner').forEach(el => el.remove());
+            // הודעת שגיאה ידידותית למשתמש ופעולת fallback
+            const errBanner = document.createElement('div');
+            errBanner.className = 'editor-error-banner alert alert-error';
+            errBanner.style.marginTop = '.5rem';
+            errBanner.textContent = 'טעינת העורך המתקדם נכשלה. הוחזר לעורך הפשוט.';
+            container.appendChild(errBanner);
+          } catch(_) {}
+          throw e;
+        } finally {
+          this.hideLoading(container);
+          this.isLoading = false;
+        }
+      })();
+
+      return await this.loadingPromise;
     }
 
     addSwitcherButton(container) {
@@ -132,7 +160,12 @@
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
         if (this.currentEditor === 'codemirror') {
           const lang = this.getSelectedLanguage() || 'text';
-          await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark' });
+          try {
+            await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark' });
+          } catch (e) {
+            this.currentEditor = 'simple';
+            this.initSimpleEditor(container, { value: this.textarea.value });
+          }
         } else {
           this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
         }
@@ -268,11 +301,19 @@
       el.innerHTML = '<div class="spinner"><i class="fas fa-spinner fa-spin"></i> טוען עורך...</div>';
       container.classList.add('editor-transitioning');
       container.appendChild(el);
+      try {
+        const btn = container.querySelector('.btn-switch-editor');
+        if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
+      } catch(_) {}
     }
     hideLoading(container){
       const el = container.querySelector('.editor-loading');
       if (el) el.remove();
       container.classList.remove('editor-transitioning');
+      try {
+        const btn = container.querySelector('.btn-switch-editor');
+        if (btn) { btn.disabled = false; btn.classList.remove('is-loading'); }
+      } catch(_) {}
     }
   }
 
