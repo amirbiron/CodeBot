@@ -56,7 +56,13 @@ class CacheManager:
                 self.is_enabled = False
                 logger.info("חבילת redis לא מותקנת – Cache מושבת")
                 return
-            redis_url = os.getenv('REDIS_URL')
+            # קונפיג דרך pydantic אם זמין, אחרת ENV ישיר – לשמירת תאימות
+            try:
+                from config import config as _cfg  # type: ignore
+            except Exception:
+                _cfg = None  # type: ignore
+
+            redis_url = (getattr(_cfg, 'REDIS_URL', None) if _cfg is not None else None) or os.getenv('REDIS_URL')
             if not redis_url or redis_url.strip() == "" or redis_url.startswith("disabled"):
                 self.is_enabled = False
                 logger.info("Redis אינו מוגדר - Cache מושבת")
@@ -64,16 +70,25 @@ class CacheManager:
             
             # כיבוד timeouts מה-ENV, עם ברירות מחדל שמרניות ב-SAFE_MODE
             safe_mode = str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "y", "on")
-            connect_timeout_env = os.getenv("REDIS_CONNECT_TIMEOUT")
-            socket_timeout_env = os.getenv("REDIS_SOCKET_TIMEOUT")
+            connect_timeout_env = (
+                (str(getattr(_cfg, 'REDIS_CONNECT_TIMEOUT', '') or '') if _cfg is not None else '')
+                or os.getenv("REDIS_CONNECT_TIMEOUT")
+            )
+            socket_timeout_env = (
+                (str(getattr(_cfg, 'REDIS_SOCKET_TIMEOUT', '') or '') if _cfg is not None else '')
+                or os.getenv("REDIS_SOCKET_TIMEOUT")
+            )
             socket_connect_timeout = float(connect_timeout_env if connect_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
             socket_timeout = float(socket_timeout_env if socket_timeout_env not in (None, "") else ("1" if safe_mode else "5"))
 
             try:
-                max_conns_env = os.getenv("REDIS_MAX_CONNECTIONS")
-                max_connections = int(max_conns_env) if max_conns_env not in (None, "") else 50
+                max_conns_env = (
+                    (str(getattr(_cfg, 'REDIS_MAX_CONNECTIONS', '') or '') if _cfg is not None else '')
+                    or os.getenv("REDIS_MAX_CONNECTIONS")
+                )
+                max_connections = int(max_conns_env) if max_conns_env not in (None, "") else int(getattr(_cfg, 'REDIS_MAX_CONNECTIONS', 50) if _cfg is not None else 50)
             except Exception:
-                max_connections = 50
+                max_connections = int(getattr(_cfg, 'REDIS_MAX_CONNECTIONS', 50) if _cfg is not None else 50)
 
             self.redis_client = redis.from_url(
                 redis_url,

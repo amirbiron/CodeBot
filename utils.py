@@ -45,6 +45,11 @@ try:
 except Exception:  # optional for tests
     aiohttp = None
 try:
+    # קונפיג מרכזי (כולל ברירות מחדל ל‑aiohttp)
+    from config import config  # type: ignore
+except Exception:
+    config = None  # type: ignore
+try:
     from telegram import Message, Update, User
     from telegram.constants import ChatAction, ParseMode
     from telegram.ext import ContextTypes
@@ -870,8 +875,14 @@ class FileUtils:
         """הורדת קובץ מ-URL"""
         
         try:
-            timeout = aiohttp.ClientTimeout(total=20)
-            connector = aiohttp.TCPConnector(limit=50)
+            timeout_total = (
+                int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 20)) if config is not None else 20
+            )
+            pool_limit = (
+                int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)) if config is not None else 50
+            )
+            timeout = aiohttp.ClientTimeout(total=timeout_total)
+            connector = aiohttp.TCPConnector(limit=pool_limit)
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 async with session.get(url) as response:
                     if response.status != 200:

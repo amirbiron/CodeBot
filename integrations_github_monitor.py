@@ -18,8 +18,15 @@ async def fetch_rate_limit(token: Optional[str] = None) -> Dict[str, Any]:
     if aiohttp is None or not tok:
         return {}
     try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        connector = aiohttp.TCPConnector(limit=50)
+        try:
+            from config import config  # type: ignore
+            _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10))
+            _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
+        except Exception:
+            _total = 10
+            _limit = 50
+        timeout = aiohttp.ClientTimeout(total=_total)
+        connector = aiohttp.TCPConnector(limit=_limit)
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.get(
                 "https://api.github.com/rate_limit",

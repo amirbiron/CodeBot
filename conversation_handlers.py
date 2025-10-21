@@ -102,7 +102,10 @@ logger = logging.getLogger(__name__)
 from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME, WAIT_ADD_CODE_MODE, LONG_COLLECT
 
 # קבועי עימוד
-FILES_PAGE_SIZE = 10
+try:
+    FILES_PAGE_SIZE = int(getattr(config, 'UI_PAGE_SIZE', 10))
+except Exception:
+    FILES_PAGE_SIZE = 10
 
 # כפתורי המקלדת הראשית
 MAIN_KEYBOARD = [
@@ -952,7 +955,10 @@ from handlers.save_flow import get_note as get_note
 from handlers.save_flow import save_file_final as save_file_final
 
 # --- Recycle bin paging constants ---
-RECYCLE_PAGE_SIZE = 10
+try:
+    RECYCLE_PAGE_SIZE = int(getattr(config, 'UI_PAGE_SIZE', 10))
+except Exception:
+    RECYCLE_PAGE_SIZE = 10
 
 async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query

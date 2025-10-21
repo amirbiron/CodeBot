@@ -62,8 +62,17 @@ def _fetch_urllib(url: str) -> Result:
 
 async def _worker_aiohttp(base: str, endpoints: List[str], n: int, results: List[Result]) -> None:
     assert aiohttp is not None
-    timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    # כבדיקה בזמן אמת נשתמש בברירות המחדל מהקונפיג אם קיימות
+    try:
+        from config import config as _cfg  # type: ignore
+        _total = int(getattr(_cfg, 'AIOHTTP_TIMEOUT_TOTAL', 10))
+        _limit = int(getattr(_cfg, 'AIOHTTP_POOL_LIMIT', 50))
+    except Exception:
+        _total = 10
+        _limit = 50
+    timeout = aiohttp.ClientTimeout(total=_total)
+    connector = aiohttp.TCPConnector(limit=_limit)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         for _ in range(n):
             ep = random.choice(endpoints)
             r = await _fetch_aiohttp(session, base + ep)
