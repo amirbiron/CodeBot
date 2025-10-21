@@ -2,19 +2,103 @@ import logging
 import os
 from types import SimpleNamespace
 from datetime import timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
-from typing import Optional as _Optional  # for type hints below without shadowing
+from typing import Any, Callable, Dict, List, Optional, Tuple, Protocol
+
 try:
-    from pymongo import MongoClient as _MongoClient, IndexModel as _IndexModel, ASCENDING as _ASC, DESCENDING as _DESC, TEXT as _TEXT
-    MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT = _MongoClient, _IndexModel, _ASC, _DESC, _TEXT
+    from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
     _PYMONGO_AVAILABLE = True
-except Exception:  # ModuleNotFoundError or any import-time error
-    MongoClient = None  # type: ignore
-    IndexModel = lambda *a, **k: None  # type: ignore
-    ASCENDING = 1  # type: ignore
-    DESCENDING = -1  # type: ignore
-    TEXT = "text"  # type: ignore
+except Exception:  # ModuleNotFoundError או כל שגיאה בזמן import
     _PYMONGO_AVAILABLE = False
+
+    class MongoClient:  # runtime stub לשימוש במצבים ללא pymongo
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __getitem__(self, name: str) -> Any:
+            return SimpleNamespace()
+
+        @property
+        def admin(self) -> Any:
+            class _Admin:
+                def command(self, *_args: Any, **_kwargs: Any) -> Any:
+                    return {"ok": 1}
+
+            return _Admin()
+
+    class IndexModel:  # runtime stub
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    ASCENDING = 1
+    DESCENDING = -1
+    TEXT = "text"
+
+
+class CollectionLike(Protocol):
+    def insert_one(self, *args: Any, **kwargs: Any) -> Any: ...
+    def update_one(self, *args: Any, **kwargs: Any) -> Any: ...
+    def update_many(self, *args: Any, **kwargs: Any) -> Any: ...
+    def delete_one(self, *args: Any, **kwargs: Any) -> Any: ...
+    def delete_many(self, *args: Any, **kwargs: Any) -> Any: ...
+    def find_one(self, *args: Any, **kwargs: Any) -> Any: ...
+    def find(self, *args: Any, **kwargs: Any) -> Any: ...
+    def aggregate(self, *args: Any, **kwargs: Any) -> Any: ...
+    def count_documents(self, *args: Any, **kwargs: Any) -> int: ...
+    def create_index(self, *args: Any, **kwargs: Any) -> Any: ...
+    def create_indexes(self, *args: Any, **kwargs: Any) -> Any: ...
+    def list_indexes(self, *args: Any, **kwargs: Any) -> Any: ...
+    def drop_index(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class DBLike(Protocol):
+    def __getitem__(self, name: str) -> CollectionLike: ...
+    def __getattr__(self, name: str) -> CollectionLike: ...
+
+
+class _StubCollection:
+    """מימוש מינימלי שתואם את PyMongo לצורך אתחול מוקדם והימנעות מ-None."""
+
+    def insert_one(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(inserted_id=None)
+
+    def update_one(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(acknowledged=True, modified_count=0)
+
+    def update_many(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
+
+    def delete_one(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(deleted_count=0)
+
+    def delete_many(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(deleted_count=0)
+
+    def find_one(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    def find_one_and_update(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    def aggregate(self, *args: Any, **kwargs: Any) -> Any:
+        return []
+
+    def count_documents(self, *args: Any, **kwargs: Any) -> int:
+        return 0
+
+    def create_index(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    def create_indexes(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    def list_indexes(self, *args: Any, **kwargs: Any) -> Any:
+        return []
+
+    def drop_index(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    def find(self, *args: Any, **kwargs: Any) -> Any:
+        return []
 
 from config import config
 try:
@@ -30,13 +114,22 @@ logger = logging.getLogger(__name__)
 class DatabaseManager:
     """אחראי על חיבור MongoDB והגדרת אינדקסים."""
 
+    client: Optional[Any]
+    db: Optional[DBLike]
+    collection: CollectionLike
+    large_files_collection: CollectionLike
+    backup_ratings_collection: Optional[CollectionLike]
+    internal_shares_collection: Optional[CollectionLike]
+    _repo: Optional[Any]
+
     def __init__(self):
         self.client = None
         self.db = None
-        self.collection = None
-        self.large_files_collection = None
-        self.backup_ratings_collection = None
-        self.internal_shares_collection = None
+        # אתחול לאובייקטים שאינם None כדי לעמוד בטייפים
+        self.collection = _StubCollection()
+        self.large_files_collection = _StubCollection()
+        self.backup_ratings_collection = _StubCollection()
+        self.internal_shares_collection = _StubCollection()
         self._repo = None
         self.connect()
 
@@ -51,7 +144,11 @@ class DatabaseManager:
                     return SimpleNamespace(inserted_id=None)
                 def update_one(self, *args, **kwargs):
                     return SimpleNamespace(acknowledged=True, modified_count=0)
+                def update_many(self, *args, **kwargs):
+                    return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0)
                 def delete_one(self, *args, **kwargs):
+                    return SimpleNamespace(deleted_count=0)
+                def delete_many(self, *args, **kwargs):
                     return SimpleNamespace(deleted_count=0)
                 def find_one(self, *args, **kwargs):
                     return None
@@ -396,10 +493,10 @@ class DatabaseManager:
         return self._get_repo().rename_file(user_id, old_name, new_name)
 
     # Favorites API wrappers
-    def toggle_favorite(self, user_id: int, file_name: str) -> _Optional[bool]:
+    def toggle_favorite(self, user_id: int, file_name: str) -> Optional[bool]:
         return self._get_repo().toggle_favorite(user_id, file_name)
 
-    def get_favorites(self, user_id: int, language: _Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
+    def get_favorites(self, user_id: int, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
         return self._get_repo().get_favorites(user_id, language=language, sort_by=sort_by, limit=limit)
 
     def get_favorites_count(self, user_id: int) -> int:

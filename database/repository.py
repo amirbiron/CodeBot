@@ -3,15 +3,14 @@ from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+# יצירת טיפוס ObjectId שמתאים גם לריצה ללא חבילת bson
 try:
-    from bson import ObjectId as _BsonObjectId
-    _HAS_BSON = True
+    from bson import ObjectId as _RealObjectId
 except Exception:
-    _HAS_BSON = False
-    class ObjectId(str):  # minimal stub for tests without bson
+    class _RealObjectId(str):  # fallback מינימלי עבור טסטים ללא bson
         pass
-if _HAS_BSON:
-    ObjectId = _BsonObjectId  # type: ignore[assignment]
+
+ObjectId = _RealObjectId
 
 from cache_manager import cache, cached
 from .manager import DatabaseManager
@@ -151,7 +150,7 @@ class Repository:
                     self.modified_count = modified
 
             try:
-                res = self.manager.collection.update_many(query, update)  # type: ignore[attr-defined]
+                res = self.manager.collection.update_many(query, update)
             except Exception:
                 res = _UpdateResult(0, 0)
             matched = int(getattr(res, 'matched_count', 0) or 0)
@@ -163,7 +162,7 @@ class Repository:
                     "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
                 }
                 try:
-                    res = self.manager.collection.update_many(fallback_q, update)  # type: ignore[attr-defined]
+                    res = self.manager.collection.update_many(fallback_q, update)
                 except Exception:
                     res = _UpdateResult(0, 0)
                 matched = int(getattr(res, 'matched_count', 0) or 0)
