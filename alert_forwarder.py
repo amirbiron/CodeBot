@@ -69,9 +69,11 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
             text = _format_alert_text(alert)
             labels = alert.get("labels", {}) or {}
             severity = labels.get("severity") or labels.get("level") or "info"
+            # Preserve original alert severity for visibility, but keep label as-is.
+            mapped_severity = "error" if str(severity).lower() in {"error", "critical"} else "warn"
             emit_event(
                 "alert_received",
-                severity="anomaly",
+                severity=mapped_severity,
                 alertname=str(labels.get("alertname") or labels.get("name") or ""),
                 severity_label=str(severity),
                 status=str(alert.get("status") or ""),
