@@ -21,7 +21,7 @@ import hashlib
 
 import structlog
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:  # Optional OpenTelemetry
     from opentelemetry.trace import get_current_span  # type: ignore
