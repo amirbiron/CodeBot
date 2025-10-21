@@ -834,6 +834,23 @@ print('זיכרון:', get_memory_usage())
 - עדכנו את התיעוד
 - בדקו שהקוד עובד לפני Pull Request
 
+#### Pre-commit
+כדי לשמור על פורמט ואיכות קוד אחידים מקומית, מומלץ להפעיל Pre-commit:
+
+```bash
+pip install pre-commit
+pre-commit install
+# הרצה ראשונית על כל הקבצים (מומלץ בפעם הראשונה)
+pre-commit run --all-files
+```
+
+אופציונלי: התקנה גם ל-hooks נוספים
+
+```bash
+pre-commit install --hook-type commit-msg
+pre-commit install --hook-type pre-push
+```
+
 ### רעיונות לשיפור
 - תמיכה בשפות תכנות נוספות
 - אינטגרציה עם GitLab/Bitbucket
