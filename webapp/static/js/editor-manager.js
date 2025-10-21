@@ -16,8 +16,8 @@
         const saved = localStorage.getItem('preferredEditor');
         if (saved === 'codemirror' || saved === 'simple') return saved;
       } catch(_) {}
-      // ברירת מחדל: עורך רגיל (textarea)
-      return 'simple';
+      // ברירת מחדל: עורך מתקדם (CodeMirror) — כוונת ה‑PR
+      return 'codemirror';
     }
 
     savePreference(editorType) {
@@ -91,7 +91,8 @@
 
           if (!window.CodeMirror6) {
             // מגן נגד תקיעת טעינה שקטה של מודולים חיצוניים
-            await this.withTimeout(this.loadCodeMirror(), 12000, 'codemirror_core_load');
+            // מוגדל ל~30s כדי לאפשר כשל/ניסיון בכל CDN (8s * 3) + שוליים
+            await this.withTimeout(this.loadCodeMirror(), 30000, 'codemirror_core_load');
           }
           const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
 
