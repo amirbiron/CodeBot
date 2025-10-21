@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+import json
 
 from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import (
@@ -181,31 +182,78 @@ class BotConfig(BaseSettings):
     @field_validator("ADMIN_USER_IDS", mode="before")
     @classmethod
     def _parse_admin_user_ids(cls, v):
-        """Allow ADMIN_USER_IDS as int, CSV string, or list of ints."""
+        """Parse ADMIN_USER_IDS from int, CSV string, JSON string, or list.
+
+        Security note: invalid tokens now raise ValueError instead of being silently dropped.
+        Accepted formats:
+        - int -> [int]
+        - "1,2,3" (CSV) -> [1, 2, 3]
+        - "[1, 2, 3]" (JSON) -> [1, 2, 3]
+        - [1, "2", 3] -> [1, 2, 3]
+        - empty/None -> []
+        """
         if v is None or v == "":
             return []
-        if isinstance(v, list):
+
+        # Handle iterable inputs (lists/tuples/sets)
+        if isinstance(v, (list, tuple, set)):
             normalized: list[int] = []
+            invalid_items: list[str] = []
             for item in v:
                 try:
                     normalized.append(int(item))
                 except Exception:
-                    continue
+                    invalid_items.append(repr(item))
+            if invalid_items:
+                raise ValueError(
+                    f"ADMIN_USER_IDS contains non-integer values: {', '.join(invalid_items)}"
+                )
             return normalized
+
+        # Single integer
         if isinstance(v, int):
             return [v]
+
+        # Strings: try JSON first, then CSV
         if isinstance(v, str):
-            parts = [p.strip() for p in v.split(",")]
+            s = v.strip()
+            if s == "":
+                return []
+            # Attempt JSON decoding (preserves previous behavior when JSON was used)
+            try:
+                parsed = json.loads(s)
+            except Exception:
+                parsed = None
+
+            if parsed is not None:
+                if isinstance(parsed, list):
+                    return cls._parse_admin_user_ids(parsed)
+                if isinstance(parsed, int):
+                    return [parsed]
+                raise ValueError(
+                    "ADMIN_USER_IDS JSON must be a list of integers or a single integer"
+                )
+
+            # Fallback to strict CSV parsing
+            parts = [p.strip() for p in s.split(",")]
             normalized: list[int] = []
+            invalid_tokens: list[str] = []
             for part in parts:
-                if not part:
+                if part == "":  # allow empty tokens from trailing commas
                     continue
                 try:
                     normalized.append(int(part))
                 except Exception:
-                    continue
+                    invalid_tokens.append(part)
+            if invalid_tokens:
+                raise ValueError(
+                    f"ADMIN_USER_IDS contains non-integer tokens: {', '.join(invalid_tokens)}"
+                )
             return normalized
-        return []
+
+        raise ValueError(
+            "ADMIN_USER_IDS must be list[int], int, CSV string, or JSON list/int"
+        )
 
     @classmethod
     def settings_customise_sources(
