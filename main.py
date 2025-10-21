@@ -2864,9 +2864,21 @@ def main() -> None:
                     users: list[int] = []
                     try:
                         # קרא מזהי משתמשים פעילים אחרונים (best-effort)
-                        coll = _db.db.users  # type: ignore[attr-defined]
-                        rows = list(getattr(coll, 'find', lambda *a, **k: [])({}, {"user_id": 1}).limit(10))  # type: ignore[attr-defined]
-                        for r in rows:
+                        coll = getattr(_db, 'db', None)
+                        coll = getattr(coll, 'users', None)
+                        rows_obj = None
+                        if coll is not None and hasattr(coll, 'find'):
+                            try:
+                                rows_obj = coll.find({}, {"user_id": 1})
+                                # אם יש limit על האובייקט (Cursor), השתמש בו, אחרת נמיר לרשימה ונחתוך
+                                if hasattr(rows_obj, 'limit'):
+                                    rows_obj = rows_obj.limit(10)
+                            except Exception:
+                                rows_obj = []
+                        if rows_obj is None:
+                            rows_obj = []
+                        rows_list = list(rows_obj)
+                        for r in rows_list[:10]:
                             uid = r.get('user_id') if isinstance(r, dict) else None
                             if isinstance(uid, int):
                                 users.append(uid)

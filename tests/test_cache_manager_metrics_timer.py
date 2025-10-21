@@ -1,4 +1,5 @@
 import importlib
+import types
 
 
 def test_cache_timer_context_calls(monkeypatch):
@@ -16,8 +17,6 @@ def test_cache_timer_context_calls(monkeypatch):
                     called["stops"] += 1
                 return _stop
             return types.SimpleNamespace(time=_time)
-
-    import types
     monkeypatch.setattr(cm, 'cache_op_duration_seconds', _FakeHist())
 
     # Patch redis client and enable cache
