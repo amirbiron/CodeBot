@@ -41,8 +41,8 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
 
     # Two sinks should be called (Slack + Telegram)
     assert len(calls["posts"]) == 2
-    # Event should be emitted with error severity
-    assert any(e[0] == "alert_received" and e[1] == "error" for e in events["evts"])  # severity reflects labels.severity
+    # Event should be emitted as anomaly severity
+    assert any(e[0] == "alert_received" and e[1] == "anomaly" for e in events["evts"])  # anomaly severity
 
 
 def test_forward_alerts_handles_sink_errors(monkeypatch):
@@ -75,8 +75,8 @@ def test_forward_alerts_handles_sink_errors(monkeypatch):
     # Error events per sink should be reported
     assert any(e[0] == "alert_forward_slack_error" for e in events["evts"])  # Slack error
     assert any(e[0] == "alert_forward_telegram_error" for e in events["evts"])  # Telegram error
-    # The base alert_received should still be logged
-    assert any(e[0] == "alert_received" and e[1] == "warn" for e in events["evts"])  # warn severity
+    # The base alert_received should still be logged as anomaly
+    assert any(e[0] == "alert_received" and e[1] == "anomaly" for e in events["evts"])  # anomaly severity
 
 
 def test_format_alert_text_contains_name_and_severity(monkeypatch):

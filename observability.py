@@ -392,7 +392,8 @@ def _maybe_alert_single_error(event: str, fields: Dict[str, Any]) -> None:
         except Exception:
             # As a fallback, log directly without re-entering emit_event to avoid recursion
             try:
-                structlog.get_logger().warning(event="single_error_alert_fallback", name=name, summary=summary)
+                # Log fallback as anomaly to reflect auto-handled path
+                structlog.get_logger().warning(event="single_error_alert_fallback", level="ANOMALY", name=name, summary=summary)
             except Exception:
                 pass
         finally:
