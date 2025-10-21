@@ -56,4 +56,3 @@ async def test_conversation_handlers_batch_menu_projection(monkeypatch):
     upd = types.SimpleNamespace(callback_query=types.SimpleNamespace(answer=_ans, edit_message_text=lambda *a, **k: None), effective_user=types.SimpleNamespace(id=1))
     ctx = types.SimpleNamespace(user_data={"batch_target": {"type": "other"}})
     await ch.show_batch_files_menu(upd, ctx)
-}
