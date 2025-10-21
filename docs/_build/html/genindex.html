@@ -480,6 +480,14 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/observability.html">observability module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/observability_instrumentation.html">observability_instrumentation module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/observability_instrumentation.html#observability_instrumentation.traced"><code class="docutils literal notranslate"><span class="pre">traced()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/observability_otel.html">observability_otel module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/observability_otel.html#observability_otel.setup_telemetry"><code class="docutils literal notranslate"><span class="pre">setup_telemetry()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/predictive_engine.html">predictive_engine module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/predictive_engine.html#predictive_engine.Trend"><code class="docutils literal notranslate"><span class="pre">Trend</span></code></a></li>
@@ -2113,6 +2121,10 @@
 </li>
         <li><a href="api/monitoring.metrics_storage.html#module-monitoring.metrics_storage">monitoring.metrics_storage</a>
 </li>
+        <li><a href="api/observability_instrumentation.html#module-observability_instrumentation">observability_instrumentation</a>
+</li>
+        <li><a href="api/observability_otel.html#module-observability_otel">observability_otel</a>
+</li>
         <li><a href="api/predictive_engine.html#module-predictive_engine">predictive_engine</a>
 </li>
         <li><a href="api/rate_limiter.html#module-rate_limiter">rate_limiter</a>
@@ -2205,6 +2217,22 @@
 <h2 id="O">O</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    observability_instrumentation
+
+      <ul>
+        <li><a href="api/observability_instrumentation.html#module-observability_instrumentation">module</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    observability_otel
+
+      <ul>
+        <li><a href="api/observability_otel.html#module-observability_otel">module</a>
+</li>
+      </ul></li>
       <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorProposal.original_file">original_file (refactoring_engine.RefactorProposal attribute)</a>
 </li>
   </ul></td>
@@ -2457,6 +2485,8 @@
 </li>
       <li><a href="api/github_upload_fix.html#github_upload_fix.setup_minimal_commands">setup_minimal_commands() (in module github_upload_fix)</a>
 </li>
+      <li><a href="api/observability_otel.html#observability_otel.setup_telemetry">setup_telemetry() (in module observability_otel)</a>
+</li>
       <li><a href="api/terminal_commands.html#terminal_commands.setup_terminal_handlers">setup_terminal_handlers() (in module terminal_commands)</a>
 </li>
       <li><a href="api/chatops.ratelimit.html#chatops.ratelimit.SensitiveCommandRateLimiter.should_allow">should_allow() (chatops.ratelimit.SensitiveCommandRateLimiter method)</a>
@@ -2539,10 +2569,10 @@
 </li>
       <li><a href="api/test_basic.html#test_basic.test_import_main">test_import_main() (in module test_basic)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/test_basic.html#test_basic.test_python_version">test_python_version() (in module test_basic)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/test_basic.html#test_basic.TestRequirements.test_telegram_installed">test_telegram_installed() (test_basic.TestRequirements method)</a>
 </li>
       <li><a href="api/test_basic.html#test_basic.TestRequirements">TestRequirements (class in test_basic)</a>
@@ -2558,6 +2588,8 @@
       <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.to_dict">to_dict() (database.bookmark.FileBookmark method)</a>
 </li>
       <li><a href="api/services.backoff_state.html#services.backoff_state.BackoffState.toggle">toggle() (services.backoff_state.BackoffState method)</a>
+</li>
+      <li><a href="api/observability_instrumentation.html#observability_instrumentation.traced">traced() (in module observability_instrumentation)</a>
 </li>
       <li><a href="api/metrics.html#metrics.track_file_saved">track_file_saved() (in module metrics)</a>
 </li>
