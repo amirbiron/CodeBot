@@ -3348,7 +3348,8 @@ class GitHubMenuHandler:
         from database import db
         query = update.callback_query
         try:
-            files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+            # צריך גם tags כדי לספור לפי repo:
+            files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
             repo_to_count: dict[str, int] = {}
             for f in files:
                 for t in f.get('tags', []) or []:
