@@ -119,3 +119,69 @@ def test_str2bool_variants():
     assert mod._str2bool("on") is True
     assert mod._str2bool("false") is False
     assert mod._str2bool(None) is False
+
+
+def test_tracing_skips_when_no_endpoint(monkeypatch):
+    install_core_stubs()
+    import importlib as _importlib
+
+    calls = {"span_exporter": 0, "set_tp": 0}
+
+    # Override exporter to count instantiations
+    class _SpanExporter:
+        def __init__(self, *a, **k):
+            calls["span_exporter"] += 1
+
+    # Override set_tracer_provider to count calls
+    def _set_tp(_p):
+        calls["set_tp"] += 1
+
+    sys.modules["opentelemetry.exporter.otlp.proto.grpc.trace_exporter"] = types.SimpleNamespace(
+        OTLPSpanExporter=_SpanExporter
+    )
+    sys.modules["opentelemetry.trace"].set_tracer_provider = _set_tp  # type: ignore[attr-defined]
+
+    # Ensure no endpoint defined
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_INSECURE", raising=False)
+
+    mod = _importlib.import_module("observability_otel")
+    mod._OTEL_INITIALIZED = False
+    mod.setup_telemetry(service_name="svc-no-endpoint")
+
+    assert calls["span_exporter"] == 0
+    assert calls["set_tp"] == 0
+
+
+def test_tracing_enabled_with_endpoint_and_insecure(monkeypatch):
+    install_core_stubs()
+    import importlib as _importlib
+
+    calls = {"span_exporter": 0, "set_tp": 0}
+    insecure_args: list[bool | None] = []
+
+    class _SpanExporter:
+        def __init__(self, *a, **k):
+            calls["span_exporter"] += 1
+            insecure_args.append(k.get("insecure"))
+
+    def _set_tp(_p):
+        calls["set_tp"] += 1
+
+    sys.modules["opentelemetry.exporter.otlp.proto.grpc.trace_exporter"] = types.SimpleNamespace(
+        OTLPSpanExporter=_SpanExporter
+    )
+    sys.modules["opentelemetry.trace"].set_tracer_provider = _set_tp  # type: ignore[attr-defined]
+
+    # Define endpoint and insecure=true
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otlp:4317")
+    monkeypatch.setenv("OTEL_EXPORTER_INSECURE", "true")
+
+    mod = _importlib.import_module("observability_otel")
+    mod._OTEL_INITIALIZED = False
+    mod.setup_telemetry(service_name="svc-with-endpoint")
+
+    assert calls["span_exporter"] == 1
+    assert calls["set_tp"] == 1
+    # Ensure we passed insecure=True from env
+    assert insecure_args == [True]
