@@ -55,16 +55,20 @@ async def test_cache_warming_job_is_scheduled(monkeypatch):
     # Patch Application.builder used inside CodeKeeperBot
     monkeypatch.setattr(mod, 'Application', _AppNS())
 
-    # Instantiate bot and start polling (which schedules the warm job)
+    # Instantiate bot
     bot = mod.CodeKeeperBot()
 
-    # Call the section that triggers run_polling path but we won't actually block
-    # We simulate the call path up to scheduling by invoking the same logic
-    # present in main(). Here we directly inspect job_queue
-    # Ensure a job named 'maintenance_clear_handlers' didn't collide; we expect our warming job
+    # Provide a stub manage_mongo_lock that succeeds
+    monkeypatch.setattr(mod, 'manage_mongo_lock', lambda: True)
+
+    # Run main() to execute scheduling logic (run_polling is a no-op in our stub MiniApp)
+    mod.main()
+
+    # Inspect scheduled jobs
     calls = bot.application.job_queue.calls
-    # find our warming job by name; it does not have a fixed name in code, so validate by callback signature
-    assert any(call[1] is not None for call in calls), 'expected at least one scheduled job with a delay'
+    assert calls, 'expected at least one scheduled job'
+    # Find the warming job by delay (we schedule with when=2)
+    assert any((c[1] == 2) for c in calls), 'expected a warm job scheduled with when=2'
 
     # Validate the warming callback is callable and safe to invoke
     # Invoke the last scheduled callback to ensure it does not raise
