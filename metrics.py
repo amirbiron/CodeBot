@@ -315,8 +315,9 @@ def record_http_request(
 ) -> None:
     """Record HTTP request metrics for SLO calculations.
 
-    - Increments `http_requests_total{method,endpoint,status}`
-    - Observes `http_request_duration_seconds{method,endpoint}`
+    - Increments ``http_requests_total{method,endpoint,status}``
+    - Observes ``http_request_duration_seconds{method,endpoint}``
+
     This function is best-effort and never raises.
     """
     try:
