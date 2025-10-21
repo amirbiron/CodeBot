@@ -11,7 +11,9 @@
 .btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
 .editor-info { font-size:.85rem; opacity:.8; }
 .editor-loading { position: relative; min-height: 48px; display:flex; align-items:center; gap:.5rem; color:#fff; }
-.editor-transitioning { opacity: .7; pointer-events: none; }
+.editor-transitioning { opacity: .7; }
+/* בזמן טעינה – ננעל רק את אזור העורך, לא את כפתור ההחלפה */
+.editor-transitioning .codemirror-container { pointer-events: none; }
 /* Gutters & selection to match theme */
 .cm-gutters { background: rgba(0,0,0,0.3); border-right: 1px solid rgba(255,255,255,0.1); }
 .cm-activeLineGutter { background: rgba(100,100,255,0.2); }
