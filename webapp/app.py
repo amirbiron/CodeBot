@@ -955,9 +955,46 @@ def _search_limiter_decorator(rule: str):
             return fn
         return _wrap
 
+def _limiter_exempt():
+    """Return limiter.exempt if available; else identity decorator.
+
+    מאפשר להחריג endpoints כמו /metrics ו-/health(z) ממגבלות הקצב.
+    """
+    if limiter is None:
+        def _wrap(fn):
+            return fn
+        return _wrap
+    try:
+        return limiter.exempt  # type: ignore[attr-defined]
+    except Exception:
+        def _wrap(fn):
+            return fn
+        return _wrap
+
 @app.errorhandler(429)
 def _ratelimit_handler(e):
     try:
+        # Metrics + structured log (best-effort, never break response)
+        try:
+            from metrics import rate_limit_blocked  # type: ignore
+        except Exception:
+            rate_limit_blocked = None  # type: ignore
+        try:
+            emit_event(
+                "rate_limit_blocked",
+                severity="warning",
+                path=str(getattr(request, 'path', '')),
+                remote=str(getattr(request, 'remote_addr', '')),
+            )
+        except Exception:
+            pass
+        try:
+            if rate_limit_blocked is not None:
+                # scope: נתיב, limit: לא ידוע ברמת handler – נסמן "route"
+                scope = str(getattr(request, 'path', '') or 'route')
+                rate_limit_blocked.labels(source="webapp", scope=scope, limit="route").inc()
+        except Exception:
+            pass
         payload = {
             "error": "rate_limit_exceeded",
             "message": "יותר מדי בקשות. אנא נסה שוב מאוחר יותר.",
@@ -1165,6 +1202,16 @@ def api_search_global():
     start_time = time.time()
     user_id = session['user_id']
     try:
+        # Soft-warning ב-80% מניצול ההגבלה (למיטב היכולת; תלוי במימוש limiter)
+        try:
+            if limiter is not None and hasattr(limiter, 'current_limit'):
+                # Flask-Limiter 3.x אינו מספק API יציב לשאילת ניצול; נסתפק באירוע/מטריקה בזמן תגובה 429.
+                pass
+            else:
+                # אין מידע על ניצול ברמת Flask; נשאיר לשכבת הבוט.
+                pass
+        except Exception:
+            pass
         # בקשות חיפוש מזוהות ע"י request_id לתחקור קל יותר
         try:
             request_id = generate_request_id()  # type: ignore[name-defined]
@@ -1480,6 +1527,7 @@ def api_search_suggestions():
 
 
 @app.route('/metrics')
+@_limiter_exempt()
 def metrics_endpoint():
     """Prometheus metrics endpoint (unified across services)."""
     try:
@@ -1503,6 +1551,7 @@ def metrics_endpoint():
 
 
 @app.route('/healthz')
+@_limiter_exempt()
 def healthz():
     """Simple liveness probe for platforms expecting /healthz."""
     try:
@@ -3876,6 +3925,7 @@ def settings():
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
 @app.route('/health')
+@_limiter_exempt()
 def health():
     """בדיקת תקינות"""
     health_data = {

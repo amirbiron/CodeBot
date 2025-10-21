@@ -37,3 +37,24 @@ class RateLimiter:
             entries.append(now)
             return True
 
+    async def get_current_usage_ratio(self, user_id: int) -> float:
+        """מחזיר יחס שימוש נוכחי בחלון (0.0–1.0).
+
+        מנקה ערכים ישנים לפני החישוב כדי לשקף את החלון המתגלגל של 60 שניות.
+        """
+        now = datetime.now(timezone.utc)
+        one_min_ago = now - timedelta(seconds=60)
+        async with self._lock:
+            entries = self._requests.get(user_id, [])
+            if entries:
+                delete_upto = len(entries)
+                for idx, ts in enumerate(entries):
+                    if ts > one_min_ago:
+                        delete_upto = idx
+                        break
+                if delete_upto > 0:
+                    del entries[:delete_upto]
+            used = len(self._requests.get(user_id, []))
+            limit = max(1, int(self.max_per_minute))
+            return min(1.0, float(used) / float(limit))
+
