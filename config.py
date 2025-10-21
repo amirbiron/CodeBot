@@ -166,6 +166,7 @@ class BotConfig(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
+        settings_cls: type[BaseSettings],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
@@ -176,9 +177,9 @@ class BotConfig(BaseSettings):
             init_settings,
             env_settings,
             # local overrides
-            DotEnvSettingsSource(cls, env_file=".env.local", case_sensitive=True),
+            DotEnvSettingsSource(settings_cls, env_file=".env.local", case_sensitive=True),
             # default .env
-            DotEnvSettingsSource(cls, env_file=".env", case_sensitive=True),
+            DotEnvSettingsSource(settings_cls, env_file=".env", case_sensitive=True),
             file_secret_settings,
         )
 
