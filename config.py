@@ -178,6 +178,35 @@ class BotConfig(BaseSettings):
         extra="ignore",
     )
 
+    @field_validator("ADMIN_USER_IDS", mode="before")
+    @classmethod
+    def _parse_admin_user_ids(cls, v):
+        """Allow ADMIN_USER_IDS as int, CSV string, or list of ints."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, list):
+            normalized: list[int] = []
+            for item in v:
+                try:
+                    normalized.append(int(item))
+                except Exception:
+                    continue
+            return normalized
+        if isinstance(v, int):
+            return [v]
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",")]
+            normalized: list[int] = []
+            for part in parts:
+                if not part:
+                    continue
+                try:
+                    normalized.append(int(part))
+                except Exception:
+                    continue
+            return normalized
+        return []
+
     @classmethod
     def settings_customise_sources(
         cls,
