@@ -57,7 +57,8 @@ async def test_alerts_forward_failure_emits_anomaly_event(monkeypatch):
         raise RuntimeError("forward boom")
 
     mod.forward_alerts = forward_alerts  # type: ignore[attr-defined]
-    sys.modules["alert_forwarder"] = mod
+    # Ensure cleanup after test via monkeypatch fixture
+    monkeypatch.setitem(sys.modules, "alert_forwarder", mod)
 
     import services.webserver as ws
 
