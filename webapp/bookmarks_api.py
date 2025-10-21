@@ -25,6 +25,15 @@ except Exception:  # pragma: no cover
     def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):  # type: ignore
         return None
 
+# Manual tracing decorator (fail-open)
+try:  # type: ignore
+    from observability_instrumentation import traced  # type: ignore
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
+
 
 def _get_request_id() -> str:
     try:
@@ -106,6 +115,7 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
 
 @bookmarks_bp.route('/<file_id>/toggle', methods=['POST'])
 @require_auth
+@traced("bookmarks.toggle")
 def toggle_bookmark(file_id):
     """
     Toggle bookmark for a specific line in a file.
@@ -216,6 +226,7 @@ def toggle_bookmark(file_id):
 
 @bookmarks_bp.route('/<file_id>', methods=['GET'])
 @require_auth
+@traced("bookmarks.get_file")
 def get_file_bookmarks(file_id):
     """
     Get all bookmarks for a specific file.
@@ -261,6 +272,7 @@ def get_file_bookmarks(file_id):
 
 @bookmarks_bp.route('/all', methods=['GET'])
 @require_auth
+@traced("bookmarks.get_all")
 def get_all_bookmarks():
     """
     Get all bookmarks for the current user.
@@ -318,6 +330,7 @@ def get_all_bookmarks():
 
 @bookmarks_bp.route('/<file_id>/<int:line_number>/note', methods=['PUT'])
 @require_auth
+@traced("bookmarks.update_note")
 def update_bookmark_note(file_id, line_number):
     """
     Update note for a specific bookmark.
@@ -368,6 +381,7 @@ def update_bookmark_note(file_id, line_number):
 
 @bookmarks_bp.route('/<file_id>/<int:line_number>/color', methods=['PUT'])
 @require_auth
+@traced("bookmarks.update_color")
 def update_bookmark_color(file_id, line_number):
     """עדכון צבע של סימנייה"""
     try:
@@ -411,6 +425,7 @@ def update_bookmark_color(file_id, line_number):
 
 @bookmarks_bp.route('/<file_id>/<int:line_number>', methods=['DELETE'])
 @require_auth
+@traced("bookmarks.delete")
 def delete_bookmark(file_id, line_number):
     """Delete a specific bookmark"""
     try:
@@ -448,6 +463,7 @@ def delete_bookmark(file_id, line_number):
 
 @bookmarks_bp.route('/<file_id>/clear', methods=['DELETE'])
 @require_auth
+@traced("bookmarks.clear_file")
 def clear_file_bookmarks(file_id):
     """Delete all bookmarks for a specific file"""
     try:
@@ -480,6 +496,7 @@ def clear_file_bookmarks(file_id):
 
 @bookmarks_bp.route('/<file_id>/sync', methods=['POST'])
 @require_auth
+@traced("bookmarks.check_sync")
 def check_file_sync(file_id):
     """
     Check if bookmarks need sync due to file changes.
@@ -519,6 +536,7 @@ def check_file_sync(file_id):
 
 @bookmarks_bp.route('/stats', methods=['GET'])
 @require_auth
+@traced("bookmarks.get_stats")
 def get_bookmark_stats():
     """Get bookmark statistics for current user"""
     try:
@@ -553,6 +571,7 @@ def get_bookmark_stats():
 
 @bookmarks_bp.route('/export', methods=['GET'])
 @require_auth
+@traced("bookmarks.export")
 def export_bookmarks():
     """Export all user bookmarks as JSON"""
     try:
@@ -611,6 +630,7 @@ def export_bookmarks():
 
 @bookmarks_bp.route('/prefs', methods=['GET'])
 @require_auth
+@traced("bookmarks.get_prefs")
 def get_prefs():
     """החזרת העדפות סימניות של המשתמש (צבע ברירת מחדל)."""
     try:
@@ -647,6 +667,7 @@ def get_prefs():
 
 @bookmarks_bp.route('/prefs', methods=['PUT'])
 @require_auth
+@traced("bookmarks.set_prefs")
 def set_prefs():
     """עדכון צבע ברירת מחדל לסימניות עבור המשתמש."""
     try:
