@@ -7,6 +7,8 @@
       this.loadingElement = null;
       this.isLoading = false;
       this.loadingPromise = null;
+      // נשמור CDN אחיד לכל המודולים כדי למנוע חוסר תאימות בין מחלקות
+      this._cdnUrl = null;
     }
 
     loadPreference() {
@@ -202,13 +204,36 @@
     }
 
     async loadCodeMirror() {
-      // טעינה דינמית של מודולים מצדי ה-CDN והגדרת חלון גלובלי יחיד
-      const stateMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js');
-      const viewMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/index.js');
-      const cmdMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/commands@6/dist/index.js');
-      const langMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/language@6/dist/index.js');
-      const searchMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/search@6/dist/index.js');
-      const acMod = await import('https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/dist/index.js');
+      // בוחרים CDN אחד לכלל המודולים כדי למנוע ערבוב מחלקות/סינגלטונים
+      const cdnCandidates = [
+        { name: 'jsdelivr', url: (pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module` },
+        { name: 'unpkg',    url: (pkg) => `https://unpkg.com/${pkg}@6?module` },
+        { name: 'esm',      url: (pkg) => `https://esm.sh/${pkg}@6?bundle` }
+      ];
+
+      let chosen = null;
+      let stateMod, viewMod, cmdMod, langMod, searchMod, acMod;
+      let lastErr;
+      for (const cdn of cdnCandidates) {
+        try {
+          const u = cdn.url;
+          stateMod = await import(u('@codemirror/state'));
+          viewMod = await import(u('@codemirror/view'));
+          cmdMod = await import(u('@codemirror/commands'));
+          langMod = await import(u('@codemirror/language'));
+          searchMod = await import(u('@codemirror/search'));
+          acMod = await import(u('@codemirror/autocomplete'));
+          chosen = cdn;
+          break;
+        } catch (e) {
+          lastErr = e;
+          // ננסה את ה-CDN הבא
+        }
+      }
+      if (!chosen) throw lastErr || new Error('codemirror_core_import_failed');
+
+      // שמירת ה-CDN הנבחר לשימוש בהמשך (שפות/נושא)
+      this._cdnUrl = chosen.url;
 
       const basicSetup = [
         viewMod.lineNumbers(),
@@ -243,25 +268,27 @@
         keymap: viewMod.keymap,
         Compartment: stateMod.Compartment,
         languageCompartment: new stateMod.Compartment(),
-        themeCompartment: new stateMod.Compartment()
+        themeCompartment: new stateMod.Compartment(),
+        _cdnUrl: this._cdnUrl
       };
     }
 
     async getLanguageSupport(lang) {
-      const map = {
-        python: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-python@6/dist/index.js'],
-        javascript: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-javascript@6/dist/index.js'],
-        html: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-html@6/dist/index.js'],
-        css: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-css@6/dist/index.js'],
-        sql: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-sql@6/dist/index.js'],
-        json: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-json@6/dist/index.js'],
-        markdown: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js'],
-        xml: ['https://cdn.jsdelivr.net/npm/@codemirror/lang-xml@6/dist/index.js']
+      const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
+      const pkgMap = {
+        python: '@codemirror/lang-python',
+        javascript: '@codemirror/lang-javascript',
+        html: '@codemirror/lang-html',
+        css: '@codemirror/lang-css',
+        sql: '@codemirror/lang-sql',
+        json: '@codemirror/lang-json',
+        markdown: '@codemirror/lang-markdown',
+        xml: '@codemirror/lang-xml'
       };
-      const urls = map[lang];
-      if (!urls) return [];
+      const pkg = pkgMap[lang];
+      if (!pkg) return [];
       try {
-        const mod = await import(urls[0]);
+        const mod = await import(gen(pkg));
         switch (lang) {
           case 'python': return mod.python();
           case 'javascript': return mod.javascript();
@@ -278,10 +305,8 @@
 
     async getTheme(name) {
       if (name === 'dark') {
-        try {
-          const mod = await import('https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/dist/index.js');
-          return mod.oneDark;
-        } catch(_) { return []; }
+        const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
+        try { const mod = await import(gen('@codemirror/theme-one-dark')); return mod.oneDark || []; } catch(_) { return []; }
       }
       return [];
     }
