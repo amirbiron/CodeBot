@@ -17,22 +17,22 @@
         <!-- עמודת החיפוש -->
         <div class="col-lg-8 col-md-12 mb-3 mb-lg-0">
           <div class="input-group">
-            <input type="text" 
-                   id="globalSearchInput" 
-                   class="form-control form-control-lg" 
-                   placeholder="חפש טקסט/קוד בכל הקבצים..." 
+            <input type="text"
+                   id="globalSearchInput"
+                   class="form-control form-control-lg"
+                   placeholder="חפש טקסט/קוד בכל הקבצים..."
                    autocomplete="off">
             <div class="input-group-append">
-              <button class="btn btn-primary btn-lg" 
-                      id="searchBtn" 
+              <button class="btn btn-primary btn-lg"
+                      id="searchBtn"
                       onclick="performGlobalSearch()"
                       type="button">
                 <i class="fas fa-search"></i> חפש
               </button>
             </div>
           </div>
-          <div id="searchSuggestions" 
-               class="list-group" 
+          <div id="searchSuggestions"
+               class="list-group"
                style="display: none;">
           </div>
         </div>
@@ -62,9 +62,9 @@
               <option value="size_desc">גודל</option>
             </select>
 
-            <select id="filterLanguages" 
-                    multiple 
-                    class="form-control form-control-sm" 
+            <select id="filterLanguages"
+                    multiple
+                    class="form-control form-control-sm"
                     style="width: auto; min-width: 120px;">
               {% for lang in languages %}
                 {% if lang %}
@@ -134,20 +134,20 @@
             {% endif %}
             {% endif %}
             <div style="flex: 1; min-width: 200px;">
-                <input type="text" name="q" value="{{ search_query }}" 
-                       placeholder="חיפוש לפי שם, תיאור או תגית..." 
+                <input type="text" name="q" value="{{ search_query }}"
+                       placeholder="חיפוש לפי שם, תיאור או תגית..."
                        class="search-input"
                        style="width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
             </div>
-            
-            <select name="lang" class="filter-select" 
+
+            <select name="lang" class="filter-select"
                     style="padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
                 <option value="">כל השפות</option>
                 {% for lang in languages %}
                 <option value="{{ lang }}" {% if lang == language_filter %}selected{% endif %}>{{ lang }}</option>
                 {% endfor %}
             </select>
-            
+
             <select name="sort" class="filter-select"
                     style="padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
                 {% if category_filter == 'recent' %}
@@ -160,7 +160,7 @@
                 <option value="-file_name" {% if sort_by == '-file_name' %}selected{% endif %}>שם (ת-א)</option>
                 <option value="-updated_at" {% if sort_by == '-updated_at' %}selected{% endif %}>עודכן לאחרונה</option>
             </select>
-            
+
             <button type="submit" class="btn btn-primary btn-icon">
                 <i class="fas fa-search"></i>
                 חפש
@@ -174,7 +174,7 @@
             {% endif %}
         </form>
     </div>
-    
+
     <div class="results-info" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
         <div>
             מציג {{ files|length }} מתוך {{ total_count }} קבצים
@@ -278,11 +278,11 @@
                         </div>
                     </div>
                 </div>
-                
+
                 {% if file.description %}
                 <p style="margin: 1rem 0; opacity: 0.9;">{{ file.description }}</p>
                 {% endif %}
-                
+
                 {% if file.tags %}
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0;">
                     {% for tag in file.tags %}
@@ -292,7 +292,7 @@
                     {% endfor %}
                 </div>
                 {% endif %}
-                
+
                 <div style="display: flex; gap: 2rem; margin-top: 1rem; opacity: 0.7; font-size: 0.9rem;">
                     <span><i class="fas fa-calendar"></i> נוצר: {{ file.created_at }}</span>
                     <span><i class="fas fa-edit"></i> עודכן: {{ file.updated_at }}</span>
@@ -301,7 +301,7 @@
                     {% endif %}
                 </div>
             </div>
-            
+
             <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; flex-shrink:0;">
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                     <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="צפה">
@@ -463,7 +463,7 @@
     .filters-section form {
         flex-direction: column;
     }
-    
+
     .filters-section input,
     .filters-section select,
     .filters-section button {

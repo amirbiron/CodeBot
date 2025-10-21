@@ -61,6 +61,10 @@ uvicorn==0.24.0
 whitenoise==6.6.0
 Flask-Compress==1.15
 
+# Rate limiting (Flask + generic)
+Flask-Limiter==3.5.0
+limits==3.10.1
+
 
 # Async Support
 aiofiles==23.2.1
@@ -89,7 +93,8 @@ slowapi==0.1.9
 rapidfuzz==3.14.1
 
 # CLI Tools
-rich==14.2.0
+# Flask-Limiter 3.5.0 דורש rich<14 — נצמיד לגרסה יציבה תואמת
+rich==13.7.1
 typer==0.19.2
 
 # Resilience utilities

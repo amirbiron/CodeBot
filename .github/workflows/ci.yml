@@ -196,8 +196,7 @@ jobs:
         env:
           MONGO_INITDB_ROOT_USERNAME: test
           MONGO_INITDB_ROOT_PASSWORD: test123
-        ports:
-          - 27017:27017
+        # Avoid host port binding to prevent conflicts; job connects via service hostname
         options: >-
           --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
           --health-interval 10s
@@ -205,8 +204,7 @@ jobs:
           --health-retries 5
       redis:
         image: redis:7-alpine
-        ports:
-          - 6379:6379
+        # Avoid host port binding; job connects via service hostname
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -253,14 +251,34 @@ jobs:
             });
         env:
           PYV: ${{ matrix.python-version }}
+      - name: Report required status (pending ASCII)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            const ver = process.env.PYV || '${{ matrix.python-version }}';
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'pending',
+              context: `Unit Tests (${ver})`,
+              description: 'Job queued/running',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+        env:
+          PYV: ${{ matrix.python-version }}
       - name: 🧪 Smoke compile (exclude .restore)
         run: |
           find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
       - name: 🧪 Run Tests
         env:
           BOT_TOKEN: ${{ secrets.TEST_BOT_TOKEN || '1234567890:TEST_TOKEN_FOR_TESTING' }}
-          MONGODB_URL: mongodb://test:test123@localhost:27017/test_db?authSource=admin
-          REDIS_URL: redis://localhost:6379/0
+          MONGODB_URL: mongodb://test:test123@mongodb:27017/test_db?authSource=admin
+          REDIS_URL: redis://redis:6379/0
           GITHUB_TOKEN: ${{ secrets.TEST_GITHUB_TOKEN }}
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
         run: |
@@ -301,6 +319,26 @@ jobs:
               sha,
               state: 'success',
               context: `🧪 Unit Tests (${ver})`,
+              description: 'Tests passed',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+        env:
+          PYV: ${{ matrix.python-version }}
+      - name: Report required status (success ASCII)
+        if: ${{ success() }}
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            const ver = process.env.PYV || '${{ matrix.python-version }}';
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'success',
+              context: `Unit Tests (${ver})`,
               description: 'Tests passed',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });
@@ -347,6 +385,26 @@ jobs:
             });
         env:
           PYV: ${{ matrix.python-version }}
+      - name: Report required status (failure ASCII)
+        if: ${{ failure() }}
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            const ver = process.env.PYV || '${{ matrix.python-version }}';
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'failure',
+              context: `Unit Tests (${ver})`,
+              description: 'Tests failed',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+        env:
+          PYV: ${{ matrix.python-version }}
 
       - name: Report required status (cancelled)
         if: ${{ cancelled() }}
@@ -363,6 +421,26 @@ jobs:
               sha,
               state: 'failure',
               context: `🧪 Unit Tests (${ver})`,
+              description: 'Job cancelled',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+        env:
+          PYV: ${{ matrix.python-version }}
+      - name: Report required status (cancelled ASCII)
+        if: ${{ cancelled() }}
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = context.payload.pull_request ? context.payload.pull_request.head.sha : context.sha;
+            const ver = process.env.PYV || '${{ matrix.python-version }}';
+            await github.request('POST /repos/{owner}/{repo}/statuses/{sha}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'failure',
+              context: `Unit Tests (${ver})`,
               description: 'Job cancelled',
               target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             });

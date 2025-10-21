@@ -2,6 +2,7 @@ import asyncio
 import pytest
 
 from rate_limiter import RateLimiter
+import os
 
 
 @pytest.mark.asyncio
@@ -48,3 +49,12 @@ async def test_rate_limiter_cleanup_all_expired_limit_1():
     limiter._requests[user_id] = [too_old]
     # צריך להתנקה לחלוטין ולאפשר
     assert await limiter.check_rate_limit(user_id) is True
+
+
+def test_limits_packages_present():
+    # Ensure optional advanced limiting deps are installed per issue #910
+    try:
+        import flask_limiter  # type: ignore
+        import limits  # type: ignore
+    except Exception as e:
+        raise AssertionError(f"Rate limiting deps missing: {e}")

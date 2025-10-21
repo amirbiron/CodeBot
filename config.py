@@ -34,6 +34,21 @@ class BotConfig(BaseSettings):
         default=False, description="Enable in-memory/Redis caching where applicable"
     )
 
+    # Rate limiting
+    RATE_LIMIT_ENABLED: bool = Field(default=True, description="Enable rate limiting globally")
+    RATE_LIMIT_SHADOW_MODE: bool = Field(
+        default=False,
+        description="Count-only mode, no blocking (for testing/deploy canary)",
+    )
+    RATE_LIMIT_STRATEGY: str = Field(
+        default="moving-window",
+        description="fixed-window or moving-window (if supported by backend)",
+    )
+    ADMIN_USER_IDS: List[int] = Field(
+        default_factory=list,
+        description="Admin user IDs who may bypass some limits",
+    )
+
     # אינטגרציות
     GITHUB_TOKEN: Optional[str] = Field(default=None, description="GitHub token")
     PASTEBIN_API_KEY: Optional[str] = Field(default=None, description="Pastebin API key")

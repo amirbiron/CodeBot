@@ -128,6 +128,26 @@ codebot_avg_response_time_seconds = Gauge("codebot_avg_response_time_seconds", "
 # Internal helper: total requests for uptime calculation (not externally required but useful)
 codebot_requests_total = Counter("codebot_requests_total", "Total HTTP requests processed") if Counter else None
 
+# Rate limiting metrics (used by both Flask and Telegram bot)
+rate_limit_hits = (
+    Counter(
+        "rate_limit_hits_total",
+        "Total rate limit checks",
+        ["source", "scope", "limit", "result"],
+    )
+    if Counter
+    else None
+)
+rate_limit_blocked = (
+    Counter(
+        "rate_limit_blocked_total",
+        "Total blocked requests by rate limiter",
+        ["source", "scope", "limit"],
+    )
+    if Counter
+    else None
+)
+
 # In-memory assistance structures (fail-open, best-effort)
 _ACTIVE_USERS: set[int] = set()
 _EWMA_ALPHA: float = float(os.getenv("METRICS_EWMA_ALPHA", "0.2"))

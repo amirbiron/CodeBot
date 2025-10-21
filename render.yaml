@@ -49,6 +49,10 @@ services:
         
       - key: HIGHLIGHT_THEME
         value: github-dark
+      - key: RATE_LIMIT_SHADOW_MODE
+        value: true
+      - key: RATE_LIMIT_STRATEGY
+        value: moving-window
         
       - key: AUTO_BACKUP_ENABLED
         value: true
@@ -122,6 +126,10 @@ services:
         
       - key: LOG_LEVEL
         value: INFO
+      - key: RATE_LIMIT_SHADOW_MODE
+        value: true
+      - key: RATE_LIMIT_STRATEGY
+        value: moving-window
         
       # משתני רגישים - יוגדרו בRender Dashboard:
       # SECRET_KEY (for Flask sessions)

@@ -210,14 +210,33 @@ try:
 except Exception:
     pass
 
-# Limiter instance (in-memory by default; safe fallback if unavailable)
+"""Rate limiting backend setup
+
+Preference order:
+1) Redis via REDIS_URL (TLS supported by driver) when available
+2) In-memory fallback (per-process; acceptable for local/dev and tests)
+3) Disabled if flask_limiter is unavailable
+"""
 if _LIMITER_AVAILABLE:
     try:
+        # Resolve storage URI: prefer Redis when configured
+        _storage_uri = "memory://"
+        try:
+            from config import config as _cfg  # type: ignore
+        except Exception:
+            _cfg = None  # type: ignore
+        if _cfg is not None and getattr(_cfg, 'REDIS_URL', None):
+            _storage_uri = str(getattr(_cfg, 'REDIS_URL'))
+        elif os.getenv('REDIS_URL'):
+            _storage_uri = os.getenv('REDIS_URL') or "memory://"
+
         limiter = Limiter(
             app=app,
             key_func=(lambda: session.get('user_id') if 'user_id' in session else get_remote_address()),
             default_limits=["200 per day", "50 per hour"],
-            storage_uri="memory://",
+            storage_uri=_storage_uri,
+            strategy=(getattr(_cfg, 'RATE_LIMIT_STRATEGY', 'moving-window') if _cfg else 'moving-window'),
+            swallow_errors=True,  # don't crash the app if backend unavailable
         )
     except Exception:
         limiter = None  # type: ignore
@@ -935,6 +954,18 @@ def _search_limiter_decorator(rule: str):
         def _wrap(fn):
             return fn
         return _wrap
+
+@app.errorhandler(429)
+def _ratelimit_handler(e):
+    try:
+        payload = {
+            "error": "rate_limit_exceeded",
+            "message": "יותר מדי בקשות. אנא נסה שוב מאוחר יותר.",
+            "retry_after": getattr(e, 'description', None),
+        }
+        return jsonify(payload), 429
+    except Exception:
+        return jsonify({"error": "rate_limit_exceeded"}), 429
 
 
 def _safe_retry(*dargs, **dkwargs):

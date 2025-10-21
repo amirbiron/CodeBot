@@ -223,16 +223,16 @@
     .file-header {
         flex-direction: column;
     }
-    
+
     .file-actions {
         width: 100%;
         justify-content: stretch;
     }
-    
+
     .file-actions .btn {
         flex: 1;
     }
-    
+
     /* התאמות מובייל לתצוגת קוד */
     .source {
         font-size: 12px !important;
@@ -298,7 +298,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         </div>
         {% endif %}
     </div>
-    
+
     <div class="file-actions">
         <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}" aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
             <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
@@ -418,7 +418,7 @@ function copyCode() {
             }
         }
     }
-    
+
     if (!code) {
         // נסיון אחרון - לקחת את כל הטקסט מה-highlight div
         const highlightDiv = document.querySelector('.source .highlight');
@@ -433,7 +433,7 @@ function copyCode() {
             code = tempDiv.textContent || tempDiv.innerText;
         }
     }
-    
+
     if (code) {
         navigator.clipboard.writeText(code).then(() => {
             const feedback = document.getElementById('copyFeedback');
