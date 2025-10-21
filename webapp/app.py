@@ -955,6 +955,22 @@ def _search_limiter_decorator(rule: str):
             return fn
         return _wrap
 
+def _limiter_exempt():
+    """Return limiter.exempt if available; else identity decorator.
+
+    מאפשר להחריג endpoints כמו /metrics ו-/health(z) ממגבלות הקצב.
+    """
+    if limiter is None:
+        def _wrap(fn):
+            return fn
+        return _wrap
+    try:
+        return limiter.exempt  # type: ignore[attr-defined]
+    except Exception:
+        def _wrap(fn):
+            return fn
+        return _wrap
+
 @app.errorhandler(429)
 def _ratelimit_handler(e):
     try:
@@ -1480,6 +1496,7 @@ def api_search_suggestions():
 
 
 @app.route('/metrics')
+@_limiter_exempt()
 def metrics_endpoint():
     """Prometheus metrics endpoint (unified across services)."""
     try:
@@ -1503,6 +1520,7 @@ def metrics_endpoint():
 
 
 @app.route('/healthz')
+@_limiter_exempt()
 def healthz():
     """Simple liveness probe for platforms expecting /healthz."""
     try:
@@ -3876,6 +3894,7 @@ def settings():
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
 @app.route('/health')
+@_limiter_exempt()
 def health():
     """בדיקת תקינות"""
     health_data = {

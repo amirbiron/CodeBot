@@ -867,6 +867,13 @@ class CodeKeeperBot:
             except Exception:
                 user_id = 0
             if user_id:
+                # Admin bypass – אדמינים לא מוגבלים ע״י השער הגלובלי
+                try:
+                    admins = get_admin_ids()
+                except Exception:
+                    admins = []
+                if admins and user_id in admins:
+                    return  # מעבר חופשי לאדמין
                 try:
                     allowed = await self._rate_limiter.check_rate_limit(user_id)
                 except Exception:
@@ -895,6 +902,37 @@ class CodeKeeperBot:
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
+                else:
+                    # Soft-warning ב-80% מהסף – הודעה אדיבה ללא חסימה
+                    try:
+                        ratio = 0.0
+                        if hasattr(self._rate_limiter, 'get_current_usage_ratio'):
+                            ratio = float(await self._rate_limiter.get_current_usage_ratio(user_id))  # type: ignore[attr-defined]
+                        if ratio >= 0.8:
+                            # מנגנון אנטי-ספאם: אזהרה לכל היותר פעם בדקה למשתמש
+                            now_ts = time.time()
+                            udata = getattr(context, 'user_data', None)
+                            last_ts = 0.0
+                            if isinstance(udata, dict):
+                                try:
+                                    last_ts = float(udata.get('_soft_warn_ts', 0.0) or 0.0)
+                                except Exception:
+                                    last_ts = 0.0
+                            if (now_ts - last_ts) >= 60.0:
+                                try:
+                                    cq = getattr(update, 'callback_query', None)
+                                    if cq is not None:
+                                        await cq.answer("Heads-up: אתה מתקרב למגבלת הקצב (80%+)", show_alert=False, cache_time=1)
+                                    else:
+                                        msg = getattr(update, 'message', None)
+                                        if msg is not None:
+                                            await msg.reply_text("ℹ️ חיווי: אתה מתקרב למגבלת הקצב. אם תמשיך בקצב הזה ייתכן שתחסם זמנית.")
+                                except Exception:
+                                    pass
+                                if isinstance(udata, dict):
+                                    udata['_soft_warn_ts'] = now_ts
+                    except Exception:
+                        pass
 
         # הוסף כשכבת סינון מוקדמת עבור הודעות ולחיצות
         try:
