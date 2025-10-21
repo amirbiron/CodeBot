@@ -16,6 +16,7 @@ Code Keeper Bot - תיעוד API
    quickstart
    quickstart-contrib
    ai-guidelines
+   agents/rate-limiting
    doc-authoring
    style-glossary
    versioning-stable-anchors
@@ -68,6 +69,13 @@ Code Keeper Bot - תיעוד API
 
 .. toctree::
    :maxdepth: 2
+   :caption: איכות וקונבנציות:
+
+   quality/type-safety
+
+
+.. toctree::
+   :maxdepth: 2
    :caption: WebApp:
 
    webapp/overview
@@ -75,12 +83,14 @@ Code Keeper Bot - תיעוד API
    webapp/static-checklist
    webapp/api-reference
    webapp/bulk-actions
+   webapp/editor
 
 .. toctree::
    :maxdepth: 2
    :caption: Observability
 
    observability
+   observability/guidelines
    logging_schema
    metrics
    alerts
@@ -98,6 +108,12 @@ Code Keeper Bot - תיעוד API
    chatops/permissions
    chatops/troubleshooting
    chatops/faq
+
+.. toctree::
+   :maxdepth: 2
+   :caption: סוכני AI:
+
+   ai-agents/guide
 
 .. toctree::
    :maxdepth: 2
