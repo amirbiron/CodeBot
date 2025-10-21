@@ -16,3 +16,27 @@ groups:
           severity: warning
         annotations:
           summary: "פעולות איטיות: P95 > 2 שניות"
+
+      # --- SLO: Availability 99.9% ---
+      - alert: SLOAvailabilityBreach
+        expr: |
+          (
+            sum(rate(http_requests_total{status!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) < 0.999
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "ירידה בזמינות (SLO 99.9%)"
+
+      # --- SLO: Latency P95 < 0.5s ---
+      - alert: SLOLatencyP95Breach
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "חריגת זמן תגובה P95 מעל 0.5s"

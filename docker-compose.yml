@@ -113,6 +113,9 @@ services:
       # ברירת מחדל בדוקר: ינסה לשלוח ל-Jaeger בתוך הרשת של compose
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
       OTEL_EXPORTER_INSECURE: ${OTEL_EXPORTER_INSECURE:-true}
+      # Alerts → Telegram (used by /alertmanager/webhook forwarder)
+      ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN:-}
+      ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID:-}
     
     ports:
       - "${BOT_PORT:-8000}:8000"
@@ -157,6 +160,9 @@ services:
       LOG_LEVEL: DEBUG
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       PASTEBIN_API_KEY: ${PASTEBIN_API_KEY}
+      # Alerts → Telegram for dev as well (optional)
+      ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN}
+      ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID}
     ports:
       - "${BOT_DEV_PORT:-8001}:8000"
     volumes:
@@ -235,6 +241,24 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
+    networks:
+      - code-keeper-network
+    profiles:
+      - monitoring
+
+  # ===================================
+  # Alertmanager (אופציונלי)
+  # ===================================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: code-keeper-alertmanager
+    restart: unless-stopped
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
     networks:
       - code-keeper-network
     profiles:

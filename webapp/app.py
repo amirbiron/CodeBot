@@ -76,6 +76,13 @@ except Exception:  # pragma: no cover
         except Exception:
             return ""
 
+# Alertmanager forwarding (optional)
+try:
+    from alert_forwarder import forward_alerts as _forward_alerts  # type: ignore
+except Exception:  # pragma: no cover
+    def _forward_alerts(_alerts):  # type: ignore
+        return None
+
 # Optional monitoring & resilience
 try:
     from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY  # type: ignore
@@ -153,9 +160,11 @@ except Exception:
 
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
-    from metrics import record_request_outcome  # type: ignore
+    from metrics import record_request_outcome, record_http_request  # type: ignore
 except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
+        return None
+    def record_http_request(method, endpoint, status_code, duration_seconds):  # type: ignore
         return None
 
 # --- Search: metrics, limiter (lightweight, optional) ---
@@ -933,9 +942,58 @@ def _metrics_after(resp):  # type: ignore[override]
             dur = max(0.0, float(_time.perf_counter() - start))
             status = int(getattr(resp, "status_code", 0) or 0)
             record_request_outcome(status, dur)
+            try:
+                method = getattr(request, "method", "GET")
+                endpoint = getattr(request, "endpoint", None)
+                record_http_request(method, endpoint, status, dur)
+            except Exception:
+                pass
     except Exception:
         pass
     return resp
+
+
+# === Alertmanager Webhook endpoint (optional integration) ===
+# מאפשר להפנות התראות מ-Alertmanager ישירות לבוט/טלגרם דרך alert_forwarder
+@app.route('/alertmanager/webhook', methods=['POST'])
+def alertmanager_webhook():
+    try:
+        # --- Basic authentication/guard ---
+        secret = os.getenv('ALERTMANAGER_WEBHOOK_SECRET', '').strip()
+        allow_ips = {ip.strip() for ip in (os.getenv('ALERTMANAGER_IP_ALLOWLIST') or '').split(',') if ip.strip()}
+
+        def _client_ip() -> str:
+            try:
+                xff = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+                return xff or (request.remote_addr or '')
+            except Exception:
+                return request.remote_addr or ''
+
+        ok_secret = True
+        ok_ip = True
+        # If a secret is configured, require matching header or query token
+        if secret:
+            token = request.headers.get('X-Alertmanager-Token') or request.args.get('token') or ''
+            ok_secret = (token.strip() == secret)
+        # If an IP allow-list is configured, require client IP in the list
+        if allow_ips:
+            ok_ip = (_client_ip() in allow_ips)
+
+        # Enforce guards when configured
+        if (secret and not ok_secret) or (allow_ips and not ok_ip):
+            return jsonify({"status": "forbidden"}), 403
+
+        payload = request.get_json(silent=True) or {}
+        alerts = payload.get('alerts') or []
+        if isinstance(alerts, list) and alerts:
+            try:
+                _forward_alerts(alerts)
+            except Exception:
+                pass
+            return jsonify({"status": "ok", "forwarded": len(alerts)}), 200
+        return jsonify({"status": "no_alerts"}), 200
+    except Exception:
+        return jsonify({"status": "error"}), 200
 
 def admin_required(f):
     """דקורטור לבדיקת הרשאות אדמין"""

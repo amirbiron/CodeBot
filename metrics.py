@@ -148,6 +148,28 @@ rate_limit_blocked = (
     else None
 )
 
+# --- Phase 3: HTTP-level metrics for SLOs ---
+# Standard, well-known Prometheus metric names for HTTP instrumentation.
+# Labels kept intentionally small to avoid high cardinality: method, endpoint, status
+http_requests_total = (
+    Counter(
+        "http_requests_total",
+        "Total HTTP requests",
+        ["method", "endpoint", "status"],
+    )
+    if Counter
+    else None
+)
+http_request_duration_seconds = (
+    Histogram(
+        "http_request_duration_seconds",
+        "HTTP request duration in seconds",
+        ["method", "endpoint"],
+    )
+    if Histogram
+    else None
+)
+
 # In-memory assistance structures (fail-open, best-effort)
 _ACTIVE_USERS: set[int] = set()
 _EWMA_ALPHA: float = float(os.getenv("METRICS_EWMA_ALPHA", "0.2"))
@@ -267,6 +289,52 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
             pass
     except Exception:
         # Fail-open: observability must never crash business logic
+        return
+
+
+def _normalize_endpoint(value: str | None) -> str:
+    """Return a low-cardinality endpoint label.
+
+    Prefer Flask endpoint name (function name), fall back to path prefix buckets.
+    """
+    try:
+        v = (value or "").strip()
+        if not v:
+            return "unknown"
+        # Flask endpoint names do not include parameters and are stable
+        return v.replace(" ", "_")[:120]
+    except Exception:
+        return "unknown"
+
+
+def record_http_request(
+    method: str,
+    endpoint: str | None,
+    status_code: int,
+    duration_seconds: float,
+) -> None:
+    """Record HTTP request metrics for SLO calculations.
+
+    - Increments ``http_requests_total{method,endpoint,status}``
+    - Observes ``http_request_duration_seconds{method,endpoint}``
+
+    This function is best-effort and never raises.
+    """
+    try:
+        ep = _normalize_endpoint(endpoint)
+        m = (method or "").upper() or "GET"
+        status = str(int(status_code))
+        if http_requests_total is not None:
+            try:
+                http_requests_total.labels(m, ep, status).inc()
+            except Exception:
+                pass
+        if http_request_duration_seconds is not None:
+            try:
+                http_request_duration_seconds.labels(m, ep).observe(max(0.0, float(duration_seconds)))
+            except Exception:
+                pass
+    except Exception:
         return
 
 

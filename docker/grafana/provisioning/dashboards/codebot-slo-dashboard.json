@@ -1,0 +1,50 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 0,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API Availability (SLO 99.9%)",
+      "targets": [
+        {"expr": "sum(rate(http_requests_total{status!~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))", "legendFormat": "Availability"},
+        {"expr": "0.999", "legendFormat": "SLO Target"}
+      ],
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "API Latency P95 (SLO < 0.5s)",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "P95"},
+        {"expr": "0.5", "legendFormat": "SLO Target"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 7}
+    },
+    {
+      "type": "timeseries",
+      "title": "Error Rate (5xx / All)",
+      "targets": [
+        {"expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))", "legendFormat": "Error Rate"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 14}
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Rate by Endpoint",
+      "targets": [
+        {"expr": "sum(rate(http_requests_total[5m])) by (endpoint)", "legendFormat": "{{ endpoint }}"}
+      ],
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 21}
+    }
+  ],
+  "schemaVersion": 36,
+  "style": "dark",
+  "tags": ["codebot", "slo"],
+  "templating": {"list": []},
+  "timezone": "browser",
+  "title": "CodeBot SLO",
+  "version": 1
+}
