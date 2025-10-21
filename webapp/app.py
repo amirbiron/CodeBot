@@ -19,10 +19,13 @@ import time as _time
 from werkzeug.http import http_date, parse_date
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
+from pymongo.errors import PyMongoError
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
+from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
 from bson import ObjectId
+from bson.errors import InvalidId
 import requests
 from datetime import timedelta
 import re
@@ -2437,8 +2440,11 @@ def view_file(file_id):
             '_id': ObjectId(file_id),
             'user_id': user_id
         })
-    except:
+    except (InvalidId, TypeError):
         abort(404)
+    except PyMongoError as e:
+        logger.exception("DB error fetching file", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+        abort(500)
     
     if not file:
         abort(404)
@@ -2546,10 +2552,10 @@ def view_file(file_id):
     
     try:
         lexer = get_lexer_by_name(language, stripall=True)
-    except:
+    except ClassNotFound:
         try:
             lexer = guess_lexer(code)
-        except:
+        except ClassNotFound:
             lexer = get_lexer_by_name('text')
     
     formatter = HtmlFormatter(
@@ -2831,8 +2837,11 @@ def download_file(file_id):
             '_id': ObjectId(file_id),
             'user_id': user_id
         })
-    except:
+    except (InvalidId, TypeError):
         abort(404)
+    except PyMongoError as e:
+        logger.exception("DB error fetching file for download", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
+        abort(500)
     
     if not file:
         abort(404)

@@ -1250,8 +1250,8 @@ async def handle_edit_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         try:
             from code_processor import code_processor
             code_processor.code_logger.error(f"שגיאה בהתחלת עריכת קוד עבור משתמש {update.effective_user.id}: {str(e)}")
-        except:
-            pass
+        except Exception as log_err:
+            logger.debug(f"Failed to log to code_logger: {log_err}")
         
         await query.edit_message_text(
             "❌ שגיאה בהתחלת עריכה\n\n"
@@ -1445,8 +1445,8 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         try:
             from code_processor import code_processor
             code_processor.code_logger.error(f"שגיאה בעדכון קוד עבור משתמש {update.effective_user.id}: {str(e)}")
-        except:
-            pass
+        except Exception as log_err:
+            logger.debug(f"Failed to log to code_logger: {log_err}")
         
         # הודעת שגיאה מפורטת למשתמש
         error_details = "פרטי השגיאה לא זמינים"
