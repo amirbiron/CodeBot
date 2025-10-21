@@ -1215,9 +1215,9 @@ def _safe_search(user_id: int, query: str, **kwargs):
 
 
 @app.route('/api/search/global', methods=['POST'])
-@traced("search.global")
 @login_required
 @_search_limiter_decorator("30 per minute")
+@traced("search.global")
 def api_search_global():
     """חיפוש גלובלי בתוכן כל הקבצים של המשתמש."""
     start_time = time.time()
@@ -1534,8 +1534,8 @@ def api_search_global():
 
 
 @app.route('/api/search/suggestions', methods=['GET'])
-@traced("search.suggestions")
 @login_required
+@traced("search.suggestions")
 def api_search_suggestions():
     """הצעות השלמה אוטומטיות לחיפוש על בסיס אינדקס המנוע."""
     try:
@@ -1952,8 +1952,8 @@ def dashboard():
                              bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/files')
-@traced("files.list")
 @login_required
+@traced("files.list")
 def files():
     """רשימת כל הקבצים של המשתמש"""
     db = get_db()
