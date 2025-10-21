@@ -16,8 +16,8 @@
         const saved = localStorage.getItem('preferredEditor');
         if (saved === 'codemirror' || saved === 'simple') return saved;
       } catch(_) {}
-      // ברירת מחדל: עורך המתקדם (CodeMirror)
-      return 'codemirror';
+      // ברירת מחדל: עורך רגיל (textarea)
+      return 'simple';
     }
 
     savePreference(editorType) {
