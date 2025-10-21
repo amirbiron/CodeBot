@@ -359,25 +359,25 @@ class AdvancedSearchEngine:
                 break
             offset += len(files)
             for file_data in files:
-            content = str(file_data.get('code') or '')
-            matches = list(compiled_pattern.finditer(content))
-            
-            if matches:
-                score = len(matches)
-                result = self._create_search_result(file_data, pattern, score)
+                content = str(file_data.get('code') or '')
+                matches = list(compiled_pattern.finditer(content))
                 
-                # הוספת מידע על ההתאמות
-                result.matches = [
-                    {
-                        "start": match.start(),
-                        "end": match.end(),
-                        "text": match.group(),
-                        "line": content[:match.start()].count('\n') + 1
-                    }
-                    for match in matches[:10]  # מקסימום 10 התאמות
-                ]
-                
-                results.append(result)
+                if matches:
+                    score = len(matches)
+                    result = self._create_search_result(file_data, pattern, score)
+                    
+                    # הוספת מידע על ההתאמות
+                    result.matches = [
+                        {
+                            "start": match.start(),
+                            "end": match.end(),
+                            "text": match.group(),
+                            "line": content[:match.start()].count('\n') + 1
+                        }
+                        for match in matches[:10]  # מקסימום 10 התאמות
+                    ]
+                    
+                    results.append(result)
         
         return results
     
@@ -403,29 +403,29 @@ class AdvancedSearchEngine:
                 break
             offset += len(files)
             for file_data in files:
-            # חיפוש מטושטש בשם הקובץ
-            name_value = str(file_data.get('file_name') or '')
-            name_ratio = fuzz.partial_ratio(query.lower(), name_value.lower())
-            
-            # חיפוש מטושטש בתוכן
-            content_value = str(file_data.get('code') or '')
-            content_ratio = fuzz.partial_ratio(query.lower(), content_value.lower())
-            
-            # חיפוש מטושטש בתגיות
-            try:
-                tags_list = [str(t or '') for t in (file_data.get('tags') or [])]
-            except Exception:
-                tags_list = []
-            tags_text = ' '.join(tags_list)
-            tags_ratio = fuzz.partial_ratio(query.lower(), tags_text.lower())
-            
-            # ניקוד משולב
-            max_ratio = max(name_ratio, content_ratio, tags_ratio)
-            
-            if max_ratio >= 60:  # סף מינימלי
-                score = max_ratio / 100.0
-                result = self._create_search_result(file_data, query, score)
-                results.append(result)
+                # חיפוש מטושטש בשם הקובץ
+                name_value = str(file_data.get('file_name') or '')
+                name_ratio = fuzz.partial_ratio(query.lower(), name_value.lower())
+                
+                # חיפוש מטושטש בתוכן
+                content_value = str(file_data.get('code') or '')
+                content_ratio = fuzz.partial_ratio(query.lower(), content_value.lower())
+                
+                # חיפוש מטושטש בתגיות
+                try:
+                    tags_list = [str(t or '') for t in (file_data.get('tags') or [])]
+                except Exception:
+                    tags_list = []
+                tags_text = ' '.join(tags_list)
+                tags_ratio = fuzz.partial_ratio(query.lower(), tags_text.lower())
+                
+                # ניקוד משולב
+                max_ratio = max(name_ratio, content_ratio, tags_ratio)
+                
+                if max_ratio >= 60:  # סף מינימלי
+                    score = max_ratio / 100.0
+                    result = self._create_search_result(file_data, query, score)
+                    results.append(result)
         
         return results
     
