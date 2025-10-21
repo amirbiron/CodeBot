@@ -16,6 +16,7 @@ Code Keeper Bot - תיעוד API
    quickstart
    quickstart-contrib
    ai-guidelines
+   agents/rate-limiting
    doc-authoring
    style-glossary
    versioning-stable-anchors
