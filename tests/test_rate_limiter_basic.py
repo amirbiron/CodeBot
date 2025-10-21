@@ -58,3 +58,56 @@ def test_limits_packages_present():
         import limits  # type: ignore
     except Exception as e:
         raise AssertionError(f"Rate limiting deps missing: {e}")
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_usage_ratio_soft_warning_path():
+    rl = RateLimiter(max_per_minute=5)
+    uid = 42
+    # 4/5 hits → ratio ≈ 0.8
+    for _ in range(4):
+        assert await rl.check_rate_limit(uid) is True
+    ratio = await rl.get_current_usage_ratio(uid)
+    assert 0.79 <= ratio <= 0.81
+    # 5th allowed, 6th blocked
+    assert await rl.check_rate_limit(uid) is True
+    assert await rl.check_rate_limit(uid) is False
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_usage_ratio_zero_when_no_records():
+    rl = RateLimiter(max_per_minute=10)
+    uid = 999
+    ratio = await rl.get_current_usage_ratio(uid)
+    assert ratio == 0.0
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_usage_ratio_after_cleanup_partial():
+    # cover partial paths: cleanup of some entries then ratio calc
+    rl = RateLimiter(max_per_minute=4)
+    uid = 77
+    # two hits now
+    assert await rl.check_rate_limit(uid) is True
+    assert await rl.check_rate_limit(uid) is True
+    # inject an old entry to be cleaned
+    from datetime import datetime, timedelta, timezone
+    too_old = datetime.now(timezone.utc) - timedelta(seconds=120)
+    rl._requests[uid].insert(0, too_old)  # noqa: SLF001 (test internal)
+    ratio = await rl.get_current_usage_ratio(uid)
+    # only the 2 recent should count out of 4 → 0.5
+    assert 0.49 <= ratio <= 0.51
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_usage_ratio_soft_warning_path():
+    rl = RateLimiter(max_per_minute=5)
+    uid = 42
+    # 4/5 hits → ratio ≈ 0.8
+    for _ in range(4):
+        assert await rl.check_rate_limit(uid) is True
+    ratio = await rl.get_current_usage_ratio(uid)
+    assert 0.79 <= ratio <= 0.81
+    # 5th allowed, 6th blocked
+    assert await rl.check_rate_limit(uid) is True
+    assert await rl.check_rate_limit(uid) is False
