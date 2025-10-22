@@ -2992,7 +2992,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 from observability import emit_event as _emit  # type: ignore
             except Exception:  # pragma: no cover
-                _emit = None  # type: ignore[assignment]
+                _emit = None
             if _emit is not None:
                 _emit("backups_cleanup_disabled", severity="info")
             else:
@@ -3007,7 +3007,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         from file_manager import backup_manager as _bm  # type: ignore
                     except Exception:  # pragma: no cover
-                        _bm = None  # type: ignore[assignment]
+                        _bm = None
                     if _bm is not None:
                         try:
                             summary = _bm.cleanup_expired_backups()
@@ -3062,7 +3062,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 import asyncio as _asyncio
                 if _asyncio.isfuture(result) or _asyncio.iscoroutine(result):
-                    await result  # type: ignore[misc]
+                    await result
                     # Double-emit defensively for tests that expect the event synchronously
                     try:
                         try:
@@ -3365,7 +3365,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         from observability import emit_event as _emit  # type: ignore
                     except Exception:  # pragma: no cover
-                        _emit = None  # type: ignore[assignment]
+                        _emit = None
                     if _emit is not None:
                         _emit("backups_cleanup_disabled", severity="info")
                     else:

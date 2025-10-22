@@ -13,7 +13,7 @@ import random
 try:
     import redis  # type: ignore
 except Exception:  # redis אינו חובה – נריץ במצב מושבת אם חסר
-    redis = None  # type: ignore[assignment]
+    redis = None
 import asyncio
 from datetime import datetime, timedelta
 
