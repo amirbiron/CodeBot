@@ -4261,6 +4261,88 @@ def api_cache_stats():
     except Exception:
         return jsonify({"enabled": False, "error": "unavailable"}), 200
 
+
+@app.route('/api/cache/warm', methods=['POST'])
+@login_required
+def api_cache_warm():
+    """חימום קאש בסיסי למשתמש הנוכחי: סטטיסטיקות + הצעות חיפוש.
+
+    קלט אופציונלי (JSON):
+      {
+        "suggestions": ["def", "class", ...],
+        "limit": 10
+      }
+    """
+    try:
+        user_id = session['user_id']
+        payload = request.get_json(silent=True) or {}
+        seeds = payload.get('suggestions') or ["def", "class", "import", "todo", "fix", "bug"]
+        limit = int(payload.get('limit') or 10)
+
+        # 1) Warm stats (reuse logic from /api/stats, but simplified)
+        try:
+            db = get_db()
+            active_query = {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }
+            stats = {
+                'total_files': db.code_snippets.count_documents(active_query),
+                'languages': list(db.code_snippets.distinct('programming_language', active_query)),
+                'recent_activity': []
+            }
+            recent = db.code_snippets.find(active_query, {'file_name': 1, 'created_at': 1}).sort('created_at', DESCENDING).limit(10)
+            for item in recent:
+                stats['recent_activity'].append({
+                    'file_name': item.get('file_name', ''),
+                    'created_at': (item.get('created_at') or datetime.now()).isoformat()
+                })
+            # cache key same as /api/stats
+            _raw = json.dumps({}, sort_keys=True, ensure_ascii=False)
+            _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:16]
+            stats_cache_key = f"api:stats:user:{user_id}:{_hash}"
+            try:
+                cache.set_dynamic(
+                    stats_cache_key,
+                    stats,
+                    "user_stats",
+                    {
+                        "user_id": user_id,
+                        "user_tier": session.get("user_tier", "regular"),
+                        "endpoint": "api_stats",
+                        "access_frequency": "high",
+                    },
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # 2) Warm search suggestions for short seeds
+        try:
+            if search_engine and isinstance(seeds, list):
+                for q in seeds:
+                    try:
+                        q_str = str(q or '').strip()
+                        if len(q_str) < 2:
+                            continue
+                        sugg = search_engine.suggest_completions(user_id, q_str, limit=min(20, max(1, int(limit))))
+                        payload = json.dumps({'q': q_str}, sort_keys=True, ensure_ascii=False)
+                        h = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+                        key = f"api:search_suggest:{user_id}:{h}"
+                        cache.set_dynamic(key, {'suggestions': sugg}, 'search_results', {'user_id': user_id, 'endpoint': 'api_search_suggestions'})
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False}), 500
+
 # API: הפעלת/ביטול חיבור קבוע
 @app.route('/api/persistent_login', methods=['POST'])
 @login_required
