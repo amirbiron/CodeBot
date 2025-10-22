@@ -1077,7 +1077,7 @@ function loadScript(src){
     })
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
-    // עוגני כותרות – חזרה להגדרה פשוטה ויציבה (rollback ממוקד)
+    // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
     if (window.markdownitAnchor) {
       try {
         md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
