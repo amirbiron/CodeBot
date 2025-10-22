@@ -85,7 +85,7 @@ class EnhancedMongoPool:
             'minPoolSize': 5,
             'maxIdleTimeMS': 60000,  # 1 minute
             'waitQueueTimeoutMS': 10000,  # 10 seconds
-            'waitQueueMultiple': 5,
+            # waitQueueMultiple removed in PyMongo 4.x - using waitQueueTimeoutMS only
             'serverSelectionTimeoutMS': 5000,
             'connectTimeoutMS': 10000,
             'socketTimeoutMS': 30000,
