@@ -17,13 +17,20 @@ class _CacheLike(Protocol):
     def invalidate_user_cache(self, user_id: int) -> int: ...
     def invalidate_file_related(self, file_id: str, user_id: Optional[int] = None) -> int: ...
 
-# ייבוא חסין לעיטור cache ולאובייקט cache — הטסטים לעיתים מחליפים את המודול
-# `cache_manager` עם SimpleNamespace שמכיל רק `cache` ללא `cached`, לכן נשתמש ב-Protocol ו-cast.
+# Fallback cache that implements the minimal interface used here
+class _NullCache:
+    def invalidate_user_cache(self, *args: Any, **kwargs: Any) -> int:
+        return 0
+    def invalidate_file_related(self, *args: Any, **kwargs: Any) -> int:
+        return 0
+
+# ייבוא חסין לאובייקט cache — הטסטים לעיתים ממקפים את המודול `cache_manager`
+# נשתמש ב-Protocol ו-non-optional binding עם fallback כדי לשמר טיפוסים חזקים.
 try:  # נסה להביא את cache (גם אם המודול ממוקף)
-    from cache_manager import cache as _cache_instance
-    cache: Any = cast("Any", _cache_instance)
+    from cache_manager import cache as _cache_instance  # type: ignore
+    cache: _CacheLike = cast("_CacheLike", _cache_instance)
 except Exception:  # pragma: no cover - fallback ללא-אופ
-    cache = None
+    cache: _CacheLike = _NullCache()
 
 # נסה להביא את הדקורטור cached; אם חסר נגדיר no-op typed בהתאם ל-signature
 P_ = TypeVar("P_")  # placeholder only for fallback typing
@@ -36,15 +43,6 @@ except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
             return func
         return _decorator
 
-# הבטח ש-cache תמיד קיים עם ממשק מינימלי הנדרש כאן
-if cache is None:  # pragma: no cover
-    class _NullCache:
-        def invalidate_user_cache(self, *args, **kwargs) -> int:
-            return 0
-        def invalidate_file_related(self, *args, **kwargs) -> int:
-            return 0
-
-    cache = _NullCache()
 from .manager import DatabaseManager
 from utils import normalize_code
 from config import config
