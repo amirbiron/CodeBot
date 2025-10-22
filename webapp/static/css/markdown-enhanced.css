@@ -157,3 +157,73 @@
   .markdown-details { background: var(--details-bg); }
   .admonition-content { background: rgba(0, 0, 0, 0.3); color: #c9d1d9; }
 }
+
+/* === Header anchors & copy buttons accessibility additions === */
+/* קישור עוגן (סמל בלבד) שמתווסף אחרי הכותרת; לא מסתיר טקסט הכותרת */
+.header-anchor {
+  margin-left: 0.5em;
+  opacity: 0;
+  color: #6c757d;
+  text-decoration: none;
+  font-size: 0.9em;
+  transition: opacity 0.2s ease, color 0.2s ease;
+  vertical-align: middle;
+}
+.header-anchor:focus {
+  opacity: 1;
+  outline: 2px solid #0366d6;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+h1:hover .header-anchor,
+h2:hover .header-anchor,
+h3:hover .header-anchor,
+h4:hover .header-anchor,
+h5:hover .header-anchor,
+h6:hover .header-anchor { opacity: 1; }
+.header-anchor:hover { color: #0366d6; transform: scale(1.05); }
+
+.permalink-tooltip {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 1000;
+}
+
+/* Visually hidden but accessible to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Dark/contrast/reduced motion adjustments */
+@media (prefers-color-scheme: dark) {
+  .header-anchor { color: #8b949e; }
+  .permalink-tooltip { background: rgba(255, 255, 255, 0.9); color: #000; }
+}
+@media (prefers-contrast: high) {
+  .header-anchor:focus { outline-width: 3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .header-anchor, .permalink-tooltip { transition: none; }
+}
+
+/* Mobile/touch devices: אין hover, לכן האייקון תמיד גלוי ומגדילים hit-area */
+@media (hover: none) {
+  .header-anchor { opacity: 1; padding: 0.25em; display: inline-flex; align-items: center; }
+}
+@media (pointer: coarse) {
+  .header-anchor { opacity: 1; padding: 0.25em; display: inline-flex; align-items: center; }
+}
