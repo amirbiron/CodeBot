@@ -2994,6 +2994,55 @@ def view_file(file_id):
     resp.headers['Last-Modified'] = last_modified_str
     return resp
 
+
+@app.route('/api/files/recent')
+@login_required
+def api_recent_files():
+    """מחזיר רשימת קבצים שנפתחו לאחרונה עבור המשתמש הנוכחי.
+
+    המידע נשלף מאוסף recent_opens ומתאים למודל MongoDB של האפליקציה.
+    הפורמט: [{id, filename, language, size, accessed_at}]
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        ensure_recent_opens_indexes()
+        # שלוף עד 10 אחרונים, ממויינים לפי זמן פתיחה אחרון
+        cursor = db.recent_opens.find({
+            'user_id': user_id
+        }).sort('last_opened_at', DESCENDING).limit(10)
+
+        results = []
+        for doc in cursor:
+            try:
+                last_file_id = doc.get('last_opened_file_id')
+                file_doc = None
+                if last_file_id:
+                    try:
+                        file_doc = db.code_snippets.find_one({'_id': last_file_id, 'user_id': user_id})
+                    except Exception:
+                        file_doc = None
+                # חישוב גודל בתווים/בתים מהשדה code
+                code_str = (file_doc.get('code') if isinstance(file_doc, dict) else '') or ''
+                size_bytes = len(code_str.encode('utf-8')) if isinstance(code_str, str) else 0
+                results.append({
+                    'id': str(last_file_id) if last_file_id else '',
+                    'filename': str(doc.get('file_name') or ''),
+                    'language': str((doc.get('language') or 'text')).lower(),
+                    'size': size_bytes,
+                    'accessed_at': (doc.get('last_opened_at') or datetime.now(timezone.utc)).isoformat(),
+                })
+            except Exception:
+                # שמור עמידות – דלג על מסמך בעייתי
+                continue
+        return jsonify(results)
+    except Exception as e:
+        try:
+            logger.exception("Error fetching recent files", extra={"error": str(e)})
+        except Exception:
+            pass
+        return jsonify({'error': 'Failed to fetch recent files'}), 500
+
 @app.route('/edit/<file_id>', methods=['GET', 'POST'])
 @login_required
 def edit_file_page(file_id):
