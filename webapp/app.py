@@ -216,29 +216,24 @@ def _preload_heavy_assets_async() -> None:
             # Optionally attempt DB ping in background (best-effort)
             try:
                 _t0 = _time.perf_counter()
-                _db = get_db()
-                try:
-                    _ = _db.command('ping') if hasattr(_db, 'command') else None
-                except Exception:
-                    pass
-                finally:
-                    # Close the client if this thread opened it outside request context
+                # Use a short‑lived client to avoid mutating the global shared client
+                if MONGODB_URL:
+                    _tmp_client = MongoClient(
+                        MONGODB_URL,
+                        serverSelectionTimeoutMS=2000,
+                        tz_aware=True,
+                        tzinfo=timezone.utc,
+                    )
                     try:
-                        # Avoid closing if main global client already exists and is shared
-                        # Only close if we are the ones who triggered first initialization in this thread
-                        # Heuristic: if current thread name is preload and no active request context
-                        if threading.current_thread().name.startswith("preload-"):
-                            _c = globals().get('client')
-                            if _c is not None:
-                                try:
-                                    _c.close()
-                                except Exception:
-                                    pass
-                                finally:
-                                    globals()['client'] = None
-                                    globals()['db'] = None
+                        # Best‑effort ping; ignore failures silently
+                        _ = _tmp_client.admin.command('ping')
                     except Exception:
                         pass
+                    finally:
+                        try:
+                            _tmp_client.close()
+                        except Exception:
+                            pass
                 try:
                     record_dependency_init("mongodb_ping", max(0.0, float(_time.perf_counter() - _t0)))
                 except Exception:
