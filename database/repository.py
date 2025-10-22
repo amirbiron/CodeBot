@@ -1,7 +1,7 @@
 import logging
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
 
 # יצירת טיפוס ObjectId שמתאים גם לריצה ללא חבילת bson
 try:
@@ -12,18 +12,27 @@ except Exception:
 
 ObjectId = _RealObjectId
 
-# ייבוא חסין לעיטור cache ולאובייקט cache — הטסטים לעיתים מחליפים את המודול
-# `cache_manager` עם SimpleNamespace שמכיל רק `cache` ללא `cached`, ולכן נדרש fallback.
-try:  # נסה להביא את cache (גם אם המודול ממוקף)
-    from cache_manager import cache  # type: ignore
-except Exception:  # pragma: no cover - fallback ללא-אופ
-    cache = None  # type: ignore[assignment]
+@runtime_checkable
+class _CacheLike(Protocol):
+    def invalidate_user_cache(self, user_id: int) -> int: ...
+    def invalidate_file_related(self, file_id: str, user_id: Optional[int] = None) -> int: ...
 
-try:  # נסה להביא את הדקורטור cached
-    from cache_manager import cached  # type: ignore
+# ייבוא חסין לעיטור cache ולאובייקט cache — הטסטים לעיתים מחליפים את המודול
+# `cache_manager` עם SimpleNamespace שמכיל רק `cache` ללא `cached`, לכן נשתמש ב-Protocol ו-cast.
+try:  # נסה להביא את cache (גם אם המודול ממוקף)
+    from cache_manager import cache as _cache_instance
+    cache: Any = cast("Any", _cache_instance)
+except Exception:  # pragma: no cover - fallback ללא-אופ
+    cache = None
+
+# נסה להביא את הדקורטור cached; אם חסר נגדיר no-op typed בהתאם ל-signature
+P_ = TypeVar("P_")  # placeholder only for fallback typing
+R_ = TypeVar("R_")
+try:
+    from cache_manager import cached  # type: ignore  # mypy ignores external stubs for decorators
 except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
-    def cached(expire_seconds: int = 300, key_prefix: str = "default"):  # type: ignore[no-redef]
-        def _decorator(func):
+    def cached(expire_seconds: int = 300, key_prefix: str = "default"):
+        def _decorator(func: Callable[..., R_]) -> Callable[..., R_]:
             return func
         return _decorator
 

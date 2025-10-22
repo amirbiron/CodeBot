@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def _get_db():
     """Attempt to fetch DB via webapp.app.get_db to reuse connection config."""
     try:
-        from webapp.app import get_db as _get  # type: ignore
+        from webapp.app import get_db as _get
         return _get()
     except Exception:
         return None
