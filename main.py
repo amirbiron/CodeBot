@@ -3304,11 +3304,17 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     except Exception:
                         pass
             else:
+                # Emit the disabled event reliably even in minimal test stubs:
+                # 1) Prefer the already-imported emit_event (honors monkeypatched sys.modules at import time)
+                # 2) Fallback to a late dynamic import to cooperate with tests that patch at runtime
                 try:
-                    from observability import emit_event as _emit  # type: ignore
-                except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None  # type: ignore
-                _emit("backups_cleanup_disabled", severity="info")
+                    emit_event("backups_cleanup_disabled", severity="info")  # type: ignore[name-defined]
+                except Exception:
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None  # type: ignore
+                    _emit("backups_cleanup_disabled", severity="info")
         except Exception:
             # Fail-open: אל תכשיל את עליית הבוט
             pass
