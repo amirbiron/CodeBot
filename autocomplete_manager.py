@@ -8,8 +8,12 @@ from typing import Any, List, Dict, Set, Callable, TypeVar
 try:
     from typing import ParamSpec  # Python 3.10+
 except Exception:  # pragma: no cover
-    # Fallback for very old type checkers
-    ParamSpec = lambda name: List[Any]  # type: ignore
+    try:
+        from typing_extensions import ParamSpec  # runtime/type-checker fallback
+    except Exception:  # pragma: no cover
+        # Minimal runtime fallback: behave like a TypeVar; adequate for runtime only
+        def ParamSpec(name: str):  # type: ignore[override]
+            return TypeVar(name)
 P = ParamSpec("P")
 R = TypeVar("R")
 
