@@ -6,6 +6,19 @@ on:
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Optional base URL for simple HTTP load test (e.g., http://host:port)"
+        required: false
+        default: ""
+      users:
+        description: "Concurrent users for load test"
+        required: false
+        default: "20"
+      per_user:
+        description: "Requests per user for load test"
+        required: false
+        default: "20"
 
 permissions:
   contents: read
@@ -25,6 +38,35 @@ jobs:
           echo "🔥 Running performance tests..."
           # Place your load-testing tool invocation here (e.g., k6, locust)
           # k6 run performance/load-test.js
+
+      - name: "🔬 Optional: Run simple HTTP load test"
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.base_url != ''
+        id: loadtest
+        run: |
+          echo "Running simple load test against: ${{ github.event.inputs.base_url }}"
+          users="${{ github.event.inputs.users }}"; per_user="${{ github.event.inputs.per_user }}"
+          users="${users:-20}"; per_user="${per_user:-20}"
+          python3 -V || true
+          python3 tests/load_test.py --base-url "${{ github.event.inputs.base_url }}" --users "$users" --per-user "$per_user"
+
+      - name: Upload load test artifact
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.base_url != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-${{ github.run_id }}
+          path: /tmp/codebot-load.json
+          if-no-files-found: warn
+
+      - name: Add load test summary
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.base_url != ''
+        run: |
+          echo "## HTTP Load Test" >> "$GITHUB_STEP_SUMMARY"
+          if command -v jq >/dev/null 2>&1 && [ -f /tmp/codebot-load.json ]; then
+            echo "\nSummary:" >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/codebot-load.json | jq -r '. as $s | "- Total: \($s.total)\n- OK: \($s.ok)\n- Errors: \($s.errors)\n- Success: \($s.success_ratio_percent)%\n- Avg: \($s.latency_avg_sec)s\n- p50: \($s.latency_p50_sec)s\n- p95: \($s.latency_p95_sec)s\n- p99: \($s.latency_p99_sec)s"' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No /tmp/codebot-load.json produced or jq missing." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   python-performance:
     name: "🐍 PyTest Performance"
@@ -52,11 +94,15 @@ jobs:
       # ברירת מחדל: להריץ הכל (כולל heavy)
       - name: Run ALL performance tests (default)
         if: github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light'))
+        env:
+          RUN_PERF: '1'
         run: |
           echo "Running all performance tests (if any)..."
           pytest -v -o addopts="" -m performance --perf-heavy-percentile=90 || echo "No performance tests found or none collected."
       - name: Collect test durations (default)
         if: always() && (github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light')))
+        env:
+          RUN_PERF: '1'
         run: |
           echo "Collecting durations for all performance tests..."
           pytest -o addopts="" -m performance --durations=0 --json-report --json-report-file=durations.json || true
