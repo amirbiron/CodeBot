@@ -67,7 +67,15 @@ class Repository:
             snippet.updated_at = datetime.now(timezone.utc)
             result = self.manager.collection.insert_one(asdict(snippet))
             if result.inserted_id:
-                cache.invalidate_user_cache(snippet.user_id)
+                # Invalidate user-level and file-related caches
+                try:
+                    cache.invalidate_user_cache(snippet.user_id)
+                except Exception:
+                    pass
+                try:
+                    cache.invalidate_file_related(file_id=str(snippet.file_name), user_id=snippet.user_id)
+                except Exception:
+                    pass
                 from autocomplete_manager import autocomplete
                 autocomplete.invalidate_cache(snippet.user_id)
                 return True
