@@ -1,6 +1,10 @@
 name: Pre-commit
 
-on: [pull_request]
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
 
 jobs:
   pre-commit:
