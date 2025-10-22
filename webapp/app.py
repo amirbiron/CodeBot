@@ -2138,6 +2138,20 @@ def files():
     page = int(request.args.get('page', 1))
     cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
+
+    # החלת ברירות מחדל למיון לפני בניית מפתח הקאש
+    try:
+        # קטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון אם לא סופק מיון במפורש
+        if (category_filter or '').strip().lower() == 'recent' and not (request.args.get('sort') or '').strip():
+            sort_by = '-last_opened_at'
+    except Exception:
+        pass
+    try:
+        # קטגוריית "מועדפים": לפי זמן הוספה למועדפים (חדש -> ישן) אם לא סופק מיון במפורש
+        if (category_filter or '').strip().lower() == 'favorites' and not (request.args.get('sort') or '').strip():
+            sort_by = '-favorited_at'
+    except Exception:
+        pass
     # הכנת מפתח Cache ייחודי לפרמטרים
     try:
         _params = {
@@ -2162,12 +2176,7 @@ def files():
                 return cached_html
         except Exception:
             pass
-    # ברירת מחדל למיון בקטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון
-    try:
-        if (category_filter or '').strip().lower() == 'recent' and not (request.args.get('sort') or '').strip():
-            sort_by = '-last_opened_at'
-    except Exception:
-        pass
+    # הערה: ברירות המחדל למיון עבור recent/favorites כבר הוחלו לפני בניית מפתח הקאש
     
     # בניית שאילתה - כולל סינון קבצים פעילים בלבד
     query = {
