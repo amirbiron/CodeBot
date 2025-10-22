@@ -231,17 +231,29 @@ class BackupManager:
 
             # קבע מועמדים למחיקה לפי retention ו‑max_per_user
             candidates: list[Path] = []
+            candidate_set: set[str] = set()
+
+            def _add_candidate(p: Path) -> None:
+                # הוספה O(1) עם סט למניעת כפילויות במקום 'p not in list'
+                try:
+                    rp = str(p.resolve())
+                except Exception:
+                    rp = str(p)
+                if rp in candidate_set:
+                    return
+                candidate_set.add(rp)
+                candidates.append(p)
             for key, items in by_user.items():
                 # מיון מהחדש לישן
                 items.sort(key=lambda t: t[1], reverse=True)
                 # חריגה ממכסה
                 if isinstance(max_per_user, int) and max_per_user > 0 and len(items) > max_per_user:
                     for p, _dt in items[max_per_user:]:
-                        candidates.append(p)
+                        _add_candidate(p)
                 # ישנים מעבר ל‑cutoff
                 for p, dt in items:
-                    if dt < cutoff and p not in candidates:
-                        candidates.append(p)
+                    if dt < cutoff:
+                        _add_candidate(p)
 
             # מחיקה מבוקרת
             for p in candidates:
@@ -269,9 +281,11 @@ class BackupManager:
         if fs is not None and time.time() <= deadline:
             try:
                 by_user_g: dict[int | str, list[tuple[object, datetime]]] = {}
-                cursor = []
-                with suppress(Exception):
-                    cursor = list(fs.find())
+                # איטרציה עצלה כדי לכבד תקציב זמן; הימנע מ-materialize מלא
+                try:
+                    cursor = fs.find()
+                except Exception:
+                    cursor = []
                 for fdoc in cursor:
                     if time.time() > deadline:
                         break
@@ -303,15 +317,20 @@ class BackupManager:
 
                 # מועמדים למחיקה
                 cand_ids: list[object] = []
+                cand_id_set: set[object] = set()
                 for key, items in by_user_g.items():
                     items.sort(key=lambda t: t[1], reverse=True)
                     if isinstance(max_per_user, int) and max_per_user > 0 and len(items) > max_per_user:
                         for fdoc, _dt in items[max_per_user:]:
-                            cand_ids.append(getattr(fdoc, '_id', None))
+                            fid = getattr(fdoc, '_id', None)
+                            if fid not in cand_id_set:
+                                cand_id_set.add(fid)
+                                cand_ids.append(fid)
                     for fdoc, dt in items:
                         if dt < cutoff:
                             fid = getattr(fdoc, '_id', None)
-                            if fid not in cand_ids:
+                            if fid not in cand_id_set:
+                                cand_id_set.add(fid)
                                 cand_ids.append(fid)
                 for fid in cand_ids:
                     if time.time() > deadline:

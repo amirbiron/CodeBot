@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import zipfile
 
 from file_manager import BackupManager
+from pathlib import Path
 
 
 def _write_zip_with_metadata(path, md):
@@ -17,7 +18,7 @@ def test_cleanup_skips_when_disabled(monkeypatch, tmp_path):
     monkeypatch.setenv('DISABLE_BACKGROUND_CLEANUP', 'true')
     mgr = BackupManager()
     # עבוד רק בתיקיית tmp בטסט
-    mgr.backup_dir = tmp_path
+    mgr.backup_dir = Path(tmp_path)
     mgr.legacy_backup_dir = None
 
     # צור גיבוי ישן
@@ -33,7 +34,7 @@ def test_cleanup_skips_in_safe_mode(monkeypatch, tmp_path):
     monkeypatch.delenv('DISABLE_BACKGROUND_CLEANUP', raising=False)
     monkeypatch.setenv('SAFE_MODE', 'true')
     mgr = BackupManager()
-    mgr.backup_dir = tmp_path
+    mgr.backup_dir = Path(tmp_path)
     mgr.legacy_backup_dir = None
 
     md = {"user_id": 2, "created_at": (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()}
@@ -48,7 +49,7 @@ def test_cleanup_deletes_by_retention(monkeypatch, tmp_path):
     monkeypatch.delenv('DISABLE_BACKGROUND_CLEANUP', raising=False)
     monkeypatch.delenv('SAFE_MODE', raising=False)
     mgr = BackupManager()
-    mgr.backup_dir = tmp_path
+    mgr.backup_dir = Path(tmp_path)
     mgr.legacy_backup_dir = None
 
     # ישן (יימחק)
@@ -77,7 +78,7 @@ def test_cleanup_limits_max_per_user(monkeypatch, tmp_path):
     monkeypatch.delenv('DISABLE_BACKGROUND_CLEANUP', raising=False)
     monkeypatch.delenv('SAFE_MODE', raising=False)
     mgr = BackupManager()
-    mgr.backup_dir = tmp_path
+    mgr.backup_dir = Path(tmp_path)
     mgr.legacy_backup_dir = None
 
     uid = 42
