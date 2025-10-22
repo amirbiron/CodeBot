@@ -1,41 +1,42 @@
 # Android & AI Style Rules
 
-> מתי להשתמש: בכל שינוי/PR – כללי סגנון ותשובות. ראו גם: Commit/PR.
-
-## כללי כתיבה
-
-- תחשוב ותענה תמיד בעברית
-- כתוב תמיד בשפה פשוטה ומובנת לכל ולא במילים גבוהות
-- שמור על טון עניו, הסבר כאילו אתה מסביר לחבר טוב
-- אם יש כמה אפשרויות, הצג קודם את הפתרון הפשוט והאמין ביותר
+> **מתי להשתמש:** בכל שינוי/PR – כללי סגנון ותשובות  
+> **ראו גם:** Commit/PR
 
 ---
 
-# הימנעות ממחיקות קבצים בטסטים ובסקריפטים
+## כללי כתיבה
 
-> מתי להשתמש: טסטים/סקריפטים שנוגעים לקבצים/ניקוי. ראו גם: CI / Required Checks, מעטפת Bash למחיקה בטוחה.
+- **חשוב ותענה תמיד בעברית**
+- **כתוב בשפה פשוטה** ומובנת לכולם, הימנע ממילים גבוהות
+- **שמור על טון עניו** – הסבר כאילו אתה מדבר עם חבר טוב
+- **כשיש כמה אפשרויות** – הצג קודם את הפתרון הפשוט והאמין ביותר
 
-## 1. עבדו רק על תיקיות זמניות
+---
 
-- השתמשו ב-tmp לכל קלט/פלט בטסטים (pytest: tmp_path)
-- אל תכתבו/תמחקו ב-root של הפרויקט או בתקיות קוד מקור
+## הימנעות ממחיקות קבצים בטסטים ובסקריפטים
 
-## 2. קבעו ENV/קונפיג למסלולי tmp בלבד
+> **מתי להשתמש:** טסטים/סקריפטים שנוגעים לקבצים או ניקוי  
+> **ראו גם:** CI / Required Checks, מעטפת Bash למחיקה בטוחה
 
-- ודאו ש-ENV כמו OUTPUT_DIR/WORKDIR מוגדרים לתיקיות tmp
-- בדקו שהם לא ריקים לפני שימוש (assert ולא default ל-".")
+### 1. עבוד רק על תיקיות זמניות
+- השתמש ב-`tmp` לכל קלט/פלט בטסטים (pytest: `tmp_path`)
+- **אל תכתוב או תמחק** ב-root של הפרויקט או בתיקיות קוד מקור
 
-## 3. אל תשתמשו בגלובים גורפים
+### 2. קבע ENV/קונפיג למסלולי tmp בלבד
+- ודא ש-ENV כמו `OUTPUT_DIR`/`WORKDIR` מוגדרים לתיקיות tmp
+- בדוק שהם לא ריקים לפני שימוש (`assert` ולא default ל-`"."`)
 
-- הימנעו מ-rm -rf */* או תבניות כמו build*
-- העדיפו allowlist שמיועד לתת-תיקיה אחת ספציפית
+### 3. אל תשתמש בגלובים גורפים
+- הימנע מ-`rm -rf */*` או תבניות כמו `build*`
+- העדף allowlist שמיועד לתת-תיקיה אחת ספציפית
 
-## 4. סורגי בטיחות לפני מחיקה
+### 4. סורגי בטיחות לפני מחיקה
+- **אל תמחק** אם הנתיב לא מתחת ל-allowlist
+- **אל תמחק** נתיבים מסוכנים: `/`, `.`, ספריית הפרויקט
 
-- אל תמחקו אם הנתיב לא מתחת ל-allowlist
-- אל תמחקו נתיבים מסוכנים: '/', '.', ספריית הפרויקט
+### דוגמת Python למחיקה בטוחה
 
-## דוגמת Python למחיקה בטוחה
 ```python
 from pathlib import Path
 import shutil
@@ -47,158 +48,230 @@ def safe_rmtree(path: Path, allow_under: Path) -> None:
         raise RuntimeError(f"Refusing to delete unsafe path: {p}")
     shutil.rmtree(p)
 ```
-## 5. הימנעו משינוי cwd
 
-- אם חייבים, שמרו/שחזרו cwd, והשתמשו בנתיבים מוחלטים למחיקה
+### 5. הימנע משינוי cwd
+- אם חייב, שמור/שחזר cwd, והשתמש בנתיבים מוחלטים למחיקה
 
-## 6. נטרלו ניקוי מסוכן ב-CI
+### 6. נטרל ניקוי מסוכן ב-CI
+- הימנע מ-`git clean`/`reset` על ה-workspace
+- אם חייב, עבוד על clone זמני בלבד
 
-- הימנעו מ-git clean/reset על ה-workspace
-- אם חייבים, עבדו על clone זמני בלבד
+### 7. במקביליות – הפרד תיקיות עבודה
+- לכל טסט UUID ייחודי (לדוגמה: `/tmp/app-test-<uuid>`)
+- או סדר טסטים שנוגעים לקבצים לריצה סריאלית
 
-## 7. במקביליות – הפרידו תיקיות עבודה
+### 8. בדוק תקלות מוקדם
+- הרחק הרשאות כתיבה מ-src בתקופת הטסטים (`chmod -w`)
+- כרוך קריאות מחיקה ב-wrapper בטוח כדי להעלות חריגה מוקדם
 
-- לכל טסט UUID ייחודי (ex: /tmp/app-test-<uuid>)
-- או סדרו טסטים שנוגעים לקבצים לריצה סריאלית
-
-## 8. בדקו תקלות מוקדם
-
-- הרחיקו הרשאות כתיבה מ-src בתקופת הטסטים (chmod -w)
-- כרכו קריאות מחיקה ב-wrapper בטוח כדי להרים חריגה מוקדם
-
-## בדיקת קוד לאיתור מחיקות לא בטוחות
+### בדיקת קוד לאיתור מחיקות לא בטוחות
 
 ```bash
 rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 ```
-## שחזור לאחר מחיקה בטעות
 
-- אל תבצעו merge/PR כדי לא לדרוס היסטוריה
-- בצעו git restore/git checkout לקבצים או git revert לקומיטים
-- אם אין היסטוריה מקומית: שחזרו מ-CI artifacts/ענף גיבוי/מכונה אחרת
+### שחזור לאחר מחיקה בטעות
+- **אל תבצע** merge/PR כדי לא לדרוס היסטוריה
+- בצע `git restore`/`git checkout` לקבצים או `git revert` לקומיטים
+- אם אין היסטוריה מקומית: שחזר מ-CI artifacts/ענף גיבוי/מכונה אחרת
 
 ---
 
-# קישור לתיעוד והקשר
+## קישור לתיעוד והקשר
 
-> מתי להשתמש: בכל PR/מסמך – מדיניות וקישורים רלוונטיים.
+> **מתי להשתמש:** בכל PR/מסמך – מדיניות וקישורים רלוונטיים
 
-- קראו והסתמכו על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
-- קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד.
-- בסיום משימה: הציעו למשתמש האם להוסיף עמודים חדשים לאתר התיעוד.
+- קרא והסתמך על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
+- קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד
+- **בסיום משימה:** הצע למשתמש האם להוסיף עמודים חדשים לאתר התיעוד
 
-# ChatOps – מודעות ושילוב
+---
 
-> מתי להשתמש: בכל משימה שדורשת מידע בזמן אמת (request_id, מצב שירות, תקלות פעילות, דיוק חיזוי).
+## ChatOps – מודעות ושילוב
 
-- קיימת מערכת ChatOps פעילה עם פקודות כמו `/triage`, `/predict`, `/status`, `/errors` ועוד.
-- כשנדרש מידע כזה: אל תסיקו מתוך הקוד. בקשו מהמשתמש להריץ את הפקודה המתאימה בבוט ושתפו את הפלט.
-- פלט הבוט הוא מקור האמת (Source of Truth) עבור החלטות ותשובות.
+> **מתי להשתמש:** בכל משימה שדורשת מידע בזמן אמת (request_id, מצב שירות, תקלות פעילות, דיוק חיזוי)
 
-דוגמה כהנחיה פורמלית:
+- קיימת מערכת ChatOps פעילה עם פקודות כמו `/triage`, `/predict`, `/status`, `/errors` ועוד
+- **כשנדרש מידע כזה:** אל תסיק מתוך הקוד. בקש מהמשתמש להריץ את הפקודה המתאימה בבוט ושתף את הפלט
+- **פלט הבוט הוא מקור האמת** (Source of Truth) עבור החלטות ותשובות
+
+### דוגמה כהנחיה פורמלית
 
 ```yaml
 # 🤖 ChatOps Awareness
 - name: ChatOps Integration
   description: |
     דע כי קיימת מערכת ChatOps פעילה עם פקודות כמו /triage, /predict, /status, /errors ועוד.
-    כאשר אתה נדרש למידע בזמן אמת (כגון request_id, מצב שירות, תקלות פעילות, או דיוק חיזוי),
+    כאשר נדרש מידע בזמן אמת (כגון request_id, מצב שירות, תקלות פעילות, או דיוק חיזוי),
     **אל תסיק מתוך הקוד** – התייעץ עם המשתמש ובקש ממנו להריץ את הפקודה המתאימה בבוט ושתף את הפלט.
     המידע שיחזור מהבוט נחשב למקור האמת.
 ```
 
-# כללי שימוש ב-AI/CodeBot
+---
 
-> מתי להשתמש: בכל שימוש ב‑AI/אוטומציה בקוד וב‑PRים.
+## כללי שימוש ב-AI/CodeBot
 
-- כל שינוי שמוצע ע״י AI עובר code review אנושי לפני merge.
-- אין להזין סודות, מפתחות או PII לפרומפטים או קבצי הקשר.
-- פקודות שמורצות אוטומטית: ללא sudo, לא אינטראקטיביות, ורק בתיקיות tmp.
-- תעדו ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו.
+> **מתי להשתמש:** בכל שימוש ב-AI/אוטומציה בקוד וב-PRים
 
-# Android/Kotlin/Compose
+- כל שינוי שמוצע על ידי AI עובר code review אנושי לפני merge
+- **אין להזין** סודות, מפתחות או PII לפרומפטים או קבצי הקשר
+- פקודות שמורצות אוטומטית: ללא `sudo`, לא אינטראקטיביות, ורק בתיקיות tmp
+- תעד ב-PR החלטות אוטומציה: מקור ההצעה, שיקולים ובדיקות שבוצעו
 
-> מתי להשתמש: בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים. ראו גם: CI / Required Checks.
+---
 
-- Kotlin: העדיפו val על var, אי-שינוי, data/sealed classes, Null-safety ברורה.
-- Concurrency: Coroutines עם Structured Concurrency, שימוש ב-viewModelScope/CoroutineScope נכון.
-- זרימות נתונים: העדיפו Flow, מיפוי ב-Repository, Dispatchers מתאימים (IO/Default).
-- ארכיטקטורה: MVVM, Single Source of Truth, Repository/UseCases, DI עם Hilt.
-- Compose: State hoisting, remember/derivedStateOf, הימנעות מ-side effects בתוך Composables, שימוש ב-LaunchedEffect/DisposableEffect, בדיקות עם compose-ui-test.
+## Android/Kotlin/Compose
 
-# Commit/PR
+> **מתי להשתמש:** בפיתוח Android/Kotlin/Compose – סגנון, ארכיטקטורה וטסטים  
+> **ראו גם:** CI / Required Checks
 
-> מתי להשתמש: כשכותבים קומיטים או פותחים Pull Request. ראו גם: CI / Required Checks, קישור לתיעוד והקשר.
-- שמות ענפים: fix/..., chore/..., feat/...
-- Conventional Commits (feat/fix/chore/docs/refactor/test/build).
-- תיאור PR קצר ב־HTML: What / Why / Tests (כולל לינק ל־RTD build/preview אם יש).
-- יש למלא PR לפי התבנית שב-`.github/pull_request_template.md` (כולל Docs Preview, בדיקות, צ'קליסט ו-Rollback).
-- בתיאור ה‑PR יש לציין מפורשות האם עיינתם ב־[CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/).
-- לפני merge: תיאור ברור, תוכנית בדיקות, סיכוני Rollback, עדכון docs.
-- UI: צרפו צילום/וידאו תוצאות אם רלוונטי.
+### Kotlin
+- העדף `val` על `var`, אי-שינוי, `data`/`sealed` classes
+- Null-safety ברורה
 
-הערה: טבלת דוגמאות ל־Conventional Commits והצ'קליסט לפני merge נשמרים בתבנית ה‑PR (`.github/pull_request_template.md`).
+### Concurrency
+- Coroutines עם Structured Concurrency
+- שימוש ב-`viewModelScope`/`CoroutineScope` נכון
 
+### זרימות נתונים
+- העדף `Flow`
+- מיפוי ב-Repository
+- Dispatchers מתאימים (IO/Default)
 
+### ארכיטקטורה
+- MVVM
+- Single Source of Truth
+- Repository/UseCases
+- DI עם Hilt
 
-# CI / Required Checks
+### Compose
+- State hoisting
+- `remember`/`derivedStateOf`
+- הימנע מ-side effects בתוך Composables
+- שימוש ב-`LaunchedEffect`/`DisposableEffect`
+- בדיקות עם compose-ui-test
 
-> מתי להשתמש: לפני merge ובבדיקת סטטוסי CI. ראו גם: הימנעות ממחיקות קבצים בטסטים ובסקריפטים.
+---
 
-- חובת מעבר: ./gradlew test detekt ktlintCheck ירוק.
-- אין להריץ git clean/reset על ה-workspace; עבודה רק על תיקיות זמניות.
-- טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט.
-- ה‑PR חייב להציג בדיוק את הסטטוסים הבאים:
-  - "🔍 Code Quality & Security"
-  - "🧪 Unit Tests (3.11)"
-  - "🧪 Unit Tests (3.12)"
-- אין paths-ignore על `.cursorrules` – שינוי בו מריץ CI.
-- לשמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות.
+## Commit/PR
 
-# סודות ולוגים
+> **מתי להשתמש:** כשכותבים קומיטים או פותחים Pull Request  
+> **ראו גם:** CI / Required Checks, קישור לתיעוד והקשר
 
-> מתי להשתמש: בעת לוגים/קונפיג/אינטגרציות – מניעת דליפת מידע רגיש.
+### שמות ענפים
+`fix/...`, `chore/...`, `feat/...`
 
-- אין לשמור סודות בקוד או בלוגים; שימוש ב-ENV/Secret Manager.
-- אל תרשמו PII; בצעו השחרה (redaction) לערכים רגישים בלוגים.
+### Conventional Commits
+`feat`/`fix`/`chore`/`docs`/`refactor`/`test`/`build`
 
-# מעטפת Bash למחיקה בטוחה
+### תיאור PR
+- תיאור קצר ב-HTML: What / Why / Tests
+- כולל לינק ל-RTD build/preview אם יש
+- מלא PR לפי התבנית שב-`.github/pull_request_template.md`
+- צרף Docs Preview, בדיקות, צ'קליסט ו-Rollback
+- **ציין מפורשות** האם עיינת ב-[CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
 
-> מתי להשתמש: כשכותבים סקריפטי Bash שמבצעים מחיקות/ניקוי.
+### לפני merge
+- תיאור ברור
+- תוכנית בדיקות
+- סיכוני Rollback
+- עדכון docs
+
+### UI
+צרף צילום/וידאו תוצאות אם רלוונטי
+
+**הערה:** טבלת דוגמאות ל-Conventional Commits והצ'קליסט לפני merge נשמרים בתבנית ה-PR
+
+---
+
+## CI / Required Checks
+
+> **מתי להשתמש:** לפני merge ובבדיקת סטטוסי CI  
+> **ראו גם:** הימנעות ממחיקות קבצים בטסטים ובסקריפטים
+
+### חובות
+- מעבר ירוק: `./gradlew test detekt ktlintCheck`
+- **אין להריץ** `git clean`/`reset` על ה-workspace
+- עבודה רק על תיקיות זמניות
+- טסטים שנוגעים לקבצים ירוצו בסביבה מבודדת לכל טסט
+
+### סטטוסים נדרשים ב-PR
+- "🔍 Code Quality & Security"
+- "🧪 Unit Tests (3.11)"
+- "🧪 Unit Tests (3.12)"
+
+### נוספים
+- אין `paths-ignore` על `.cursorrules` – שינוי בו מריץ CI
+- שמור דיווח סטטוסים גם בגרסת legacy/plain אם נדרש למדיניות
+
+---
+
+## סודות ולוגים
+
+> **מתי להשתמש:** בעת לוגים/קונפיג/אינטגרציות – מניעת דליפת מידע רגיש
+
+- **אין לשמור** סודות בקוד או בלוגים; השתמש ב-ENV/Secret Manager
+- **אל תרשום** PII; בצע השחרה (redaction) לערכים רגישים בלוגים
+
+---
+
+## מעטפת Bash למחיקה בטוחה
+
+> **מתי להשתמש:** כשכותבים סקריפטי Bash שמבצעים מחיקות/ניקוי
 
 ```bash
 set -euo pipefail
 IFS=$'\n\t'
+
 safe_rmrf() {
-  local target="${1:-}"; local allow_under="${2:-}"
+  local target="${1:-}"
+  local allow_under="${2:-}"
+  
   [[ -z "$target" || -z "$allow_under" ]] && { echo "empty path"; exit 1; }
+  
   local rp_target rp_base
   rp_target="$(readlink -f -- "$target")"
   rp_base="$(readlink -f -- "$allow_under")"
-  [[ "$rp_target" == "/" || "$rp_target" == "$HOME" || "$rp_target" == "$PWD" ]] && { echo "unsafe"; exit 1; }
+  
+  [[ "$rp_target" == "/" || "$rp_target" == "$HOME" || "$rp_target" == "$PWD" ]] && { 
+    echo "unsafe"; exit 1; 
+  }
+  
   [[ "$rp_target" != "$rp_base"/* ]] && { echo "outside allowlist"; exit 1; }
+  
   rm -rf -- "$rp_target"
 }
 ```
 
-# Sphinx/RTD (תיעוד)
+---
 
-> מתי להשתמש: בעת בנייה/עדכון תיעוד Sphinx/RTD.
-- אין להריץ קוד בטופ־לבל בזמן build (importים חייבים להיות בטוחים).
-- RTD נחשב נכשל על אזהרות (fail_on_warning: true) – לשמור 0 warnings.
-- להשתמש ב-:noindex: בעמודי סקירה חופפים: api, database, handlers, services, configuration.
-- להגדיר autodoc_mock_imports: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations.
-- docs/examples.rst מוחרג עד שהעמוד יתווסף ל-toctree (ואז להסיר מה-exclude).
+## Sphinx/RTD (תיעוד)
 
- 
+> **מתי להשתמש:** בעת בנייה/עדכון תיעוד Sphinx/RTD
 
-# Telegram Bot – מניעת "Message is not modified"
+### כללים
+- **אין להריץ** קוד בטופ-לבל בזמן build (importים חייבים להיות בטוחים)
+- RTD נחשב נכשל על אזהרות (`fail_on_warning: true`) – שמור 0 warnings
+- השתמש ב-`:noindex:` בעמודי סקירה חופפים: api, database, handlers, services, configuration
 
-> מתי להשתמש: בפיתוח/תחזוקת בוט Telegram בעת עריכת הודעות.
-- כשנערכת רק המקלדת: להשתמש ב-safe_edit_message_reply_markup (אותו טיפול חריגים).
-- תמיד לקרוא query.answer() לפני עריכה.
-- לעטוף edit_message_text / edit_message_reply_markup ב-wrapper שמתעלם מהשגיאה הזו בלבד:
-- לא משתיקים BadRequest אחרים; רק המקרה "message is not modified" נבלם.
+### הגדרות
+- `autodoc_mock_imports`: cairosvg, aiohttp, textstat, langdetect, pytest, search_engine, code_processor, integrations
+- `docs/examples.rst` מוחרג עד שהעמוד יתווסף ל-toctree (ואז הסר מה-exclude)
+
+---
+
+## Telegram Bot – מניעת "Message is not modified"
+
+> **מתי להשתמש:** בפיתוח/תחזוקת בוט Telegram בעת עריכת הודעות
+
+### כללים
+- כשנערכת רק המקלדת: השתמש ב-`safe_edit_message_reply_markup` (אותו טיפול חריגים)
+- תמיד קרא `query.answer()` לפני עריכה
+- עטוף `edit_message_text`/`edit_message_reply_markup` ב-wrapper שמתעלם מהשגיאה הזו בלבד
+- **לא משתיקים** `BadRequest` אחרים; רק המקרה "message is not modified" נבלם
+
+### דוגמה
+
 ```python
 import telegram.error
 
@@ -215,16 +288,25 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
         raise
 ```
 
-# GitHub – "📥 הורד קובץ מריפו"
+---
 
-> מתי להשתמש: בפלואו הורדת קבצים מהריפו – התנהגות UI בטוחה.
-- בכניסה לפלואו: browse_action=download, לאפס multi_mode/safe_delete.
-- במצב הורדה לא מציגים כפתורי מחיקה או מצב מחיקה.
-- חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש).
+## GitHub – "📥 הורד קובץ מריפו"
 
-# Gists/קישורים חיצוניים בהנחיות משתמש
+> **מתי להשתמש:** בפלואו הורדת קבצים מהריפו – התנהגות UI בטוחה
 
-> מתי להשתמש: כשהמשתמש מצרף Gist/קישור בבקשה הנדסית.
-- בכל פעם שהמשתמש מצרף Gist/קישור קוד: לעיין בתוכן לפני מימוש.
-- יש ליישם בהתאם לרוח ההצעה; מותר לסטות בפרטים אם יש שיקולי אבטחה/פשטות, אבל לציין זאת.
-- אם יש פער: להציע התאמה או לשאול במידת הצורך.
+### כללים
+- בכניסה לפלואו: `browse_action=download`, אפס `multi_mode`/`safe_delete`
+- במצב הורדה **לא מציגים** כפתורי מחיקה או מצב מחיקה
+- חזרה לתפריט בלבד מחזירה את המצב לעריכה/מחיקה (אם נדרש)
+
+---
+
+## Gists/קישורים חיצוניים בהנחיות משתמש
+
+> **מתי להשתמש:** כשהמשתמש מצרף Gist/קישור בבקשה הנדסית
+
+### כללים
+- בכל פעם שהמשתמש מצרף Gist/קישור קוד: **עיין בתוכן** לפני מימוש
+- יישם בהתאם לרוח ההצעה
+- מותר לסטות בפרטים אם יש שיקולי אבטחה/פשטות, **אבל ציין זאת**
+- אם יש פער: הצע התאמה או שאל במידת הצורך
