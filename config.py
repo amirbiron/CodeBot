@@ -29,6 +29,59 @@ class BotConfig(BaseSettings):
         default="code_keeper_bot", description="MongoDB database name"
     )
 
+    # MongoDB Pooling/Timeouts via ENV (stage 2)
+    MONGODB_MAX_POOL_SIZE: int = Field(
+        default=50,
+        ge=1,
+        le=100_000,
+        description="MongoDB connection pool max size (maxPoolSize)",
+    )
+    MONGODB_MIN_POOL_SIZE: int = Field(
+        default=5,
+        ge=0,
+        le=100_000,
+        description="MongoDB connection pool min size (minPoolSize)",
+    )
+    MONGODB_MAX_IDLE_TIME_MS: int = Field(
+        default=30_000,
+        ge=0,
+        le=86_400_000,
+        description="MongoDB max idle time in ms (maxIdleTimeMS)",
+    )
+    MONGODB_WAIT_QUEUE_TIMEOUT_MS: int = Field(
+        default=5_000,
+        ge=0,
+        le=86_400_000,
+        description="MongoDB wait queue timeout in ms (waitQueueTimeoutMS)",
+    )
+    MONGODB_SERVER_SELECTION_TIMEOUT_MS: int = Field(
+        default=3_000,
+        ge=100,
+        le=600_000,
+        description="MongoDB server selection timeout in ms (serverSelectionTimeoutMS)",
+    )
+    MONGODB_SOCKET_TIMEOUT_MS: int = Field(
+        default=20_000,
+        ge=0,
+        le=3_600_000,
+        description="MongoDB socket timeout in ms (socketTimeoutMS)",
+    )
+    MONGODB_CONNECT_TIMEOUT_MS: int = Field(
+        default=10_000,
+        ge=0,
+        le=3_600_000,
+        description="MongoDB connect timeout in ms (connectTimeoutMS)",
+    )
+    MONGODB_RETRY_WRITES: bool = Field(
+        default=True, description="Enable MongoDB retryWrites"
+    )
+    MONGODB_RETRY_READS: bool = Field(
+        default=True, description="Enable MongoDB retryReads"
+    )
+    MONGODB_APPNAME: Optional[str] = Field(
+        default=None, description="MongoDB appName client metadata"
+    )
+
     # Cache/Redis
     REDIS_URL: Optional[str] = Field(default=None, description="Redis URL")
     CACHE_ENABLED: bool = Field(

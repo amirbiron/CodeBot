@@ -203,19 +203,28 @@ class DatabaseManager:
             return
 
         try:
-            self.client = MongoClient(
-                config.MONGODB_URL,
-                maxPoolSize=50,
-                minPoolSize=5,
-                maxIdleTimeMS=30000,
-                waitQueueTimeoutMS=5000,
-                serverSelectionTimeoutMS=3000,
-                socketTimeoutMS=20000,
-                connectTimeoutMS=10000,
-                retryWrites=True,
-                retryReads=True,
+            # קריאת ערכים מה-ENV דרך config, עם ברירות מחדל שמרניות
+            kwargs = dict(
+                maxPoolSize=getattr(config, "MONGODB_MAX_POOL_SIZE", 50),
+                minPoolSize=getattr(config, "MONGODB_MIN_POOL_SIZE", 5),
+                maxIdleTimeMS=getattr(config, "MONGODB_MAX_IDLE_TIME_MS", 30_000),
+                waitQueueTimeoutMS=getattr(config, "MONGODB_WAIT_QUEUE_TIMEOUT_MS", 5_000),
+                serverSelectionTimeoutMS=getattr(config, "MONGODB_SERVER_SELECTION_TIMEOUT_MS", 3_000),
+                socketTimeoutMS=getattr(config, "MONGODB_SOCKET_TIMEOUT_MS", 20_000),
+                connectTimeoutMS=getattr(config, "MONGODB_CONNECT_TIMEOUT_MS", 10_000),
+                retryWrites=getattr(config, "MONGODB_RETRY_WRITES", True),
+                retryReads=getattr(config, "MONGODB_RETRY_READS", True),
                 tz_aware=True,
                 tzinfo=timezone.utc,
+            )
+            # אפשר appName אם ניתן
+            appname = getattr(config, "MONGODB_APPNAME", None)
+            if appname:
+                kwargs["appname"] = appname
+
+            self.client = MongoClient(
+                config.MONGODB_URL,
+                **kwargs,
             )
             self.db = self.client[config.DATABASE_NAME]
             self.collection = self.db.code_snippets
