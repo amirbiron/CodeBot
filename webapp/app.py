@@ -560,15 +560,6 @@ def get_db():
                     # בדיקת חיבור
                     client.server_info()
                     db = client[DATABASE_NAME]
-                    # קריאה חד-פעמית להבטחת אינדקסים באוספים
-                    try:
-                        ensure_recent_opens_indexes()
-                    except Exception:
-                        pass
-                    try:
-                        ensure_code_snippets_indexes()
-                    except Exception:
-                        pass
                     try:
                         record_dependency_init("mongodb", max(0.0, float(_time.perf_counter() - _t0)))
                     except Exception:
@@ -576,6 +567,15 @@ def get_db():
                 except Exception:
                     logger.exception("Failed to connect to MongoDB")
                     raise
+    # מחוץ לנעילה: הבטח אינדקסים פעם אחת, ללא קריאה חוזרת ל-get_db
+    try:
+        ensure_recent_opens_indexes()
+    except Exception:
+        pass
+    try:
+        ensure_code_snippets_indexes()
+    except Exception:
+        pass
     return db
 
 
@@ -604,7 +604,10 @@ def ensure_recent_opens_indexes() -> None:
     if _recent_opens_indexes_ready:
         return
     try:
-        _db = get_db()
+        # השתמש ב-db גלובלי אם כבר מאותחל; אל תקרא get_db() כדי להימנע מ-deadlock בזמן אתחול
+        _db = db if db is not None else None
+        if _db is None:
+            return
         coll = _db.recent_opens
         try:
             from pymongo import ASCENDING, DESCENDING
@@ -688,7 +691,10 @@ def ensure_code_snippets_indexes() -> None:
     if _code_snippets_indexes_ready:
         return
     try:
-        _db = get_db()
+        # השתמש ב-db גלובלי אם כבר מאותחל; אל תקרא get_db() כדי להימנע מ-deadlock בזמן אתחול
+        _db = db if db is not None else None
+        if _db is None:
+            return
         coll = _db.code_snippets
         try:
             from pymongo import ASCENDING, DESCENDING
