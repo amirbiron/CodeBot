@@ -176,7 +176,7 @@
     </div>
 
     <div class="results-info" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-        <div>
+        <div id="resultsCount">
             מציג {{ files|length }} מתוך {{ total_count }} קבצים
             {% if category_filter == 'repo' %}
             | קטגוריה: לפי ריפו
@@ -254,7 +254,7 @@
   </div>
 </div>
 {% elif files %}
-<div class="files-grid" style="display: grid; gap: 1rem;">
+<div id="filesGrid" class="files-grid" data-total-count="{{ total_count }}" style="display: grid; gap: 1rem;">
     {% for file in files %}
     <div class="glass-card file-card" data-file-id="{{ file.id }}">
         <div class="file-selection">
@@ -365,7 +365,7 @@
     </div>
 </div>
 
-<div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
+<div id="paginationControls" class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
     {% if total_pages > 1 and has_prev %}
     <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
@@ -489,6 +489,7 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/infinite-scroll.js') }}" defer></script>
 <script>
     // חיבור לכפתור מחיקה
     window.bulkDeleteFiles = () => window.bulkActions.deleteSelected();
