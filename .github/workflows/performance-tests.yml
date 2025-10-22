@@ -28,6 +28,7 @@ permissions:
 
 jobs:
   performance-test:
+    if: github.event_name != 'pull_request'
     name: "🚀 Load Testing"
     runs-on: ubuntu-latest
     steps:
