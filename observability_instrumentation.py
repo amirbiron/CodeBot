@@ -126,7 +126,7 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                     # Record duration exactly once; include error attribute when relevant
                     if duration_hist is not None:
                         try:
-                            attrs = {"function": func.__name__}
+                            attrs: dict[str, object] = {"function": func.__name__}
                             if exc is not None:
                                 attrs["error"] = True
                             duration_hist.record(max(0.0, time.perf_counter() - start), attrs)  # type: ignore[attr-defined]
@@ -187,7 +187,7 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
                             pass
                     if duration_hist is not None:
                         try:
-                            attrs = {"function": func.__name__}
+                            attrs: dict[str, object] = {"function": func.__name__}
                             if exc is not None:
                                 attrs["error"] = True
                             duration_hist.record(max(0.0, time.perf_counter() - start), attrs)  # type: ignore[attr-defined]

@@ -103,17 +103,29 @@ except Exception:
 try:
     from cache_manager import cache  # noqa: E402
 except Exception:
-    from typing import Any
+    from typing import Any, Optional, Dict, Union
     class _NoCache:
         is_enabled: bool = False
         def get(self, key: str) -> None:  # pragma: no cover - fallback only
             return None
         def set(self, key: str, value: Any, expire_seconds: int = 60) -> bool:  # pragma: no cover - fallback only
             return False
-        def set_dynamic(self, key: str, value: Any, content_type: str, context: dict | None = None) -> bool:  # pragma: no cover - fallback only
+        def set_dynamic(self, key: str, value: Any, content_type: str, context: Optional[Dict[str, Any]] = None) -> bool:  # pragma: no cover - fallback only
+            return False
+        def delete(self, key: str) -> bool:  # pragma: no cover - fallback only
             return False
         def delete_pattern(self, pattern: str) -> int:  # pragma: no cover - fallback only
             return 0
+        def invalidate_user_cache(self, user_id: int) -> int:  # pragma: no cover - fallback only
+            return 0
+        def clear_all(self) -> int:  # pragma: no cover - fallback only
+            return 0
+        def invalidate_file_related(self, file_id: str, user_id: Optional[Union[int, str]] = None) -> int:  # pragma: no cover - fallback only
+            return 0
+        def clear_stale(self, max_scan: int = 1000, ttl_seconds_threshold: int = 60) -> int:  # pragma: no cover - fallback only
+            return 0
+        def get_stats(self) -> Dict[str, Any]:  # pragma: no cover - fallback only
+            return {"enabled": False}
     cache = _NoCache()
 
 # יצירת האפליקציה
