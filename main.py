@@ -3203,7 +3203,16 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 name="cache_maintenance",
             )
         except Exception:
-            pass
+            # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
+            class _Ctx:
+                application = application  # type: ignore[assignment]
+            try:
+                await _cache_maintenance_job(_Ctx())
+            except Exception:
+                pass
+        # הערה: לא נפעיל הרצה כפולה כאשר התזמון מצליח
+        # כדי למנוע פליקות בטסטים/סייד-אפקטים כפולים. הרצה חד-פעמית
+        # מתבצעת רק ב-fallback כאשר התזמון נכשל.
 
         async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
             try:
