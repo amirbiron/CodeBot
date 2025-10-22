@@ -3215,16 +3215,24 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     _emit = lambda *a, **k: None  # type: ignore
                 _emit("backups_cleanup_error", severity="anomaly")
 
-        # תזמון ניקוי גיבויים – פעם ביום, התחלה אחרי 3 דקות
+        # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
         try:
-            interval_secs = int(os.getenv("BACKUPS_CLEANUP_INTERVAL_SECS", "86400") or 86400)
-            first_secs = int(os.getenv("BACKUPS_CLEANUP_FIRST_SECS", "180") or 180)
-            application.job_queue.run_repeating(
-                _backups_cleanup_job,
-                interval=max(3600, interval_secs),
-                first=max(0, first_secs),
-                name="backups_cleanup",
-            )
+            enabled = str(os.getenv("BACKUPS_CLEANUP_ENABLED", "false")).lower() in {"1", "true", "yes", "on"}
+            if enabled:
+                interval_secs = int(os.getenv("BACKUPS_CLEANUP_INTERVAL_SECS", "86400") or 86400)
+                first_secs = int(os.getenv("BACKUPS_CLEANUP_FIRST_SECS", "180") or 180)
+                application.job_queue.run_repeating(
+                    _backups_cleanup_job,
+                    interval=max(3600, interval_secs),
+                    first=max(0, first_secs),
+                    name="backups_cleanup",
+                )
+            else:
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None  # type: ignore
+                _emit("backups_cleanup_disabled", severity="info")
         except Exception:
             pass
     except Exception:

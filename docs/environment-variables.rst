@@ -193,6 +193,12 @@
      - ``60``
      - ``120``
      - Bot
+   * - ``BACKUPS_CLEANUP_ENABLED``
+     - הפעלת ניקוי גיבויי ZIP ברקע
+     - לא
+     - ``false`` (כבוי כברירת מחדל)
+     - ``true``
+     - Bot
    * - ``BACKUPS_CLEANUP_INTERVAL_SECS``
      - מרווח בין ריצות ניקוי גיבויים (שניות)
      - לא
