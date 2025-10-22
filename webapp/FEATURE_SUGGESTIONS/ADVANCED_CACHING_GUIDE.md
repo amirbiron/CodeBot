@@ -148,9 +148,11 @@ class EnhancedCacheManager(CacheManager):
 
 ### 2. דקורטור לשימוש נוח ב-Flask
 
+> **חשוב:** הדקורטור מטפל ב-Flask Response objects בצורה חכמה - שומר רק את ה-JSON data ולא את ה-Response object עצמו
+
 ```python
 from functools import wraps
-from flask import request, g
+from flask import request, g, jsonify
 
 def dynamic_cache(content_type: str, key_prefix: Optional[str] = None):
     """דקורטור ל-caching דינמי של endpoints"""
@@ -182,13 +184,27 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None):
                 # מטריקת hit
                 if cache_hits_total:
                     cache_hits_total.labels(backend='redis').inc()
+                # אם זה dict - החזר כ-jsonify, אחרת החזר כמו שהוא
+                if isinstance(cached, dict):
+                    return jsonify(cached)
                 return cached
             
             # חישוב התוצאה
             result = f(*args, **kwargs)
             
-            # שמירה ב-cache עם TTL דינמי
-            cache_manager.set_dynamic(cache_key, result, content_type, context)
+            # בדיקה אם התוצאה היא Response object
+            if hasattr(result, 'get_json'):
+                # אם זה Response object, שמור רק את ה-JSON data
+                try:
+                    cache_data = result.get_json()
+                    if cache_data is not None:
+                        cache_manager.set_dynamic(cache_key, cache_data, content_type, context)
+                except:
+                    # אם לא הצלחנו לחלץ JSON, לא נשמור ב-cache
+                    pass
+            elif isinstance(result, (dict, list, str, int, float, bool)):
+                # רק אם התוצאה serializable, שמור ב-cache
+                cache_manager.set_dynamic(cache_key, result, content_type, context)
             
             # מטריקת miss
             if cache_misses_total:
@@ -461,6 +477,7 @@ def warm_cache():
 # webapp/cache_refresh.py
 import threading
 import schedule
+import time  # חשוב! נדרש עבור time.sleep() בלולאת הרענון
 
 class CacheRefresher:
     """רענון cache אוטומטי ברקע"""
@@ -1199,13 +1216,15 @@ def process_file(file_id):
 
 ```python
 # webapp/cache_metrics.py
+from typing import Dict, Any
 
 class CacheMetrics:
     """ניטור ביצועי cache"""
     
-    def __init__(self):
+    def __init__(self, cache_manager=None):
         self.hit_rate_window = []  # חלון של 100 פעולות אחרונות
         self.response_times = []
+        self.cache_manager = cache_manager
         
     def record_hit(self):
         """רישום cache hit"""
@@ -1227,15 +1246,25 @@ class CacheMetrics:
     
     def get_metrics_summary(self) -> Dict:
         """סיכום מטריקות"""
+        cache_size = 'N/A'
+        if self.cache_manager:
+            try:
+                info = self.cache_manager.get_info()
+                cache_size = info.get('used_memory_human', 'N/A') if info else 'N/A'
+            except:
+                pass
+        
         return {
             'hit_rate': self.get_hit_rate(),
             'total_hits': cache_hits_total._value.get() if cache_hits_total else 0,
             'total_misses': cache_misses_total._value.get() if cache_misses_total else 0,
             'avg_response_time': sum(self.response_times[-100:]) / len(self.response_times[-100:]) if self.response_times else 0,
-            'cache_size': cache_manager.get_info().get('used_memory_human', 'N/A')
+            'cache_size': cache_size
         }
 
-# endpoint לניטור
+# אתחול ו-endpoint לניטור
+cache_metrics_collector = CacheMetrics(cache_manager)
+
 @app.route('/api/cache/metrics')
 @requires_admin
 def cache_metrics():
@@ -1339,6 +1368,63 @@ def cache_metrics():
 ```
 
 ---
+
+## ⚠️ אזהרות ופתרון בעיות נפוצות
+
+### 1. בעיית Serialization עם Flask Response Objects
+
+**הבעיה:** Flask endpoints מחזירים לעיתים `Response` objects (מ-`jsonify()`) שאינם ניתנים ל-serialization ישיר ל-JSON.
+
+**הפתרון במדריך:**
+```python
+# בדקורטור dynamic_cache - בדיקה חכמה של סוג התוצאה
+if hasattr(result, 'get_json'):
+    # אם זה Response object, חלץ רק את ה-data
+    cache_data = result.get_json()
+    if cache_data:
+        cache_manager.set_dynamic(cache_key, cache_data, content_type, context)
+elif isinstance(result, (dict, list, str, int, float, bool)):
+    # רק טיפוסים serializable
+    cache_manager.set_dynamic(cache_key, result, content_type, context)
+```
+
+**המלצה:** תמיד החזר dict מהפונקציה ותן לדקורטור להמיר ל-jsonify בעת הצורך.
+
+### 2. Import Dependencies חסרים
+
+**בעיות נפוצות:**
+- חסר `import time` ב-`CacheRefresher`
+- חסר `cache_manager` instance ב-`CacheMetrics`
+
+**הפתרון:** תמיד בדוק את כל ה-imports בתחילת כל מודול:
+```python
+# רשימת imports מלאה למערכת cache
+import json
+import time
+import threading
+import hashlib
+import random
+from typing import Dict, Any, List, Optional, Callable
+from functools import wraps
+from flask import request, g, jsonify, make_response
+import redis
+import schedule
+```
+
+### 3. Circular Dependencies
+
+**הבעיה:** imports הדדיים בין מודולים
+
+**הפתרון:** השתמש ב-lazy imports או dependency injection:
+```python
+# במקום import ישיר
+from cache_manager import cache_manager  # עלול ליצור circular
+
+# השתמש ב-injection
+class CacheMetrics:
+    def __init__(self, cache_manager=None):
+        self.cache_manager = cache_manager or get_cache_manager()
+```
 
 ## 🎯 Best Practices והמלצות
 
