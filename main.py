@@ -3192,7 +3192,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None  # type: ignore
+                        _emit = lambda *a, **k: None
                     _emit("weekly_report_error", severity="error")
                 except Exception:
                     pass
