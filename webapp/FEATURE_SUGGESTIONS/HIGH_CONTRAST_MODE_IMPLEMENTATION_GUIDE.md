@@ -226,6 +226,11 @@ class ThemeManager {
       AUTO: 'auto'
     };
     
+    // שמירת רפרנסים לאלמנטים
+    this.toggleContainer = null;
+    this.toggleBtn = null;
+    this.menu = null;
+    
     this.init();
   }
   
@@ -328,9 +333,9 @@ class ThemeManager {
   
   createThemeToggle() {
     // יצירת כפתור החלפת מצב
-    const toggleContainer = document.createElement('div');
-    toggleContainer.className = 'theme-toggle-container';
-    toggleContainer.innerHTML = `
+    this.toggleContainer = document.createElement('div');
+    this.toggleContainer.className = 'theme-toggle-container';
+    this.toggleContainer.innerHTML = `
       <button 
         id="theme-toggle" 
         class="theme-toggle-btn"
@@ -356,32 +361,33 @@ class ThemeManager {
     `;
     
     // הוספה לדף
-    document.body.appendChild(toggleContainer);
+    document.body.appendChild(this.toggleContainer);
+    
+    // שמירת רפרנסים לאלמנטים
+    this.toggleBtn = document.getElementById('theme-toggle');
+    this.menu = document.getElementById('theme-menu');
     
     // הוספת אירועים
     this.setupToggleEvents();
   }
   
   setupToggleEvents() {
-    const toggleBtn = document.getElementById('theme-toggle');
-    const menu = document.getElementById('theme-menu');
-    
     // פתיחה/סגירה של התפריט
-    toggleBtn.addEventListener('click', () => {
-      const isOpen = !menu.hidden;
-      menu.hidden = isOpen;
-      toggleBtn.setAttribute('aria-expanded', !isOpen);
+    this.toggleBtn.addEventListener('click', () => {
+      const isOpen = !this.menu.hidden;
+      this.menu.hidden = isOpen;
+      this.toggleBtn.setAttribute('aria-expanded', !isOpen);
       
       if (!isOpen) {
         // מיקוד על האופציה הנוכחית
         const currentTheme = this.getSavedTheme() || 'auto';
-        const currentOption = menu.querySelector(`[data-theme="${currentTheme}"]`);
+        const currentOption = this.menu.querySelector(`[data-theme="${currentTheme}"]`);
         if (currentOption) currentOption.focus();
       }
     });
     
     // בחירת theme
-    menu.querySelectorAll('[data-theme]').forEach(btn => {
+    this.menu.querySelectorAll('[data-theme]').forEach(btn => {
       btn.addEventListener('click', () => {
         const theme = btn.dataset.theme;
         
@@ -393,9 +399,9 @@ class ThemeManager {
           this.applyTheme(theme);
         }
         
-        menu.hidden = true;
-        toggleBtn.setAttribute('aria-expanded', false);
-        toggleBtn.focus();
+        this.menu.hidden = true;
+        this.toggleBtn.setAttribute('aria-expanded', false);
+        this.toggleBtn.focus();
         
         // הודעה למשתמש
         this.announceThemeChange(theme);
@@ -404,14 +410,14 @@ class ThemeManager {
     
     // סגירת התפריט בלחיצה מחוץ
     document.addEventListener('click', (e) => {
-      if (!toggleContainer.contains(e.target)) {
-        menu.hidden = true;
-        toggleBtn.setAttribute('aria-expanded', false);
+      if (!this.toggleContainer.contains(e.target)) {
+        this.menu.hidden = true;
+        this.toggleBtn.setAttribute('aria-expanded', false);
       }
     });
     
     // ניווט במקלדת
-    this.setupKeyboardNavigation(menu);
+    this.setupKeyboardNavigation(this.menu);
   }
   
   setupKeyboardNavigation(menu) {
@@ -435,7 +441,7 @@ class ThemeManager {
           
         case 'Escape':
           menu.hidden = true;
-          document.getElementById('theme-toggle').focus();
+          this.toggleBtn.focus();
           break;
           
         case 'Home':
