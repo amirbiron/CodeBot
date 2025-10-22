@@ -455,6 +455,10 @@
                 }
                 // theme attribute on <html>
                 document.documentElement.setAttribute('data-theme', '{{ ui_theme }}');
+
+                // העדפת עורך מהשרת (אם קיימת) — כדי לאפשר ברירת מחדל Codemirror
+                // נשמר במשתנה גלובלי שה-JS של העורך יוכל לקרוא
+                try { window.__serverPreferredEditor = '{{ session.get("preferred_editor", "") }}'; } catch (e) {}
             } catch (e) {}
         })();
     </script>
