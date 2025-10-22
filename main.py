@@ -3256,11 +3256,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             )
         except Exception:
             # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
-            class _Ctx:
+            class _CtxMaint:
                 def __init__(self, app):
                     self.application = app
             try:
-                await _cache_maintenance_job(_Ctx(application))
+                await _cache_maintenance_job(_CtxMaint(application))
             except Exception:
                 pass
         # הערה: לא נפעיל הרצה כפולה כאשר התזמון מצליח
@@ -3340,12 +3340,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     )
                 except Exception:
                     # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
-                    class _Ctx:
-                        # הקוד לא מסתמך על context, אך נשמור על חתימה תואמת
+                    class _CtxBkp:
                         def __init__(self, app):
                             self.application = app
                     try:
-                        await _backups_cleanup_job(_Ctx(application))
+                        await _backups_cleanup_job(_CtxBkp(application))
                     except Exception:
                         pass
                 else:
@@ -3527,10 +3526,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             )
         except Exception:
             # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
-            class _Ctx:
-                application = application  # type: ignore[assignment]
+            class _CtxWarm:
+                def __init__(self, app):
+                    self.application = app
             try:
-                await _cache_warming_job(_Ctx())
+                await _cache_warming_job(_CtxWarm(application))
             except Exception:
                 pass
     except Exception:
