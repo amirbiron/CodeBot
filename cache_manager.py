@@ -166,13 +166,13 @@ def build_cache_key(*parts: Any) -> str:
     - ממיר לתווים בטוחים (רווחים/סלאשים)
     - מגביל אורך ומוסיף hash קצר במידת הצורך
     """
-    from hashlib import md5
+    from hashlib import sha256
 
     clean_parts: List[str] = [str(p) for p in parts if p not in (None, "")]
     key: str = ":".join(clean_parts)
     key = key.replace(" ", "_").replace("/", "-")
     if len(key) > 200:
-        key_hash = md5(key.encode("utf-8")).hexdigest()[:8]
+        key_hash = sha256(key.encode("utf-8")).hexdigest()[:8]
         key = f"{key[:150]}:{key_hash}"
     return key
 
