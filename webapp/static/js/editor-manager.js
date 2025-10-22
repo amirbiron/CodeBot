@@ -224,7 +224,7 @@
       ];
 
       let chosen = null;
-      let stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod;
+      let stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod, cbMod, mbMod, foldMod;
       let lastErr;
       for (const cdn of cdnCandidates) {
         try {
@@ -237,7 +237,10 @@
             lang,
             search,
             ac,
-            gutter
+            gutter,
+            closebrackets,
+            matchbrackets,
+            fold
           ] = await Promise.all([
             this.withTimeout(import(u('@codemirror/state')), 12000, '@codemirror/state'),
             this.withTimeout(import(u('@codemirror/view')), 12000, '@codemirror/view'),
@@ -245,9 +248,12 @@
             this.withTimeout(import(u('@codemirror/language')), 12000, '@codemirror/language'),
             this.withTimeout(import(u('@codemirror/search')), 12000, '@codemirror/search'),
             this.withTimeout(import(u('@codemirror/autocomplete')), 12000, '@codemirror/autocomplete'),
-            this.withTimeout(import(u('@codemirror/gutter')), 12000, '@codemirror/gutter')
+            this.withTimeout(import(u('@codemirror/gutter')), 12000, '@codemirror/gutter'),
+            this.withTimeout(import(u('@codemirror/closebrackets')), 12000, '@codemirror/closebrackets'),
+            this.withTimeout(import(u('@codemirror/matchbrackets')), 12000, '@codemirror/matchbrackets'),
+            this.withTimeout(import(u('@codemirror/fold')), 12000, '@codemirror/fold')
           ]);
-          stateMod = state; viewMod = view; cmdMod = cmd; langMod = lang; searchMod = search; acMod = ac; gutterMod = gutter;
+          stateMod = state; viewMod = view; cmdMod = cmd; langMod = lang; searchMod = search; acMod = ac; gutterMod = gutter; cbMod = closebrackets; mbMod = matchbrackets; foldMod = fold;
           chosen = cdn;
           break;
         } catch (e) {
@@ -261,29 +267,29 @@
       this._cdnUrl = chosen.url;
 
       const basicSetup = [
-        gutterMod.lineNumbers(),
-        gutterMod.highlightActiveLineGutter(),
-        viewMod.highlightSpecialChars(),
-        cmdMod.history(),
-        langMod.foldGutter(),
-        viewMod.drawSelection(),
-        viewMod.dropCursor(),
+        (gutterMod && typeof gutterMod.lineNumbers === 'function') ? gutterMod.lineNumbers() : [],
+        (viewMod && typeof viewMod.highlightActiveLineGutter === 'function') ? viewMod.highlightActiveLineGutter() : [],
+        (viewMod && typeof viewMod.highlightSpecialChars === 'function') ? viewMod.highlightSpecialChars() : [],
+        (cmdMod && typeof cmdMod.history === 'function') ? cmdMod.history() : [],
+        (foldMod && typeof foldMod.foldGutter === 'function') ? foldMod.foldGutter() : (langMod && typeof langMod.foldGutter === 'function') ? langMod.foldGutter() : [],
+        (viewMod && typeof viewMod.drawSelection === 'function') ? viewMod.drawSelection() : [],
+        (viewMod && typeof viewMod.dropCursor === 'function') ? viewMod.dropCursor() : [],
         stateMod.EditorState.allowMultipleSelections.of(true),
-        langMod.bracketMatching(),
-        acMod.closeBrackets(),
-        acMod.autocompletion(),
-        viewMod.rectangularSelection(),
-        viewMod.crosshairCursor(),
-        viewMod.highlightActiveLine(),
-        searchMod.highlightSelectionMatches(),
-        viewMod.keymap.of([
-          ...acMod.closeBracketsKeymap,
-          ...cmdMod.defaultKeymap,
-          ...searchMod.searchKeymap,
-          ...cmdMod.historyKeymap,
-          ...langMod.foldKeymap,
-          ...acMod.completionKeymap
-        ])
+        (mbMod && typeof mbMod.bracketMatching === 'function') ? mbMod.bracketMatching() : (langMod && typeof langMod.bracketMatching === 'function') ? langMod.bracketMatching() : [],
+        (cbMod && typeof cbMod.closeBrackets === 'function') ? cbMod.closeBrackets() : [],
+        (acMod && typeof acMod.autocompletion === 'function') ? acMod.autocompletion() : [],
+        (viewMod && typeof viewMod.rectangularSelection === 'function') ? viewMod.rectangularSelection() : [],
+        (viewMod && typeof viewMod.crosshairCursor === 'function') ? viewMod.crosshairCursor() : [],
+        (viewMod && typeof viewMod.highlightActiveLine === 'function') ? viewMod.highlightActiveLine() : [],
+        (searchMod && typeof searchMod.highlightSelectionMatches === 'function') ? searchMod.highlightSelectionMatches() : [],
+        (viewMod && typeof viewMod.keymap === 'object' && typeof viewMod.keymap.of === 'function') ? viewMod.keymap.of([
+          ...(cbMod && Array.isArray(cbMod.closeBracketsKeymap) ? cbMod.closeBracketsKeymap : (acMod && Array.isArray(acMod.closeBracketsKeymap) ? acMod.closeBracketsKeymap : [])),
+          ...(Array.isArray(cmdMod?.defaultKeymap) ? cmdMod.defaultKeymap : []),
+          ...(Array.isArray(searchMod?.searchKeymap) ? searchMod.searchKeymap : []),
+          ...(Array.isArray(cmdMod?.historyKeymap) ? cmdMod.historyKeymap : []),
+          ...(Array.isArray(foldMod?.foldKeymap) ? foldMod.foldKeymap : (Array.isArray(langMod?.foldKeymap) ? langMod.foldKeymap : [])),
+          ...(Array.isArray(acMod?.completionKeymap) ? acMod.completionKeymap : [])
+        ]) : []
       ];
 
       window.CodeMirror6 = {
@@ -296,7 +302,7 @@
         themeCompartment: new stateMod.Compartment(),
         _cdnUrl: this._cdnUrl,
         // Expose modules for diagnostics
-        _mods: { stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod }
+        _mods: { stateMod, viewMod, cmdMod, langMod, searchMod, acMod, gutterMod, cbMod, mbMod, foldMod }
       };
     }
 
