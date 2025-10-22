@@ -16,7 +16,7 @@ Notes:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Protocol, runtime_checkable, cast
 import hashlib
 import json
 import os
@@ -42,11 +42,17 @@ def _emit_event(event: str, severity: str = "info", **fields) -> None:
     except Exception:
         return
 
-# Optional cache manager for remediation
+@runtime_checkable
+class _CacheLike(Protocol):
+    def clear_all(self) -> int: ...
+    def delete_pattern(self, pattern: str) -> int: ...
+
+# Optional cache manager for remediation (typed via Protocol)
 try:
-    from cache_manager import cache as _cache  # type: ignore
+    from cache_manager import cache as _cache_instance
+    _cache: Optional[_CacheLike] = cast("Optional[_CacheLike]", _cache_instance)
 except Exception:  # pragma: no cover
-    _cache = None  # type: ignore
+    _cache = None
 
 # Optional DB reconnection
 try:
@@ -142,12 +148,12 @@ def _clear_internal_cache() -> bool:
         if _cache is not None:
             if hasattr(_cache, "clear_all"):
                 try:
-                    _cache.clear_all()  # type: ignore[attr-defined]
+                    _cache.clear_all()
                 except Exception:
                     pass
             else:
                 try:
-                    _cache.delete_pattern("*")  # type: ignore[call-arg]
+                    _cache.delete_pattern("*")
                 except Exception:
                     pass
         _emit_event("cache_clear_attempt", severity="anomaly", handled=True)
