@@ -16,6 +16,7 @@ from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
 import requests
+import errno
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
@@ -23,6 +24,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
+    InputFile,
     InputTextMessageContent,
     Update,
 )
@@ -2202,132 +2204,159 @@ class GitHubMenuHandler:
                 repo = g.get_repo(repo_name)
                 # Fast path: הורדת ZIP מלא של הריפו דרך zipball
                 if not current_path:
-                    # נבנה ZIP מלא מהריפו (zipball). שמור metadata כדי לדעת אם ההורדה הצליחה
+                    # נבנה ZIP מלא מהריפו (zipball) בספול לדיסק, נוסיף metadata.json ונ Persist דרך מנהל הגיבויים
                     metadata = None
+                    zip_path = None
                     try:
                         import zipfile as _zip
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
-                        # הורדה במצב זרימה + מניעת דחיסה מיותרת
                         headers = {"Accept-Encoding": "identity"}
-                        # הארכת timeout כדי לאפשר הורדת ריפו גדול
                         r = requests.get(url, headers=headers, stream=True, timeout=180)
                         r.raise_for_status()
-                        # בדיקת גודל מראש (אם ידוע) מול מגבלת שליחת קובץ לטלגרם
+                        # בדיקת גודל מראש (אם ידוע)
                         try:
                             cl_header = r.headers.get("Content-Length")
                             content_length = int(cl_header) if cl_header else 0
                         except Exception:
                             content_length = 0
-                        # קבצים מעל מגבלת השליחה בטלגרם: עדיין נשמור גיבוי, אבל לא נשלח כקובץ
                         too_big_for_telegram = bool(content_length and content_length > MAX_ZIP_TOTAL_BYTES)
-                        # צבירת הנתונים בבטיחות עד לגבול המותר
-                        tmp_buf = BytesIO()
-                        for chunk in r.iter_content(chunk_size=128 * 1024):
-                            if not chunk:
-                                continue
-                            tmp_buf.write(chunk)
-                            # גם אם עברנו את מגבלת השליחה – נמשיך לצבור כדי לשמור גיבוי
-                            if tmp_buf.tell() > MAX_ZIP_TOTAL_BYTES:
-                                too_big_for_telegram = True
-                        tmp_buf.seek(0)
-                        # בנה ZIP חדש עם metadata.json משולב כדי לאפשר רישום בגיבויים
-                        src_buf = tmp_buf
-                        with _zip.ZipFile(src_buf, "r") as zin:
-                            # ספר קבצים (דלג על תיקיות)
-                            file_names = [n for n in zin.namelist() if not n.endswith("/")]
-                            file_count = len(file_names)
-                            # חישוב גודל ה-ZIP מתוך הבאפר שצברנו, ללא תלות ב-Response.content
+
+                        # הורדה לקובץ זמני בדיסק
+                        import tempfile as _tmp
+                        with _tmp.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+                            zip_path = tmp_file.name
                             try:
-                                total_bytes = tmp_buf.getbuffer().nbytes
-                            except Exception:
-                                # fallback סביר אם getbuffer לא קיים
-                                _pos = tmp_buf.tell()
-                                tmp_buf.seek(0, 2)
-                                total_bytes = tmp_buf.tell()
-                                tmp_buf.seek(_pos)
-                            # צור ZIP חדש עם metadata
-                            out_buf = BytesIO()
-                            with _zip.ZipFile(out_buf, "w", compression=_zip.ZIP_DEFLATED) as zout:
-                                metadata = {
-                                    "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
-                                    "user_id": user_id,
-                                    "created_at": _dt.now(_tz.utc).isoformat(),
-                                    "backup_type": "github_repo_zip",
-                                    "include_versions": False,
-                                    "file_count": file_count,
-                                    "created_by": "Code Keeper Bot",
-                                    "repo": repo.full_name,
-                                    "path": current_path or ""
-                                }
+                                for chunk in r.iter_content(chunk_size=128 * 1024):
+                                    if not chunk:
+                                        continue
+                                    tmp_file.write(chunk)
+                                    if tmp_file.tell() > MAX_ZIP_TOTAL_BYTES:
+                                        too_big_for_telegram = True
+                            except OSError as e_os:
+                                try:
+                                    if getattr(e_os, 'errno', None) == errno.ENOSPC:
+                                        await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת. נא לפנות מקום ולנסות שוב.")
+                                        emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error="ENOSPC")
+                                except Exception:
+                                    pass
+                                raise
+
+                        # ספר קבצים קיימים (ללא metadata) והוסף metadata.json במצב append
+                        try:
+                            with _zip.ZipFile(zip_path, "r") as zin:
+                                file_names = [n for n in zin.namelist() if not n.endswith("/")]
+                                file_count = len(file_names)
+                        except Exception:
+                            file_count = 0
+                        metadata = {
+                            "backup_id": f"backup_{user_id}_{int(_dt.now(_tz.utc).timestamp())}",
+                            "user_id": user_id,
+                            "created_at": _dt.now(_tz.utc).isoformat(),
+                            "backup_type": "github_repo_zip",
+                            "include_versions": False,
+                            "file_count": int(file_count),
+                            "created_by": "Code Keeper Bot",
+                            "repo": repo.full_name,
+                            "path": current_path or "",
+                        }
+                        try:
+                            with _zip.ZipFile(zip_path, "a", compression=_zip.ZIP_DEFLATED) as zout:
                                 zout.writestr("metadata.json", json.dumps(metadata, indent=2))
-                                for name in file_names:
-                                    zout.writestr(name, zin.read(name))
-                            out_buf.seek(0)
-                            # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
-                            backup_manager.save_backup_bytes(out_buf.getvalue(), metadata)
-                            # שלח למשתמש
-                            # השתמש בשם ידידותי: BKP zip <repo> vN - DD/MM/YY
+                        except Exception as e_append:
+                            # אירוע יצירה
+                            try:
+                                code = "ENOSPC" if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC else "zip_append_error"
+                                emit_event("github_zip_create_error", severity="error", repo=str(repo.full_name), error=str(e_append), code=code)
+                            except Exception:
+                                pass
+                            try:
+                                if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC:
+                                    await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת בעת כתיבת המטא-דאטה.")
+                            except Exception:
+                                pass
+                            raise
+
+                        total_bytes = 0
+                        try:
+                            total_bytes = os.path.getsize(zip_path)
+                        except Exception:
+                            total_bytes = int(content_length or 0)
+
+                        # Persist דרך מנהל הגיבויים – ללא קריאת הזיפ לזיכרון
+                        try:
+                            backup_manager.save_backup_file(zip_path)
+                        except Exception as e_persist:
+                            try:
+                                code = "ENOSPC" if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC else "persist_error"
+                                emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error=str(e_persist), code=code)
+                                if errors_total is not None:
+                                    errors_total.labels(code="github_zip_persist_error").inc()
+                            except Exception:
+                                pass
+                            try:
+                                if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC:
+                                    await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת לשמירת הגיבוי.")
+                            except Exception:
+                                pass
+                            raise
+
+                        # שם ידידותי ושליחה/קישור
+                        try:
+                            infos = backup_manager.list_backups(user_id)
+                            vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
+                        except Exception:
+                            vcount = 1
+                        date_str = _dt.now(_tz.utc).strftime('%d-%m-%y %H.%M')
+                        filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
+                        caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
+                        if not too_big_for_telegram and total_bytes <= MAX_ZIP_TOTAL_BYTES:
+                            try:
+                                with open(zip_path, 'rb') as fsend:
+                                    await query.message.reply_document(document=InputFile(fsend, filename=filename), filename=filename, caption=caption)
+                            except Exception:
+                                await query.message.reply_text(
+                                    f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
+                                )
+                        else:
+                            await query.message.reply_text(
+                                f"✅ הגיבוי נשמר ({format_bytes(total_bytes)}). להורדה ישירה מ‑GitHub: <a href=\"{url}\">קישור</a>",
+                                parse_mode="HTML",
+                            )
+
+                        # Summary + דירוג
+                        try:
+                            backup_id = metadata.get("backup_id")
+                            date_str2 = _dt.now(_tz.utc).strftime('%d/%m/%y %H:%M')
                             try:
                                 infos = backup_manager.list_backups(user_id)
                                 vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
+                                v_text = f"(v{vcount}) " if vcount else ""
                             except Exception:
-                                vcount = 1
-                            date_str = _dt.now(_tz.utc).strftime('%d-%m-%y %H.%M')
-                            filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
-                            out_buf.name = filename
-                            caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
-                            if not too_big_for_telegram:
-                                try:
-                                    await query.message.reply_document(
-                                        document=out_buf, filename=filename, caption=caption
-                                    )
-                                except Exception:
-                                    # נפילה בטלגרם (למשל 413) – שלח קישור ישיר
-                                    await query.message.reply_text(
-                                        f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
-                                    )
-                            else:
-                                # גדול מדי לשליחה – דווח שנשמר והצע קישור ישיר
-                                await query.message.reply_text(
-                                    f"✅ הגיבוי נשמר ({format_bytes(total_bytes)}). להורדה ישירה מ‑GitHub: <a href=\"{url}\">קישור</a>",
-                                    parse_mode="HTML",
-                                )
-                            # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
+                                v_text = ""
+                            summary_line = f"⬇️ backup zip {repo.name} – {date_str2} – {v_text}{format_bytes(total_bytes)}"
                             try:
-                                backup_id = metadata.get("backup_id")
-                                date_str = _dt.now(_tz.utc).strftime('%d/%m/%y %H:%M')
-                                try:
-                                    # חשב גרסת גיבוי (מספר רצים לאותו ריפו)
-                                    infos = backup_manager.list_backups(user_id)
-                                    vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
-                                    v_text = f"(v{vcount}) " if vcount else ""
-                                except Exception:
-                                    v_text = ""
-                                summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
-                                try:
-                                    from database import db as _db
-                                    existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
-                                except Exception:
-                                    existing_note = ""
-                                note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
-                                kb = [
-                                    [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
-                                    [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
-                                    [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
-                                    [InlineKeyboardButton(note_btn_text, callback_data=f"backup_add_note:{backup_id}")],
-                                ]
-                                msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
-                                try:
-                                    s = context.user_data.setdefault("backup_summaries", {})
-                                    s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
-                                except Exception:
-                                    pass
-                                # Rating buttons already attached above; no need to call external handler
+                                from database import db as _db
+                                existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
+                            except Exception:
+                                existing_note = ""
+                            note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
+                            kb = [
+                                [InlineKeyboardButton("🏆 מצוין", callback_data=f"backup_rate:{backup_id}:excellent")],
+                                [InlineKeyboardButton("👍 טוב", callback_data=f"backup_rate:{backup_id}:good")],
+                                [InlineKeyboardButton("🤷 סביר", callback_data=f"backup_rate:{backup_id}:ok")],
+                                [InlineKeyboardButton(note_btn_text, callback_data=f"backup_add_note:{backup_id}")],
+                            ]
+                            msg = await query.message.reply_text(summary_line, reply_markup=InlineKeyboardMarkup(kb))
+                            try:
+                                s = context.user_data.setdefault("backup_summaries", {})
+                                s[backup_id] = {"chat_id": msg.chat.id, "message_id": msg.message_id, "text": summary_line}
                             except Exception:
                                 pass
+                        except Exception:
+                            pass
                     except Exception as e:
-                        logger.error(f"Error fetching repo zipball: {e}")
+                        logger.error(f"Error fetching/persisting repo zipball: {e}")
                         try:
                             emit_event(
                                 "github_zipball_fetch_error",
@@ -2344,6 +2373,12 @@ class GitHubMenuHandler:
                         except BadRequest as br:
                             if "message is not modified" not in str(br).lower():
                                 raise
+                    finally:
+                        try:
+                            if zip_path and os.path.exists(zip_path):
+                                os.remove(zip_path)
+                        except Exception:
+                            pass
                     # לאחר יצירת והורדת ה‑ZIP, הצג את רשימת הגיבויים רק אם נוצר metadata (כלומר ההורדה הצליחה)
                     if metadata is not None:
                         try:
