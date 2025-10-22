@@ -102,14 +102,19 @@ except Exception:
 # Cache (Redis) – שימוש במנהל הקאש המרכזי של הפרויקט
 try:
     from cache_manager import cache  # noqa: E402
-except Exception:  # Fallback בטוח אם Redis לא זמין בזמן ריצה
+except Exception:
+    from typing import Any
     class _NoCache:
-        is_enabled = False
-        def get(self, key):
+        is_enabled: bool = False
+        def get(self, key: str) -> None:  # pragma: no cover - fallback only
             return None
-        def set(self, key, value, expire_seconds=60):
+        def set(self, key: str, value: Any, expire_seconds: int = 60) -> bool:  # pragma: no cover - fallback only
             return False
-    cache = _NoCache()  # type: ignore
+        def set_dynamic(self, key: str, value: Any, content_type: str, context: dict | None = None) -> bool:  # pragma: no cover - fallback only
+            return False
+        def delete_pattern(self, pattern: str) -> int:  # pragma: no cover - fallback only
+            return 0
+    cache = _NoCache()
 
 # יצירת האפליקציה
 app = Flask(__name__)

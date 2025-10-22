@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from functools import wraps
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast
 import random
 try:
     import redis  # type: ignore
@@ -373,16 +373,20 @@ class CacheManager:
 
 
 # ===================== Flask dynamic cache decorator =====================
-def dynamic_cache(content_type: str, key_prefix: Optional[str] = None):
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """דקורטור ל-caching דינמי ל-Flask endpoints.
 
     - בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים
     - שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד
     - Fail-open: לעולם לא מפיל endpoint על בעיות קאש
     """
-    def decorator(func):
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             try:
                 # ייבוא מאוחר כדי להימנע מתלות פלצ'ית בזמן import מודולרי/טסטים
                 try:
@@ -417,8 +421,8 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None):
                 cached_value = cache.get(cache_key)
                 if cached_value is not None:
                     if isinstance(cached_value, dict):
-                        return jsonify(cached_value)
-                    return cached_value
+                        return cast(R, jsonify(cached_value))
+                    return cast(R, cached_value)
 
                 # חישוב התוצאה
                 result = func(*args, **kwargs)
