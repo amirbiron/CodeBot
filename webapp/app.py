@@ -1520,35 +1520,24 @@ def api_search_global():
         except Exception:
             limit = 20
 
-        # Simple local cache key (not redis)
-        try:
-            cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
-            cache_key = hashlib.sha256(cache_payload).hexdigest()
-        except Exception:
-            cache_key = hashlib.sha256(f"{user_id}:{search_type_str}:{page}:{limit}:{len(query)}".encode('utf-8')).hexdigest()
-
-        cached = _cache_get(user_id, cache_key)
-        if cached:
+        # Redis-backed dynamic cache key
+        should_cache = getattr(cache, 'is_enabled', False)
+        cache_key = None
+        if should_cache:
             try:
-                search_cache_hits.inc()
-                search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+                cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
+                key_hash = hashlib.sha256(cache_payload).hexdigest()[:24]
+                cache_key = f"api:search:{user_id}:{key_hash}"
+                cached = cache.get(cache_key)
+                if isinstance(cached, dict) and cached:
+                    try:
+                        search_cache_hits.inc()
+                        search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+                    except Exception:
+                        pass
+                    return jsonify(dict(cached, cached=True))
             except Exception:
-                pass
-            # לוג פגיעה בקאש
-            try:
-                emit_event(
-                    "search_response",
-                    severity="info",
-                    request_id=request_id if 'request_id' in locals() else "",
-                    user_id=int(user_id),
-                    results_count=int(cached.get('total_results', 0)),
-                    page_results=int(len((cached.get('results') or []))),
-                    duration_ms=int(round((time.time() - start_time) * 1000)),
-                    cache_hit=True,
-                )
-            except Exception:
-                pass
-            return jsonify(dict(cached, cached=True))
+                cache_key = None
 
         try:
             search_cache_misses.inc()
@@ -1648,8 +1637,22 @@ def api_search_global():
             ],
         }
 
-        # Cache set
-        _cache_set(user_id, cache_key, resp)
+        # Cache set (redis dynamic if available; else skip)
+        try:
+            if cache_key:
+                cache.set_dynamic(
+                    cache_key,
+                    resp,
+                    "search_results",
+                    {
+                        "user_id": user_id,
+                        "user_tier": session.get("user_tier", "regular"),
+                        "access_frequency": "high" if len(query) <= 16 else "low",
+                        "endpoint": "api_search_global",
+                    },
+                )
+        except Exception:
+            pass
         try:
             search_counter.labels(search_type=search_type_str, status='success').inc()
         except Exception:
@@ -1710,8 +1713,29 @@ def api_search_suggestions():
         q = (request.args.get('q') or '').strip()
         if len(q) < 2 or not search_engine:
             return jsonify({'suggestions': []})
-        suggestions = search_engine.suggest_completions(session['user_id'], q, limit=10)
-        return jsonify({'suggestions': suggestions})
+
+        # Try dynamic cache (fast path)
+        uid = session['user_id']
+        key = None
+        try:
+            if getattr(cache, 'is_enabled', False):
+                payload = json.dumps({'q': q}, sort_keys=True, ensure_ascii=False)
+                h = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+                key = f"api:search_suggest:{uid}:{h}"
+                cached = cache.get(key)
+                if isinstance(cached, dict) and 'suggestions' in cached:
+                    return jsonify(cached)
+        except Exception:
+            key = None
+
+        suggestions = search_engine.suggest_completions(uid, q, limit=10)
+        resp = {'suggestions': suggestions}
+        try:
+            if key:
+                cache.set_dynamic(key, resp, 'search_results', {'user_id': uid, 'endpoint': 'api_search_suggestions'})
+        except Exception:
+            pass
+        return jsonify(resp)
     except Exception:
         return jsonify({'suggestions': []})
 
