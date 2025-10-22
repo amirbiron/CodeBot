@@ -2168,6 +2168,13 @@ def files():
             sort_by = '-last_opened_at'
     except Exception:
         pass
+
+    # ברירת מחדל למיון בקטגוריית "מועדפים": לפי זמן הוספה למועדפים (חדש -> ישן)
+    try:
+        if (category_filter or '').strip().lower() == 'favorites' and not (request.args.get('sort') or '').strip():
+            sort_by = '-favorited_at'
+    except Exception:
+        pass
     
     # בניית שאילתה - כולל סינון קבצים פעילים בלבד
     query = {
