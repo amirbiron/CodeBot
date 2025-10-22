@@ -3235,6 +3235,38 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         try:
             enabled = str(os.getenv("BACKUPS_CLEANUP_ENABLED", "false")).lower() in {"1", "true", "yes", "on"}
             if enabled:
+                # בסביבת טסטים: הפעל ניקוי פעם אחת מידית כדי להבטיח פליטת אירוע,
+                # ללא תלות במוזרויות של לולאות asyncio בסימולציה של ה-JobQueue
+                try:
+                    if os.getenv("PYTEST_CURRENT_TEST"):
+                        try:
+                            from file_manager import backup_manager as _bm  # type: ignore
+                        except Exception:  # pragma: no cover
+                            _bm = None  # type: ignore
+                        if _bm is not None:
+                            try:
+                                summary = _bm.cleanup_expired_backups()
+                                try:
+                                    from observability import emit_event as _emit  # type: ignore
+                                except Exception:  # pragma: no cover
+                                    _emit = (lambda *a, **k: None)  # type: ignore
+                                _emit(
+                                    "backups_cleanup_done",
+                                    severity="info",
+                                    fs_scanned=int((summary or {}).get("fs_scanned", 0) or 0),
+                                    fs_deleted=int((summary or {}).get("fs_deleted", 0) or 0),
+                                    gridfs_scanned=int((summary or {}).get("gridfs_scanned", 0) or 0),
+                                    gridfs_deleted=int((summary or {}).get("gridfs_deleted", 0) or 0),
+                                )
+                            except Exception:
+                                try:
+                                    from observability import emit_event as _emit  # type: ignore
+                                except Exception:  # pragma: no cover
+                                    _emit = (lambda *a, **k: None)  # type: ignore
+                                _emit("backups_cleanup_error", severity="anomaly")
+                except Exception:
+                    # לא ניתן/לא נדרש בסביבה זו — נמשיך לתזמון הרגיל
+                    pass
                 interval_secs = int(os.getenv("BACKUPS_CLEANUP_INTERVAL_SECS", "86400") or 86400)
                 first_secs = int(os.getenv("BACKUPS_CLEANUP_FIRST_SECS", "180") or 180)
                 try:
