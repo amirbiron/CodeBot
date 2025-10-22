@@ -102,14 +102,19 @@ except Exception:
 # Cache (Redis) – שימוש במנהל הקאש המרכזי של הפרויקט
 try:
     from cache_manager import cache  # noqa: E402
-except Exception:  # Fallback בטוח אם Redis לא זמין בזמן ריצה
+except Exception:
+    from typing import Any
     class _NoCache:
-        is_enabled = False
-        def get(self, key):
+        is_enabled: bool = False
+        def get(self, key: str) -> None:  # pragma: no cover - fallback only
             return None
-        def set(self, key, value, expire_seconds=60):
+        def set(self, key: str, value: Any, expire_seconds: int = 60) -> bool:  # pragma: no cover - fallback only
             return False
-    cache = _NoCache()  # type: ignore
+        def set_dynamic(self, key: str, value: Any, content_type: str, context: dict | None = None) -> bool:  # pragma: no cover - fallback only
+            return False
+        def delete_pattern(self, pattern: str) -> int:  # pragma: no cover - fallback only
+            return 0
+    cache = _NoCache()
 
 # יצירת האפליקציה
 app = Flask(__name__)
@@ -1520,35 +1525,24 @@ def api_search_global():
         except Exception:
             limit = 20
 
-        # Simple local cache key (not redis)
-        try:
-            cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
-            cache_key = hashlib.sha256(cache_payload).hexdigest()
-        except Exception:
-            cache_key = hashlib.sha256(f"{user_id}:{search_type_str}:{page}:{limit}:{len(query)}".encode('utf-8')).hexdigest()
-
-        cached = _cache_get(user_id, cache_key)
-        if cached:
+        # Redis-backed dynamic cache key
+        should_cache = getattr(cache, 'is_enabled', False)
+        cache_key = None
+        if should_cache:
             try:
-                search_cache_hits.inc()
-                search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+                cache_payload = json.dumps({'q': query, 't': search_type_str, 'f': filter_data, 's': sort_str, 'p': page, 'l': limit}, sort_keys=True, ensure_ascii=False).encode('utf-8')
+                key_hash = hashlib.sha256(cache_payload).hexdigest()[:24]
+                cache_key = f"api:search:{user_id}:{key_hash}"
+                cached = cache.get(cache_key)
+                if isinstance(cached, dict) and cached:
+                    try:
+                        search_cache_hits.inc()
+                        search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+                    except Exception:
+                        pass
+                    return jsonify(dict(cached, cached=True))
             except Exception:
-                pass
-            # לוג פגיעה בקאש
-            try:
-                emit_event(
-                    "search_response",
-                    severity="info",
-                    request_id=request_id if 'request_id' in locals() else "",
-                    user_id=int(user_id),
-                    results_count=int(cached.get('total_results', 0)),
-                    page_results=int(len((cached.get('results') or []))),
-                    duration_ms=int(round((time.time() - start_time) * 1000)),
-                    cache_hit=True,
-                )
-            except Exception:
-                pass
-            return jsonify(dict(cached, cached=True))
+                cache_key = None
 
         try:
             search_cache_misses.inc()
@@ -1648,8 +1642,22 @@ def api_search_global():
             ],
         }
 
-        # Cache set
-        _cache_set(user_id, cache_key, resp)
+        # Cache set (redis dynamic if available; else skip)
+        try:
+            if cache_key:
+                cache.set_dynamic(
+                    cache_key,
+                    resp,
+                    "search_results",
+                    {
+                        "user_id": user_id,
+                        "user_tier": session.get("user_tier", "regular"),
+                        "access_frequency": "high" if len(query) <= 16 else "low",
+                        "endpoint": "api_search_global",
+                    },
+                )
+        except Exception:
+            pass
         try:
             search_counter.labels(search_type=search_type_str, status='success').inc()
         except Exception:
@@ -1710,8 +1718,29 @@ def api_search_suggestions():
         q = (request.args.get('q') or '').strip()
         if len(q) < 2 or not search_engine:
             return jsonify({'suggestions': []})
-        suggestions = search_engine.suggest_completions(session['user_id'], q, limit=10)
-        return jsonify({'suggestions': suggestions})
+
+        # Try dynamic cache (fast path)
+        uid = session['user_id']
+        key = None
+        try:
+            if getattr(cache, 'is_enabled', False):
+                payload = json.dumps({'q': q}, sort_keys=True, ensure_ascii=False)
+                h = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+                key = f"api:search_suggest:{uid}:{h}"
+                cached = cache.get(key)
+                if isinstance(cached, dict) and 'suggestions' in cached:
+                    return jsonify(cached)
+        except Exception:
+            key = None
+
+        suggestions = search_engine.suggest_completions(uid, q, limit=10)
+        resp = {'suggestions': suggestions}
+        try:
+            if key:
+                cache.set_dynamic(key, resp, 'search_results', {'user_id': uid, 'endpoint': 'api_search_suggestions'})
+        except Exception:
+            pass
+        return jsonify(resp)
     except Exception:
         return jsonify({'suggestions': []})
 
@@ -2284,9 +2313,22 @@ def files():
                                      bot_username=BOT_USERNAME_CLEAN)
                 if should_cache:
                     try:
-                        cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                        cache.set_dynamic(
+                            files_cache_key,
+                            html,
+                            "file_list",
+                            {
+                                "user_id": user_id,
+                                "user_tier": session.get("user_tier", "regular"),
+                                "access_frequency": "high",
+                                "endpoint": "files",
+                            },
+                        )
                     except Exception:
-                        pass
+                        try:
+                            cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                        except Exception:
+                            pass
                 return html
         elif category_filter == 'zip':
             # הוסר מה‑UI; נשיב מיד לרשימת קבצים רגילה כדי למנוע שימוש ב‑Mongo לאחסון גיבויים
@@ -2425,9 +2467,22 @@ def files():
                                  bot_username=BOT_USERNAME_CLEAN)
             if should_cache:
                 try:
-                    cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                    cache.set_dynamic(
+                        files_cache_key,
+                        html,
+                        "file_list",
+                        {
+                            "user_id": user_id,
+                            "user_tier": session.get("user_tier", "regular"),
+                            "access_frequency": "high",
+                            "endpoint": "files",
+                        },
+                    )
                 except Exception:
-                    pass
+                    try:
+                        cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                    except Exception:
+                        pass
             return html
 
         # מיפוי שם->זמן פתיחה אחרון ומערך שמות
@@ -3356,9 +3411,22 @@ def md_preview(file_id):
     html = render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
     if should_cache and md_cache_key:
         try:
-            cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
+            cache.set_dynamic(
+                md_cache_key,
+                html,
+                "markdown_render",
+                {
+                    "user_id": user_id,
+                    "user_tier": session.get("user_tier", "regular"),
+                    "last_modified_hours_ago": max(0.0, (datetime.now(timezone.utc) - (file.get('updated_at') or last_modified_dt)).total_seconds() / 3600.0) if file else 24,
+                    "endpoint": "md_preview",
+                },
+            )
         except Exception:
-            pass
+            try:
+                cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
+            except Exception:
+                pass
     resp = Response(html, mimetype='text/html; charset=utf-8')
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
@@ -4084,9 +4152,22 @@ def api_stats():
     
     if should_cache:
         try:
-            cache.set(stats_cache_key, stats, API_STATS_CACHE_TTL)
+            cache.set_dynamic(
+                stats_cache_key,
+                stats,
+                "user_stats",
+                {
+                    "user_id": user_id,
+                    "user_tier": session.get("user_tier", "regular"),
+                    "endpoint": "api_stats",
+                    "access_frequency": "high",
+                },
+            )
         except Exception:
-            pass
+            try:
+                cache.set(stats_cache_key, stats, API_STATS_CACHE_TTL)
+            except Exception:
+                pass
     # הוספת ETag לתגובה גם כאשר לא שוחזר מהקאש
     try:
         etag = 'W/"' + hashlib.sha256(json.dumps(stats, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()[:16] + '"'
@@ -4173,6 +4254,99 @@ def health():
         health_data['error'] = 'unhealthy'
     
     return jsonify(health_data)
+
+
+@app.route('/api/cache/stats', methods=['GET'])
+@login_required
+def api_cache_stats():
+    """החזרת סטטיסטיקות Redis/Cache למטרות ניטור (מאובטח למשתמש מחובר)."""
+    try:
+        stats = cache.get_stats()
+        return jsonify(stats)
+    except Exception:
+        return jsonify({"enabled": False, "error": "unavailable"}), 200
+
+
+@app.route('/api/cache/warm', methods=['POST'])
+@login_required
+def api_cache_warm():
+    """חימום קאש בסיסי למשתמש הנוכחי: סטטיסטיקות + הצעות חיפוש.
+
+    קלט אופציונלי (JSON):
+      {
+        "suggestions": ["def", "class", ...],
+        "limit": 10
+      }
+    """
+    try:
+        user_id = session['user_id']
+        payload = request.get_json(silent=True) or {}
+        seeds = payload.get('suggestions') or ["def", "class", "import", "todo", "fix", "bug"]
+        limit = int(payload.get('limit') or 10)
+
+        # 1) Warm stats (reuse logic from /api/stats, but simplified)
+        try:
+            db = get_db()
+            active_query = {
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]
+            }
+            stats = {
+                'total_files': db.code_snippets.count_documents(active_query),
+                'languages': list(db.code_snippets.distinct('programming_language', active_query)),
+                'recent_activity': []
+            }
+            recent = db.code_snippets.find(active_query, {'file_name': 1, 'created_at': 1}).sort('created_at', DESCENDING).limit(10)
+            for item in recent:
+                stats['recent_activity'].append({
+                    'file_name': item.get('file_name', ''),
+                    'created_at': (item.get('created_at') or datetime.now()).isoformat()
+                })
+            # cache key same as /api/stats
+            _raw = json.dumps({}, sort_keys=True, ensure_ascii=False)
+            _hash = hashlib.sha256(_raw.encode('utf-8')).hexdigest()[:16]
+            stats_cache_key = f"api:stats:user:{user_id}:{_hash}"
+            try:
+                cache.set_dynamic(
+                    stats_cache_key,
+                    stats,
+                    "user_stats",
+                    {
+                        "user_id": user_id,
+                        "user_tier": session.get("user_tier", "regular"),
+                        "endpoint": "api_stats",
+                        "access_frequency": "high",
+                    },
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # 2) Warm search suggestions for short seeds
+        try:
+            if search_engine and isinstance(seeds, list):
+                for q in seeds:
+                    try:
+                        q_str = str(q or '').strip()
+                        if len(q_str) < 2:
+                            continue
+                        sugg = search_engine.suggest_completions(user_id, q_str, limit=min(20, max(1, int(limit))))
+                        payload = json.dumps({'q': q_str}, sort_keys=True, ensure_ascii=False)
+                        h = hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+                        key = f"api:search_suggest:{user_id}:{h}"
+                        cache.set_dynamic(key, {'suggestions': sugg}, 'search_results', {'user_id': user_id, 'endpoint': 'api_search_suggestions'})
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False}), 500
 
 # API: הפעלת/ביטול חיבור קבוע
 @app.route('/api/persistent_login', methods=['POST'])

@@ -2992,7 +2992,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 from observability import emit_event as _emit  # type: ignore
             except Exception:  # pragma: no cover
-                _emit = None  # type: ignore[assignment]
+                _emit = None
             if _emit is not None:
                 _emit("backups_cleanup_disabled", severity="info")
             else:
@@ -3007,7 +3007,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         from file_manager import backup_manager as _bm  # type: ignore
                     except Exception:  # pragma: no cover
-                        _bm = None  # type: ignore[assignment]
+                        _bm = None
                     if _bm is not None:
                         try:
                             summary = _bm.cleanup_expired_backups()
@@ -3062,7 +3062,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 import asyncio as _asyncio
                 if _asyncio.isfuture(result) or _asyncio.iscoroutine(result):
-                    await result  # type: ignore[misc]
+                    await result
                     # Double-emit defensively for tests that expect the event synchronously
                     try:
                         try:
@@ -3256,11 +3256,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             )
         except Exception:
             # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
-            class _Ctx:
+            class _CtxMaint:
                 def __init__(self, app):
                     self.application = app
             try:
-                await _cache_maintenance_job(_Ctx(application))
+                await _cache_maintenance_job(_CtxMaint(application))
             except Exception:
                 pass
         # הערה: לא נפעיל הרצה כפולה כאשר התזמון מצליח
@@ -3340,12 +3340,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     )
                 except Exception:
                     # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
-                    class _Ctx:
-                        # הקוד לא מסתמך על context, אך נשמור על חתימה תואמת
+                    class _CtxBkp:
                         def __init__(self, app):
                             self.application = app
                     try:
-                        await _backups_cleanup_job(_Ctx(application))
+                        await _backups_cleanup_job(_CtxBkp(application))
                     except Exception:
                         pass
                 else:
@@ -3366,7 +3365,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         from observability import emit_event as _emit  # type: ignore
                     except Exception:  # pragma: no cover
-                        _emit = None  # type: ignore[assignment]
+                        _emit = None
                     if _emit is not None:
                         _emit("backups_cleanup_disabled", severity="info")
                     else:
@@ -3382,6 +3381,159 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             pass
     except Exception:
         # Fail-open: אל תכשיל את עליית הבוט אם התזמון נכשל
+        pass
+
+# --- Background job: Cache warming based on recent usage (lightweight) ---
+    try:
+        async def _cache_warming_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            try:
+                # Feature flag
+                enabled = str(os.getenv("CACHE_WARMING_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
+                if not enabled:
+                    return
+
+                # Time budget to avoid load
+                import time as _t
+                budget = float(os.getenv("CACHE_WARMING_BUDGET_SECONDS", "1.0") or 1.0)
+                t0 = _t.time()
+
+                # Lazy imports to avoid hard deps
+                try:
+                    from cache_manager import cache as _cache  # type: ignore
+                except Exception:  # pragma: no cover
+                    _cache = None  # type: ignore
+                try:
+                    from webapp.app import get_db as _get_db  # type: ignore
+                except Exception:  # pragma: no cover
+                    _get_db = None  # type: ignore
+                try:
+                    from webapp.app import search_engine as _search_engine  # type: ignore
+                except Exception:  # pragma: no cover
+                    _search_engine = None  # type: ignore
+
+                if _cache is None or not getattr(_cache, 'is_enabled', False) or _get_db is None:
+                    return
+
+                db = _get_db()
+                now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+                week_ago = now - __import__('datetime').timedelta(days=7)
+
+                # Top active users in last 7 days (at most 3)
+                top_users = []
+                try:
+                    pipeline = [
+                        {"$match": {"updated_at": {"$gte": week_ago}}},
+                        {"$group": {"_id": "$user_id", "cnt": {"$sum": 1}}},
+                        {"$sort": {"cnt": -1}},
+                        {"$limit": 3},
+                    ]
+                    agg = list(db.code_snippets.aggregate(pipeline))
+                    top_users = [int(d.get("_id")) for d in agg if d.get("_id") is not None]
+                except Exception:
+                    pass
+
+                # Seeds: common keywords + top tags (last 7d)
+                seeds = ["def", "class", "import", "fix", "refactor", "todo"]
+                try:
+                    tag_pipe = [
+                        {"$match": {"updated_at": {"$gte": week_ago}, "tags": {"$exists": True, "$ne": []}}},
+                        {"$unwind": "$tags"},
+                        {"$group": {"_id": "$tags", "cnt": {"$sum": 1}}},
+                        {"$sort": {"cnt": -1}},
+                        {"$limit": 5},
+                    ]
+                    tag_rows = list(db.code_snippets.aggregate(tag_pipe))
+                    seeds += [str(r.get("_id")) for r in tag_rows if r.get("_id")]
+                except Exception:
+                    pass
+                # Dedup and sanitize seeds
+                uniq_seeds = []
+                for s in seeds:
+                    s2 = str(s or '').strip()
+                    if s2 and s2 not in uniq_seeds:
+                        uniq_seeds.append(s2)
+
+                import hashlib, json
+
+                # Warm per user: stats and suggestions
+                for uid in top_users:
+                    if (_t.time() - t0) > budget:
+                        break
+                    # Stats (like /api/stats)
+                    try:
+                        active_q = {"user_id": uid, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+                        stats = {
+                            "total_files": db.code_snippets.count_documents(active_q),
+                            "languages": list(db.code_snippets.distinct("programming_language", active_q)),
+                            "recent_activity": [],
+                        }
+                        recent = db.code_snippets.find(active_q, {"file_name": 1, "created_at": 1}).sort("created_at", -1).limit(5)
+                        for item in recent:
+                            stats["recent_activity"].append({
+                                "file_name": item.get("file_name", ""),
+                                "created_at": (item.get("created_at") or now).isoformat(),
+                            })
+                        raw = json.dumps({}, sort_keys=True, ensure_ascii=False)
+                        h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+                        key = f"api:stats:user:{uid}:{h}"
+                        try:
+                            _cache.set_dynamic(key, stats, "user_stats", {"user_id": uid, "endpoint": "api_stats", "access_frequency": "high"})
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    # Suggestions (if engine available)
+                    if _search_engine is not None:
+                        for q in uniq_seeds:
+                            if (_t.time() - t0) > budget:
+                                break
+                            try:
+                                if len(q) < 2:
+                                    continue
+                                sugg = _search_engine.suggest_completions(uid, q, limit=10)
+                                payload = json.dumps({"q": q}, sort_keys=True, ensure_ascii=False)
+                                h = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+                                key = f"api:search_suggest:{uid}:{h}"
+                                _cache.set_dynamic(key, {"suggestions": sugg}, "search_results", {"user_id": uid, "endpoint": "api_search_suggestions"})
+                            except Exception:
+                                continue
+
+                # Emit
+                try:
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = (lambda *a, **k: None)  # type: ignore
+                    _emit("cache_warming_done", severity="info")
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:
+                    _emit = (lambda *a, **k: None)  # type: ignore
+                _emit("cache_warming_error", severity="anomaly")
+
+        try:
+            interval_secs = int(os.getenv("CACHE_WARMING_INTERVAL_SECS", "900") or 900)
+            first_secs = int(os.getenv("CACHE_WARMING_FIRST_SECS", "45") or 45)
+            application.job_queue.run_repeating(
+                _cache_warming_job,
+                interval=max(120, interval_secs),
+                first=max(0, first_secs),
+                name="cache_warming",
+            )
+        except Exception:
+            # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
+            class _CtxWarm:
+                def __init__(self, app):
+                    self.application = app
+            try:
+                await _cache_warming_job(_CtxWarm(application))
+            except Exception:
+                pass
+    except Exception:
         pass
 
 if __name__ == "__main__":

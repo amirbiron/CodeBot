@@ -10,6 +10,7 @@ import html
 
 from database.bookmarks_manager import BookmarksManager
 from database.bookmark import VALID_COLORS as MODEL_VALID_COLORS
+from cache_manager import dynamic_cache, cache
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,15 @@ def toggle_bookmark(file_id):
             anchor_text=(anchor_text or None),
             anchor_type=(anchor_type or None)
         )
+        # Invalidate related bookmarks caches for this user/file
+        try:
+            uid = str(user_id)
+            # Keys are built via build_cache_key: slashes replaced with hyphens
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
+            cache.delete_pattern(f"bookmarks_all:{uid}:*")
+            cache.delete_pattern(f"bookmarks_stats:{uid}:*")
+        except Exception:
+            pass
         
         return jsonify(result)
         
@@ -227,6 +237,7 @@ def toggle_bookmark(file_id):
 @bookmarks_bp.route('/<file_id>', methods=['GET'])
 @require_auth
 @traced("bookmarks.get_file")
+@dynamic_cache(content_type='bookmarks', key_prefix='bookmarks_file')
 def get_file_bookmarks(file_id):
     """
     Get all bookmarks for a specific file.
@@ -273,6 +284,7 @@ def get_file_bookmarks(file_id):
 @bookmarks_bp.route('/all', methods=['GET'])
 @require_auth
 @traced("bookmarks.get_all")
+@dynamic_cache(content_type='bookmarks', key_prefix='bookmarks_all')
 def get_all_bookmarks():
     """
     Get all bookmarks for the current user.
@@ -355,6 +367,14 @@ def update_bookmark_note(file_id, line_number):
             result = bm_manager.update_bookmark_note_by_anchor(user_id, file_id, anchor_id, note)
         else:
             result = bm_manager.update_bookmark_note(user_id, file_id, line_number, note)
+        # Invalidate related caches
+        try:
+            uid = str(user_id)
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
+            cache.delete_pattern(f"bookmarks_all:{uid}:*")
+            cache.delete_pattern(f"bookmarks_stats:{uid}:*")
+        except Exception:
+            pass
         
         return jsonify(result)
         
@@ -401,6 +421,14 @@ def update_bookmark_color(file_id, line_number):
             result = bm_manager.update_bookmark_color_by_anchor(user_id, file_id, anchor_id, color)
         else:
             result = bm_manager.update_bookmark_color(user_id, file_id, line_number, color)
+        # Invalidate related caches
+        try:
+            uid = str(user_id)
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
+            cache.delete_pattern(f"bookmarks_all:{uid}:*")
+            cache.delete_pattern(f"bookmarks_stats:{uid}:*")
+        except Exception:
+            pass
         return jsonify(result)
     except Exception as e:
         rid = _get_request_id()
@@ -437,6 +465,14 @@ def delete_bookmark(file_id, line_number):
             result = bm_manager.delete_bookmark_by_anchor(user_id, file_id, anchor_id)
         else:
             result = bm_manager.delete_bookmark(user_id, file_id, line_number)
+        # Invalidate related caches
+        try:
+            uid = str(user_id)
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
+            cache.delete_pattern(f"bookmarks_all:{uid}:*")
+            cache.delete_pattern(f"bookmarks_stats:{uid}:*")
+        except Exception:
+            pass
         
         return jsonify(result)
         
@@ -471,6 +507,14 @@ def clear_file_bookmarks(file_id):
         
         bm_manager = get_bookmarks_manager()
         result = bm_manager.delete_file_bookmarks(user_id, file_id)
+        # Invalidate related caches
+        try:
+            uid = str(user_id)
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
+            cache.delete_pattern(f"bookmarks_all:{uid}:*")
+            cache.delete_pattern(f"bookmarks_stats:{uid}:*")
+        except Exception:
+            pass
         
         return jsonify(result)
         
@@ -537,6 +581,7 @@ def check_file_sync(file_id):
 @bookmarks_bp.route('/stats', methods=['GET'])
 @require_auth
 @traced("bookmarks.get_stats")
+@dynamic_cache(content_type='user_stats', key_prefix='bookmarks_stats')
 def get_bookmark_stats():
     """Get bookmark statistics for current user"""
     try:
