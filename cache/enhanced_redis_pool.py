@@ -136,7 +136,7 @@ class EnhancedRedisPool:
             'socket_connect_timeout': config.REDIS_CONNECT_TIMEOUT or 5.0,
             'socket_timeout': config.REDIS_SOCKET_TIMEOUT or 5.0,
             'retry_on_timeout': True,
-            'retry_on_error': [ConnectionError, TimeoutError],
+            # retry_on_error removed - not supported in ConnectionPool, configured in client instead
             'health_check_interval': 30,
             'encoding': 'utf-8',
             'decode_responses': True,
