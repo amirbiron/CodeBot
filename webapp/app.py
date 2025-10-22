@@ -2998,43 +2998,90 @@ def view_file(file_id):
 @app.route('/api/files/recent')
 @login_required
 def api_recent_files():
-    """מחזיר רשימת קבצים שנפתחו לאחרונה עבור המשתמש הנוכחי.
+    """מחזיר רשימת קבצים שנפתחו לאחרונה עבור המשתמש הנוכחי בלבד.
 
-    המידע נשלף מאוסף recent_opens ומתאים למודל MongoDB של האפליקציה.
-    הפורמט: [{id, filename, language, size, accessed_at}]
+    מדלג על רשומות חסרות או לא תקפות (ללא מזהה קובץ, או קובץ שלא קיים/לא פעיל),
+    ומחזיר לכל היותר 10 פריטים תקינים בפורמט:
+    [{id, filename, language, size, accessed_at}]
     """
     try:
         db = get_db()
         user_id = session['user_id']
         ensure_recent_opens_indexes()
-        # שלוף עד 10 אחרונים, ממויינים לפי זמן פתיחה אחרון
-        cursor = db.recent_opens.find({
-            'user_id': user_id
-        }).sort('last_opened_at', DESCENDING).limit(10)
+
+        # שלוף יותר מ-10 כדי לפצות על דילוג פריטים לא תקינים
+        raw_cursor = db.recent_opens.find({'user_id': user_id}) \
+            .sort('last_opened_at', DESCENDING) \
+            .limit(30)
 
         results = []
-        for doc in cursor:
+        seen_ids = set()
+        for rdoc in raw_cursor:
+            if len(results) >= 10:
+                break
             try:
-                last_file_id = doc.get('last_opened_file_id')
+                last_file_id = rdoc.get('last_opened_file_id')
+                file_name_hint = (rdoc.get('file_name') or '').strip()
+
                 file_doc = None
+                # נסה לפי מזהה אחרון
                 if last_file_id:
                     try:
-                        file_doc = db.code_snippets.find_one({'_id': last_file_id, 'user_id': user_id})
+                        q = {
+                            '_id': last_file_id,
+                            'user_id': user_id,
+                            '$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}}
+                            ]
+                        }
+                        file_doc = db.code_snippets.find_one(q)
                     except Exception:
                         file_doc = None
-                # חישוב גודל בתווים/בתים מהשדה code
-                code_str = (file_doc.get('code') if isinstance(file_doc, dict) else '') or ''
-                size_bytes = len(code_str.encode('utf-8')) if isinstance(code_str, str) else 0
+
+                # fallback: אם אין מסמך לפי מזהה – נסה לפי שם הקובץ העדכני
+                if file_doc is None and file_name_hint:
+                    try:
+                        file_doc = db.code_snippets.find_one(
+                            {
+                                'user_id': user_id,
+                                'file_name': file_name_hint,
+                                '$or': [
+                                    {'is_active': True},
+                                    {'is_active': {'$exists': False}}
+                                ]
+                            },
+                            sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
+                        )
+                    except Exception:
+                        file_doc = None
+
+                # אם עדיין אין קובץ תקין – דלג (מונע לינקים שבורים)
+                if not file_doc or not file_doc.get('_id'):
+                    continue
+
+                fid = file_doc.get('_id')
+                # הימנע מכפילויות באותו id
+                sid = str(fid)
+                if sid in seen_ids:
+                    continue
+                seen_ids.add(sid)
+
+                code_str = (file_doc.get('code') or '') if isinstance(file_doc.get('code'), str) else ''
+                size_bytes = len(code_str.encode('utf-8')) if code_str else 0
+                lang = (file_doc.get('programming_language') or rdoc.get('language') or 'text')
+
                 results.append({
-                    'id': str(last_file_id) if last_file_id else '',
-                    'filename': str(doc.get('file_name') or ''),
-                    'language': str((doc.get('language') or 'text')).lower(),
+                    'id': sid,
+                    'filename': str(file_doc.get('file_name') or file_name_hint or ''),
+                    'language': str(lang).lower(),
                     'size': size_bytes,
-                    'accessed_at': (doc.get('last_opened_at') or datetime.now(timezone.utc)).isoformat(),
+                    'accessed_at': (rdoc.get('last_opened_at') or datetime.now(timezone.utc)).isoformat(),
                 })
             except Exception:
                 # שמור עמידות – דלג על מסמך בעייתי
                 continue
+
         return jsonify(results)
     except Exception as e:
         try:
