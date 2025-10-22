@@ -2284,9 +2284,22 @@ def files():
                                      bot_username=BOT_USERNAME_CLEAN)
                 if should_cache:
                     try:
-                        cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                        cache.set_dynamic(
+                            files_cache_key,
+                            html,
+                            "file_list",
+                            {
+                                "user_id": user_id,
+                                "user_tier": session.get("user_tier", "regular"),
+                                "access_frequency": "high",
+                                "endpoint": "files",
+                            },
+                        )
                     except Exception:
-                        pass
+                        try:
+                            cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                        except Exception:
+                            pass
                 return html
         elif category_filter == 'zip':
             # הוסר מה‑UI; נשיב מיד לרשימת קבצים רגילה כדי למנוע שימוש ב‑Mongo לאחסון גיבויים
@@ -2425,9 +2438,22 @@ def files():
                                  bot_username=BOT_USERNAME_CLEAN)
             if should_cache:
                 try:
-                    cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                    cache.set_dynamic(
+                        files_cache_key,
+                        html,
+                        "file_list",
+                        {
+                            "user_id": user_id,
+                            "user_tier": session.get("user_tier", "regular"),
+                            "access_frequency": "high",
+                            "endpoint": "files",
+                        },
+                    )
                 except Exception:
-                    pass
+                    try:
+                        cache.set(files_cache_key, html, FILES_PAGE_CACHE_TTL)
+                    except Exception:
+                        pass
             return html
 
         # מיפוי שם->זמן פתיחה אחרון ומערך שמות
