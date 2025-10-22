@@ -755,12 +755,12 @@
         }
 
         async function showRecentFiles() {
+            let modal = null;
             try {
                 // סגור את התפריט
                 try { toggleQuickAccess(); } catch (e) {}
-                const modal = createRecentFilesModal();
+                modal = createRecentFilesModal();
                 document.body.appendChild(modal);
-                const listContainer = modal.querySelector('#recentFilesList');
                 // טעינת קבצים אחרונים מה-API
                 const resp = await fetch('/api/files/recent');
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -769,6 +769,8 @@
             } catch (err) {
                 console.error('Error loading recent files:', err);
                 alert('שגיאה בטעינת קבצים אחרונים');
+                // הבטח שהמודאל לא יישאר תקוע במסך
+                try { if (modal) modal.remove(); } catch (e) {}
             }
         }
 
