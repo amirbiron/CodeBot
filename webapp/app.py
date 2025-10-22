@@ -605,7 +605,6 @@ def ensure_recent_opens_indexes() -> None:
         return
     try:
         # השתמש ב-db גלובלי אם כבר מאותחל; אל תקרא get_db() כדי להימנע מ-deadlock בזמן אתחול
-        global db
         _db = db if db is not None else None
         if _db is None:
             return
@@ -693,7 +692,6 @@ def ensure_code_snippets_indexes() -> None:
         return
     try:
         # השתמש ב-db גלובלי אם כבר מאותחל; אל תקרא get_db() כדי להימנע מ-deadlock בזמן אתחול
-        global db
         _db = db if db is not None else None
         if _db is None:
             return
