@@ -7,19 +7,21 @@ on:
       - completed
 
 jobs:
-  notify:
-    name: Send Telegram Notification
+  post-merge-failure:
+    name: Send Telegram on post-merge failure
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
       actions: read
-    if: github.event.workflow_run.event == 'pull_request'
+    # נשלח התראה רק על ריצות של push ל-main שנכשלו
+    if: >
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion != 'success'
     steps:
       - name: Compute metadata
         id: meta
         env:
-          PULLS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
           REPO: ${{ github.repository }}
           RUN_HTML_URL: ${{ github.event.workflow_run.html_url }}
         run: |
@@ -32,37 +34,21 @@ jobs:
           secs=$(( duration_sec % 60 ))
           printf 'duration=%sm %ss\n' "$mins" "$secs" >> "$GITHUB_OUTPUT"
 
-          # Format time in Israel timezone (handles DST automatically)
+          # תאריך/שעה באזור ישראל (כולל שעון קיץ)
           ts_fmt=$(TZ="Asia/Jerusalem" date -d "$completed_at" '+%d/%m/%Y %H:%M')
           echo "finished_at=${ts_fmt}" >> "$GITHUB_OUTPUT"
 
-          # Derive PR info safely from env (no shell expansion injection)
-          pulls_json="${PULLS_JSON:-[]}"
-          # Use jq to extract PR number/title if present; fall back to empty
-          pr_number=$(printf '%s' "$pulls_json" | jq -r 'if type=="array" and length>0 and .[0].number then (.[0].number|tostring) else "" end')
-          pr_title=$(printf '%s' "$pulls_json" | jq -r 'if type=="array" and length>0 and .[0].title then .[0].title else "" end')
           repo="${REPO:-}"
           run_url="${RUN_HTML_URL:-}"
-          if [ -n "$pr_number" ]; then
-            pr_url="https://github.com/${repo}/pull/${pr_number}"
-          else
-            pr_url="$run_url"
-          fi
-          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
-          {
-            echo "pr_title<<__TXT__"
-            printf '%s\n' "$pr_title"
-            echo "__TXT__"
-          } >> "$GITHUB_OUTPUT"
-          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
           echo "run_url=${run_url}" >> "$GITHUB_OUTPUT"
+          echo "repo=${repo}" >> "$GITHUB_OUTPUT"
 
-          # Workflow details
           echo "workflow_name=${{ github.event.workflow_run.name }}" >> "$GITHUB_OUTPUT"
           echo "conclusion=${{ github.event.workflow_run.conclusion }}" >> "$GITHUB_OUTPUT"
+          echo "branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
 
-      - name: Inspect jobs (tests and required checks)
-        id: tests
+      - name: Inspect failed jobs
+        id: jobs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -71,95 +57,58 @@ jobs:
           reposlug="${GITHUB_REPOSITORY}"
           url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
           json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$url")
-          # Extract unit test jobs and code-quality job
-          ut_jobs=$(printf '%s' "$json" | jq -c '[.jobs[] | select(.name|startswith("🧪 Unit Tests ("))]')
-          ut_total=$(printf '%s' "$ut_jobs" | jq -r 'length')
-          ut_success=$(printf '%s' "$ut_jobs" | jq -r 'if length>0 then ([ .[].conclusion ] | all(.=="success")) else false end')
-          ut_failed=$(printf '%s' "$ut_jobs" | jq -r '[ .[] | select(.conclusion!="success") | .name ] | join(", ")')
-          ut_failed_links=$(printf '%s' "$ut_jobs" | jq -r '[ .[] | select(.conclusion!="success") | .html_url ] | join("\n")')
-          cq_conc=$(printf '%s' "$json" | jq -r '([.jobs[] | select(.name=="🔍 Code Quality & Security")][0].conclusion // "")')
-
-          printf 'ut_total=%s\n' "$ut_total" >> "$GITHUB_OUTPUT"
-          printf 'ut_success=%s\n' "$ut_success" >> "$GITHUB_OUTPUT"
-          printf 'ut_failed=%s\n' "$ut_failed" >> "$GITHUB_OUTPUT"
+          failed=$(printf '%s' "$json" | jq -c '[.jobs[] | select(.conclusion != "success") | {name:.name, url:.html_url, conclusion:(.conclusion // "unknown")}]')
+          failed_count=$(printf '%s' "$failed" | jq -r 'length')
+          failed_names=$(printf '%s' "$failed" | jq -r 'if length>0 then ([.[].name] | join(", ")) else "" end')
+          failed_links=$(printf '%s' "$failed" | jq -r 'if length>0 then ([.[].url] | join("\n")) else "" end')
+          printf 'failed_count=%s\n' "$failed_count" >> "$GITHUB_OUTPUT"
+          printf 'failed_names=%s\n' "$failed_names" >> "$GITHUB_OUTPUT"
           {
-            echo "ut_failed_links<<__TXT__"
-            printf '%s\n' "$ut_failed_links"
+            echo "failed_links<<__TXT__"
+            printf '%s\n' "$failed_links"
             echo "__TXT__"
           } >> "$GITHUB_OUTPUT"
-          printf 'codeq_conclusion=%s\n' "$cq_conc" >> "$GITHUB_OUTPUT"
 
       - name: Build message
         id: msg
         env:
           CONCLUSION: ${{ steps.meta.outputs.conclusion }}
           FINISHED_AT: ${{ steps.meta.outputs.finished_at }}
-          PR_NUMBER: ${{ steps.meta.outputs.pr_number }}
-          PR_TITLE: ${{ steps.meta.outputs.pr_title }}
           WORKFLOW_NAME: ${{ steps.meta.outputs.workflow_name }}
           DURATION: ${{ steps.meta.outputs.duration }}
-          PR_URL: ${{ steps.meta.outputs.pr_url }}
           RUN_URL: ${{ steps.meta.outputs.run_url }}
-          UT_TOTAL: ${{ steps.tests.outputs.ut_total }}
-          UT_SUCCESS: ${{ steps.tests.outputs.ut_success }}
-          UT_FAILED: ${{ steps.tests.outputs.ut_failed }}
-          UT_FAILED_LINKS: ${{ steps.tests.outputs.ut_failed_links }}
-          CODEQ: ${{ steps.tests.outputs.codeq_conclusion }}
+          BRANCH: ${{ steps.meta.outputs.branch }}
+          FAILED_COUNT: ${{ steps.jobs.outputs.failed_count }}
+          FAILED_NAMES: ${{ steps.jobs.outputs.failed_names }}
+          FAILED_LINKS: ${{ steps.jobs.outputs.failed_links }}
         run: |
-          status_emoji='✅'
-          case "$CONCLUSION" in
-            success) status_emoji='✅' ;;
-            *) status_emoji='' ;;
-          esac
-
-          # Escape characters for Telegram MarkdownV2
+          # אסקייפ ל-MarkdownV2 של טלגרם
           esc() {
             printf '%s' "$1" | sed -e 's/[\\_\\*\\[\\]\\(\\)~`>#\\+\\-=|{}\\.!]/\\&/g'
           }
-
-          title_text="GitHub Actions – הסתיים"
-          if [ -n "$status_emoji" ]; then
-            title_text="$title_text ${status_emoji}"
-          fi
-          title="$(esc "$title_text")"
-          time_line="זמן סיום: $(esc "$FINISHED_AT")"
-
-          pr_line=""
-          if [ -n "$PR_NUMBER" ]; then
-            # ה-# חייב להיות מאוסקייפ ב-MarkdownV2
-            pr_line="$(esc "PR #${PR_NUMBER}: ${PR_TITLE}")"
-          fi
-
-          wf_line="Workflow: $(esc "$WORKFLOW_NAME")"
-          dur_line="זמן ריצה: $(esc "$DURATION")"
-          tests_line="טסטים: $(esc "${UT_TOTAL:-0}") (הכל עבר? $(esc "${UT_SUCCESS:-false}"))"
-          if [ -n "${UT_FAILED:-}" ]; then
-            tests_line="${tests_line}\nנכשלים: $(esc "${UT_FAILED}")"
-          fi
-
-          # Action hint: when everything is green – allow merge; otherwise ask to check
-          action_line="יש כשלונות – בדקו את הקישורים"
-          # If the workflow concluded successfully AND (no UT jobs or UT all green) → allow merge
-          if [ "${CONCLUSION}" = "success" ] && { [ "${UT_TOTAL:-0}" -eq 0 ] || [ "${UT_SUCCESS:-false}" = "true" ]; }; then
-            action_line="✅ הכל ירוק – אפשר למזג"
-          fi
-
-          link_line=""
-          # ב-MarkdownV2 סוגריים מרובעים ועגולים צריכים אסקייפ; נפצל ללייבלים/קישורים מאוסקייפים
           esc_url() { printf '%s' "$1" | sed -e 's/[()]/\\&/g'; }
-          if [ -n "$PR_NUMBER" ]; then
-            link_label_pr='צפה ב\-PR'
-            link_line="\n\[${link_label_pr}\]($(esc_url "$PR_URL"))"
-          else
-            link_label_run='צפה בריצה'
-            link_line="\n\[${link_label_run}\]($(esc_url "$RUN_URL"))"
+
+          title="$(esc "GitHub Actions – כשל אחרי merge ❌")"
+          time_line="זמן סיום: $(esc "$FINISHED_AT")"
+          wf_line="Workflow: $(esc "$WORKFLOW_NAME")"
+          branch_line="סניף: $(esc "$BRANCH")"
+          dur_line="זמן ריצה: $(esc "$DURATION")"
+          failed_line="Jobs שנכשלו: $(esc "${FAILED_NAMES:-לא זוהו}")"
+
+          link_label_run='צפה בריצה'
+          link_line="\n\[${link_label_run}\]($(esc_url "$RUN_URL"))"
+
+          links_block=""
+          if [ -n "${FAILED_LINKS:-}" ]; then
+            # נהפוך כל שורה ללינק עם תבליט
+            mapfile -t lines <<<"$(printf '%s' "$FAILED_LINKS")"
+            for l in "${lines[@]}"; do
+              [ -z "$l" ] && continue
+              links_block="${links_block}\n\- \[קישור ל\-Job\]($(esc_url "$l"))"
+            done
           fi
 
-          message="${title}\n${time_line}\n\n"
-          if [ -n "$pr_line" ]; then
-            message="${message}${pr_line}\n"
-          fi
-          message="${message}${wf_line}\n${dur_line}\n${tests_line}\n${action_line}${link_line}"
+          message="${title}\n${time_line}\n${wf_line}\n${branch_line}\n${dur_line}\n${failed_line}${link_line}${links_block}"
           {
             echo "text<<__MSG__"
             printf '%b\n' "$message"
@@ -177,7 +126,6 @@ jobs:
             exit 1
           fi
           api_url="https://api.telegram.org/bot${BOT_TOKEN}/sendMessage"
-          # Use MarkdownV2 for safe formatting
           jq -nc --arg chat_id "$CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text, parse_mode:"MarkdownV2", disable_web_page_preview:true}' \
             | curl -sS -X POST "$api_url" -H 'Content-Type: application/json' -d @- | cat
 
