@@ -1077,7 +1077,39 @@ function loadScript(src){
     })
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
-    if (window.markdownitAnchor) md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
+    // עוגני כותרות נגישים עם תמיכה בעברית וקישורי קבע – מיקום הסמל אחרי הכותרת
+    if (window.markdownitAnchor) {
+      try {
+        const pe = window.markdownitAnchor.permalink || {};
+        const permalinkFactory = pe.linkAfterHeader || pe.before || pe.headerLink;
+        md.use(window.markdownitAnchor, {
+          level: [1, 2, 3, 4],
+          permalink: permalinkFactory ? permalinkFactory({
+            safariReaderFix: true,
+            class: 'header-anchor',
+            symbol: '🔗',
+            ariaHidden: false,
+            renderAttrs: (slug) => ({
+              'aria-label': `קישור קבוע לסעיף: ${slug}`,
+              'title': 'לחץ להעתקת קישור'
+            })
+          }) : true,
+          slugify: (s) => {
+            try {
+              return String(s)
+                .trim()
+                .toLowerCase()
+                .replace(/[^\w\u0590-\u05FF\s-]/g, '')
+                .replace(/[\s_]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            } catch (_) { return ''; }
+          }
+        });
+      } catch(_) {
+        // fallback להגדרה הפשוטה
+        md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
+      }
+    }
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
     // תמיכה גם בשמות גלובליים שונים של התוסף (markdown-it-admonition)
     (function(){
@@ -1501,66 +1533,202 @@ function loadScript(src){
       }
     } catch(_){ }
 
-    // כפתור העתקה לכל בלוק קוד (עטיפה ב-.code-block כדי לא להסתיר טקסט)
+    // פונקציות עזר נגישות בשימוש משותף (copy/permalink)
+    function announceToScreenReader(message) {
+      try {
+        const announcement = document.createElement('div');
+        announcement.setAttribute('role', 'status');
+        announcement.setAttribute('aria-live', 'polite');
+        announcement.className = 'sr-only';
+        announcement.textContent = message;
+        document.body.appendChild(announcement);
+        setTimeout(() => { try { document.body.removeChild(announcement); } catch(_){} }, 1000);
+      } catch(_) {}
+    }
+    function fallbackCopy(text) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return success;
+      } catch(_) { return false; }
+    }
+    // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
     try {
-      const pres = Array.from(container.querySelectorAll('pre'));
-      pres.forEach(pre => {
-        let wrapper = pre.parentElement;
-        if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
-          wrapper = document.createElement('div');
-          wrapper.className = 'code-block';
-          pre.replaceWith(wrapper);
-          wrapper.appendChild(pre);
-        }
-        // אל תיצור כפתור נוסף אם כבר קיים בתוך ה-wrapper
-        if (wrapper.querySelector('button.md-copy-btn')) {
-          return;
-        }
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'md-copy-btn';
-        btn.setAttribute('aria-label', 'העתק קוד');
-        btn.title = 'העתק קוד';
-        btn.addEventListener('click', async () => {
-          const codeEl = wrapper.querySelector('code');
-          const text = codeEl ? codeEl.innerText : pre.innerText;
-          // ניקוי מצבי עבר
-          btn.classList.remove('copied');
-          btn.classList.remove('copy-error');
-          // ניסיון ראשון: Clipboard API
-          try {
-            await navigator.clipboard.writeText(text);
-            btn.classList.add('copied');
-            setTimeout(() => { btn.classList.remove('copied'); }, 1500);
-            return;
-          } catch(_) {}
-
-          // Fallback: execCommand('copy') עם textarea זמני
-          let success = false;
-          try {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            ta.setAttribute('readonly', '');
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.select();
-            success = document.execCommand('copy');
-            document.body.removeChild(ta);
-          } catch(_) {
-            success = false;
+      function showCopySuccess(btn) {
+        try {
+          btn.classList.add('copied');
+          const copyText = btn.querySelector('.copy-text');
+          const copiedText = btn.querySelector('.copied-text');
+          if (copyText) copyText.style.display = 'none';
+          if (copiedText) copiedText.style.display = 'inline';
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            if (copyText) copyText.style.display = 'inline';
+            if (copiedText) copiedText.style.display = 'none';
+          }, 2000);
+        } catch(_) {}
+      }
+      function showCopyError(btn) {
+        try { btn.classList.add('copy-error'); setTimeout(() => btn.classList.remove('copy-error'), 2000); } catch(_) {}
+      }
+      function addCopyButtons() {
+        const pres = document.querySelectorAll('#md-content pre');
+        pres.forEach(pre => {
+          if (pre.querySelector('.md-copy-btn')) return;
+          let wrapper = pre.parentElement;
+          if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
+            wrapper = document.createElement('div');
+            wrapper.className = 'code-block';
+            pre.replaceWith(wrapper);
+            wrapper.appendChild(pre);
           }
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'md-copy-btn';
+          btn.setAttribute('aria-label', 'העתק קוד');
+          btn.setAttribute('role', 'button');
+          btn.innerHTML = `
+            <span class="copy-icon" aria-hidden="true">📋</span>
+            <span class="copy-text">העתק</span>
+            <span class="copied-text" style="display:none">✅ הועתק!</span>
+          `;
+          btn.addEventListener('click', async () => {
+            const code = pre.querySelector('code')?.innerText || pre.innerText;
+            try {
+              await navigator.clipboard.writeText(code);
+              showCopySuccess(btn);
+              announceToScreenReader('הקוד הועתק ללוח');
+            } catch(_) {
+              if (fallbackCopy(code)) {
+                showCopySuccess(btn);
+                announceToScreenReader('הקוד הועתק ללוח');
+              } else {
+                showCopyError(btn);
+                announceToScreenReader('ההעתקה נכשלה');
+              }
+            }
+          });
+          btn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              btn.click();
+            }
+          });
+          wrapper.appendChild(btn);
+        });
+      }
+      addCopyButtons();
+    } catch(_){ }
 
-          if (success) {
-            btn.classList.add('copied');
-            setTimeout(() => { btn.classList.remove('copied'); }, 1500);
-          } else {
-            btn.classList.add('copy-error');
-            setTimeout(() => { btn.classList.remove('copy-error'); }, 1500);
+    // Permalinks נגישים: העתקת קישור כותרת בלחיצה ומשוב ידידותי
+    try {
+      function showTooltip(element, message) {
+        try {
+          const tooltip = document.createElement('div');
+          tooltip.className = 'permalink-tooltip';
+          tooltip.textContent = message;
+          tooltip.setAttribute('role', 'tooltip');
+          const rect = element.getBoundingClientRect();
+          tooltip.style.position = 'fixed';
+          tooltip.style.top = `${rect.top - 30}px`;
+          tooltip.style.left = `${rect.left}px`;
+          document.body.appendChild(tooltip);
+          setTimeout(() => { tooltip.style.opacity = '0'; setTimeout(() => { try { document.body.removeChild(tooltip); } catch(_){} }, 300); }, 2000);
+        } catch(_) {}
+      }
+      function enhanceHeaderPermalinks() {
+        const headers = document.querySelectorAll('#md-content h1, #md-content h2, #md-content h3, #md-content h4, #md-content h5, #md-content h6');
+        headers.forEach(header => {
+          if (!header.id) {
+            // יצירת מזהה ייחודי אם חסר
+            const base = (header.textContent || '').trim().toLowerCase()
+              .replace(/[^\w\u0590-\u05FF\s-]/g, '')
+              .replace(/[\s_]+/g, '-')
+              .replace(/^-+|-+$/g, '') || 'section';
+            let id = base; let i = 1;
+            while (document.getElementById(id)) { id = `${base}-${++i}`; }
+            header.id = id;
+          }
+          // אם אין עוגן שנוצר ע"י התוסף – הוסף ידנית
+          if (!header.querySelector('.header-anchor')) {
+            const permalink = document.createElement('a');
+            permalink.className = 'header-anchor';
+            permalink.href = `#${header.id}`;
+            permalink.innerHTML = '🔗';
+            permalink.setAttribute('aria-label', `קישור קבוע לסעיף: ${header.textContent || ''}`);
+            permalink.setAttribute('title', 'העתק קישור לסעיף זה');
+            header.appendChild(permalink);
           }
         });
-        wrapper.appendChild(btn);
+        // רישום מאזינים להעתקה
+        document.querySelectorAll('#md-content .header-anchor').forEach(permalink => {
+          permalink.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const header = permalink.closest('h1, h2, h3, h4, h5, h6');
+            if (!header || !header.id) return;
+            const url = new URL(window.location.href);
+            url.hash = header.id;
+            try {
+              await navigator.clipboard.writeText(url.toString());
+              showTooltip(permalink, 'הקישור הועתק!');
+              // שימוש בפונקציה שהוגדרה למעלה (אם קיימת)
+              try { announceToScreenReader('קישור לכותרת הועתק'); } catch(_){}
+            } catch(_) {
+              if (fallbackCopy(url.toString())) {
+                showTooltip(permalink, 'הקישור הועתק!');
+                try { announceToScreenReader('קישור לכותרת הועתק'); } catch(_){}
+              }
+            }
+            try { header.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(_){}
+          });
+        });
+      }
+      enhanceHeaderPermalinks();
+    } catch(_){ }
+
+    // קיצורי מקלדת בסיסיים: העתקת קוד ראשון והעתקת קישור לכותרת גלויה
+    try {
+      function getCurrentVisibleHeader() {
+        const headers = document.querySelectorAll('#md-content h1, #md-content h2, #md-content h3, #md-content h4, #md-content h5, #md-content h6');
+        const scrollPos = window.scrollY + 100;
+        for (let i = headers.length - 1; i >= 0; i--) {
+          const el = headers[i];
+          if (el.offsetTop <= scrollPos) return el;
+        }
+        return headers[0] || null;
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === 'C') {
+          e.preventDefault();
+          const firstCopyBtn = document.querySelector('#md-content .md-copy-btn');
+          if (firstCopyBtn) firstCopyBtn.click();
+        }
+        if (e.ctrlKey && (e.key === 'l' || e.key === 'L')) {
+          e.preventDefault();
+          const currentHeader = getCurrentVisibleHeader();
+          if (currentHeader) {
+            const permalink = currentHeader.querySelector('.header-anchor');
+            if (permalink) permalink.click();
+          }
+        }
       });
+    } catch(_){ }
+
+    // גלילה/פוקוס לפי hash אם הוזן בכניסה
+    try {
+      (function restoreScrollPosition(){
+        const hash = window.location.hash;
+        if (!hash) return;
+        const element = document.querySelector(hash);
+        if (!element) return;
+        setTimeout(() => { try { element.scrollIntoView({ behavior: 'smooth', block: 'start' }); element.tabIndex = -1; element.focus(); } catch(_){} }, 100);
+      })();
     } catch(_){ }
 
     // רשימות משימות אינטראקטיביות: שמירה/שחזור מצב
