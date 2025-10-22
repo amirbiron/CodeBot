@@ -209,6 +209,10 @@ class Repository:
                 cache.invalidate_user_cache(user_id)
             except Exception:
                 pass
+            try:
+                cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
+            except Exception:
+                pass
             matched = int(getattr(res, 'matched_count', 0) or 0)
             # די בהצלחה אם יש התאמות; במקרים מסוימים modified עשוי להיות 0 (למשל אותה ערך)
             # בסביבת סטאב עדכנו ישירות ב-docs, לכן נחזיר new_state גם אם matched==0
@@ -794,6 +798,10 @@ class Repository:
             )
             if result.modified_count > 0:
                 cache.invalidate_user_cache(user_id)
+                try:
+                    cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
+                except Exception:
+                    pass
                 return True
             return False
         except Exception as e:
@@ -818,6 +826,11 @@ class Repository:
                 }},
             )
             cache.invalidate_user_cache(user_id)
+            try:
+                for fn in list(set(file_names)):
+                    cache.invalidate_file_related(file_id=str(fn), user_id=user_id)
+            except Exception:
+                pass
             return int(result.modified_count or 0)
         except Exception as e:
             emit_event("db_soft_delete_files_by_names_error", severity="error", error=str(e))
