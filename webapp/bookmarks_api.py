@@ -199,7 +199,8 @@ def toggle_bookmark(file_id):
         # Invalidate related bookmarks caches for this user/file
         try:
             uid = str(user_id)
-            cache.delete_pattern(f"bookmarks_file:{uid}:/api/bookmarks/{file_id}*")
+            # Keys are built via build_cache_key: slashes replaced with hyphens
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
             cache.delete_pattern(f"bookmarks_all:{uid}:*")
             cache.delete_pattern(f"bookmarks_stats:{uid}:*")
         except Exception:
@@ -369,7 +370,7 @@ def update_bookmark_note(file_id, line_number):
         # Invalidate related caches
         try:
             uid = str(user_id)
-            cache.delete_pattern(f"bookmarks_file:{uid}:/api/bookmarks/{file_id}*")
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
             cache.delete_pattern(f"bookmarks_all:{uid}:*")
             cache.delete_pattern(f"bookmarks_stats:{uid}:*")
         except Exception:
@@ -423,7 +424,7 @@ def update_bookmark_color(file_id, line_number):
         # Invalidate related caches
         try:
             uid = str(user_id)
-            cache.delete_pattern(f"bookmarks_file:{uid}:/api/bookmarks/{file_id}*")
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
             cache.delete_pattern(f"bookmarks_all:{uid}:*")
             cache.delete_pattern(f"bookmarks_stats:{uid}:*")
         except Exception:
@@ -467,7 +468,7 @@ def delete_bookmark(file_id, line_number):
         # Invalidate related caches
         try:
             uid = str(user_id)
-            cache.delete_pattern(f"bookmarks_file:{uid}:/api/bookmarks/{file_id}*")
+            cache.delete_pattern(f"bookmarks_file:{uid}:-api-bookmarks-{file_id}*")
             cache.delete_pattern(f"bookmarks_all:{uid}:*")
             cache.delete_pattern(f"bookmarks_stats:{uid}:*")
         except Exception:
