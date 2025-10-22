@@ -666,7 +666,7 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None):
             return {"enabled": True, "error": str(e)}
 
 # יצירת instance גלובלי
-cache = CacheManager()
+cache: "CacheManager" = CacheManager()
 
 def cached(expire_seconds: int = 300, key_prefix: str = "default"):
     """דקורטור לcaching פונקציות"""
