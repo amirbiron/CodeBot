@@ -1,9 +1,6 @@
 name: Pre-commit
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_dispatch:
 
 jobs:
