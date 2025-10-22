@@ -1077,44 +1077,11 @@ function loadScript(src){
     })
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
-    // עוגני כותרות נגישים עם תמיכה בעברית וקישורי קבע – תואם לגרסאות חדשות של markdown-it-anchor
+    // עוגני כותרות – חזרה להגדרה פשוטה ויציבה (rollback ממוקד)
     if (window.markdownitAnchor) {
       try {
-        const pe = window.markdownitAnchor.permalink || {};
-        const permalinkFactory = (
-          (typeof pe.linkAfterHeader === 'function' && pe.linkAfterHeader) ||
-          (typeof pe.headerLink === 'function' && pe.headerLink) ||
-          (typeof pe.before === 'function' && pe.before) ||
-          null
-        );
-        const anchorOpts = {
-          level: [1, 2, 3, 4],
-          slugify: (s) => {
-            try {
-              return String(s)
-                .trim()
-                .toLowerCase()
-                .replace(/[^\w\u0590-\u05FF\s-]/g, '')
-                .replace(/[\s_]+/g, '-')
-                .replace(/^-+|-+$/g, '');
-            } catch (_) { return ''; }
-          }
-        };
-        if (permalinkFactory) {
-          anchorOpts.permalink = permalinkFactory({
-            safariReaderFix: true,
-            class: 'header-anchor',
-            symbol: '🔗',
-            ariaHidden: false,
-            renderAttrs: (slug) => ({
-              'aria-label': `קישור קבוע לסעיף: ${slug}`,
-              'title': 'לחץ להעתקת קישור'
-            })
-          });
-        }
-        md.use(window.markdownitAnchor, anchorOpts);
+        md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
       } catch(_) {
-        // fallback: ללא permalink כדי למנוע קריסה על שינויי API
         try { md.use(window.markdownitAnchor); } catch(__) {}
       }
     }
