@@ -3139,7 +3139,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 should_send = True
                 try:
                     from datetime import datetime, timezone as _tz
-                    from database import db as _dbm  # type: ignore
+                    from database import db as _dbm
                     db_obj = getattr(_dbm, 'db', None)
                     is_noop_db = (getattr(db_obj, 'name', '') == 'noop_db') if db_obj is not None else True
                     if not is_noop_db and db_obj is not None:
@@ -3274,7 +3274,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 try:
                     from observability import emit_event as _emit
                 except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None  # type: ignore
+                    _emit = lambda *a, **k: None
                 _emit(
                     "backups_cleanup_done",
                     severity="info",
@@ -3285,9 +3285,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 )
             except Exception:
                 try:
-                    from observability import emit_event as _emit  # type: ignore
+                    from observability import emit_event as _emit
                 except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None  # type: ignore
+                    _emit = lambda *a, **k: None
                 _emit("backups_cleanup_error", severity="anomaly")
 
         # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
@@ -3299,9 +3299,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 try:
                     if os.getenv("PYTEST_CURRENT_TEST"):
                         try:
-                            from file_manager import backup_manager as _bm  # type: ignore
+                            from file_manager import backup_manager as _bm
                         except Exception:  # pragma: no cover
-                            _bm = None  # type: ignore
+                            _bm = None
                         if _bm is not None:
                             try:
                                 summary = _bm.cleanup_expired_backups()
@@ -3367,7 +3367,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         _emit("backups_cleanup_disabled", severity="info")
                     else:
                         try:
-                            emit_event("backups_cleanup_disabled", severity="info")  # type: ignore[name-defined]
+                            emit_event("backups_cleanup_disabled", severity="info")
                         except Exception:
                             pass
                 except Exception:
@@ -3396,17 +3396,17 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                 # Lazy imports to avoid hard deps
                 try:
-                    from cache_manager import cache as _cache  # type: ignore
+                    from cache_manager import cache as _cache
                 except Exception:  # pragma: no cover
-                    _cache = None  # type: ignore
+                    _cache = None
                 try:
-                    from webapp.app import get_db as _get_db  # type: ignore
+                    from webapp.app import get_db as _get_db
                 except Exception:  # pragma: no cover
-                    _get_db = None  # type: ignore
+                    _get_db = None
                 try:
-                    from webapp.app import search_engine as _search_engine  # type: ignore
+                    from webapp.app import search_engine as _search_engine
                 except Exception:  # pragma: no cover
-                    _search_engine = None  # type: ignore
+                    _search_engine = None
 
                 if _cache is None or not getattr(_cache, 'is_enabled', False) or _get_db is None:
                     return
@@ -3499,7 +3499,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 # Emit
                 try:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
                         _emit = (lambda *a, **k: None)
                     _emit("cache_warming_done", severity="info")
@@ -3507,7 +3507,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     pass
             except Exception:
                 try:
-                    from observability import emit_event as _emit  # type: ignore
+                    from observability import emit_event as _emit
                 except Exception:
                     _emit = (lambda *a, **k: None)
                 _emit("cache_warming_error", severity="anomaly")
