@@ -168,7 +168,7 @@ async def test_main_global_gate_admin_bypass(monkeypatch):
 @pytest.mark.asyncio
 async def test_main_global_gate_soft_warning_and_block(monkeypatch):
     # Arrange
-    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    monkeypatch.setenv("ADMIN_USER_IDS", "[]")
     monkeypatch.setenv("BOT_TOKEN", "x")
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
     from main import CodeKeeperBot, ApplicationHandlerStop
@@ -217,7 +217,7 @@ async def test_main_global_gate_soft_warning_and_block(monkeypatch):
 @pytest.mark.asyncio
 async def test_main_global_gate_blocks_callback_query(monkeypatch):
     # Arrange a callback_query path to cover cq.answer branch
-    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    monkeypatch.setenv("ADMIN_USER_IDS", "[]")
     monkeypatch.setenv("BOT_TOKEN", "x")
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
     from main import CodeKeeperBot, ApplicationHandlerStop
@@ -309,7 +309,7 @@ async def test_main_global_gate_admin_bypass(monkeypatch):
 @pytest.mark.asyncio
 async def test_main_global_gate_soft_warning_once_per_min(monkeypatch):
     # Arrange
-    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    monkeypatch.setenv("ADMIN_USER_IDS", "[]")
     monkeypatch.setenv("BOT_TOKEN", "x")
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
     from main import CodeKeeperBot, ApplicationHandlerStop
@@ -351,8 +351,10 @@ async def test_main_global_gate_soft_warning_once_per_min(monkeypatch):
     # Default is 30/min; simulate closer to boundary by many calls
     for _ in range(28):
         await gate(upd, ctx)
-    # This call should still allow and potentially warn; must not raise
+    # 29th call should still allow and potentially warn; must not raise
     await gate(upd, ctx)
-    # Next call likely blocks and raises ApplicationHandlerStop
+    # 30th call should still be allowed (limit reached), but not block yet
+    await gate(upd, ctx)
+    # 31st call should block and raise ApplicationHandlerStop
     with pytest.raises(ApplicationHandlerStop):
         await gate(upd, ctx)
