@@ -1774,7 +1774,7 @@ def metrics_endpoint():
         # Update local gauges that depend on app state (best-effort)
         try:
             if 'active_indexes_gauge' in globals():
-                active_indexes_gauge.set(_get_search_index_count())[name-defined]
+                active_indexes_gauge.set(_get_search_index_count())
         except Exception:
             pass
         payload = metrics_endpoint_bytes()
