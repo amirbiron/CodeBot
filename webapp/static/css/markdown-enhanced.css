@@ -159,12 +159,13 @@
 }
 
 /* === Header anchors & copy buttons accessibility additions === */
+/* קישור עוגן (סמל בלבד) שמתווסף אחרי הכותרת; לא מסתיר טקסט הכותרת */
 .header-anchor {
   margin-left: 0.5em;
   opacity: 0;
   color: #6c757d;
   text-decoration: none;
-  font-size: 0.8em;
+  font-size: 0.9em;
   transition: opacity 0.2s ease, color 0.2s ease;
   vertical-align: middle;
 }

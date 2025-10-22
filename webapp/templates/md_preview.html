@@ -1077,15 +1077,14 @@ function loadScript(src){
     })
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
-    // עוגני כותרות נגישים עם תמיכה בעברית וקישורי קבע נוחים
+    // עוגני כותרות נגישים עם תמיכה בעברית וקישורי קבע – מיקום הסמל אחרי הכותרת
     if (window.markdownitAnchor) {
       try {
-        const headerLink = window.markdownitAnchor.permalink && window.markdownitAnchor.permalink.headerLink
-          ? window.markdownitAnchor.permalink.headerLink
-          : null;
+        const pe = window.markdownitAnchor.permalink || {};
+        const permalinkFactory = pe.linkAfterHeader || pe.before || pe.headerLink;
         md.use(window.markdownitAnchor, {
           level: [1, 2, 3, 4],
-          permalink: headerLink ? headerLink({
+          permalink: permalinkFactory ? permalinkFactory({
             safariReaderFix: true,
             class: 'header-anchor',
             symbol: '🔗',
@@ -1103,9 +1102,7 @@ function loadScript(src){
                 .replace(/[^\w\u0590-\u05FF\s-]/g, '')
                 .replace(/[\s_]+/g, '-')
                 .replace(/^-+|-+$/g, '');
-            } catch (_) {
-              return '';
-            }
+            } catch (_) { return ''; }
           }
         });
       } catch(_) {
@@ -1536,19 +1533,33 @@ function loadScript(src){
       }
     } catch(_){ }
 
+    // פונקציות עזר נגישות בשימוש משותף (copy/permalink)
+    function announceToScreenReader(message) {
+      try {
+        const announcement = document.createElement('div');
+        announcement.setAttribute('role', 'status');
+        announcement.setAttribute('aria-live', 'polite');
+        announcement.className = 'sr-only';
+        announcement.textContent = message;
+        document.body.appendChild(announcement);
+        setTimeout(() => { try { document.body.removeChild(announcement); } catch(_){} }, 1000);
+      } catch(_) {}
+    }
+    function fallbackCopy(text) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return success;
+      } catch(_) { return false; }
+    }
     // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
     try {
-      function announceToScreenReader(message) {
-        try {
-          const announcement = document.createElement('div');
-          announcement.setAttribute('role', 'status');
-          announcement.setAttribute('aria-live', 'polite');
-          announcement.className = 'sr-only';
-          announcement.textContent = message;
-          document.body.appendChild(announcement);
-          setTimeout(() => { try { document.body.removeChild(announcement); } catch(_){} }, 1000);
-        } catch(_) {}
-      }
       function showCopySuccess(btn) {
         try {
           btn.classList.add('copied');
@@ -1565,19 +1576,6 @@ function loadScript(src){
       }
       function showCopyError(btn) {
         try { btn.classList.add('copy-error'); setTimeout(() => btn.classList.remove('copy-error'), 2000); } catch(_) {}
-      }
-      function fallbackCopy(text) {
-        try {
-          const textarea = document.createElement('textarea');
-          textarea.value = text;
-          textarea.style.position = 'fixed';
-          textarea.style.opacity = '0';
-          document.body.appendChild(textarea);
-          textarea.select();
-          const success = document.execCommand('copy');
-          document.body.removeChild(textarea);
-          return success;
-        } catch(_) { return false; }
       }
       function addCopyButtons() {
         const pres = document.querySelectorAll('#md-content pre');
