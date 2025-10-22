@@ -25,6 +25,66 @@
      - -
      - ``mongodb://localhost:27017``
      - Bot/WebApp
+   * - ``MONGODB_MAX_POOL_SIZE``
+     - גודל בריכת חיבורים מקסימלי ל‑MongoDB (maxPoolSize)
+     - לא
+     - ``50``
+     - ``100``
+     - Bot/WebApp
+   * - ``MONGODB_MIN_POOL_SIZE``
+     - גודל בריכת חיבורים מינימלי ל‑MongoDB (minPoolSize)
+     - לא
+     - ``5``
+     - ``5``
+     - Bot/WebApp
+   * - ``MONGODB_MAX_IDLE_TIME_MS``
+     - זמן השהייה מקסימלי בחוסר שימוש (maxIdleTimeMS)
+     - לא
+     - ``30000``
+     - ``30000``
+     - Bot/WebApp
+   * - ``MONGODB_WAIT_QUEUE_TIMEOUT_MS``
+     - זמן המתנה בתור ה‑Pool לפני כישלון (waitQueueTimeoutMS)
+     - לא
+     - ``5000``
+     - ``5000``
+     - Bot/WebApp
+   * - ``MONGODB_SERVER_SELECTION_TIMEOUT_MS``
+     - זמן בחירת שרת (serverSelectionTimeoutMS)
+     - לא
+     - ``3000``
+     - ``5000``
+     - Bot/WebApp
+   * - ``MONGODB_SOCKET_TIMEOUT_MS``
+     - זמן קצוב לקריאת/כתיבת שקע (socketTimeoutMS)
+     - לא
+     - ``20000``
+     - ``30000``
+     - Bot/WebApp
+   * - ``MONGODB_CONNECT_TIMEOUT_MS``
+     - זמן קצוב להתחברות (connectTimeoutMS)
+     - לא
+     - ``10000``
+     - ``10000``
+     - Bot/WebApp
+   * - ``MONGODB_RETRY_WRITES``
+     - הפעלת Retry לכתיבות (retryWrites)
+     - לא
+     - ``true``
+     - ``true``
+     - Bot/WebApp
+   * - ``MONGODB_RETRY_READS``
+     - הפעלת Retry לקריאות (retryReads)
+     - לא
+     - ``true``
+     - ``true``
+     - Bot/WebApp
+   * - ``MONGODB_APPNAME``
+     - שם אפליקציה לצורך Telemetry/Metadata ב‑MongoDB
+     - לא
+     - "" (ריק)
+     - ``CodeBot``
+     - Bot/WebApp
    * - ``DATABASE_NAME``
      - שם בסיס נתונים
      - לא
@@ -151,6 +211,12 @@
      - ``5`` (או ``1`` ב-``SAFE_MODE``)
      - ``2``
      - Bot/WebApp
+   * - ``SAFE_MODE``
+     - מצב שמרני: מוריד ברירות מחדל של Timeouts לטובת יציבות בסביבות חלשות
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
    * - ``CACHE_ENABLED``
      - הפעלת קאש פנימי
      - לא
@@ -163,6 +229,72 @@
      - ``1`` ל-``clear_stale``; ``2`` ל-``clear_all``
      - ``1``
      - Bot/WebApp
+   * - ``DISABLE_BACKGROUND_CLEANUP``
+     - דילוג כולל על עבודות ניקוי רקע (קאש/גיבויים)
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``CACHE_MAINT_INTERVAL_SECS``
+     - מרווח בין ריצות תחזוקת קאש (שניות)
+     - לא
+     - ``600`` (מינימום 60)
+     - ``300``
+     - Bot
+   * - ``CACHE_MAINT_FIRST_SECS``
+     - דיליי לפני הרצת תחזוקת קאש הראשונה (שניות)
+     - לא
+     - ``30``
+     - ``10``
+     - Bot
+   * - ``CACHE_MAINT_MAX_SCAN``
+     - מספר מפתחות מקסימלי לסריקה ב-clear_stale
+     - לא
+     - ``1000``
+     - ``5000``
+     - Bot
+   * - ``CACHE_MAINT_TTL_THRESHOLD``
+     - TTL (בשניות) מתחתיו ייחשב "שבק״ לניקוי עדין
+     - לא
+     - ``60``
+     - ``120``
+     - Bot
+   * - ``BACKUPS_CLEANUP_ENABLED``
+     - הפעלת ניקוי גיבויי ZIP ברקע
+     - לא
+     - ``false`` (כבוי כברירת מחדל)
+     - ``true``
+     - Bot
+   * - ``BACKUPS_CLEANUP_INTERVAL_SECS``
+     - מרווח בין ריצות ניקוי גיבויים (שניות)
+     - לא
+     - ``86400`` (מינימום 3600)
+     - ``43200``
+     - Bot
+   * - ``BACKUPS_CLEANUP_FIRST_SECS``
+     - דיליי לפני ריצת ניקוי גיבויים הראשונה (שניות)
+     - לא
+     - ``180``
+     - ``60``
+     - Bot
+   * - ``BACKUPS_RETENTION_DAYS``
+     - ימי שמירת ארכיבי גיבוי בדיסק/GridFS לפני מחיקה
+     - לא
+     - ``30`` (מינימום 1)
+     - ``14``
+     - Bot
+   * - ``BACKUPS_MAX_PER_USER``
+     - מספר גיבויים מקסימלי לשמירה לכל משתמש (מעבר יימחקו הוותיקים)
+     - לא
+     - ``None`` (ביטול מגבלה)
+     - ``10``
+     - Bot
+   * - ``BACKUPS_CLEANUP_BUDGET_SECONDS``
+     - תקציב זמן לניקוי גיבויים (מונע עומס)
+     - לא
+     - ``3``
+     - ``5``
+     - Bot
    * - ``DISABLE_CACHE_MAINTENANCE``
      - דילוג על פעולות ניקוי קאש (לוג בלבד)
      - לא
@@ -355,11 +487,47 @@
      - ``10``
      - ``30``
      - Bot/WebApp
+   * - ``AIOHTTP_LIMIT_PER_HOST``
+     - מגבלה פר‑Host לחיבורים במקביל (aiohttp TCPConnector)
+     - לא
+     - ``0`` (ללא מגבלה פר‑Host)
+     - ``25``
+     - Bot/WebApp
    * - ``REDIS_MAX_CONNECTIONS``
      - גודל בריכת חיבורים ל‑Redis
      - לא
      - ``50``
      - ``200``
+     - Bot/WebApp
+   * - ``REQUESTS_POOL_CONNECTIONS``
+     - מספר Connection Pools גלובליים ל‑requests (per host)
+     - לא
+     - ``20``
+     - ``20``
+     - Bot/WebApp
+   * - ``REQUESTS_POOL_MAXSIZE``
+     - מקס׳ חיבורים בו‑זמנית בכל Pool (requests)
+     - לא
+     - ``100``
+     - ``100``
+     - Bot/WebApp
+   * - ``REQUESTS_TIMEOUT``
+     - Timeout ברירת מחדל לבקשות סינכרוניות (requests)
+     - לא
+     - ``8``
+     - ``8``
+     - Bot/WebApp
+   * - ``REQUESTS_RETRIES``
+     - מספר ניסיונות Retry על סטטוסים זמניים (5xx)
+     - לא
+     - ``2``
+     - ``2``
+     - Bot/WebApp
+   * - ``REQUESTS_RETRY_BACKOFF``
+     - backoff_factor בין ניסיונות ה‑Retry (שניות)
+     - לא
+     - ``0.2``
+     - ``0.2``
      - Bot/WebApp
    * - ``SEARCH_PAGE_SIZE``
      - גודל דף חיפוש בצד ה‑DB

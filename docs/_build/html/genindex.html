@@ -176,19 +176,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -202,6 +208,9 @@
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -388,10 +397,15 @@
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -484,6 +498,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -1329,6 +1347,10 @@
         <li><a href="api/activity_reporter.html#module-activity_reporter">module</a>
 </li>
       </ul></li>
+      <li><a href="api/cache_manager.html#cache_manager.ActivityBasedTTL">ActivityBasedTTL (class in cache_manager)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.ActivityBasedTTL.adjust_ttl">adjust_ttl() (cache_manager.ActivityBasedTTL class method)</a>
+</li>
       <li><a href="api/chatops.permissions.html#chatops.permissions.admin_required">admin_required() (in module chatops.permissions)</a>
 </li>
       <li>
@@ -1345,10 +1367,10 @@
         <li><a href="api/alert_manager.html#module-alert_manager">module</a>
 </li>
       </ul></li>
-      <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer.analyze">analyze() (refactoring_engine.CodeAnalyzer method)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.CodeAnalyzer.analyze">analyze() (refactoring_engine.CodeAnalyzer method)</a>
+</li>
       <li><a href="api/services.code_service.html#services.code_service.analyze_code">analyze_code() (in module services.code_service)</a>
 </li>
       <li><a href="api/database.bookmark.html#database.bookmark.FileBookmark.anchor_id">anchor_id (database.bookmark.FileBookmark attribute)</a>
@@ -1381,13 +1403,17 @@
 </li>
       <li><a href="api/file_manager.html#file_manager.BackupManager">BackupManager (class in file_manager)</a>
 </li>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.base_classes">base_classes (refactoring_engine.ClassInfo attribute)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="api/refactoring_engine.html#refactoring_engine.ClassInfo.base_classes">base_classes (refactoring_engine.ClassInfo attribute)</a>
+      <li><a href="api/cache_manager.html#cache_manager.DynamicTTL.BASE_TTL">BASE_TTL (cache_manager.DynamicTTL attribute)</a>
 </li>
       <li><a href="api/utils.html#utils.AsyncUtils.batch_process">batch_process() (utils.AsyncUtils static method)</a>
 </li>
       <li><a href="api/services.webserver.html#services.webserver.bind_request_id">bind_request_id() (in module services.webserver)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.build_cache_key">build_cache_key() (in module cache_manager)</a>
 </li>
       <li><a href="api/handlers.pagination.html#handlers.pagination.build_pagination_row">build_pagination_row() (in module handlers.pagination)</a>
 </li>
@@ -1415,11 +1441,15 @@
       </ul></li>
       <li><a href="api/cache_commands.html#cache_commands.cache_stats_command">cache_stats_command() (in module cache_commands)</a>
 </li>
+      <li><a href="api/cache_commands.html#cache_commands.cache_warm_command">cache_warm_command() (in module cache_commands)</a>
+</li>
       <li><a href="api/cache_manager.html#cache_manager.cached">cached() (in module cache_manager)</a>
 </li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager">CacheManager (class in cache_manager)</a>
 </li>
       <li><a href="api/utils.html#utils.CacheUtils">CacheUtils (class in utils)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.DynamicTTL.calculate_ttl">calculate_ttl() (cache_manager.DynamicTTL class method)</a>
 </li>
       <li><a href="api/utils.html#utils.CallbackQueryGuard">CallbackQueryGuard (class in utils)</a>
 </li>
@@ -1466,6 +1496,8 @@
 </li>
       <li><a href="api/fix_telegram_parse_error.html#fix_telegram_parse_error.clean_for_telegram">clean_for_telegram() (in module fix_telegram_parse_error)</a>
 </li>
+      <li><a href="api/file_manager.html#file_manager.BackupManager.cleanup_expired_backups">cleanup_expired_backups() (file_manager.BackupManager method)</a>
+</li>
       <li><a href="api/monitoring.cleanup.html#monitoring.cleanup.cleanup_incidents">cleanup_incidents() (in module monitoring.cleanup)</a>
 </li>
       <li><a href="api/monitoring.cleanup.html#monitoring.cleanup.cleanup_predictions">cleanup_predictions() (in module monitoring.cleanup)</a>
@@ -1474,12 +1506,12 @@
 </li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.clear_all">clear_all() (cache_manager.CacheManager method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/cache_commands.html#cache_commands.clear_cache_command">clear_cache_command() (in module cache_commands)</a>
 </li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.clear_stale">clear_stale() (cache_manager.CacheManager method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/activity_reporter.html#activity_reporter.close_mongo_client">close_mongo_client() (in module activity_reporter)</a>
 </li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.code">code (database.models.CodeSnippet attribute)</a>
@@ -1648,6 +1680,10 @@
         <li><a href="api/duplicate_detector.html#module-duplicate_detector">module</a>
 </li>
       </ul></li>
+      <li><a href="api/cache_manager.html#cache_manager.dynamic_cache">dynamic_cache() (in module cache_manager)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.DynamicTTL">DynamicTTL (class in cache_manager)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1808,9 +1844,13 @@
         <li><a href="api/utils.html#utils.CacheUtils.get">(utils.CacheUtils class method)</a>
 </li>
       </ul></li>
+      <li><a href="api/cache_manager.html#cache_manager.ActivityBasedTTL.get_activity_multiplier">get_activity_multiplier() (cache_manager.ActivityBasedTTL class method)</a>
+</li>
       <li><a href="api/chatops.permissions.html#chatops.permissions.get_admin_user_ids">get_admin_user_ids() (in module chatops.permissions)</a>
 </li>
       <li><a href="api/chatops.permissions.html#chatops.permissions.get_allowed_chat_ids">get_allowed_chat_ids() (in module chatops.permissions)</a>
+</li>
+      <li><a href="api/metrics.html#metrics.get_boot_monotonic">get_boot_monotonic() (in module metrics)</a>
 </li>
       <li><a href="api/handlers.save_flow.html#handlers.save_flow.get_code">get_code() (in module handlers.save_flow)</a>
 </li>
@@ -1861,6 +1901,8 @@
       <li><a href="api/metrics.html#metrics.get_uptime_percentage">get_uptime_percentage() (in module metrics)</a>
 </li>
       <li><a href="api/utils.html#utils.TelegramUtils.get_user_mention">get_user_mention() (utils.TelegramUtils static method)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.CacheManager.get_with_refresh">get_with_refresh() (cache_manager.CacheManager method)</a>
 </li>
       <li>
     github_upload_fix
@@ -2021,6 +2063,8 @@
         <li><a href="api/internal_alerts.html#module-internal_alerts">module</a>
 </li>
       </ul></li>
+      <li><a href="api/cache_manager.html#cache_manager.CacheManager.invalidate_file_related">invalidate_file_related() (cache_manager.CacheManager method)</a>
+</li>
       <li><a href="api/cache_manager.html#cache_manager.CacheManager.invalidate_user_cache">invalidate_user_cache() (cache_manager.CacheManager method)</a>
 </li>
       <li><a href="api/database.models.html#database.models.CodeSnippet.is_active">is_active (database.models.CodeSnippet attribute)</a>
@@ -2101,6 +2145,8 @@
         <li><a href="api/setup_bookmarks.html#setup_bookmarks.main">(in module setup_bookmarks)</a>
 </li>
       </ul></li>
+      <li><a href="api/metrics.html#metrics.mark_startup_complete">mark_startup_complete() (in module metrics)</a>
+</li>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.MAX_FILE_SIZE">MAX_FILE_SIZE (repo_analyzer.RepoAnalyzer attribute)</a>
 </li>
       <li><a href="api/repo_analyzer.html#repo_analyzer.RepoAnalyzer.MAX_FILES">MAX_FILES (repo_analyzer.RepoAnalyzer attribute)</a>
@@ -2282,6 +2328,8 @@
 </li>
       <li><a href="api/metrics.html#metrics.note_active_user">note_active_user() (in module metrics)</a>
 </li>
+      <li><a href="api/metrics.html#metrics.note_first_request_latency">note_first_request_latency() (in module metrics)</a>
+</li>
       <li><a href="api/predictive_engine.html#predictive_engine.note_observation">note_observation() (in module predictive_engine)</a>
 </li>
       <li><a href="api/alert_manager.html#alert_manager.note_request">note_request() (in module alert_manager)</a>
@@ -2378,6 +2426,8 @@
 </li>
       <li><a href="api/handlers.file_view.html#handlers.file_view.receive_new_name">receive_new_name() (in module handlers.file_view)</a>
 </li>
+      <li><a href="api/metrics.html#metrics.record_dependency_init">record_dependency_init() (in module metrics)</a>
+</li>
       <li><a href="api/metrics.html#metrics.record_http_request">record_http_request() (in module metrics)</a>
 </li>
       <li><a href="api/metrics.html#metrics.record_request_outcome">record_request_outcome() (in module metrics)</a>
@@ -2397,10 +2447,10 @@
 </li>
       <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorResult">RefactorResult (class in refactoring_engine)</a>
 </li>
-      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType">RefactorType (class in refactoring_engine)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/refactoring_engine.html#refactoring_engine.RefactorType">RefactorType (class in refactoring_engine)</a>
+</li>
       <li>
     remediation_manager
 
@@ -2546,6 +2596,8 @@
 </li>
       </ul></li>
       <li><a href="api/metrics.html#metrics.set_adaptive_observability_gauges">set_adaptive_observability_gauges() (in module metrics)</a>
+</li>
+      <li><a href="api/cache_manager.html#cache_manager.CacheManager.set_dynamic">set_dynamic() (cache_manager.CacheManager method)</a>
 </li>
       <li>
     setup_bookmarks

@@ -176,19 +176,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -202,6 +208,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -388,10 +397,15 @@
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -484,6 +498,10 @@
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -1308,7 +1326,8 @@
         <span class="k">return</span> <span class="kc">None</span>
 <span class="kn">from</span> <span class="nn">html</span> <span class="kn">import</span> <span class="n">escape</span> <span class="k">as</span> <span class="n">html_escape</span>
 
-<span class="kn">from</span> <span class="nn">integrations</span> <span class="kn">import</span> <span class="n">code_sharing</span>
+<span class="c1"># הערה: לא נייבא את code_sharing כ-reference קבוע כדי לאפשר monkeypatch דינמי בטסטים.</span>
+<span class="c1"># במקום זאת נפתור את ה-service בזמן ריצה בתוך ה-handler.</span>
 
 <span class="c1"># Optional structured logging/event emission and error counter (fail-open)</span>
 <span class="k">try</span><span class="p">:</span>  <span class="c1"># type: ignore</span>
@@ -1402,12 +1421,28 @@
             <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">(</span><span class="n">body</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;Content-Type&quot;</span><span class="p">:</span> <span class="n">metrics_content_type</span><span class="p">()})</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;metrics_view error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="c1"># Emit an event in a way that supports both styles of monkeypatching:</span>
+            <span class="c1"># 1) sys.modules[&#39;observability&#39;] injection (import inside handler)</span>
+            <span class="c1"># 2) module-level ws.emit_event monkeypatch</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="c1"># lazy import to avoid hard dep at import time</span>
-                <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">emit_event</span>  <span class="c1"># type: ignore</span>
-                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;metrics_view_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="o">=</span><span class="s2">&quot;E_METRICS_VIEW&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+                <span class="kn">import</span> <span class="nn">sys</span> <span class="k">as</span> <span class="nn">_sys</span>
+                <span class="kn">import</span> <span class="nn">types</span> <span class="k">as</span> <span class="nn">_types</span>
+                <span class="n">obs</span> <span class="o">=</span> <span class="n">_sys</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;observability&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">obs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="n">_types</span><span class="o">.</span><span class="n">ModuleType</span><span class="p">):</span>
+                    <span class="n">_emit</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">obs</span><span class="p">,</span> <span class="s2">&quot;emit_event&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">_emit</span><span class="p">):</span>
+                        <span class="n">_emit</span><span class="p">(</span><span class="s2">&quot;metrics_view_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="o">=</span><span class="s2">&quot;E_METRICS_VIEW&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>  <span class="c1"># type: ignore</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;emit_event not found on injected observability&quot;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;metrics_view_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="o">=</span><span class="s2">&quot;E_METRICS_VIEW&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>  <span class="c1"># type: ignore</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="k">pass</span>
+                <span class="c1"># Final fallback: try importing the real module dynamically</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">emit_event</span> <span class="k">as</span> <span class="n">_dyn_emit</span>  <span class="c1"># type: ignore</span>
+                    <span class="n">_dyn_emit</span><span class="p">(</span><span class="s2">&quot;metrics_view_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="o">=</span><span class="s2">&quot;E_METRICS_VIEW&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>  <span class="c1"># type: ignore</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="k">pass</span>
             <span class="k">try</span><span class="p">:</span>
                 <span class="k">if</span> <span class="n">errors_total</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">errors_total</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">code</span><span class="o">=</span><span class="s2">&quot;E_METRICS_VIEW&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">inc</span><span class="p">()</span>
@@ -1425,8 +1460,8 @@
             <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="k">if</span> <span class="n">raw</span> <span class="k">else</span> <span class="p">{}</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">emit_event</span>  <span class="c1"># type: ignore</span>
-                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;alerts_parse_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;warn&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="o">=</span><span class="s2">&quot;E_ALERTS_PARSE&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+                <span class="c1"># פנה ל-emit_event שהוחדר למודול זה (מאפשר monkeypatch בטסטים)</span>
+                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;alerts_parse_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;warn&quot;</span><span class="p">,</span> <span class="n">error_code</span><span class="o">=</span><span class="s2">&quot;E_ALERTS_PARSE&quot;</span><span class="p">,</span> <span class="n">error</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>  <span class="c1"># type: ignore</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="k">pass</span>
             <span class="k">try</span><span class="p">:</span>
@@ -1507,7 +1542,14 @@
     <span class="k">async</span> <span class="k">def</span> <span class="nf">share_view</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
         <span class="n">share_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">match_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;share_id&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="n">data</span> <span class="o">=</span> <span class="n">code_sharing</span><span class="o">.</span><span class="n">get_internal_share</span><span class="p">(</span><span class="n">share_id</span><span class="p">)</span>
+            <span class="c1"># 해결 תלויות בזמן ריצה כדי לאפשר monkeypatch ב-tests:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="kn">import</span> <span class="nn">importlib</span>
+                <span class="n">integ</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s2">&quot;integrations&quot;</span><span class="p">)</span>
+                <span class="n">_code_sharing</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">integ</span><span class="p">,</span> <span class="s2">&quot;code_sharing&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="kn">from</span> <span class="nn">integrations</span> <span class="kn">import</span> <span class="n">code_sharing</span> <span class="k">as</span> <span class="n">_code_sharing</span>  <span class="c1"># type: ignore</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">_code_sharing</span><span class="o">.</span><span class="n">get_internal_share</span><span class="p">(</span><span class="n">share_id</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;share_view error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">try</span><span class="p">:</span>
