@@ -219,6 +219,52 @@ resp = request('GET', url, headers=headers)  # timeout יוגדר מה-ENV כב�
 ```
 
 
+### תוספות חשובות מהמדריך השני (חיזוקים קלים)
+- **aiohttp – Connector מועשר**: הפעלת DNS cache, הגדרת `limit_per_host`, והשארת `enable_cleanup_closed` לפינוי חיבורים.
+
+```python
+import os, aiohttp
+connector = aiohttp.TCPConnector(
+    limit=int(os.getenv('AIOHTTP_POOL_LIMIT', '50')),
+    limit_per_host=int(os.getenv('AIOHTTP_LIMIT_PER_HOST', '25')),
+    use_dns_cache=True,
+    ttl_dns_cache=300,
+    enable_cleanup_closed=True,
+    force_close=False,
+)
+timeout = aiohttp.ClientTimeout(total=int(os.getenv('AIOHTTP_TIMEOUT_TOTAL', '10')))
+session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+```
+
+- **MongoDB – הרחבות בטוחות (אופציונלי)**: `appname="CodeBot"`, דחיסה (`compressors` כאשר נתמך), ו-`heartbeatFrequencyMS=10000`. אין תמיכה ב-`waitQueueMultiple` ב-PyMongo – אל להשתמש.
+
+```dotenv
+# MongoDB (אופציונלי)
+MONGODB_APPNAME=CodeBot
+MONGODB_COMPRESSORS=zstd,snappy,zlib
+MONGODB_HEARTBEAT_FREQUENCY_MS=10000
+```
+
+- **Redis – Backoff אקספוננציאלי (אם גרסה תומכת)**: ב-redis-py ≥ 4.2 ניתן להוסיף `Retry`/`ExponentialBackoff` לשיפור התאוששות.
+
+```python
+# דוגמה אופציונלית
+# from redis.retry import Retry
+# from redis.backoff import ExponentialBackoff
+# client = redis.from_url(REDIS_URL, retry=Retry(ExponentialBackoff(), 3))
+```
+
+- **Health checks**: 
+  - Mongo: `admin.command('ping')` ו-`connPoolStats`.
+  - Redis: `client.ping()` ו-`INFO` counters.
+  - HTTP: מדידה סביב קריאות ורישום `limit/limit_per_host`.
+
+- **צ'קליסט קצר ליישום הדרגתי**:
+  - הוספת `AIOHTTP_LIMIT_PER_HOST` ל-ENV ושימוש בו בכל `TCPConnector`.
+  - מעבר הדרגתי ל-Sessions משותפים (aiohttp/requests) תוך שמירת התאמה לטסטים קיימים.
+  - הוספת מטריקות שימוש ב-Pool ו-Timeouts.
+  - אימות ב-Staging בעומס אמיתי לפני Production.
+
 ### הנחיות כיוונון לפי סביבה
 - **Local/Dev**:
   - `AIOHTTP_POOL_LIMIT=20`, `AIOHTTP_LIMIT_PER_HOST=10`, `AIOHTTP_TIMEOUT_TOTAL=10`
