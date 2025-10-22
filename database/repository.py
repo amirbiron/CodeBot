@@ -88,7 +88,22 @@ class Repository:
             snippet.updated_at = datetime.now(timezone.utc)
             result = self.manager.collection.insert_one(asdict(snippet))
             if result.inserted_id:
-                cache.invalidate_user_cache(snippet.user_id)
+                # Invalidate user-level and file-related caches
+                try:
+                    cache.invalidate_user_cache(snippet.user_id)
+                except Exception:
+                    pass
+                # עדיפות ל-ID ייחודי אם קיים; fallback לשם קובץ
+                try:
+                    file_identifier = str(getattr(snippet, 'id', '') or getattr(snippet, '_id', '') or '')
+                except Exception:
+                    file_identifier = ''
+                if not file_identifier:
+                    file_identifier = str(snippet.file_name)
+                try:
+                    cache.invalidate_file_related(file_id=file_identifier, user_id=snippet.user_id)
+                except Exception:
+                    pass
                 from autocomplete_manager import autocomplete
                 autocomplete.invalidate_cache(snippet.user_id)
                 return True
@@ -220,6 +235,11 @@ class Repository:
                     pass
             try:
                 cache.invalidate_user_cache(user_id)
+            except Exception:
+                pass
+            try:
+                # אין לנו _id כאן — נשתמש ב-file_name כמזהה דטרמיניסטי למפתחות הקשורים
+                cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
             except Exception:
                 pass
             matched = int(getattr(res, 'matched_count', 0) or 0)
@@ -807,6 +827,10 @@ class Repository:
             )
             if result.modified_count > 0:
                 cache.invalidate_user_cache(user_id)
+                try:
+                    cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
+                except Exception:
+                    pass
                 return True
             return False
         except Exception as e:
@@ -831,6 +855,11 @@ class Repository:
                 }},
             )
             cache.invalidate_user_cache(user_id)
+            try:
+                for fn in list(set(file_names)):
+                    cache.invalidate_file_related(file_id=str(fn), user_id=user_id)
+            except Exception:
+                pass
             return int(result.modified_count or 0)
         except Exception as e:
             emit_event("db_soft_delete_files_by_names_error", severity="error", error=str(e))

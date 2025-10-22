@@ -8,11 +8,12 @@ import logging
 import os
 import time
 from functools import wraps
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast
+import random
 try:
     import redis  # type: ignore
 except Exception:  # redis אינו חובה – נריץ במצב מושבת אם חסר
-    redis = None  # type: ignore[assignment]
+    redis = None
 import asyncio
 from datetime import datetime, timedelta
 
@@ -71,6 +72,109 @@ cache_op_duration_seconds = _ensure_metric(
         ["operation", "backend"],
     ) if Histogram else None,
 )
+
+
+# ===================== Dynamic TTL utilities =====================
+class DynamicTTL:
+    """ניהול TTL דינמי לפי סוג תוכן וקונטקסט.
+
+    הערכים כאן מייצגים TTL בסיסי בשניות עבור סוגי תוכן שכיחים.
+    """
+
+    BASE_TTL: Dict[str, int] = {
+        "user_stats": 300,         # 5 דקות
+        "file_content": 3600,      # שעה
+        "file_list": 60,           # דקה
+        "markdown_render": 1800,   # 30 דקות
+        "search_results": 180,     # 3 דקות
+        "public_stats": 600,       # 10 דקות
+        "bookmarks": 120,          # 2 דקות
+        "tags": 300,               # 5 דקות
+        "settings": 60,            # דקה
+    }
+
+    @classmethod
+    def calculate_ttl(cls, content_type: str, context: Dict[str, Any] | None = None) -> int:
+        """חשב TTL בסיסי מוכוון קונטקסט.
+
+        מבטיח גבולות בטוחים: מינימום 30 שניות, מקסימום 7200 (שעתיים).
+        """
+        ctx: Dict[str, Any] = context or {}
+        base_ttl: int = int(cls.BASE_TTL.get(content_type, 300))
+
+        # התאמות לפי קונטקסט
+        if bool(ctx.get("is_favorite")):
+            base_ttl = int(base_ttl * 1.5)
+
+        try:
+            last_mod_hours = float(ctx.get("last_modified_hours_ago", 24))
+        except Exception:
+            last_mod_hours = 24.0
+        if last_mod_hours < 1.0:
+            base_ttl = int(base_ttl * 0.5)
+
+        if str(ctx.get("access_frequency", "low")).lower() == "high":
+            base_ttl = int(base_ttl * 2)
+
+        if str(ctx.get("user_tier", "regular")).lower() == "premium":
+            # משתמשי פרימיום יעדיפו עדכונים מהירים
+            base_ttl = int(base_ttl * 0.7)
+
+        return max(30, min(base_ttl, 7200))
+
+
+class ActivityBasedTTL:
+    """התאמת TTL לפי שעות פעילות (best-effort)."""
+
+    @staticmethod
+    def _now_hour() -> int:
+        try:
+            from datetime import datetime
+            return int(datetime.now().hour)
+        except Exception:
+            return 12
+
+    @classmethod
+    def get_activity_multiplier(cls) -> float:
+        hour = cls._now_hour()
+        if 9 <= hour < 18:      # שעות שיא – קצר יותר
+            return 0.7
+        if 18 <= hour < 23:     # ערב – בינוני
+            return 1.0
+        return 1.5               # לילה – ארוך יותר
+
+    @classmethod
+    def adjust_ttl(cls, base_ttl: int) -> int:
+        try:
+            mult = float(cls.get_activity_multiplier())
+        except Exception:
+            mult = 1.0
+        # הוסף jitter קטן למניעת thundering herd
+        ttl = int(max(1, base_ttl) * mult)
+        jitter = int(max(1, ttl // 10))  # עד ±10%
+        try:
+            ttl = ttl + random.randint(-jitter, jitter)
+        except Exception:
+            pass
+        return max(30, min(int(ttl), 7200))
+
+
+def build_cache_key(*parts: Any) -> str:
+    """בניית מפתח cache יעיל ומובנה מהחלקים הנתונים.
+
+    - מסנן חלקים ריקים
+    - ממיר לתווים בטוחים (רווחים/סלאשים)
+    - מגביל אורך ומוסיף hash קצר במידת הצורך
+    """
+    from hashlib import sha256
+
+    clean_parts: List[str] = [str(p) for p in parts if p not in (None, "")]
+    key: str = ":".join(clean_parts)
+    key = key.replace(" ", "_").replace("/", "-")
+    if len(key) > 200:
+        key_hash = sha256(key.encode("utf-8")).hexdigest()[:8]
+        key = f"{key[:150]}:{key_hash}"
+    return key
 
 class CacheManager:
     """מנהל Cache מתקדם עם Redis"""
@@ -220,6 +324,142 @@ class CacheManager:
                     timer_ctx()
             except Exception:
                 pass
+
+    # ===================== Dynamic TTL helpers =====================
+    def set_dynamic(
+        self,
+        key: str,
+        value: Any,
+        content_type: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """שמירה ב-cache עם TTL דינמי ותיעוד מינימלי במטריקות/לוגים."""
+        # חישוב TTL דינמי וביצוע התאמות פעילות + jitter
+        base_ttl = DynamicTTL.calculate_ttl(content_type, context or {})
+        adjusted_ttl = ActivityBasedTTL.adjust_ttl(base_ttl)
+        try:
+            logger.debug(
+                "cache_set_dynamic",
+                extra={
+                    "key": str(key)[:120],
+                    "ttl": int(adjusted_ttl),
+                    "content_type": str(content_type),
+                },
+            )
+        except Exception:
+            pass
+        return self.set(key, value, int(adjusted_ttl))
+
+    def get_with_refresh(
+        self,
+        key: str,
+        refresh_func: Callable[[], Any],
+        *,
+        content_type: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """קריאה מ-cache; אם חסר – מחשב, שומר דינמית ומחזיר."""
+        cached_value = self.get(key)
+        if cached_value is not None:
+            return cached_value
+        fresh_value = refresh_func()
+        if fresh_value is not None:
+            try:
+                self.set_dynamic(key, fresh_value, content_type, context)
+            except Exception:
+                # Fail-open: אם שמירה נכשלה לא נשבור זרימה
+                pass
+        return fresh_value
+
+
+# ===================== Flask dynamic cache decorator =====================
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """דקורטור ל-caching דינמי ל-Flask endpoints.
+
+    - בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים
+    - שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד
+    - Fail-open: לעולם לא מפיל endpoint על בעיות קאש
+    """
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                # ייבוא מאוחר כדי להימנע מתלות פלצ'ית בזמן import מודולרי/טסטים
+                try:
+                    from flask import request, session, jsonify  # type: ignore
+                except Exception:  # pragma: no cover
+                    request = None  # type: ignore
+                    session = {}  # type: ignore
+                    def jsonify(x):  # type: ignore
+                        return x
+
+                # זיהוי משתמש וקונטקסט בסיסי
+                uid = None
+                try:
+                    uid = session.get('user_id') if hasattr(session, 'get') else None
+                except Exception:
+                    uid = None
+                try:
+                    user_tier = (session.get('user_tier') or 'regular') if hasattr(session, 'get') else 'regular'
+                except Exception:
+                    user_tier = 'regular'
+
+                # מפתח קאש: prefix/שם פונקציה + user + path + query
+                prefix = key_prefix if key_prefix else getattr(func, "__name__", "endpoint")
+                req_path = getattr(request, 'path', '') if request is not None else ''
+                try:
+                    q = request.query_string.decode(errors='ignore') if request is not None else ''
+                except Exception:
+                    q = ''
+                cache_key = build_cache_key(prefix, str(uid or 'anonymous'), req_path, q)
+
+                # ניסיון שליפה מהקאש
+                cached_value = cache.get(cache_key)
+                if cached_value is not None:
+                    if isinstance(cached_value, dict):
+                        return cast(R, jsonify(cached_value))
+                    return cast(R, cached_value)
+
+                # חישוב התוצאה
+                result = func(*args, **kwargs)
+
+                # אם זו תגובת Flask עם JSON — שמור רק את ה-data
+                try:
+                    if hasattr(result, 'get_json'):
+                        data = result.get_json(silent=True)
+                        if data is not None:
+                            cache.set_dynamic(cache_key, data, content_type, {
+                                'user_id': uid,
+                                'user_tier': user_tier,
+                                'endpoint': getattr(func, '__name__', ''),
+                            })
+                            return result
+                except Exception:
+                    pass
+
+                # שמירה של טיפוסים serializable נפוצים
+                if isinstance(result, (dict, list, str, int, float, bool)):
+                    try:
+                        cache.set_dynamic(cache_key, result, content_type, {
+                            'user_id': uid,
+                            'user_tier': user_tier,
+                            'endpoint': getattr(func, '__name__', ''),
+                        })
+                    except Exception:
+                        pass
+
+                return result
+            except Exception:
+                # Fail-open על כל תקלה במנגנון הקאש
+                return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
     
     def delete(self, key: str) -> bool:
         """מחיקת ערך מה-cache"""
@@ -319,6 +559,34 @@ class CacheManager:
             logger.warning(f"clear_all failed: {e}")
         logger.info(f"ניקוי cache מלא: {deleted} מפתחות נמחקו")
         return deleted
+
+    # ===================== Invalidation helpers (tag/pattern-based) =====================
+    def invalidate_file_related(self, file_id: str, user_id: Optional[Union[int, str]] = None) -> int:
+        """ביטול קאש לפי קובץ: תוכן/רינדור/רשימות.
+
+        דפוסים נפוצים מעוגנים לאחור בהתאם למפתחות הקיימים בקוד.
+        """
+        if not self.is_enabled:
+            return 0
+        total = 0
+        try:
+            patterns = [
+                f"file_content:{file_id}*",
+                f"markdown_render:{file_id}*",
+                f"md_render:{file_id}*",
+            ]
+            if user_id is not None:
+                uid = str(user_id)
+                patterns.extend([
+                    f"web:files:user:{uid}:*",
+                    f"user_files:*:{uid}:*",
+                    f"latest_version:*:{uid}:*",
+                ])
+            for p in patterns:
+                total += int(self.delete_pattern(p) or 0)
+        except Exception as e:
+            logger.warning(f"invalidate_file_related failed: {e}")
+        return total
 
     def clear_stale(self, max_scan: int = 1000, ttl_seconds_threshold: int = 60) -> int:
         """מחיקת מפתחות שכבר עומדים לפוג ("stale") בצורה עדינה.
