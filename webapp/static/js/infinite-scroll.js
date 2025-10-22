@@ -43,9 +43,26 @@
     onScroll();
   }
 
+  function pickNextFromPagination(paginationContainer){
+    if (!paginationContainer) return null;
+    // Prefer cursor-based next (exists only for "next")
+    const cursorNext = paginationContainer.querySelector('a[href*="cursor="]');
+    if (cursorNext) return cursorNext.getAttribute('href');
+    // Collect page-based anchors
+    const pageLinks = Array.from(paginationContainer.querySelectorAll('a[href*="page="]'));
+    if (pageLinks.length === 0) return null;
+    // Try an anchor that visually represents "next" (left chevron)
+    const withLeftChevron = pageLinks.find(a => a.querySelector('.fa-chevron-left'));
+    if (withLeftChevron) return withLeftChevron.getAttribute('href');
+    // Try by text (Hebrew: "הבא")
+    const withNextText = pageLinks.find(a => /הבא/.test((a.textContent || '').trim()));
+    if (withNextText) return withNextText.getAttribute('href');
+    // Fallback: last anchor is typically the next button
+    return pageLinks[pageLinks.length - 1].getAttribute('href');
+  }
+
   function computeNextPageFromDom(){
-    const nextLink = state.paginationEl?.querySelector('a[href*="cursor="], a[href*="page="]');
-    return nextLink ? nextLink.getAttribute('href') : null;
+    return pickNextFromPagination(state.paginationEl);
   }
 
   function computeNextPageFromQuery(){
@@ -120,8 +137,7 @@
 
       // Compute next page from that DOM's pagination
       const theirPagination = dom.getElementById('paginationControls');
-      const nextLink = theirPagination?.querySelector('a[href*="page="], a[href*="cursor="]');
-      nextPageUrl = nextLink ? nextLink.getAttribute('href') : null;
+      nextPageUrl = pickNextFromPagination(theirPagination);
       if (!nextPageUrl) reachedEnd = true;
     } catch (e) {
       console.error('infinite-scroll fetch error', e);
