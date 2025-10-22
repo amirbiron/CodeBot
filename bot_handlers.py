@@ -669,7 +669,14 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             # DB status - בדיקת פינג אמיתית ל-MongoDB
-            db_ok = await check_db_connection()
+            # הערה: ניגש לפונקציה דרך המודול כדי לאפשר monkeypatch יציב בטסטים
+            try:
+                import importlib
+                _bh = importlib.import_module(__name__)
+                _checker = getattr(_bh, 'check_db_connection', check_db_connection)
+            except Exception:
+                _checker = check_db_connection
+            db_ok = await _checker()
 
             # Redis status
             redis_ok = False
@@ -690,10 +697,23 @@ class AdvancedBotHandlers:
                     except Exception:
                         _total = 10
                         _limit = 50
-                    timeout = aiohttp.ClientTimeout(total=_total)
-                    connector = aiohttp.TCPConnector(limit=_limit)
-                    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                        async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
+                    # תואם מוקים: מאפייני ClientTimeout/TCPConnector עשויים לא להיות זמינים
+                    session_kwargs = {}
+                    try:
+                        timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
+                        session_kwargs["timeout"] = timeout
+                    except Exception:
+                        pass
+                    try:
+                        connector = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
+                        session_kwargs["connector"] = connector
+                    except Exception:
+                        pass
+                    async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[call-arg]
+                        async with session.get(
+                            "https://api.github.com/rate_limit",
+                            headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+                        ) as resp:
                             data = await resp.json()
                             remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
                             limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
@@ -1153,9 +1173,19 @@ class AdvancedBotHandlers:
             except Exception:
                 _total = 10
                 _limit = 50
-            timeout = aiohttp.ClientTimeout(total=_total)
-            connector = aiohttp.TCPConnector(limit=_limit)
-            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            # תואם מוקים: מאפייני ClientTimeout/TCPConnector עשויים לא להיות זמינים
+            session_kwargs = {}
+            try:
+                timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
+                session_kwargs["timeout"] = timeout
+            except Exception:
+                pass
+            try:
+                connector = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
+                session_kwargs["connector"] = connector
+            except Exception:
+                pass
+            async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[call-arg]
                 async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
                     data = await resp.json()
             core = data.get("resources", {}).get("core", {})
