@@ -2994,6 +2994,102 @@ def view_file(file_id):
     resp.headers['Last-Modified'] = last_modified_str
     return resp
 
+
+@app.route('/api/files/recent')
+@login_required
+def api_recent_files():
+    """מחזיר רשימת קבצים שנפתחו לאחרונה עבור המשתמש הנוכחי בלבד.
+
+    מדלג על רשומות חסרות או לא תקפות (ללא מזהה קובץ, או קובץ שלא קיים/לא פעיל),
+    ומחזיר לכל היותר 10 פריטים תקינים בפורמט:
+    [{id, filename, language, size, accessed_at}]
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        ensure_recent_opens_indexes()
+
+        # שלוף יותר מ-10 כדי לפצות על דילוג פריטים לא תקינים
+        raw_cursor = db.recent_opens.find({'user_id': user_id}) \
+            .sort('last_opened_at', DESCENDING) \
+            .limit(30)
+
+        results = []
+        seen_ids = set()
+        for rdoc in raw_cursor:
+            if len(results) >= 10:
+                break
+            try:
+                last_file_id = rdoc.get('last_opened_file_id')
+                file_name_hint = (rdoc.get('file_name') or '').strip()
+
+                file_doc = None
+                # נסה לפי מזהה אחרון
+                if last_file_id:
+                    try:
+                        q = {
+                            '_id': last_file_id,
+                            'user_id': user_id,
+                            '$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}}
+                            ]
+                        }
+                        file_doc = db.code_snippets.find_one(q)
+                    except Exception:
+                        file_doc = None
+
+                # fallback: אם אין מסמך לפי מזהה – נסה לפי שם הקובץ העדכני
+                if file_doc is None and file_name_hint:
+                    try:
+                        file_doc = db.code_snippets.find_one(
+                            {
+                                'user_id': user_id,
+                                'file_name': file_name_hint,
+                                '$or': [
+                                    {'is_active': True},
+                                    {'is_active': {'$exists': False}}
+                                ]
+                            },
+                            sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
+                        )
+                    except Exception:
+                        file_doc = None
+
+                # אם עדיין אין קובץ תקין – דלג (מונע לינקים שבורים)
+                if not file_doc or not file_doc.get('_id'):
+                    continue
+
+                fid = file_doc.get('_id')
+                # הימנע מכפילויות באותו id
+                sid = str(fid)
+                if sid in seen_ids:
+                    continue
+                seen_ids.add(sid)
+
+                code_str = (file_doc.get('code') or '') if isinstance(file_doc.get('code'), str) else ''
+                size_bytes = len(code_str.encode('utf-8')) if code_str else 0
+                lang = (file_doc.get('programming_language') or rdoc.get('language') or 'text')
+
+                results.append({
+                    'id': sid,
+                    'filename': str(file_doc.get('file_name') or file_name_hint or ''),
+                    'language': str(lang).lower(),
+                    'size': size_bytes,
+                    'accessed_at': (rdoc.get('last_opened_at') or datetime.now(timezone.utc)).isoformat(),
+                })
+            except Exception:
+                # שמור עמידות – דלג על מסמך בעייתי
+                continue
+
+        return jsonify(results)
+    except Exception as e:
+        try:
+            logger.exception("Error fetching recent files", extra={"error": str(e)})
+        except Exception:
+            pass
+        return jsonify({'error': 'Failed to fetch recent files'}), 500
+
 @app.route('/edit/<file_id>', methods=['GET', 'POST'])
 @login_required
 def edit_file_page(file_id):
