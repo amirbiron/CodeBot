@@ -11,7 +11,7 @@ If none are configured, alerts will still be emitted as structured events.
 from __future__ import annotations
 
 import os
-import requests
+from http_sync import request
 from typing import Any, Dict, List
 
 try:
@@ -42,7 +42,7 @@ def _post_to_slack(text: str) -> None:
     if not url:
         return
     try:
-        requests.post(url, json={"text": text}, timeout=5)
+        request('POST', url, json={"text": text}, timeout=5)
     except Exception:
         emit_event("alert_forward_slack_error", severity="warn")
 
@@ -55,7 +55,7 @@ def _post_to_telegram(text: str) -> None:
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
-        requests.post(api, json=payload, timeout=5)
+        request('POST', api, json=payload, timeout=5)
     except Exception:
         emit_event("alert_forward_telegram_error", severity="warn")
 
