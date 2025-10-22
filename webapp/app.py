@@ -122,7 +122,8 @@ app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
-\n+# Guards for first-request and DB init race conditions
+
+# Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
 # --- OpenTelemetry (optional, fail-open) ---
