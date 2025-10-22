@@ -34,11 +34,16 @@
 
 .. code-block:: bash
 
-   # הכל
-   pytest -q -m performance
+   # הכל (כולל כבדים שדורשים opt-in)
+   RUN_PERF=1 pytest -q -m performance
 
    # רק קלים
    ONLY_LIGHT_PERF=1 pytest -q -m performance
+
+הערות:
+
+- חלק מהטסטים הכבדים מוגדרים כ־opt‑in באמצעות ``RUN_PERF=1`` כדי למנוע ריצות ארוכות/רגישות כברירת מחדל מקומית.
+- ב‑CI ברירת המחדל של Job ה‑Performance מגדירה ``RUN_PERF=1`` כך שהכול ירוץ, ואילו במצב draft עם תווית ``perf-light`` ירוצו רק הקלים.
 
 CI / GitHub Actions
 -------------------

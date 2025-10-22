@@ -177,19 +177,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">משתני סביבה - רפרנס</a><ul>
@@ -202,7 +208,13 @@
 <li class="toctree-l1"><a class="reference internal" href="performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#projection">Projection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="performance-scaling.html#id2"></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -389,10 +401,15 @@
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -485,6 +502,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -1283,6 +1304,76 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">mongodb://localhost:27017</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_POOL_SIZE</span></code></p></td>
+<td><p>גודל בריכת חיבורים מקסימלי ל‑MongoDB (maxPoolSize)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">50</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">100</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_MIN_POOL_SIZE</span></code></p></td>
+<td><p>גודל בריכת חיבורים מינימלי ל‑MongoDB (minPoolSize)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_IDLE_TIME_MS</span></code></p></td>
+<td><p>זמן השהייה מקסימלי בחוסר שימוש (maxIdleTimeMS)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30000</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_WAIT_QUEUE_TIMEOUT_MS</span></code></p></td>
+<td><p>זמן המתנה בתור ה‑Pool לפני כישלון (waitQueueTimeoutMS)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5000</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_SERVER_SELECTION_TIMEOUT_MS</span></code></p></td>
+<td><p>זמן בחירת שרת (serverSelectionTimeoutMS)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">3000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5000</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_SOCKET_TIMEOUT_MS</span></code></p></td>
+<td><p>זמן קצוב לקריאת/כתיבת שקע (socketTimeoutMS)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">20000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30000</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_CONNECT_TIMEOUT_MS</span></code></p></td>
+<td><p>זמן קצוב להתחברות (connectTimeoutMS)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10000</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_RETRY_WRITES</span></code></p></td>
+<td><p>הפעלת Retry לכתיבות (retryWrites)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_RETRY_READS</span></code></p></td>
+<td><p>הפעלת Retry לקריאות (retryReads)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MONGODB_APPNAME</span></code></p></td>
+<td><p>שם אפליקציה לצורך Telemetry/Metadata ב‑MongoDB</p></td>
+<td><p>לא</p></td>
+<td><p>”“ (ריק)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">CodeBot</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DATABASE_NAME</span></code></p></td>
 <td><p>שם בסיס נתונים</p></td>
 <td><p>לא</p></td>
@@ -1442,19 +1533,103 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_ENABLED</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">SAFE_MODE</span></code></p></td>
+<td><p>מצב שמרני: מוריד ברירות מחדל של Timeouts לטובת יציבות בסביבות חלשות</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_ENABLED</span></code></p></td>
 <td><p>הפעלת קאש פנימי</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_CLEAR_BUDGET_SECONDS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_CLEAR_BUDGET_SECONDS</span></code></p></td>
 <td><p>תקציב זמן לניקוי קאש (מונע תקיעה ב-Redis)</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1</span></code> ל-<code class="docutils literal notranslate"><span class="pre">clear_stale</span></code>; <code class="docutils literal notranslate"><span class="pre">2</span></code> ל-<code class="docutils literal notranslate"><span class="pre">clear_all</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DISABLE_BACKGROUND_CLEANUP</span></code></p></td>
+<td><p>דילוג כולל על עבודות ניקוי רקע (קאש/גיבויים)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_MAINT_INTERVAL_SECS</span></code></p></td>
+<td><p>מרווח בין ריצות תחזוקת קאש (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">600</span></code> (מינימום 60)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">300</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_MAINT_FIRST_SECS</span></code></p></td>
+<td><p>דיליי לפני הרצת תחזוקת קאש הראשונה (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_MAINT_MAX_SCAN</span></code></p></td>
+<td><p>מספר מפתחות מקסימלי לסריקה ב-clear_stale</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5000</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CACHE_MAINT_TTL_THRESHOLD</span></code></p></td>
+<td><p>TTL (בשניות) מתחתיו ייחשב ”שבק״ לניקוי עדין</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">120</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BACKUPS_CLEANUP_ENABLED</span></code></p></td>
+<td><p>הפעלת ניקוי גיבויי ZIP ברקע</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code> (כבוי כברירת מחדל)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BACKUPS_CLEANUP_INTERVAL_SECS</span></code></p></td>
+<td><p>מרווח בין ריצות ניקוי גיבויים (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">86400</span></code> (מינימום 3600)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">43200</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BACKUPS_CLEANUP_FIRST_SECS</span></code></p></td>
+<td><p>דיליי לפני ריצת ניקוי גיבויים הראשונה (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">180</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BACKUPS_RETENTION_DAYS</span></code></p></td>
+<td><p>ימי שמירת ארכיבי גיבוי בדיסק/GridFS לפני מחיקה</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30</span></code> (מינימום 1)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">14</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">BACKUPS_MAX_PER_USER</span></code></p></td>
+<td><p>מספר גיבויים מקסימלי לשמירה לכל משתמש (מעבר יימחקו הוותיקים)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code> (ביטול מגבלה)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Bot</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">BACKUPS_CLEANUP_BUDGET_SECONDS</span></code></p></td>
+<td><p>תקציב זמן לניקוי גיבויים (מונע עומס)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">3</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p>Bot</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DISABLE_CACHE_MAINTENANCE</span></code></p></td>
 <td><p>דילוג על פעולות ניקוי קאש (לוג בלבד)</p></td>
@@ -1692,11 +1867,53 @@
 <td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REDIS_MAX_CONNECTIONS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">AIOHTTP_LIMIT_PER_HOST</span></code></p></td>
+<td><p>מגבלה פר‑Host לחיבורים במקביל (aiohttp TCPConnector)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code> (ללא מגבלה פר‑Host)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">25</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REDIS_MAX_CONNECTIONS</span></code></p></td>
 <td><p>גודל בריכת חיבורים ל‑Redis</p></td>
 <td><p>לא</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">50</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">200</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_CONNECTIONS</span></code></p></td>
+<td><p>מספר Connection Pools גלובליים ל‑requests (per host)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">20</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">20</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_MAXSIZE</span></code></p></td>
+<td><p>מקס׳ חיבורים בו‑זמנית בכל Pool (requests)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">100</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">100</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REQUESTS_TIMEOUT</span></code></p></td>
+<td><p>Timeout ברירת מחדל לבקשות סינכרוניות (requests)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">8</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">8</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRIES</span></code></p></td>
+<td><p>מספר ניסיונות Retry על סטטוסים זמניים (5xx)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p>Bot/WebApp</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRY_BACKOFF</span></code></p></td>
+<td><p>backoff_factor בין ניסיונות ה‑Retry (שניות)</p></td>
+<td><p>לא</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.2</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.2</span></code></p></td>
 <td><p>Bot/WebApp</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SEARCH_PAGE_SIZE</span></code></p></td>

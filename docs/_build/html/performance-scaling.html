@@ -177,19 +177,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -203,6 +209,9 @@
 <li class="toctree-l2"><a class="reference internal" href="#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -389,10 +398,15 @@
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -485,6 +499,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -1271,6 +1289,41 @@
 <li><p>בחרו אינדקסים תואמי עימוד (ראו <a class="reference internal" href="database/indexing.html"><span class="doc">MongoDB Indexing Cookbook</span></a>).</p></li>
 <li><p>הימנעו מ-<code class="docutils literal notranslate"><span class="pre">COLLSCAN</span></code> בדפים מאוחרים; הסלמה ל-cursor/אינדקס משולב.</p></li>
 <li><p>מדדו באמצעות Prometheus/Jaeger כדי לאתר צווארי בקבוק.</p></li>
+</ul>
+</section>
+<section id="connection-pooling-timeouts">
+<h2>כוונון Connection Pooling ו-Timeouts<a class="headerlink" href="#connection-pooling-timeouts" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>MongoDB:
+- התחילו מ-<code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_POOL_SIZE=100</span></code> ו-<code class="docutils literal notranslate"><span class="pre">MONGODB_MIN_POOL_SIZE=5</span></code>.
+- <code class="docutils literal notranslate"><span class="pre">MONGODB_WAIT_QUEUE_TIMEOUT_MS=5000</span></code> כדי למנוע המתנות ארוכות.
+- עקבו אחרי <code class="docutils literal notranslate"><span class="pre">connPoolStats</span></code> וטעינת שרת DB.</p></li>
+<li><p>Redis:
+- <code class="docutils literal notranslate"><span class="pre">REDIS_MAX_CONNECTIONS=50~200</span></code> לפי עומס. השאירו <code class="docutils literal notranslate"><span class="pre">health_check_interval=30</span></code> (בקוד).
+- <code class="docutils literal notranslate"><span class="pre">REDIS_CONNECT_TIMEOUT</span></code>/<code class="docutils literal notranslate"><span class="pre">REDIS_SOCKET_TIMEOUT</span></code> שמרניים. ב-<code class="docutils literal notranslate"><span class="pre">SAFE_MODE</span></code> ברירות מחדל נמוכות יותר.</p></li>
+<li><p>HTTP Async (aiohttp):
+- <code class="docutils literal notranslate"><span class="pre">AIOHTTP_POOL_LIMIT=50~100</span></code> ו-<code class="docutils literal notranslate"><span class="pre">AIOHTTP_LIMIT_PER_HOST=25</span></code>.
+- <code class="docutils literal notranslate"><span class="pre">AIOHTTP_TIMEOUT_TOTAL=12~15</span></code> לייצוב תחת עומס.</p></li>
+<li><p>HTTP Sync (requests via http_sync):
+- <code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_CONNECTIONS=20</span></code> ו-<code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_MAXSIZE=100</span></code>.
+- <code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRIES=2</span></code> עם <code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRY_BACKOFF=0.2</span></code>.</p></li>
+</ul>
+</section>
+<section id="env">
+<h2>בדיקות מהירות אחרי שינוי ENV<a class="headerlink" href="#env" title="Link to this heading"></a></h2>
+<p>בדקו לוגים ומדדים לאחר עדכון ערכי Pool/Timeout:</p>
+<ul class="simple">
+<li><p>MongoDB: עלייה ב-<code class="docutils literal notranslate"><span class="pre">waitQueueTimeout</span></code>, <code class="docutils literal notranslate"><span class="pre">serverSelectionTimeout</span></code> → הגדילו <code class="docutils literal notranslate"><span class="pre">MAX_POOL_SIZE</span></code> או בדקו אינדקסים.</p></li>
+<li><p>Redis: <code class="docutils literal notranslate"><span class="pre">connected_clients</span></code>, <code class="docutils literal notranslate"><span class="pre">latency</span></code>. אם יש Timeouts – הקטינו עומס או הגדילו Pool.</p></li>
+<li><p>HTTP: יחס 5xx/429 ו-Latency. ודאו שימוש ב-Session משותף (aiohttp/requests) לשימור Keep‑Alive.</p></li>
+</ul>
+</section>
+<section id="id2">
+<h2>הנחיות לפי סביבה<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Dev: ערכים נמוכים לשמירת משאבים מקומיים.</p></li>
+<li><p>Staging: קרוב לפרוד עם Monitoring מודגש.</p></li>
+<li><p>Production: התאם לערכי עומס אמיתי; הגדל בהדרגה וצפה במדדים.</p></li>
 </ul>
 </section>
 </section>
