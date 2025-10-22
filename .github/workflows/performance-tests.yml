@@ -6,19 +6,6 @@ on:
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch:
-    inputs:
-      base_url:
-        description: "Optional base URL for simple HTTP load test (e.g., http://host:port)"
-        required: false
-        default: ""
-      users:
-        description: "Concurrent users for load test"
-        required: false
-        default: "20"
-      per_user:
-        description: "Requests per user for load test"
-        required: false
-        default: "20"
 
 permissions:
   contents: read
