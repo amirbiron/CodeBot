@@ -3,8 +3,8 @@ import importlib
 import asyncio
 
 
-def test_cache_maintenance_job_schedules_and_emits(monkeypatch):
-    # Shim observability (collect events)
+def test_cache_maintenance_job_skips_when_disabled(monkeypatch):
+    # Observability capture
     captured = {"evts": []}
     fake_obs = types.SimpleNamespace(
         setup_structlog_logging=lambda *_a, **_k: None,
@@ -15,16 +15,18 @@ def test_cache_maintenance_job_schedules_and_emits(monkeypatch):
     )
     monkeypatch.setitem(importlib.sys.modules, "observability", fake_obs)
 
-    # Fake cache that tracks calls to clear_stale
+    # Ensure background cleanup disabled
+    monkeypatch.setenv('DISABLE_BACKGROUND_CLEANUP', 'true')
+
+    # Fake cache; if job would run it increments
     called = {"n": 0}
-    fake_cache = types.SimpleNamespace(clear_stale=lambda **_k: (called.__setitem__('n', called['n'] + 1) or 2))
+    fake_cache = types.SimpleNamespace(clear_stale=lambda **_k: (called.__setitem__('n', called['n'] + 1) or 1))
     monkeypatch.setitem(importlib.sys.modules, "cache_manager", types.SimpleNamespace(cache=fake_cache))
 
     import main as m
 
     class _JobQ:
         def run_repeating(self, fn, interval, first, name=None):  # noqa: ARG002
-            # Trigger once immediately
             asyncio.get_event_loop().run_until_complete(fn(None))
 
     class _Bot:
@@ -39,12 +41,7 @@ def test_cache_maintenance_job_schedules_and_emits(monkeypatch):
 
     app = _App()
 
-    # Ensure background cleanup not disabled
-    monkeypatch.delenv('DISABLE_BACKGROUND_CLEANUP', raising=False)
-
     asyncio.get_event_loop().run_until_complete(m.setup_bot_data(app))
 
-    # The cache job should have run once and emitted a done or error event
-    assert called['n'] >= 1
-    evts = [e[0] for e in captured['evts']]
-    assert any(evt in {"cache_maintenance_done", "cache_maintenance_error"} for evt in evts)
+    # Because DISABLE_BACKGROUND_CLEANUP=true, job body should early return and not call clear_stale
+    assert called['n'] == 0
