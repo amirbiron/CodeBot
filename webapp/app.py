@@ -4174,6 +4174,17 @@ def health():
     
     return jsonify(health_data)
 
+
+@app.route('/api/cache/stats', methods=['GET'])
+@login_required
+def api_cache_stats():
+    """החזרת סטטיסטיקות Redis/Cache למטרות ניטור (מאובטח למשתמש מחובר)."""
+    try:
+        stats = cache.get_stats()
+        return jsonify(stats)
+    except Exception:
+        return jsonify({"enabled": False, "error": "unavailable"}), 200
+
 # API: הפעלת/ביטול חיבור קבוע
 @app.route('/api/persistent_login', methods=['POST'])
 @login_required
