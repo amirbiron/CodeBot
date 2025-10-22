@@ -65,26 +65,28 @@ jobs:
         with:
           scan-type: fs
           ignore-unfixed: true
-          format: 'table'
+          format: 'json'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
           scanners: 'vuln,secret,config'
-          output: trivy-fs.txt
+          output: trivy-fs.json
         continue-on-error: true
 
       - name: "🛠️ Build app image (production)"
+        if: github.event_name != 'pull_request'
         run: |
           docker build --pull --no-cache -t app:scan --target production .
 
       - name: "🧪 Trivy Image scan (app:scan)"
+        if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: 'app:scan'
           ignore-unfixed: true
-          format: 'table'
+          format: 'json'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
-          output: trivy-image.txt
+          output: trivy-image.json
         continue-on-error: true
 
       
@@ -103,6 +105,16 @@ jobs:
           path: pip-audit.json
           if-no-files-found: ignore
 
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-reports
+          path: |
+            trivy-fs.json
+            trivy-image.json
+          if-no-files-found: ignore
+
       - name: "📣 Post scan summary as Issue (main, scheduled/manual only)"
         id: scan_summary
         uses: actions/github-script@v7
@@ -114,12 +126,34 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const link = `https://github.com/${owner}/${repo}/security/code-scanning`;
-            // Attach trivy summaries if present
             const fs = require('fs');
-            let trivyFs = '';
-            let trivyImg = '';
-            try { trivyFs = fs.readFileSync('trivy-fs.txt', 'utf8'); } catch(e) {}
-            try { trivyImg = fs.readFileSync('trivy-image.txt', 'utf8'); } catch(e) {}
+            // Parse Trivy JSONs to summarize severities
+            function summarizeTrivy(jsonStr) {
+              const counts = { Critical: 0, High: 0, Medium: 0, Low: 0, Unknown: 0 };
+              if (!jsonStr) return counts;
+              try {
+                const data = JSON.parse(jsonStr);
+                const results = Array.isArray(data.Results) ? data.Results : [];
+                for (const res of results) {
+                  const vulns = Array.isArray(res.Vulnerabilities) ? res.Vulnerabilities : [];
+                  for (const v of vulns) {
+                    const sev = String(v.Severity || '').toLowerCase();
+                    if (sev === 'critical') counts.Critical += 1;
+                    else if (sev === 'high') counts.High += 1;
+                    else if (sev === 'medium') counts.Medium += 1;
+                    else if (sev === 'low') counts.Low += 1;
+                    else counts.Unknown += 1;
+                  }
+                }
+              } catch (e) {
+                // ignore parse errors
+              }
+              return counts;
+            }
+            let fsCounts = { Critical: 0, High: 0, Medium: 0, Low: 0, Unknown: 0 };
+            let imgCounts = { Critical: 0, High: 0, Medium: 0, Low: 0, Unknown: 0 };
+            try { fsCounts = summarizeTrivy(fs.readFileSync('trivy-fs.json', 'utf8')); } catch(e) {}
+            try { imgCounts = summarizeTrivy(fs.readFileSync('trivy-image.json', 'utf8')); } catch(e) {}
             let alerts = [];
             let mdBody = '';
             let htmlBody = '';
@@ -157,7 +191,7 @@ jobs:
                 `\nDefault branch: ${defaultBranch || '—'}`,
                 commitUrl ? `\nLatest commit: [${commitSha}](${commitUrl}) by @${commitAuthor} on ${commitDate} — ${commitMsg}` : `\nLatest commit: ${commitSha} by @${commitAuthor} on ${commitDate} — ${commitMsg}`,
                 `\n\nLink: [Code Scanning](${link})`,
-                `\n\nOpen alerts summary:`,
+                `\n\nOpen alerts summary (CodeQL):`,
                 `\n- Critical: ${sevCounts.critical}`,
                 `\n- High: ${sevCounts.high}`,
                 `\n- Medium: ${sevCounts.medium}`,
@@ -166,9 +200,20 @@ jobs:
                 `\n- Error: ${sevCounts.error}`,
                 `\n- Note: ${sevCounts.note}`,
                 `\n- Unknown: ${sevCounts.unknown}`,
-                `\n\nTotal: ${total}`,
-                trivyFs ? `\n\n<details><summary>Trivy FS (CRITICAL/HIGH)</summary>\n\n\n\n\n\n${'```'}\n${trivyFs}\n${'```'}\n</details>` : '',
-                trivyImg ? `\n\n<details><summary>Trivy Image python:3.11-alpine (CRITICAL/HIGH)</summary>\n\n${'```'}\n${trivyImg}\n${'```'}\n</details>` : ''
+                `\n\nTotal (CodeQL alerts): ${total}`,
+                `\n\nTrivy FS vuln summary (repo):`,
+                `\n- Critical: ${fsCounts.Critical}`,
+                `\n- High: ${fsCounts.High}`,
+                `\n- Medium: ${fsCounts.Medium}`,
+                `\n- Low: ${fsCounts.Low}`,
+                `\n- Unknown: ${fsCounts.Unknown}`,
+                `\n\nTrivy Image vuln summary (app:scan):`,
+                `\n- Critical: ${imgCounts.Critical}`,
+                `\n- High: ${imgCounts.High}`,
+                `\n- Medium: ${imgCounts.Medium}`,
+                `\n- Low: ${imgCounts.Low}`,
+                `\n- Unknown: ${imgCounts.Unknown}`,
+                `\n\n(Full JSON reports are uploaded as workflow artifacts: trivy-reports)`
               ].join('');
 
               htmlBody = [
@@ -177,7 +222,7 @@ jobs:
                 `<br/>Default branch: <code>${defaultBranch || '—'}</code>`,
                 latestCommit ? `<br/>Latest commit: <a href="${commitUrl}"><code>${commitSha}</code></a> by <b>@${commitAuthor}</b> on ${commitDate} — ${commitMsg}` : '',
                 `<br/><br/>Link: <a href="${link}">Code Scanning</a>`,
-                `<br/><br/><b>Open alerts summary:</b>`,
+                `<br/><br/><b>Open alerts summary (CodeQL):</b>`,
                 `<br/>• Critical: ${sevCounts.critical}`,
                 `<br/>• High: ${sevCounts.high}`,
                 `<br/>• Medium: ${sevCounts.medium}`,
@@ -186,7 +231,20 @@ jobs:
                 `<br/>• Error: ${sevCounts.error}`,
                 `<br/>• Note: ${sevCounts.note}`,
                 `<br/>• Unknown: ${sevCounts.unknown}`,
-                `<br/><br/>Total: <b>${total}</b>`
+                `<br/><br/>Total (CodeQL alerts): <b>${total}</b>`,
+                `<br/><br/><b>Trivy FS vuln summary (repo):</b>`,
+                `<br/>• Critical: ${fsCounts.Critical}`,
+                `<br/>• High: ${fsCounts.High}`,
+                `<br/>• Medium: ${fsCounts.Medium}`,
+                `<br/>• Low: ${fsCounts.Low}`,
+                `<br/>• Unknown: ${fsCounts.Unknown}`,
+                `<br/><br/><b>Trivy Image vuln summary (app:scan):</b>`,
+                `<br/>• Critical: ${imgCounts.Critical}`,
+                `<br/>• High: ${imgCounts.High}`,
+                `<br/>• Medium: ${imgCounts.Medium}`,
+                `<br/>• Low: ${imgCounts.Low}`,
+                `<br/>• Unknown: ${imgCounts.Unknown}`,
+                `<br/><br/>(Full JSON reports are uploaded as artifacts: trivy-reports)`
               ].join('');
             } catch (err) {
               core.warning(`Failed to fetch Code Scanning alerts: ${err.message}`);
