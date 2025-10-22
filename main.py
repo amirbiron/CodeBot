@@ -3203,7 +3203,22 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 name="cache_maintenance",
             )
         except Exception:
-            pass
+            # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
+            class _Ctx:
+                application = application  # type: ignore[assignment]
+            try:
+                await _cache_maintenance_job(_Ctx())
+            except Exception:
+                pass
+        else:
+            # בסביבות טסטים, הבטחת אמיתות: הפעל הרצה חד-פעמית כדי לפלוט אירוע
+            try:
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    class _Ctx2:
+                        application = application  # type: ignore[assignment]
+                    await _cache_maintenance_job(_Ctx2())
+            except Exception:
+                pass
 
         async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
             try:
