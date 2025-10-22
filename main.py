@@ -3257,9 +3257,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         except Exception:
             # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
             class _Ctx:
-                application = application  # type: ignore[assignment]
+                def __init__(self, app):
+                    self.application = app
             try:
-                await _cache_maintenance_job(_Ctx())
+                await _cache_maintenance_job(_Ctx(application))
             except Exception:
                 pass
         # הערה: לא נפעיל הרצה כפולה כאשר התזמון מצליח
@@ -3341,9 +3342,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     # בסביבות מוגבלות (כמו טסטים) התזמון עשוי להכשל — נריץ פעם אחת מידית
                     class _Ctx:
                         # הקוד לא מסתמך על context, אך נשמור על חתימה תואמת
-                        application = application  # type: ignore[assignment]
+                        def __init__(self, app):
+                            self.application = app
                     try:
-                        await _backups_cleanup_job(_Ctx())
+                        await _backups_cleanup_job(_Ctx(application))
                     except Exception:
                         pass
                 else:
@@ -3351,8 +3353,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     try:
                         if os.getenv("PYTEST_CURRENT_TEST"):
                             class _Ctx2:
-                                application = application  # type: ignore[assignment]
-                            await _backups_cleanup_job(_Ctx2())
+                                def __init__(self, app):
+                                    self.application = app
+                            await _backups_cleanup_job(_Ctx2(application))
                     except Exception:
                         pass
             else:
