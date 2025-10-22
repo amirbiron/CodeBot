@@ -14,7 +14,7 @@ This module is intentionally best-effort and fail-open. It should never raise.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple, Protocol, runtime_checkable, cast
 from collections import deque
 from datetime import datetime, timezone, timedelta
 import json
@@ -56,11 +56,17 @@ except Exception:
     _predicted_ctr = None  # type: ignore
     _actual_ctr = None  # type: ignore
 
-# Optional cache manager for preemptive actions
+@runtime_checkable
+class _CacheLike(Protocol):
+    def clear_stale(self, max_scan: int = 1000, ttl_seconds_threshold: int = 60) -> int: ...
+    def clear_all(self) -> int: ...
+
+# Optional cache manager for preemptive actions (typed via Protocol)
 try:
-    from cache_manager import cache as _cache  # type: ignore
+    from cache_manager import cache as _cache_instance
+    _cache: Optional[_CacheLike] = cast("Optional[_CacheLike]", _cache_instance)
 except Exception:  # pragma: no cover
-    _cache = None  # type: ignore
+    _cache = None
 
 _DATA_DIR = os.path.join("data")
 _PREDICTIONS_FILE = os.path.join(_DATA_DIR, "predictions_log.json")
@@ -474,7 +480,7 @@ def _trigger_preemptive_action(tr: Trend) -> None:
                 if _cache is not None and hasattr(_cache, "clear_stale"):
                     deleted = int(_cache.clear_stale() or 0)
                 elif _cache is not None and hasattr(_cache, "clear_all"):
-                    deleted = int(_cache.clear_all() or 0)  # type: ignore[attr-defined]
+                    deleted = int(_cache.clear_all() or 0)
                 else:
                     deleted = 0
             except Exception:
