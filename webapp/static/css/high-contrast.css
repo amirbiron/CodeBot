@@ -1,0 +1,112 @@
+/* High Contrast Mode – overrides scoped by data-theme="high-contrast" */
+
+:root[data-theme="high-contrast"] {
+  /* Force solid black background across gradients */
+  --primary: #000000;
+  --secondary: #000000;
+  --glass: rgba(255, 255, 255, 0.02);
+  --glass-border: #ffffff;
+}
+
+/* Base */
+[data-theme="high-contrast"] body {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="high-contrast"] a {
+  color: #ffff00 !important;
+  text-decoration: underline !important;
+}
+
+[data-theme="high-contrast"] a:hover,
+[data-theme="high-contrast"] a:focus {
+  color: #ffcc00 !important;
+}
+
+/* Strong focus outline */
+[data-theme="high-contrast"] *:focus {
+  outline: 3px solid #ffff00 !important;
+  outline-offset: 2px;
+}
+
+/* Borders and containers */
+[data-theme="high-contrast"] .navbar {
+  background: #000000 !important;
+  border-bottom: 2px solid #ffffff !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+[data-theme="high-contrast"] .glass-card,
+[data-theme="high-contrast"] .quick-access-dropdown,
+[data-theme="high-contrast"] .recent-files-modal .modal-content,
+[data-theme="high-contrast"] .filter-select,
+[data-theme="high-contrast"] .source,
+[data-theme="high-contrast"] .alert,
+[data-theme="high-contrast"] .badge {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffffff !important;
+  box-shadow: none !important;
+}
+
+[data-theme="high-contrast"] .quick-access-item {
+  color: #ffffff !important;
+}
+[data-theme="high-contrast"] .quick-access-item:hover {
+  background: #222222 !important;
+  color: #ffff00 !important;
+}
+
+/* Buttons and inputs */
+[data-theme="high-contrast"] button,
+[data-theme="high-contrast"] input,
+[data-theme="high-contrast"] textarea,
+[data-theme="high-contrast"] select {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffffff !important;
+}
+
+[data-theme="high-contrast"] .btn-primary {
+  background-color: #000000 !important;
+  color: #ffff00 !important;
+}
+
+[data-theme="high-contrast"] .btn-secondary {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+/* Selection */
+[data-theme="high-contrast"] ::selection {
+  background: #ffff00;
+  color: #000000;
+}
+
+/* CodeMirror (v6) */
+[data-theme="high-contrast"] .cm-editor {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+[data-theme="high-contrast"] .cm-content ::selection { background: #ffff00; color: #000000; }
+[data-theme="high-contrast"] .cm-line { caret-color: #ffff00; }
+[data-theme="high-contrast"] .cm-gutters { background-color: #000000 !important; color: #ffffff !important; border-right: 2px solid #ffffff !important; }
+[data-theme="high-contrast"] .cm-activeLine { background-color: #1a1a1a !important; }
+
+/* Code tokens */
+[data-theme="high-contrast"] .cm-keyword { color: #ff00ff !important; font-weight: bold; }
+[data-theme="high-contrast"] .cm-string { color: #00ff00 !important; }
+[data-theme="high-contrast"] .cm-comment { color: #00ffff !important; font-style: italic; }
+[data-theme="high-contrast"] .cm-number { color: #ffff00 !important; }
+[data-theme="high-contrast"] .cm-function { color: #ff9900 !important; font-weight: bold; }
+[data-theme="high-contrast"] .cm-variable { color: #ffffff !important; }
+[data-theme="high-contrast"] .cm-error { background-color: #ff0000 !important; color: #000000 !important; text-decoration: underline wavy; }
+
+/* Modal close button and misc */
+[data-theme="high-contrast"] .recent-files-modal .modal-header { border-bottom: 2px solid #ffffff !important; }
+
+/* Scrollbar */
+[data-theme="high-contrast"] ::-webkit-scrollbar-track { background: #000000 !important; }
+[data-theme="high-contrast"] ::-webkit-scrollbar-thumb { background: #888888 !important; }

@@ -510,7 +510,7 @@ def inject_globals():
                 pass
     except Exception:
         pass
-    if theme not in {'classic','ocean','forest'}:
+    if theme not in {'classic','ocean','forest','high-contrast'}:
         theme = 'classic'
     # SRI map (optional): only set if provided via env to avoid mismatches
     sri_map = {}
@@ -4550,7 +4550,7 @@ def api_ui_prefs():
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
-    - theme: אחד מ-{"classic","ocean","forest"} (אופציונלי)
+    - theme: אחד מ-{"classic","ocean","forest","high-contrast"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     """
     try:
@@ -4583,7 +4583,7 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in {'classic', 'ocean', 'forest'}:
+            if theme in {'classic', 'ocean', 'forest', 'high-contrast'}:
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
