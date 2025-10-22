@@ -170,6 +170,48 @@ http_request_duration_seconds = (
     else None
 )
 
+# --- Startup / cold-start metrics ---
+# Capture process boot monotonic timestamp as early as metrics import occurs.
+_BOOT_T0_MONOTONIC: float = _time.perf_counter()
+
+app_startup_seconds = (
+    Gauge(
+        "app_startup_seconds",
+        "Application startup duration (seconds) from process boot to ready",
+    )
+    if Gauge
+    else None
+)
+
+first_request_latency_seconds = (
+    Gauge(
+        "first_request_latency_seconds",
+        "Latency (seconds) from process boot to first completed HTTP request",
+    )
+    if Gauge
+    else None
+)
+
+startup_completed = (
+    Gauge(
+        "startup_completed",
+        "1 if application finished startup/preload, else 0",
+    )
+    if Gauge
+    else None
+)
+
+# Dependency initialization timing (e.g., mongodb, redis, templates)
+dependency_init_seconds = (
+    Histogram(
+        "dependency_init_seconds",
+        "Initialization time for external/internal dependencies",
+        ["dependency"],
+    )
+    if Histogram
+    else None
+)
+
 # In-memory assistance structures (fail-open, best-effort)
 _ACTIVE_USERS: set[int] = set()
 _EWMA_ALPHA: float = float(os.getenv("METRICS_EWMA_ALPHA", "0.2"))
@@ -334,6 +376,54 @@ def record_http_request(
                 http_request_duration_seconds.labels(m, ep).observe(max(0.0, float(duration_seconds)))
             except Exception:
                 pass
+    except Exception:
+        return
+
+
+# --- Startup helpers ---
+def get_boot_monotonic() -> float:
+    """Return the process boot monotonic timestamp captured by metrics import."""
+    return float(_BOOT_T0_MONOTONIC)
+
+
+def mark_startup_complete() -> None:
+    """Mark startup as complete and set app_startup_seconds/startup_completed gauges.
+
+    Safe no-op if metrics are unavailable.
+    """
+    try:
+        if app_startup_seconds is not None:
+            try:
+                app_startup_seconds.set(max(0.0, float(_time.perf_counter() - _BOOT_T0_MONOTONIC)))
+            except Exception:
+                pass
+        if startup_completed is not None:
+            try:
+                startup_completed.set(1.0)
+            except Exception:
+                pass
+    except Exception:
+        return
+
+
+def note_first_request_latency(duration_seconds: float | None = None) -> None:
+    """Record the latency from process boot to first completed HTTP request.
+
+    If duration_seconds is None, compute against get_boot_monotonic().
+    """
+    try:
+        value = float(duration_seconds) if duration_seconds is not None else float(_time.perf_counter() - _BOOT_T0_MONOTONIC)
+        if first_request_latency_seconds is not None:
+            first_request_latency_seconds.set(max(0.0, value))
+    except Exception:
+        return
+
+
+def record_dependency_init(dependency: str, duration_seconds: float) -> None:
+    """Observe initialization time for a named dependency (Histogram)."""
+    try:
+        if dependency_init_seconds is not None:
+            dependency_init_seconds.labels(str(dependency)).observe(max(0.0, float(duration_seconds)))
     except Exception:
         return
 
