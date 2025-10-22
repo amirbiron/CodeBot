@@ -11,7 +11,7 @@ from functools import wraps
 from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast
 import random
 try:
-    import redis  # type: ignore
+    import redis
 except Exception:  # redis אינו חובה – נריץ במצב מושבת אם חסר
     redis = None
 import asyncio
@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 # מטריקות Prometheus (best-effort) — רישום חסין כפילויות
 try:  # pragma: no cover
-    from prometheus_client import Counter, Histogram, REGISTRY  # type: ignore
+    from prometheus_client import Counter, Histogram, REGISTRY
 except Exception:  # pragma: no cover
-    Counter = Histogram = REGISTRY = None  # type: ignore
+    Counter = Histogram = REGISTRY = None
 
 
 def _ensure_metric(name: str, create_fn):
@@ -40,7 +40,7 @@ def _ensure_metric(name: str, create_fn):
 
     try:
         # שימוש ב-API פנימי אך יציב יחסית כדי לאתר קולקטור קיים
-        existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)  # type: ignore[attr-defined]
+        existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
         if existing is not None:
             return existing
     except Exception:
@@ -52,7 +52,7 @@ def _ensure_metric(name: str, create_fn):
     except Exception:
         # במקרה של ValueError: Duplicated timeseries... נחפש ונחזיר את הקיים
         try:
-            return getattr(REGISTRY, "_names_to_collectors", {}).get(name)  # type: ignore[attr-defined]
+            return getattr(REGISTRY, "_names_to_collectors", {}).get(name)
         except Exception:
             return None
 
@@ -193,9 +193,9 @@ class CacheManager:
                 return
             # קונפיג דרך pydantic אם זמין, אחרת ENV ישיר – לשמירת תאימות
             try:
-                from config import config as _cfg  # type: ignore
+                from config import config as _cfg
             except Exception:
-                _cfg = None  # type: ignore
+                _cfg = None
 
             redis_url = (getattr(_cfg, 'REDIS_URL', None) if _cfg is not None else None) or os.getenv('REDIS_URL')
             if not redis_url or redis_url.strip() == "" or redis_url.startswith("disabled"):
@@ -271,7 +271,7 @@ class CacheManager:
             return None
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="get", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="get", backend=backend).time() if cache_op_duration_seconds else None
         try:
             value = self.redis_client.get(key)
             if value:
@@ -296,7 +296,7 @@ class CacheManager:
             return False
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="set", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="set", backend=backend).time() if cache_op_duration_seconds else None
         try:
             serialized = json.dumps(value, default=str, ensure_ascii=False)
             # תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire
@@ -371,103 +371,13 @@ class CacheManager:
                 pass
         return fresh_value
 
-
-# ===================== Flask dynamic cache decorator =====================
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """דקורטור ל-caching דינמי ל-Flask endpoints.
-
-    - בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים
-    - שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד
-    - Fail-open: לעולם לא מפיל endpoint על בעיות קאש
-    """
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
-        @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            try:
-                # ייבוא מאוחר כדי להימנע מתלות פלצ'ית בזמן import מודולרי/טסטים
-                try:
-                    from flask import request, session, jsonify  # type: ignore
-                except Exception:  # pragma: no cover
-                    request = None  # type: ignore
-                    session = {}  # type: ignore
-                    def jsonify(x):  # type: ignore
-                        return x
-
-                # זיהוי משתמש וקונטקסט בסיסי
-                uid = None
-                try:
-                    uid = session.get('user_id') if hasattr(session, 'get') else None
-                except Exception:
-                    uid = None
-                try:
-                    user_tier = (session.get('user_tier') or 'regular') if hasattr(session, 'get') else 'regular'
-                except Exception:
-                    user_tier = 'regular'
-
-                # מפתח קאש: prefix/שם פונקציה + user + path + query
-                prefix = key_prefix if key_prefix else getattr(func, "__name__", "endpoint")
-                req_path = getattr(request, 'path', '') if request is not None else ''
-                try:
-                    q = request.query_string.decode(errors='ignore') if request is not None else ''
-                except Exception:
-                    q = ''
-                cache_key = build_cache_key(prefix, str(uid or 'anonymous'), req_path, q)
-
-                # ניסיון שליפה מהקאש
-                cached_value = cache.get(cache_key)
-                if cached_value is not None:
-                    if isinstance(cached_value, dict):
-                        return cast(R, jsonify(cached_value))
-                    return cast(R, cached_value)
-
-                # חישוב התוצאה
-                result = func(*args, **kwargs)
-
-                # אם זו תגובת Flask עם JSON — שמור רק את ה-data
-                try:
-                    if hasattr(result, 'get_json'):
-                        data = result.get_json(silent=True)
-                        if data is not None:
-                            cache.set_dynamic(cache_key, data, content_type, {
-                                'user_id': uid,
-                                'user_tier': user_tier,
-                                'endpoint': getattr(func, '__name__', ''),
-                            })
-                            return result
-                except Exception:
-                    pass
-
-                # שמירה של טיפוסים serializable נפוצים
-                if isinstance(result, (dict, list, str, int, float, bool)):
-                    try:
-                        cache.set_dynamic(cache_key, result, content_type, {
-                            'user_id': uid,
-                            'user_tier': user_tier,
-                            'endpoint': getattr(func, '__name__', ''),
-                        })
-                    except Exception:
-                        pass
-
-                return result
-            except Exception:
-                # Fail-open על כל תקלה במנגנון הקאש
-                return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-    
     def delete(self, key: str) -> bool:
         """מחיקת ערך מה-cache"""
         if not self.is_enabled:
             return False
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="delete", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="delete", backend=backend).time() if cache_op_duration_seconds else None
         try:
             return bool(self.redis_client.delete(key))
         except Exception as e:
@@ -479,14 +389,14 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
                     timer_ctx()
             except Exception:
                 pass
-    
+
     def delete_pattern(self, pattern: str) -> int:
         """מחיקת כל המפתחות שמתאימים לתבנית"""
         if not self.is_enabled:
             return 0
 
         backend = "redis"
-        timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None  # type: ignore
+        timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None
         try:
             keys = self.redis_client.keys(pattern)
             if keys:
@@ -501,8 +411,8 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
                     timer_ctx()
             except Exception:
                 pass
-    
-    def invalidate_user_cache(self, user_id: int):
+
+    def invalidate_user_cache(self, user_id: int) -> int:
         """מחיקת כל ה-cache של משתמש ספציפי"""
         # התאמה רחבה יותר למפתחות כפי שהם נוצרים כיום ב-_make_key
         # המפתחות נראים כך: "<prefix>:<func_name>:<self>:<user_id>:..."
@@ -645,12 +555,12 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
             logger.warning(f"clear_stale failed: {e}")
         logger.info(f"ניקוי cache עדין (stale): נסרקו {scanned} / נמחקו {deleted}")
         return deleted
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """סטטיסטיקות cache"""
         if not self.is_enabled:
             return {"enabled": False}
-            
+
         try:
             info = self.redis_client.info()
             return {
@@ -660,14 +570,104 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
                 "keyspace_hits": info.get('keyspace_hits', 0),
                 "keyspace_misses": info.get('keyspace_misses', 0),
                 "hit_rate": round(
-                    info.get('keyspace_hits', 0) / 
-                    max(info.get('keyspace_hits', 0) + info.get('keyspace_misses', 0), 1) * 100, 
+                    info.get('keyspace_hits', 0) /
+                    max(info.get('keyspace_hits', 0) + info.get('keyspace_misses', 0), 1) * 100,
                     2
                 )
             }
         except Exception as e:
             logger.error(f"שגיאה בקבלת סטטיסטיקות cache: {e}")
             return {"enabled": True, "error": str(e)}
+
+
+# ===================== Flask dynamic cache decorator =====================
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """דקורטור ל-caching דינמי ל-Flask endpoints.
+
+    - בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים
+    - שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד
+    - Fail-open: לעולם לא מפיל endpoint על בעיות קאש
+    """
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                # ייבוא מאוחר כדי להימנע מתלות פלצ'ית בזמן import מודולרי/טסטים
+                try:
+                    from flask import request, session, jsonify
+                except Exception:  # pragma: no cover
+                    request = None
+                    session = {}
+                    def jsonify(x):
+                        return x
+
+                # זיהוי משתמש וקונטקסט בסיסי
+                uid = None
+                try:
+                    uid = session.get('user_id') if hasattr(session, 'get') else None
+                except Exception:
+                    uid = None
+                try:
+                    user_tier = (session.get('user_tier') or 'regular') if hasattr(session, 'get') else 'regular'
+                except Exception:
+                    user_tier = 'regular'
+
+                # מפתח קאש: prefix/שם פונקציה + user + path + query
+                prefix = key_prefix if key_prefix else getattr(func, "__name__", "endpoint")
+                req_path = getattr(request, 'path', '') if request is not None else ''
+                try:
+                    q = request.query_string.decode(errors='ignore') if request is not None else ''
+                except Exception:
+                    q = ''
+                cache_key = build_cache_key(prefix, str(uid or 'anonymous'), req_path, q)
+
+                # ניסיון שליפה מהקאש
+                cached_value = cache.get(cache_key)
+                if cached_value is not None:
+                    if isinstance(cached_value, dict):
+                        return cast(R, jsonify(cached_value))
+                    return cast(R, cached_value)
+
+                # חישוב התוצאה
+                result = func(*args, **kwargs)
+
+                # אם זו תגובת Flask עם JSON — שמור רק את ה-data
+                try:
+                    if hasattr(result, 'get_json'):
+                        data = result.get_json(silent=True)
+                        if data is not None:
+                            cache.set_dynamic(cache_key, data, content_type, {
+                                'user_id': uid,
+                                'user_tier': user_tier,
+                                'endpoint': getattr(func, '__name__', ''),
+                            })
+                            return result
+                except Exception:
+                    pass
+
+                # שמירה של טיפוסים serializable נפוצים
+                if isinstance(result, (dict, list, str, int, float, bool)):
+                    try:
+                        cache.set_dynamic(cache_key, result, content_type, {
+                            'user_id': uid,
+                            'user_tier': user_tier,
+                            'endpoint': getattr(func, '__name__', ''),
+                        })
+                    except Exception:
+                        pass
+
+                return result
+            except Exception:
+                # Fail-open על כל תקלה במנגנון הקאש
+                return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 # יצירת instance גלובלי
 cache = CacheManager()

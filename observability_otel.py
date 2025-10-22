@@ -56,20 +56,20 @@ def setup_telemetry(
 
     # Import inside the function to keep the dependency optional
     try:
-        from opentelemetry import trace, metrics  # type: ignore
-        from opentelemetry.sdk.trace import TracerProvider  # type: ignore
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore
-        from opentelemetry.sdk.resources import Resource  # type: ignore
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore
+        from opentelemetry import trace, metrics
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter,
         )
         # Metrics are optional; configure provider if exporter is available
         try:
-            from opentelemetry.sdk.metrics import MeterProvider  # type: ignore
-            from opentelemetry.sdk.metrics.export import (  # type: ignore
+            from opentelemetry.sdk.metrics import MeterProvider
+            from opentelemetry.sdk.metrics.export import (
                 PeriodicExportingMetricReader,
             )
-            from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (  # type: ignore
+            from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
                 OTLPMetricExporter,
             )
             _METRICS_AVAILABLE = True
@@ -78,23 +78,23 @@ def setup_telemetry(
 
         # Instrumentations (all optional)
         try:
-            from opentelemetry.instrumentation.requests import (  # type: ignore
+            from opentelemetry.instrumentation.requests import (
                 RequestsInstrumentor,
             )
         except Exception:
-            RequestsInstrumentor = None  # type: ignore
+            RequestsInstrumentor = None
         try:
-            from opentelemetry.instrumentation.flask import (  # type: ignore
+            from opentelemetry.instrumentation.flask import (
                 FlaskInstrumentor,
             )
         except Exception:
-            FlaskInstrumentor = None  # type: ignore
+            FlaskInstrumentor = None
         try:
-            from opentelemetry.instrumentation.pymongo import (  # type: ignore
+            from opentelemetry.instrumentation.pymongo import (
                 PymongoInstrumentor,
             )
         except Exception:
-            PymongoInstrumentor = None  # type: ignore
+            PymongoInstrumentor = None
 
         # ----- Resource -----
         resource_attrs = {
@@ -111,8 +111,8 @@ def setup_telemetry(
         # אין להשתמש ב-localhost כברירת מחדל בעננים (Render וכד')
         # אם לא הוגדר OTEL_EXPORTER_OTLP_ENDPOINT – דלג בשקט על אתחול OTel
         endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or ""
+        insecure = _str2bool(os.getenv("OTEL_EXPORTER_INSECURE", "false"))
         if endpoint.strip():
-            insecure = _str2bool(os.getenv("OTEL_EXPORTER_INSECURE", "false"))
             span_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))

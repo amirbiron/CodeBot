@@ -48,30 +48,30 @@ from utils import normalize_code  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
-    from config import config as cfg  # type: ignore
+    from config import config as cfg
 except Exception:  # pragma: no cover
-    cfg = None  # type: ignore
+    cfg = None
 
 # Search engine & types
 try:
-    from search_engine import search_engine, SearchType, SearchFilter, SortOrder  # type: ignore
+    from search_engine import search_engine, SearchType, SearchFilter, SortOrder
 except Exception:
-    search_engine = None  # type: ignore
+    search_engine = None
     class _Missing:
         pass
-    SearchType = _Missing  # type: ignore
-    SearchFilter = _Missing  # type: ignore
-    SortOrder = _Missing  # type: ignore
+    SearchType = _Missing
+    SearchFilter = _Missing
+    SortOrder = _Missing
 
 # Structured logging (optional and safe-noop fallbacks)
 try:
-    from observability import emit_event, bind_request_id, generate_request_id  # type: ignore
+    from observability import emit_event, bind_request_id, generate_request_id
 except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
+    def emit_event(event: str, severity: str = "info", **fields):
         return None
-    def bind_request_id(request_id: str) -> None:  # type: ignore
+    def bind_request_id(request_id: str) -> None:
         return None
-    def generate_request_id() -> str:  # type: ignore
+    def generate_request_id() -> str:
         try:
             return str(int(time.time() * 1000))[-8:]
         except Exception:
@@ -79,23 +79,23 @@ except Exception:  # pragma: no cover
 
 # Alertmanager forwarding (optional)
 try:
-    from alert_forwarder import forward_alerts as _forward_alerts  # type: ignore
+    from alert_forwarder import forward_alerts as _forward_alerts
 except Exception:  # pragma: no cover
-    def _forward_alerts(_alerts):  # type: ignore
+    def _forward_alerts(_alerts):
         return None
 
 # Optional monitoring & resilience
 try:
-    from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY  # type: ignore
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY
 except Exception:
-    Counter = Histogram = Gauge = generate_latest = REGISTRY = None  # type: ignore
+    Counter = Histogram = Gauge = generate_latest = REGISTRY = None
 try:
-    from tenacity import retry, stop_after_attempt, wait_exponential  # type: ignore
+    from tenacity import retry, stop_after_attempt, wait_exponential
 except Exception:
-    retry = stop_after_attempt = wait_exponential = None  # type: ignore
+    retry = stop_after_attempt = wait_exponential = None
 try:
-    import sentry_sdk  # type: ignore
-    from sentry_sdk.integrations.flask import FlaskIntegration  # type: ignore
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
     _SENTRY_AVAILABLE = True
 except Exception:
     _SENTRY_AVAILABLE = False
@@ -103,17 +103,29 @@ except Exception:
 try:
     from cache_manager import cache  # noqa: E402
 except Exception:
-    from typing import Any
+    from typing import Any, Optional, Dict, Union
     class _NoCache:
         is_enabled: bool = False
         def get(self, key: str) -> None:  # pragma: no cover - fallback only
             return None
         def set(self, key: str, value: Any, expire_seconds: int = 60) -> bool:  # pragma: no cover - fallback only
             return False
-        def set_dynamic(self, key: str, value: Any, content_type: str, context: dict | None = None) -> bool:  # pragma: no cover - fallback only
+        def set_dynamic(self, key: str, value: Any, content_type: str, context: Optional[Dict[str, Any]] = None) -> bool:  # pragma: no cover - fallback only
+            return False
+        def delete(self, key: str) -> bool:  # pragma: no cover - fallback only
             return False
         def delete_pattern(self, pattern: str) -> int:  # pragma: no cover - fallback only
             return 0
+        def invalidate_user_cache(self, user_id: int) -> int:  # pragma: no cover - fallback only
+            return 0
+        def clear_all(self) -> int:  # pragma: no cover - fallback only
+            return 0
+        def invalidate_file_related(self, file_id: str, user_id: Optional[Union[int, str]] = None) -> int:  # pragma: no cover - fallback only
+            return 0
+        def clear_stale(self, max_scan: int = 1000, ttl_seconds_threshold: int = 60) -> int:  # pragma: no cover - fallback only
+            return 0
+        def get_stats(self) -> Dict[str, Any]:  # pragma: no cover - fallback only
+            return {"enabled": False}
     cache = _NoCache()
 
 # יצירת האפליקציה
@@ -133,7 +145,7 @@ _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
 # --- OpenTelemetry (optional, fail-open) ---
 try:
-    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+    from observability_otel import setup_telemetry as _setup_otel
     _setup_otel(
         service_name="code-keeper-webapp",
         service_version=os.getenv("APP_VERSION", ""),
@@ -144,20 +156,20 @@ except Exception:
     pass
 
 # Manual tracing decorator (fail-open)
-try:  # type: ignore
-    from observability_instrumentation import traced  # type: ignore
+try:
+    from observability_instrumentation import traced
 except Exception:  # pragma: no cover
-    def traced(*_a, **_k):  # type: ignore
+    def traced(*_a, **_k):
         def _inner(f):
             return f
         return _inner
 # --- Correlation ID across services (request_id) ---
 try:
-    from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid  # type: ignore
+    from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid
 except Exception:
-    def _gen_rid():  # type: ignore
+    def _gen_rid():
         return ""
-    def _bind_rid(_rid: str) -> None:  # type: ignore
+    def _bind_rid(_rid: str) -> None:
         return None
 
 # --- Lightweight preload of heavy dependencies/templates (non-blocking) ---
@@ -244,19 +256,19 @@ try:
         mark_startup_complete,
         note_first_request_latency,
         record_dependency_init,
-    )  # type: ignore
+     )
 except Exception:  # pragma: no cover
-    def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
+    def record_request_outcome(status_code: int, duration_seconds: float) -> None:
         return None
-    def record_http_request(method, endpoint, status_code, duration_seconds):  # type: ignore
+    def record_http_request(method: str, endpoint: str, status_code: int, duration_seconds: float) -> None:
         return None
-    def get_boot_monotonic() -> float:  # type: ignore
+    def get_boot_monotonic() -> float:
         return 0.0
-    def mark_startup_complete() -> None:  # type: ignore
+    def mark_startup_complete() -> None:
         return None
-    def note_first_request_latency(_d: float | None = None) -> None:  # type: ignore
+    def note_first_request_latency(_d: float | None = None) -> None:
         return None
-    def record_dependency_init(_name: str, _dur: float) -> None:  # type: ignore
+    def record_dependency_init(_name: str, _dur: float) -> None:
         return None
 
 # Trigger preload only after metrics helpers are available
@@ -267,20 +279,20 @@ def _no_op(*args, **kwargs):
     return None
 
 try:
-    from flask_limiter import Limiter  # type: ignore
-    from flask_limiter.util import get_remote_address  # type: ignore
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
     _LIMITER_AVAILABLE = True
 except Exception:
-    Limiter = None  # type: ignore
+    Limiter = None
     # fall back to a simple remote address accessor if limiter not installed
-    get_remote_address = lambda: request.remote_addr if request else ""  # type: ignore
+    get_remote_address = lambda: request.remote_addr if request else ""
     _LIMITER_AVAILABLE = False
 
 # Prometheus metrics (idempotent registration)
 def _get_existing_metric(name: str):
     try:
         if REGISTRY is not None and hasattr(REGISTRY, '_names_to_collectors'):
-            return REGISTRY._names_to_collectors.get(name)  # type: ignore[attr-defined]
+            return REGISTRY._names_to_collectors.get(name)
     except Exception:
         return None
     return None
@@ -318,18 +330,18 @@ else:
 
 # Optional Sentry init (non-fatal if missing)
 try:
-    if _SENTRY_AVAILABLE and getattr(__import__('config'), 'config').SENTRY_DSN:  # type: ignore
+    if _SENTRY_AVAILABLE and getattr(__import__('config'), 'config').SENTRY_DSN:
         # Install sensitive data redaction on all handlers before Sentry hooks logging
         try:
-            from utils import install_sensitive_filter  # type: ignore
+            from utils import install_sensitive_filter
             install_sensitive_filter()
         except Exception:
             pass
-        sentry_sdk.init(  # type: ignore
-            dsn=getattr(__import__('config'), 'config').SENTRY_DSN,  # type: ignore
-            integrations=[FlaskIntegration()],  # type: ignore
+        sentry_sdk.init(
+            dsn=getattr(__import__('config'), 'config').SENTRY_DSN,
+            integrations=[FlaskIntegration()],
             traces_sample_rate=0.05,
-            environment=getattr(__import__('config'), 'config').ENVIRONMENT,  # type: ignore
+            environment=getattr(__import__('config'), 'config').ENVIRONMENT,
         )
 except Exception:
     pass
@@ -346,9 +358,9 @@ if _LIMITER_AVAILABLE:
         # Resolve storage URI: prefer Redis when configured
         _storage_uri = "memory://"
         try:
-            from config import config as _cfg  # type: ignore
+            from config import config as _cfg
         except Exception:
-            _cfg = None  # type: ignore
+            _cfg = None
         if _cfg is not None and getattr(_cfg, 'REDIS_URL', None):
             _storage_uri = str(getattr(_cfg, 'REDIS_URL'))
         elif os.getenv('REDIS_URL'):
@@ -363,9 +375,9 @@ if _LIMITER_AVAILABLE:
             swallow_errors=True,  # don't crash the app if backend unavailable
         )
     except Exception:
-        limiter = None  # type: ignore
+        limiter = None
 else:
-    limiter = None  # type: ignore
+    limiter = None
 
 # הגדרות
 if cfg is not None:
@@ -517,7 +529,7 @@ def get_db():
     global client, db
     # Double-checked locking to avoid race on MongoClient init (preload vs requests)
     if client is None:
-        _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock())  # type: ignore
+        _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock() )
         with _db_lock:
             if client is not None:
                 return db
@@ -779,7 +791,7 @@ def _fetch_uptime_from_betteruptime() -> Optional[Dict[str, Any]]:
         # Normalize output
         availability = None
         try:
-            availability = float(((body or {}).get('data') or {}).get('availability'))
+            availability = float(((body or {}).get('data') or {}).get('availability') or 0)
         except Exception:
             availability = None
         result = {
@@ -1021,7 +1033,7 @@ def _correlation_bind():
 
 
 @app.after_request
-def _add_request_id_header(resp):  # type: ignore[override]
+def _add_request_id_header(resp):
     try:
         rid = getattr(request, "_req_id", "")
         if rid:
@@ -1034,13 +1046,13 @@ def _add_request_id_header(resp):  # type: ignore[override]
 @app.before_request
 def _metrics_start_timer():  # minimal, best-effort
     try:
-        request._metrics_start = _time.perf_counter()  # type: ignore[attr-defined]
+        request._metrics_start = _time.perf_counter( )
     except Exception:
         pass
 
 
 @app.after_request
-def _metrics_after(resp):  # type: ignore[override]
+def _metrics_after(resp):
     try:
         start = float(getattr(request, "_metrics_start", 0.0) or 0.0)
         if start:
@@ -1118,8 +1130,9 @@ def admin_required(f):
             return redirect(url_for('login'))
         
         # בדיקה אם המשתמש הוא אדמין
-        admin_ids = os.getenv('ADMIN_USER_IDS', '').split(',')
-        admin_ids = [int(id.strip()) for id in admin_ids if id.strip().isdigit()]
+        admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
+        admin_ids_list = admin_ids_env.split(',') if admin_ids_env else []
+        admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
         
         if session['user_id'] not in admin_ids:
             abort(403)  # Forbidden
@@ -1129,8 +1142,9 @@ def admin_required(f):
 
 def is_admin(user_id: int) -> bool:
     """בודק אם משתמש הוא אדמין"""
-    admin_ids = os.getenv('ADMIN_USER_IDS', '').split(',')
-    admin_ids = [int(id.strip()) for id in admin_ids if id.strip().isdigit()]
+    admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
+    admin_ids_list = admin_ids_env.split(',') if admin_ids_env else []
+    admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
     return user_id in admin_ids
 
 
@@ -1142,7 +1156,7 @@ def _search_limiter_decorator(rule: str):
             return fn
         return _wrap
     try:
-        return limiter.limit(rule)  # type: ignore
+        return limiter.limit(rule)
     except Exception:
         def _wrap(fn):
             return fn
@@ -1158,7 +1172,7 @@ def _limiter_exempt():
             return fn
         return _wrap
     try:
-        return limiter.exempt  # type: ignore[attr-defined]
+        return limiter.exempt
     except Exception:
         def _wrap(fn):
             return fn
@@ -1169,9 +1183,9 @@ def _ratelimit_handler(e):
     try:
         # Metrics + structured log (best-effort, never break response)
         try:
-            from metrics import rate_limit_blocked  # type: ignore
+            from metrics import rate_limit_blocked
         except Exception:
-            rate_limit_blocked = None  # type: ignore
+            rate_limit_blocked = None
         try:
             emit_event(
                 "rate_limit_blocked",
@@ -1204,7 +1218,7 @@ def _safe_retry(*dargs, **dkwargs):
         def _wrap(fn):
             return fn
         return _wrap
-    return retry(*dargs, **dkwargs)  # type: ignore
+    return retry(*dargs, **dkwargs)
 
 
 def _get_search_index_count() -> int:
@@ -1217,11 +1231,11 @@ def _get_search_index_count() -> int:
 
 
 # In-memory cache for search responses (bounded by TTL externally via redis cache_manager in future)
-_memory_search_cache = {}
+_memory_search_cache: dict[str, dict[str, dict]] = {}
 
 def _cache_get(uid: int, key: str):
     try:
-        bucket = _memory_search_cache.get(uid)
+        bucket = _memory_search_cache.get(str(uid))
         if isinstance(bucket, dict):
             entry = bucket.get(key)
             if isinstance(entry, dict):
@@ -1241,7 +1255,7 @@ def _cache_get(uid: int, key: str):
 
 def _cache_set(uid: int, key: str, value: dict):
     try:
-        bucket = _memory_search_cache.setdefault(uid, {})
+        bucket = _memory_search_cache.setdefault(str(uid), {})
         if isinstance(bucket, dict):
             bucket[key] = {'results': value, 'ts': time.time()}
     except Exception:
@@ -1408,8 +1422,8 @@ def api_search_global():
             pass
         # בקשות חיפוש מזוהות ע"י request_id לתחקור קל יותר
         try:
-            request_id = generate_request_id()  # type: ignore[name-defined]
-            bind_request_id(request_id)  # type: ignore[name-defined]
+            request_id = generate_request_id()
+            bind_request_id(request_id)
         except Exception:
             request_id = ""
 
@@ -1697,7 +1711,7 @@ def api_search_global():
             pass
         try:
             if _SENTRY_AVAILABLE:
-                sentry_sdk.capture_exception(e)  # type: ignore
+                sentry_sdk.capture_exception(e)
         except Exception:
             pass
         # אל נחשוף פרטי חריגה חוצה
@@ -1750,17 +1764,17 @@ def api_search_suggestions():
 def metrics_endpoint():
     """Prometheus metrics endpoint (unified across services)."""
     try:
-        from metrics import metrics_endpoint_bytes, metrics_content_type  # type: ignore
+        from metrics import metrics_endpoint_bytes, metrics_content_type
     except Exception:
-        def metrics_endpoint_bytes():  # type: ignore
+        def metrics_endpoint_bytes():
             return b"metrics disabled"
-        def metrics_content_type():  # type: ignore
+        def metrics_content_type():
             return "text/plain; charset=utf-8"
     try:
         # Update local gauges that depend on app state (best-effort)
         try:
             if 'active_indexes_gauge' in globals():
-                active_indexes_gauge.set(_get_search_index_count())  # type: ignore[name-defined]
+                active_indexes_gauge.set(_get_search_index_count())
         except Exception:
             pass
         payload = metrics_endpoint_bytes()
@@ -1791,7 +1805,7 @@ def api_search_health():
         return jsonify({'status': 'error'}), 503
 
 
-def format_file_size(size_bytes: int) -> str:
+def format_file_size(size_bytes: float | int) -> str:
     """מעצב גודל קובץ לתצוגה ידידותית"""
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size_bytes < 1024.0:
@@ -1799,7 +1813,7 @@ def format_file_size(size_bytes: int) -> str:
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
 
-def is_binary_file(content: str, filename: str = "") -> bool:
+def is_binary_file(content: str | bytes, filename: str = "") -> bool:
     """בודק אם קובץ הוא בינארי"""
     # רשימת סיומות בינאריות
     binary_extensions = {
@@ -1866,7 +1880,7 @@ def safe_iso(value, field: str = "") -> str:
     if isinstance(value, str):
         return value  # כבר בפורמט טקסטואלי
     try:
-        return value.isoformat()  # type: ignore[attr-defined]
+        return value.isoformat( )
     except Exception:
         try:
             # אזהרה תחקורית – לא מפילה את הזרימה

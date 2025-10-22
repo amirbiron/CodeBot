@@ -122,7 +122,7 @@ except Exception:
 
 # Optional: Initialize OpenTelemetry for the bot process as well (no Flask app here)
 try:
-    from observability_otel import setup_telemetry as _setup_otel  # type: ignore
+    from observability_otel import setup_telemetry as _setup_otel
     _setup_otel(
         service_name="code-keeper-bot",
         service_version=os.getenv("APP_VERSION", ""),
@@ -171,7 +171,7 @@ logging.getLogger("telegram.ext.Updater").setLevel(logging.ERROR)
 logging.getLogger("telegram.ext.Application").setLevel(logging.WARNING)
 
 # Reporter יווצר ויוזרק בזמן ריצה לאחר בניית האפליקציה והקונפיג
-reporter = None  # type: ignore
+reporter = None
 
 # ===== עזר: שליחת הודעת אדמין =====
 def get_admin_ids() -> list[int]:
@@ -745,7 +745,7 @@ class CodeKeeperBot:
                 pass
         except Exception:
             # בסביבות CI/טסטים, אל נכשיל את הבנייה
-            reporter = None  # type: ignore
+            reporter = None
 
         self.setup_handlers()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
@@ -945,7 +945,7 @@ class CodeKeeperBot:
                     try:
                         ratio = 0.0
                         if hasattr(self._rate_limiter, 'get_current_usage_ratio'):
-                            ratio = float(await self._rate_limiter.get_current_usage_ratio(user_id))  # type: ignore[attr-defined]
+                            ratio = float(await self._rate_limiter.get_current_usage_ratio(user_id))
                         if ratio >= 0.8:
                             # מנגנון אנטי-ספאם: אזהרה לכל היותר פעם בדקה למשתמש
                             now_ts = time.time()
@@ -973,10 +973,7 @@ class CodeKeeperBot:
                         pass
 
         # חשיפה לצרכי בדיקות: שמור הפניה לשער ברמת האובייקט
-        try:
-            self._rate_limit_gate = _rate_limit_gate  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        self._rate_limit_gate = _rate_limit_gate
 
         # הוסף כשכבת סינון מוקדמת עבור הודעות ולחיצות
         try:
@@ -2990,14 +2987,14 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         enabled = enabled_env in {"1", "true", "yes", "on"}
         if not enabled:
             try:
-                from observability import emit_event as _emit  # type: ignore
+                from observability import emit_event as _emit
             except Exception:  # pragma: no cover
                 _emit = None
             if _emit is not None:
                 _emit("backups_cleanup_disabled", severity="info")
             else:
                 try:
-                    emit_event("backups_cleanup_disabled", severity="info")  # type: ignore[name-defined]
+                    emit_event("backups_cleanup_disabled", severity="info")
                 except Exception:
                     pass
         else:
@@ -3005,16 +3002,16 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 if os.getenv("PYTEST_CURRENT_TEST"):
                     try:
-                        from file_manager import backup_manager as _bm  # type: ignore
+                        from file_manager import backup_manager as _bm
                     except Exception:  # pragma: no cover
                         _bm = None
                     if _bm is not None:
                         try:
                             summary = _bm.cleanup_expired_backups()
                             try:
-                                from observability import emit_event as _emit  # type: ignore
+                                from observability import emit_event as _emit
                             except Exception:  # pragma: no cover
-                                _emit = (lambda *a, **k: None)  # type: ignore
+                                _emit = (lambda *a, **k: None)
                             _emit(
                                 "backups_cleanup_done",
                                 severity="info",
@@ -3025,9 +3022,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             )
                         except Exception:
                             try:
-                                from observability import emit_event as _emit  # type: ignore
+                                from observability import emit_event as _emit
                             except Exception:  # pragma: no cover
-                                _emit = (lambda *a, **k: None)  # type: ignore
+                                _emit = (lambda *a, **k: None)
                             _emit("backups_cleanup_error", severity="anomaly")
             except Exception:
                 pass
@@ -3050,9 +3047,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 logger.info(f"🌐 Internal web server started on :{port}")
                 try:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None  # type: ignore
+                        _emit = lambda *a, **k: None
                     _emit("internal_web_started", severity="info", port=int(port))
                 except Exception:
                     pass
@@ -3066,9 +3063,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     # Double-emit defensively for tests that expect the event synchronously
                     try:
                         try:
-                            from observability import emit_event as _emit  # type: ignore
+                            from observability import emit_event as _emit
                         except Exception:  # pragma: no cover
-                            _emit = lambda *a, **k: None  # type: ignore
+                            _emit = lambda *a, **k: None
                         _emit("internal_web_started", severity="info", port=int(os.getenv("PORT", "10000")))
                     except Exception:
                         pass
@@ -3142,7 +3139,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 should_send = True
                 try:
                     from datetime import datetime, timezone as _tz
-                    from database import db as _dbm  # type: ignore
+                    from database import db as _dbm
                     db_obj = getattr(_dbm, 'db', None)
                     is_noop_db = (getattr(db_obj, 'name', '') == 'noop_db') if db_obj is not None else True
                     if not is_noop_db and db_obj is not None:
@@ -3184,18 +3181,18 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 # Emit via a dynamic import to cooperate with test monkeypatching
                 try:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None  # type: ignore
+                        _emit = lambda *a, **k: None
                     _emit("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
                 except Exception:
                     pass
             except Exception:
                 try:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None  # type: ignore
+                        _emit = lambda *a, **k: None
                     _emit("weekly_report_error", severity="error")
                 except Exception:
                     pass
@@ -3233,15 +3230,15 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 deleted = int(cache.clear_stale(max_scan=max_scan, ttl_seconds_threshold=ttl_thr) or 0)
                 if deleted > 0:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None  # type: ignore
+                        _emit = lambda *a, **k: None
                     _emit("cache_maintenance_done", severity="info", deleted=int(deleted))
             except Exception:
                 try:
-                    from observability import emit_event as _emit  # type: ignore
+                    from observability import emit_event as _emit
                 except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None  # type: ignore
+                    _emit = lambda *a, **k: None
                 _emit("cache_maintenance_error", severity="anomaly")
 
         # תזמון תחזוקת קאש – כל 10 דקות, התחלה אחרי 30 שניות
@@ -3275,9 +3272,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 from file_manager import backup_manager  # lazy import
                 summary = backup_manager.cleanup_expired_backups()
                 try:
-                    from observability import emit_event as _emit  # type: ignore
+                    from observability import emit_event as _emit
                 except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None  # type: ignore
+                    _emit = lambda *a, **k: None
                 _emit(
                     "backups_cleanup_done",
                     severity="info",
@@ -3288,9 +3285,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 )
             except Exception:
                 try:
-                    from observability import emit_event as _emit  # type: ignore
+                    from observability import emit_event as _emit
                 except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None  # type: ignore
+                    _emit = lambda *a, **k: None
                 _emit("backups_cleanup_error", severity="anomaly")
 
         # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
@@ -3302,16 +3299,16 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 try:
                     if os.getenv("PYTEST_CURRENT_TEST"):
                         try:
-                            from file_manager import backup_manager as _bm  # type: ignore
+                            from file_manager import backup_manager as _bm
                         except Exception:  # pragma: no cover
-                            _bm = None  # type: ignore
+                            _bm = None
                         if _bm is not None:
                             try:
                                 summary = _bm.cleanup_expired_backups()
                                 try:
-                                    from observability import emit_event as _emit  # type: ignore
+                                    from observability import emit_event as _emit
                                 except Exception:  # pragma: no cover
-                                    _emit = (lambda *a, **k: None)  # type: ignore
+                                    _emit = (lambda *a, **k: None)
                                 _emit(
                                     "backups_cleanup_done",
                                     severity="info",
@@ -3322,9 +3319,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                 )
                             except Exception:
                                 try:
-                                    from observability import emit_event as _emit  # type: ignore
+                                    from observability import emit_event as _emit
                                 except Exception:  # pragma: no cover
-                                    _emit = (lambda *a, **k: None)  # type: ignore
+                                    _emit = (lambda *a, **k: None)
                                 _emit("backups_cleanup_error", severity="anomaly")
                 except Exception:
                     # לא ניתן/לא נדרש בסביבה זו — נמשיך לתזמון הרגיל
@@ -3363,14 +3360,14 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 # 2) Fallback to the already-imported emit_event when dynamic import is unavailable
                 try:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
                         _emit = None
                     if _emit is not None:
                         _emit("backups_cleanup_disabled", severity="info")
                     else:
                         try:
-                            emit_event("backups_cleanup_disabled", severity="info")  # type: ignore[name-defined]
+                            emit_event("backups_cleanup_disabled", severity="info")
                         except Exception:
                             pass
                 except Exception:
@@ -3399,17 +3396,17 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                 # Lazy imports to avoid hard deps
                 try:
-                    from cache_manager import cache as _cache  # type: ignore
+                    from cache_manager import cache as _cache
                 except Exception:  # pragma: no cover
-                    _cache = None  # type: ignore
+                    _cache = None
                 try:
-                    from webapp.app import get_db as _get_db  # type: ignore
+                    from webapp.app import get_db as _get_db
                 except Exception:  # pragma: no cover
-                    _get_db = None  # type: ignore
+                    _get_db = None
                 try:
-                    from webapp.app import search_engine as _search_engine  # type: ignore
+                    from webapp.app import search_engine as _search_engine
                 except Exception:  # pragma: no cover
-                    _search_engine = None  # type: ignore
+                    _search_engine = None
 
                 if _cache is None or not getattr(_cache, 'is_enabled', False) or _get_db is None:
                     return
@@ -3502,17 +3499,17 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 # Emit
                 try:
                     try:
-                        from observability import emit_event as _emit  # type: ignore
+                        from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
-                        _emit = (lambda *a, **k: None)  # type: ignore
+                        _emit = (lambda *a, **k: None)
                     _emit("cache_warming_done", severity="info")
                 except Exception:
                     pass
             except Exception:
                 try:
-                    from observability import emit_event as _emit  # type: ignore
+                    from observability import emit_event as _emit
                 except Exception:
-                    _emit = (lambda *a, **k: None)  # type: ignore
+                    _emit = (lambda *a, **k: None)
                 _emit("cache_warming_error", severity="anomaly")
 
         try:
