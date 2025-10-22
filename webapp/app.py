@@ -121,6 +121,9 @@ app.config['COMPRESS_BR_LEVEL'] = 5
 Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
+\n+# Guards for first-request and DB init race conditions
+_FIRST_REQUEST_LOCK = threading.Lock()
+_FIRST_REQUEST_RECORDED = False
 # --- OpenTelemetry (optional, fail-open) ---
 try:
     from observability_otel import setup_telemetry as _setup_otel  # type: ignore
@@ -174,15 +177,10 @@ def _preload_heavy_assets_async() -> None:
                     pass
             except Exception:
                 pass
-            # Warm up a trivial template render to compile Jinja templates
+            # Warm up Jinja by preloading hot templates (compile without request context)
             try:
-                # Render a minimal template route to force environment init
                 _t1 = _time.perf_counter()
                 with app.app_context():
-                    try:
-                        render_template('base.html')  # type: ignore
-                    except Exception:
-                        pass
                     # Preload a few hot templates (best-effort)
                     for _tpl in ("files.html", "view_file.html", "dashboard.html", "md_preview.html", "login.html"):
                         try:
@@ -230,9 +228,6 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
-# Trigger preload after app object exists
-_preload_heavy_assets_async()
-
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
     from metrics import (
@@ -256,6 +251,9 @@ except Exception:  # pragma: no cover
         return None
     def record_dependency_init(_name: str, _dur: float) -> None:  # type: ignore
         return None
+
+# Trigger preload only after metrics helpers are available
+_preload_heavy_assets_async()
 
 # --- Search: metrics, limiter (lightweight, optional) ---
 def _no_op(*args, **kwargs):
@@ -510,7 +508,12 @@ def inject_globals():
 def get_db():
     """מחזיר חיבור למסד הנתונים"""
     global client, db
+    # Double-checked locking to avoid race on MongoClient init (preload vs requests)
     if client is None:
+        _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock())  # type: ignore
+        with _db_lock:
+            if client is not None:
+                return db
         if not MONGODB_URL:
             raise Exception("MONGODB_URL is not configured")
         try:
@@ -1045,9 +1048,12 @@ def _metrics_after(resp):  # type: ignore[override]
                 pass
             # מדידת זמן "בקשה ראשונה" מול זמן אתחול התהליך
             try:
-                if not hasattr(app, "_first_request_recorded"):
-                    setattr(app, "_first_request_recorded", True)
-                    note_first_request_latency()
+                global _FIRST_REQUEST_RECORDED
+                if not _FIRST_REQUEST_RECORDED:
+                    with _FIRST_REQUEST_LOCK:
+                        if not _FIRST_REQUEST_RECORDED:
+                            note_first_request_latency()
+                            _FIRST_REQUEST_RECORDED = True
             except Exception:
                 pass
     except Exception:
