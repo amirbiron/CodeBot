@@ -431,6 +431,157 @@
         ::-webkit-scrollbar-thumb:hover {
             background: rgba(255, 255, 255, 0.5);
         }
+        /* תפריט קיצורי דרך */
+        .quick-access-menu {
+            position: relative;
+            margin-left: 1rem;
+        }
+
+        .quick-access-toggle {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--glass-border);
+            color: white;
+            padding: 0.5rem 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1.1rem;
+        }
+
+        .quick-access-toggle:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .quick-access-toggle.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .quick-access-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 0.5rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            min-width: 220px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .quick-access-dropdown.active {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+            animation: slideDown 0.3s ease forwards;
+        }
+
+        .quick-access-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            color: #333;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: right;
+            cursor: pointer;
+        }
+
+        .quick-access-item:first-child { border-radius: 12px 12px 0 0; }
+        .quick-access-item:last-child { border-radius: 0 0 12px 12px; }
+
+        .quick-access-item:hover {
+            background: rgba(103, 126, 234, 0.1);
+            color: var(--primary);
+        }
+
+        .qa-icon { font-size: 1.3rem; min-width: 30px; text-align: center; }
+        .qa-label { font-size: 0.9rem; font-weight: 500; }
+
+        /* אנימציה לפתיחה */
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* מודאל קבצים אחרונים */
+        .recent-files-modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .recent-files-modal .modal-backdrop {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        .recent-files-modal .modal-content {
+            position: relative;
+            background: white;
+            border-radius: 16px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 70vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            animation: modalSlideUp 0.3s ease;
+        }
+        @keyframes modalSlideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .recent-files-modal .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 1.5rem; border-bottom: 1px solid #e0e0e0;
+        }
+        .recent-files-modal .modal-header h3 { margin: 0; font-size: 1.25rem; color: #333; }
+        .recent-files-modal .modal-close { background: none; border: none; font-size: 1.5rem; color: #666; cursor: pointer; padding: 0.25rem; transition: color 0.2s; }
+        .recent-files-modal .modal-close:hover { color: #333; }
+        .recent-files-modal .modal-body { flex: 1; overflow-y: auto; padding: 1rem; }
+        .recent-file-item { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; border-radius: 8px; text-decoration: none; color: #333; transition: all 0.2s ease; margin-bottom: 0.5rem; }
+        .recent-file-item:hover { background: rgba(103,126,234,0.1); transform: translateX(-4px); }
+        .recent-files-modal .file-icon { font-size: 1.5rem; min-width: 40px; text-align: center; }
+        .recent-files-modal .file-info { flex: 1; min-width: 0; }
+        .recent-files-modal .file-name { font-weight: 500; margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .recent-files-modal .file-meta { display: flex; gap: 1rem; font-size: 0.85rem; color: #666; }
+        .recent-files-modal .no-files { text-align: center; color: #666; padding: 2rem; font-size: 1.1rem; }
+
+        /* מובייל */
+        @media (max-width: 768px) {
+            .quick-access-menu {
+                order: -1;
+                margin-left: 0;
+                margin-right: 0.5rem;
+            }
+            .quick-access-dropdown { right: 0; left: auto; min-width: 250px; }
+        }
+
+        /* מצב כהה */
+        @media (prefers-color-scheme: dark) {
+            .quick-access-dropdown { background: #2a2a3a; }
+            .quick-access-item { color: #e0e0e0; }
+            .quick-access-item:hover { background: rgba(103, 126, 234, 0.2); }
+            .recent-files-modal .modal-content { background: #2a2a3a; }
+            .recent-files-modal .modal-header { border-bottom-color: #444; }
+            .recent-files-modal .modal-header h3, .recent-file-item { color: #e0e0e0; }
+            .recent-files-modal .file-meta, .recent-files-modal .no-files { color: #999; }
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
@@ -473,6 +624,32 @@
                 <button class="mobile-menu-toggle" onclick="toggleMobileMenu()">
                     <i class="fas fa-bars"></i>
                 </button>
+                {% if session.user_id %}
+                <!-- תפריט קיצורי דרך -->
+                <div class="quick-access-menu">
+                    <button class="quick-access-toggle" onclick="toggleQuickAccess(event)" aria-label="תפריט קיצורי דרך" title="קיצורי דרך">
+                        <i class="fas fa-rocket"></i>
+                    </button>
+                    <div class="quick-access-dropdown" id="quickAccessDropdown">
+                        <a href="/upload" class="quick-access-item" title="הוסף קובץ חדש">
+                            <span class="qa-icon">➕</span>
+                            <span class="qa-label">קובץ חדש</span>
+                        </a>
+                        <button class="quick-access-item" onclick="openGlobalSearch()" title="חיפוש בכל הקבצים">
+                            <span class="qa-icon">🔍</span>
+                            <span class="qa-label">חיפוש גלובלי</span>
+                        </button>
+                        <a href="/files?category=favorites#results" class="quick-access-item" title="קבצים מועדפים">
+                            <span class="qa-icon">⭐</span>
+                            <span class="qa-label">מועדפים</span>
+                        </a>
+                        <button class="quick-access-item" onclick="showRecentFiles()" title="קבצים שנפתחו לאחרונה">
+                            <span class="qa-icon">🕓</span>
+                            <span class="qa-label">אחרונים</span>
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
                 
                 <ul class="nav-menu" id="navMenu">
                     {% if uptime_status_url %}
@@ -526,7 +703,7 @@
             }
         }
         
-        // סגירת התפריט בלחיצה מחוץ לו
+        // סגירת תפריט הניווט בלחיצה מחוץ לו
         document.addEventListener('click', function(event) {
             const menu = document.getElementById('navMenu');
             const toggle = document.querySelector('.mobile-menu-toggle');
@@ -536,8 +713,166 @@
                 document.body.classList.remove('nav-open');
             }
         });
+        // --- תפריט קיצורי דרך ---
+        function toggleQuickAccess(ev) {
+            try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (e) {}
+            const dropdown = document.getElementById('quickAccessDropdown');
+            const toggle = document.querySelector('.quick-access-toggle');
+            if (!dropdown || !toggle) return;
+            dropdown.classList.toggle('active');
+            toggle.classList.toggle('active');
+            if (dropdown.classList.contains('active')) {
+                const closer = function(event) {
+                    try {
+                        const menu = document.querySelector('.quick-access-menu');
+                        if (!menu || !menu.contains(event.target)) {
+                            dropdown.classList.remove('active');
+                            toggle.classList.remove('active');
+                            document.removeEventListener('click', closer);
+                        }
+                    } catch (e) {
+                        document.removeEventListener('click', closer);
+                    }
+                };
+                setTimeout(() => document.addEventListener('click', closer), 0);
+            }
+        }
 
-        
+        function openGlobalSearch() {
+            try {
+                if (window.location.pathname === '/files') {
+                    const input = document.getElementById('globalSearchInput');
+                    if (input) {
+                        input.focus();
+                        try { input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+                    }
+                } else {
+                    window.location.href = '/files?search=open#results';
+                }
+            } finally {
+                try { toggleQuickAccess(); } catch (e) {}
+            }
+        }
+
+        async function showRecentFiles() {
+            let modal = null;
+            try {
+                // סגור את התפריט
+                try { toggleQuickAccess(); } catch (e) {}
+                modal = createRecentFilesModal();
+                document.body.appendChild(modal);
+                // טעינת קבצים אחרונים מה-API
+                const resp = await fetch('/api/files/recent');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const files = await resp.json();
+                displayRecentFiles(files, modal);
+            } catch (err) {
+                console.error('Error loading recent files:', err);
+                alert('שגיאה בטעינת קבצים אחרונים');
+                // הבטח שהמודאל לא יישאר תקוע במסך
+                try { if (modal) modal.remove(); } catch (e) {}
+            }
+        }
+
+        function createRecentFilesModal() {
+            const modal = document.createElement('div');
+            modal.className = 'recent-files-modal';
+            modal.innerHTML = (
+                '<div class="modal-backdrop" onclick="closeRecentFiles()"></div>' +
+                '<div class="modal-content">' +
+                '  <div class="modal-header">' +
+                '    <h3>🕓 קבצים אחרונים</h3>' +
+                '    <button class="modal-close" onclick="closeRecentFiles()"><i class="fas fa-times"></i></button>' +
+                '  </div>' +
+                '  <div class="modal-body" id="recentFilesList">' +
+                '    <div class="loading" style="display:inline-block; margin: 0 auto;"></div> טוען...' +
+                '  </div>' +
+                '</div>'
+            );
+            return modal;
+        }
+
+        function displayRecentFiles(files, modal) {
+            const listContainer = modal.querySelector('#recentFilesList');
+            if (!Array.isArray(files) || files.length === 0) {
+                listContainer.innerHTML = '<div class="no-files">אין פריטים להצגה</div>';
+                return;
+            }
+            const html = files.slice(0, 10).map(file => (
+                '<a href="/file/' + String(file.id || '').replace(/"/g, '') + '" class="recent-file-item">' +
+                '  <div class="file-icon">' + getFileIcon(String(file.language || 'text').toLowerCase()) + '</div>' +
+                '  <div class="file-info">' +
+                '    <div class="file-name">' + escapeHtml(file.filename || '') + '</div>' +
+                '    <div class="file-meta">' +
+                '      <span>' + formatDate(file.accessed_at) + '</span>' +
+                '      <span>' + formatSize(Number(file.size || 0)) + '</span>' +
+                '    </div>' +
+                '  </div>' +
+                '</a>'
+            )).join('');
+            listContainer.innerHTML = html;
+        }
+
+        function closeRecentFiles() {
+            const modal = document.querySelector('.recent-files-modal');
+            if (modal) modal.remove();
+        }
+
+        function getFileIcon(language) {
+            const icons = {
+                'python': '🐍',
+                'javascript': '📜',
+                'typescript': '📜',
+                'html': '🌐',
+                'css': '🎨',
+                'json': '📋',
+                'markdown': '📝',
+                'text': '📄'
+            };
+            return icons[language] || '📄';
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = String(str || '');
+            return div.innerHTML;
+        }
+
+        function formatDate(dateString) {
+            try {
+                if (!dateString) return '';
+                const date = new Date(dateString);
+                const now = new Date();
+                const diff = now - date;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(diff / 3600000);
+                const days = Math.floor(diff / 86400000);
+                if (minutes < 1) return 'כרגע';
+                if (minutes < 60) return `לפני ${minutes} דקות`;
+                if (hours < 24) return `לפני ${hours} שעות`;
+                return `לפני ${days} ימים`;
+            } catch (e) { return ''; }
+        }
+
+        function formatSize(bytes) {
+            try {
+                const sizes = ['B', 'KB', 'MB', 'GB'];
+                if (!bytes || bytes <= 0) return '0 B';
+                const i = Math.floor(Math.log(bytes) / Math.log(1024));
+                const v = Math.round((bytes / Math.pow(1024, i)) * 100) / 100;
+                return v + ' ' + sizes[i];
+            } catch (e) { return '0 B'; }
+        }
+
+        // פוקוס אוטומטי על חיפוש גלובלי אם הגיעו עם פרמטר מתאים
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('search') === 'open' && document.getElementById('globalSearchInput')) {
+                    document.getElementById('globalSearchInput').focus();
+                }
+            } catch (e) {}
+        });
     </script>
     
     {% if uptime_widget_id and uptime_widget_script_url %}
