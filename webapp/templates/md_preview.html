@@ -1671,7 +1671,10 @@ function loadScript(src){
     // סימון האפשרות הפעילה
     document.querySelectorAll('.bg-color-option').forEach(btn => {
       btn.classList.remove('active');
-      if (btn.dataset.color === color) {
+      // השוואה גם לערך ריק עבור ברירת המחדל
+      if ((color === null || color === '') && (btn.dataset.color === '' || btn.dataset.color === 'default')) {
+        btn.classList.add('active');
+      } else if (btn.dataset.color === color) {
         btn.classList.add('active');
       }
     });
@@ -1720,7 +1723,7 @@ function loadScript(src){
     // הוספת אפשרות לחזור לצבע הלבן המקורי
     const defaultBtn = document.createElement('button');
     defaultBtn.className = 'bg-color-option';
-    defaultBtn.dataset.color = 'default';
+    defaultBtn.dataset.color = ''; // ערך ריק לברירת מחדל
     defaultBtn.style = 'display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#ffffff;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;';
     defaultBtn.innerHTML = `
       <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#ffffff;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
@@ -1728,29 +1731,14 @@ function loadScript(src){
     `;
     defaultBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const mdContent = document.getElementById('md-content');
-      if (mdContent) {
-        mdContent.classList.remove('bg-light', 'bg-medium', 'bg-dark');
-      }
-      document.querySelectorAll('.bg-color-option').forEach(btn => {
-        btn.classList.remove('active');
-      });
-      defaultBtn.classList.add('active');
-      const indicator = document.querySelector('#bgColorBtn span');
-      if (indicator) {
-        indicator.style.background = '#ffffff';
-      }
-      saveColorPreference(null);
+      applyBackgroundColor(null); // שימוש בפונקציה המרכזית
       bgColorOptions.style.display = 'none';
     });
     
     // הוספת כפתור ברירת המחדל לתחילת הרשימה
     bgColorOptions.insertBefore(defaultBtn, bgColorOptions.firstChild);
     
-    // סימון ברירת המחדל אם אין צבע שמור
-    if (!savedColor) {
-      defaultBtn.classList.add('active');
-    }
+    // סימון ברירת המחדל אם אין צבע שמור - יעשה אוטומטית דרך applyBackgroundColor
   }
   
   // הפעלת המערכת לאחר טעינת הדף
