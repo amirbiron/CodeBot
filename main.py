@@ -3166,5 +3166,94 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception:
         pass
 
+    # Background cleanup jobs (Phase 2): cache maintenance and backups retention
+    try:
+        async def _cache_maintenance_job(context: ContextTypes.DEFAULT_TYPE):
+            try:
+                # כיבוי גלובלי דרך ENV
+                if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                    return
+                # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
+                from cache_manager import cache  # lazy import
+                # ניתן לשלוט בפרמטרים דרך ENV
+                max_scan = int(os.getenv("CACHE_MAINT_MAX_SCAN", "1000") or 1000)
+                ttl_thr = int(os.getenv("CACHE_MAINT_TTL_THRESHOLD", "60") or 60)
+                deleted = int(cache.clear_stale(max_scan=max_scan, ttl_seconds_threshold=ttl_thr) or 0)
+                if deleted > 0:
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None  # type: ignore
+                    _emit("cache_maintenance_done", severity="info", deleted=int(deleted))
+            except Exception:
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None  # type: ignore
+                _emit("cache_maintenance_error", severity="anomaly")
+
+        # תזמון תחזוקת קאש – כל 10 דקות, התחלה אחרי 30 שניות
+        try:
+            interval_secs = int(os.getenv("CACHE_MAINT_INTERVAL_SECS", "600") or 600)
+            first_secs = int(os.getenv("CACHE_MAINT_FIRST_SECS", "30") or 30)
+            application.job_queue.run_repeating(
+                _cache_maintenance_job,
+                interval=max(60, interval_secs),
+                first=max(0, first_secs),
+                name="cache_maintenance",
+            )
+        except Exception:
+            pass
+
+        async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
+            try:
+                # כיבוי גלובלי דרך ENV
+                if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                    return
+                from file_manager import backup_manager  # lazy import
+                summary = backup_manager.cleanup_expired_backups()
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None  # type: ignore
+                _emit(
+                    "backups_cleanup_done",
+                    severity="info",
+                    fs_scanned=int(summary.get("fs_scanned", 0) or 0),
+                    fs_deleted=int(summary.get("fs_deleted", 0) or 0),
+                    gridfs_scanned=int(summary.get("gridfs_scanned", 0) or 0),
+                    gridfs_deleted=int(summary.get("gridfs_deleted", 0) or 0),
+                )
+            except Exception:
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None  # type: ignore
+                _emit("backups_cleanup_error", severity="anomaly")
+
+        # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
+        try:
+            enabled = str(os.getenv("BACKUPS_CLEANUP_ENABLED", "false")).lower() in {"1", "true", "yes", "on"}
+            if enabled:
+                interval_secs = int(os.getenv("BACKUPS_CLEANUP_INTERVAL_SECS", "86400") or 86400)
+                first_secs = int(os.getenv("BACKUPS_CLEANUP_FIRST_SECS", "180") or 180)
+                application.job_queue.run_repeating(
+                    _backups_cleanup_job,
+                    interval=max(3600, interval_secs),
+                    first=max(0, first_secs),
+                    name="backups_cleanup",
+                )
+            else:
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None  # type: ignore
+                _emit("backups_cleanup_disabled", severity="info")
+        except Exception:
+            pass
+    except Exception:
+        # Fail-open: אל תכשיל את עליית הבוט אם התזמון נכשל
+        pass
+
 if __name__ == "__main__":
     main()

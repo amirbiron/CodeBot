@@ -92,6 +92,260 @@ class BackupManager:
         self.legacy_backup_dir = legacy_candidates[0] if legacy_candidates else None
         self.max_backup_size = 100 * 1024 * 1024  # 100MB
 
+    def _is_safe_path(self, target: Path, allow_under: Path) -> bool:
+        """בדיקת בטיחות למסלול לפני מחיקה/ניקוי.
+
+        - מונע מחיקה של נתיבים מסוכנים ("/", HOME, או ה־PWD הנוכחי)
+        - מאשר רק נתיבים שנמצאים תחת allow_under
+        """
+        try:
+            rp_target = target.resolve()
+            rp_base = allow_under.resolve()
+            if str(rp_target) == "/" or str(rp_target) == str(Path.home()) or str(rp_target) == str(Path.cwd()):
+                return False
+            # דרוש שהנתיב יהיה מתחת ל־allow_under
+            return str(rp_target).startswith(str(rp_base) + "/") or (str(rp_target) == str(rp_base))
+        except Exception:
+            return False
+
+    def cleanup_expired_backups(
+        self,
+        retention_days: int | None = None,
+        *,
+        max_per_user: int | None = None,
+        budget_seconds: float | None = None,
+    ) -> dict:
+        """ניקוי גיבויים ישנים ממערכת הקבצים ומ‑GridFS באופן מבוקר.
+
+        פרמטרים:
+        - retention_days: ימים לשמירת גיבוי לפני מחיקה (ברירת מחדל: BACKUPS_RETENTION_DAYS או 30)
+        - max_per_user: כמות מקסימלית של גיבויים לשמירה לכל משתמש (ברירת מחדל: BACKUPS_MAX_PER_USER או None)
+        - budget_seconds: תקציב זמן לניקוי כדי לא לחסום את ה־worker (ברירת מחדל: BACKUPS_CLEANUP_BUDGET_SECONDS או 3)
+
+        החזרה: dict עם counters לסריקה/מחיקות ושגיאות.
+        """
+        from contextlib import suppress
+        import time
+        from datetime import datetime, timedelta, timezone
+        import os
+
+        # דגלי בטיחות: אפשר לכבות ניקוי רקע לחלוטין
+        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in ("1", "true", "yes", "on"):
+            return {"skipped": True, "reason": "disabled_by_env"}
+
+        # SAFE_MODE → אל תמחק מהדיסק (נחזיר skipped כדי להימנע מהפתעות בסביבת טסטים)
+        if str(os.getenv("SAFE_MODE", "")).lower() in ("1", "true", "yes", "on"):
+            return {"skipped": True, "reason": "safe_mode"}
+
+        try:
+            if retention_days is None:
+                retention_days = int(os.getenv("BACKUPS_RETENTION_DAYS", "30") or 30)
+        except Exception:
+            retention_days = 30
+        try:
+            if max_per_user is None:
+                val = os.getenv("BACKUPS_MAX_PER_USER", "")
+                max_per_user = int(val) if val not in (None, "") else None
+        except Exception:
+            max_per_user = None
+        try:
+            if budget_seconds is None:
+                budget_seconds = float(os.getenv("BACKUPS_CLEANUP_BUDGET_SECONDS", "3") or 3)
+        except Exception:
+            budget_seconds = 3.0
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=max(1, int(retention_days or 30)))
+        deadline = time.time() + max(0.1, float(budget_seconds or 3.0))
+
+        summary: dict = {
+            "fs_scanned": 0,
+            "fs_deleted": 0,
+            "gridfs_scanned": 0,
+            "gridfs_deleted": 0,
+            "errors": [],
+            "retention_days": int(retention_days or 30),
+            "max_per_user": (int(max_per_user) if isinstance(max_per_user, int) else None),
+        }
+
+        # --- ניקוי במערכת הקבצים ---
+        try:
+            search_dirs: list[Path] = [self.backup_dir]
+            # הוסף נתיבי legacy בטוחים בלבד
+            with suppress(Exception):
+                if getattr(self, "legacy_backup_dir", None) and isinstance(self.legacy_backup_dir, Path):
+                    search_dirs.append(self.legacy_backup_dir)
+            with suppress(Exception):
+                app_backups = Path("/app/backups")
+                if app_backups != self.backup_dir:
+                    search_dirs.append(app_backups)
+
+            # קיבוץ לפי משתמש
+            by_user: dict[int | str, list[tuple[Path, datetime]]] = {}
+
+            for base_dir in search_dirs:
+                try:
+                    for p in base_dir.glob("*.zip"):
+                        if time.time() > deadline:
+                            break
+                        summary["fs_scanned"] += 1
+                        # חילוץ owner ו‑created_at מתוך ה‑ZIP (best‑effort)
+                        owner: int | str | None = None
+                        created_at: datetime | None = None
+                        with suppress(Exception):
+                            with zipfile.ZipFile(p, 'r') as zf:
+                                with suppress(Exception):
+                                    md_raw = zf.read('metadata.json')
+                                    md = json.loads(md_raw) if md_raw else {}
+                                    uid_val = md.get("user_id")
+                                    if isinstance(uid_val, int):
+                                        owner = uid_val
+                                    elif isinstance(uid_val, str) and uid_val.isdigit():
+                                        owner = int(uid_val)
+                                    cat = md.get("created_at")
+                                    if isinstance(cat, str):
+                                        try:
+                                            created_at = datetime.fromisoformat(cat)
+                                            if created_at.tzinfo is None:
+                                                created_at = created_at.replace(tzinfo=timezone.utc)
+                                        except Exception:
+                                            created_at = None
+                        # fallback
+                        if created_at is None:
+                            with suppress(Exception):
+                                created_at = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+                        if owner is None:
+                            # נסה לחלץ מ‑backup_<user>_*
+                            name = p.stem
+                            with suppress(Exception):
+                                import re
+                                m = re.match(r"^backup_(\d+)_", name)
+                                if m:
+                                    owner = int(m.group(1))
+                        key = owner if owner is not None else "unknown"
+                        if created_at is None:
+                            created_at = now
+                        by_user.setdefault(key, []).append((p, created_at))
+                except Exception as e:
+                    summary["errors"].append(f"fs_scan:{base_dir}:{e}")
+
+            # קבע מועמדים למחיקה לפי retention ו‑max_per_user
+            candidates: list[Path] = []
+            candidate_set: set[str] = set()
+
+            def _add_candidate(p: Path) -> None:
+                # הוספה O(1) עם סט למניעת כפילויות במקום 'p not in list'
+                try:
+                    rp = str(p.resolve())
+                except Exception:
+                    rp = str(p)
+                if rp in candidate_set:
+                    return
+                candidate_set.add(rp)
+                candidates.append(p)
+            for key, items in by_user.items():
+                # מיון מהחדש לישן
+                items.sort(key=lambda t: t[1], reverse=True)
+                # חריגה ממכסה
+                if isinstance(max_per_user, int) and max_per_user > 0 and len(items) > max_per_user:
+                    for p, _dt in items[max_per_user:]:
+                        _add_candidate(p)
+                # ישנים מעבר ל‑cutoff
+                for p, dt in items:
+                    if dt < cutoff:
+                        _add_candidate(p)
+
+            # מחיקה מבוקרת
+            for p in candidates:
+                if time.time() > deadline:
+                    break
+                # ודא שהקובץ באמת נמצא תחת אחד מהנתיבים המותרים
+                allowed_ok = any(self._is_safe_path(p, base) for base in search_dirs if isinstance(base, Path))
+                if not allowed_ok:
+                    summary["errors"].append(f"unsafe_path:{p}")
+                    continue
+                try:
+                    if p.exists():
+                        p.unlink()
+                        summary["fs_deleted"] += 1
+                except Exception as e:
+                    summary["errors"].append(f"fs_delete:{p}:{e}")
+        except Exception as e:
+            summary["errors"].append(f"fs_cleanup:{e}")
+
+        # --- ניקוי ב‑GridFS (אם קיים) ---
+        try:
+            fs = self._get_gridfs()
+        except Exception:
+            fs = None
+        if fs is not None and time.time() <= deadline:
+            try:
+                by_user_g: dict[int | str, list[tuple[object, datetime]]] = {}
+                # איטרציה עצלה כדי לכבד תקציב זמן; הימנע מ-materialize מלא
+                try:
+                    cursor = fs.find()
+                except Exception:
+                    cursor = []
+                for fdoc in cursor:
+                    if time.time() > deadline:
+                        break
+                    summary["gridfs_scanned"] += 1
+                    owner: int | str | None = None
+                    created_at: datetime | None = None
+                    md = getattr(fdoc, 'metadata', None) or {}
+                    with suppress(Exception):
+                        uid_val = md.get('user_id')
+                        if isinstance(uid_val, int):
+                            owner = uid_val
+                        elif isinstance(uid_val, str) and uid_val.isdigit():
+                            owner = int(uid_val)
+                    with suppress(Exception):
+                        created_at = getattr(fdoc, 'uploadDate', None)
+                        if created_at and getattr(created_at, 'tzinfo', None) is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                    if created_at is None:
+                        with suppress(Exception):
+                            cat = md.get('created_at')
+                            if isinstance(cat, str):
+                                created_at = datetime.fromisoformat(cat)
+                                if created_at and created_at.tzinfo is None:
+                                    created_at = created_at.replace(tzinfo=timezone.utc)
+                    if created_at is None:
+                        created_at = now
+                    key = owner if owner is not None else "unknown"
+                    by_user_g.setdefault(key, []).append((fdoc, created_at))
+
+                # מועמדים למחיקה
+                cand_ids: list[object] = []
+                cand_id_set: set[object] = set()
+                for key, items in by_user_g.items():
+                    items.sort(key=lambda t: t[1], reverse=True)
+                    if isinstance(max_per_user, int) and max_per_user > 0 and len(items) > max_per_user:
+                        for fdoc, _dt in items[max_per_user:]:
+                            fid = getattr(fdoc, '_id', None)
+                            if fid not in cand_id_set:
+                                cand_id_set.add(fid)
+                                cand_ids.append(fid)
+                    for fdoc, dt in items:
+                        if dt < cutoff:
+                            fid = getattr(fdoc, '_id', None)
+                            if fid not in cand_id_set:
+                                cand_id_set.add(fid)
+                                cand_ids.append(fid)
+                for fid in cand_ids:
+                    if time.time() > deadline:
+                        break
+                    try:
+                        if fid is not None:
+                            fs.delete(fid)
+                            summary["gridfs_deleted"] += 1
+                    except Exception as e:
+                        summary["errors"].append(f"gridfs_delete:{e}")
+            except Exception as e:
+                summary["errors"].append(f"gridfs_cleanup:{e}")
+
+        return summary
+
     # =============================
     # GridFS helpers (Mongo storage)
     # =============================

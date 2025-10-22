@@ -56,7 +56,8 @@ except Exception:  # pragma: no cover
         return None
 from html import escape as html_escape
 
-from integrations import code_sharing
+# הערה: לא נייבא את code_sharing כ-reference קבוע כדי לאפשר monkeypatch דינמי בטסטים.
+# במקום זאת נפתור את ה-service בזמן ריצה בתוך ה-handler.
 
 # Optional structured logging/event emission and error counter (fail-open)
 try:  # type: ignore
@@ -146,9 +147,8 @@ def create_app() -> web.Application:
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
             try:
-                # lazy import to avoid hard dep at import time
-                from observability import emit_event  # type: ignore
-                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))
+                # פנה ל-emit_event שהוחדר למודול 
+                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
             except Exception:
                 pass
             try:
@@ -168,8 +168,8 @@ def create_app() -> web.Application:
             data = json.loads(raw) if raw else {}
         except Exception as e:
             try:
-                from observability import emit_event  # type: ignore
-                emit_event("alerts_parse_error", severity="warn", error_code="E_ALERTS_PARSE", error=str(e))
+                # פנה ל-emit_event שהוחדר למודול זה (מאפשר monkeypatch בטסטים)
+                emit_event("alerts_parse_error", severity="warn", error_code="E_ALERTS_PARSE", error=str(e))  # type: ignore
             except Exception:
                 pass
             try:
@@ -250,7 +250,14 @@ def create_app() -> web.Application:
     async def share_view(request: web.Request) -> web.Response:
         share_id = request.match_info.get("share_id", "")
         try:
-            data = code_sharing.get_internal_share(share_id)
+            # 해결 תלויות בזמן ריצה כדי לאפשר monkeypatch ב-tests:
+            try:
+                import importlib
+                integ = importlib.import_module("integrations")
+                _code_sharing = getattr(integ, "code_sharing")
+            except Exception:
+                from integrations import code_sharing as _code_sharing  # type: ignore
+            data = _code_sharing.get_internal_share(share_id)
         except Exception as e:
             logger.error(f"share_view error: {e}")
             try:

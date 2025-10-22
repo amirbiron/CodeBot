@@ -12,6 +12,7 @@ def _should_run():
     return os.getenv("RUN_PERF", "") == "1"
 
 
+@pytest.mark.heavy
 @pytest.mark.skipif(not _should_run(), reason="Performance tests are opt-in (set RUN_PERF=1)")
 def test_list_backups_1000_files_under_time(tmp_path, monkeypatch):
     # Arrange env to force FS storage into tmp

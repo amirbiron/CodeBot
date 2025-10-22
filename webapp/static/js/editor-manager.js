@@ -94,10 +94,15 @@
             // מוגדל ל~30s כדי לאפשר כשל/ניסיון בכל CDN (8s * 3) + שוליים
             await this.withTimeout(this.loadCodeMirror(), 30000, 'codemirror_core_load');
           }
+
+          // אימות בסיסי שהמודולים נטענו עם ה-API הצפוי
+          if (!window.CodeMirror6 || !window.CodeMirror6.EditorView || !window.CodeMirror6.EditorState) {
+            throw new Error('codemirror_modules_missing');
+          }
           const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
 
-          const langSupport = await this.withTimeout(this.getLanguageSupport(language), 6000, 'codemirror_lang_load');
-          const themeExt = await this.withTimeout(this.getTheme(theme), 6000, 'codemirror_theme_load');
+          const langSupport = await this.withTimeout(this.getLanguageSupport(language), 12000, 'codemirror_lang_load');
+          const themeExt = await this.withTimeout(this.getTheme(theme), 12000, 'codemirror_theme_load');
 
           const debouncedSync = this.debounce((val) => {
             this.textarea.value = val;
@@ -211,6 +216,7 @@
       const cdnCandidates = [
         { name: 'jsdelivr', url: (pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module` },
         { name: 'unpkg',    url: (pkg) => `https://unpkg.com/${pkg}@6?module` },
+        // fallback אחרון: שימוש ב-esm.sh תוך הצבעה לגרסת משנה יציבה יותר במידת האפשר
         { name: 'esm',      url: (pkg) => `https://esm.sh/${pkg}@6?bundle` }
       ];
 
@@ -230,13 +236,13 @@
             ac,
             gutter
           ] = await Promise.all([
-            this.withTimeout(import(u('@codemirror/state')), 8000, '@codemirror/state'),
-            this.withTimeout(import(u('@codemirror/view')), 8000, '@codemirror/view'),
-            this.withTimeout(import(u('@codemirror/commands')), 8000, '@codemirror/commands'),
-            this.withTimeout(import(u('@codemirror/language')), 8000, '@codemirror/language'),
-            this.withTimeout(import(u('@codemirror/search')), 8000, '@codemirror/search'),
-            this.withTimeout(import(u('@codemirror/autocomplete')), 8000, '@codemirror/autocomplete'),
-            this.withTimeout(import(u('@codemirror/gutter')), 8000, '@codemirror/gutter')
+            this.withTimeout(import(u('@codemirror/state')), 12000, '@codemirror/state'),
+            this.withTimeout(import(u('@codemirror/view')), 12000, '@codemirror/view'),
+            this.withTimeout(import(u('@codemirror/commands')), 12000, '@codemirror/commands'),
+            this.withTimeout(import(u('@codemirror/language')), 12000, '@codemirror/language'),
+            this.withTimeout(import(u('@codemirror/search')), 12000, '@codemirror/search'),
+            this.withTimeout(import(u('@codemirror/autocomplete')), 12000, '@codemirror/autocomplete'),
+            this.withTimeout(import(u('@codemirror/gutter')), 12000, '@codemirror/gutter')
           ]);
           stateMod = state; viewMod = view; cmdMod = cmd; langMod = lang; searchMod = search; acMod = ac; gutterMod = gutter;
           chosen = cdn;
@@ -318,13 +324,16 @@
           case 'xml': return mod.xml();
           default: return [];
         }
-      } catch(_) { return []; }
+      } catch(err) {
+        console.warn('Language load failed, continuing without language support', err);
+        return [];
+      }
     }
 
     async getTheme(name) {
       if (name === 'dark') {
         const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
-        try { const mod = await import(gen('@codemirror/theme-one-dark')); return mod.oneDark || []; } catch(_) { return []; }
+        try { const mod = await import(gen('@codemirror/theme-one-dark')); return mod.oneDark || []; } catch(err) { console.warn('Theme load failed, using default theme', err); return []; }
       }
       return [];
     }

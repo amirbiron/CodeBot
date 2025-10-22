@@ -19,6 +19,9 @@ bot_data.pickle
 # Logs
 *.log
 logs/
+# Operational runtime logs (explicit)
+data/predictions_log.json
+data/incidents_log.json
 
 # IDE
 .vscode/
