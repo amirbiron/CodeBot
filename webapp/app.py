@@ -150,6 +150,78 @@ except Exception:
     def _bind_rid(_rid: str) -> None:  # type: ignore
         return None
 
+# --- Lightweight preload of heavy dependencies/templates (non-blocking) ---
+def _preload_heavy_assets_async() -> None:
+    """Preload non-critical assets to reduce first-hit latency.
+
+    Runs in a background thread to avoid blocking app import.
+    """
+    try:
+        import threading as _thr
+        def _job():
+            # Preload Pygments lexers/formatters (import and simple use)
+            try:
+                from pygments.lexers import get_lexer_by_name as _g
+                _t0 = _time.perf_counter()
+                for _name in ("python", "javascript", "bash", "json"):
+                    try:
+                        _ = _g(_name)
+                    except Exception:
+                        pass
+                try:
+                    record_dependency_init("pygments_lexers", max(0.0, float(_time.perf_counter() - _t0)))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            # Warm up a trivial template render to compile Jinja templates
+            try:
+                # Render a minimal template route to force environment init
+                _t1 = _time.perf_counter()
+                with app.app_context():
+                    try:
+                        render_template('base.html')  # type: ignore
+                    except Exception:
+                        pass
+                    # Preload a few hot templates (best-effort)
+                    for _tpl in ("files.html", "view_file.html", "dashboard.html", "md_preview.html", "login.html"):
+                        try:
+                            _ = app.jinja_env.get_template(_tpl)
+                        except Exception:
+                            pass
+                try:
+                    record_dependency_init("jinja_precompile", max(0.0, float(_time.perf_counter() - _t1)))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            # Optionally attempt DB ping in background (best-effort)
+            try:
+                _t0 = _time.perf_counter()
+                _db = get_db()
+                try:
+                    _ = _db.command('ping') if hasattr(_db, 'command') else None
+                except Exception:
+                    pass
+                try:
+                    record_dependency_init("mongodb_ping", max(0.0, float(_time.perf_counter() - _t0)))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            # Signal startup completion at the end of preload sequence
+            try:
+                mark_startup_complete()
+            except Exception:
+                pass
+        _thr.Thread(target=_job, name="preload-assets", daemon=True).start()
+    except Exception:
+        # Never block on preload failures
+        try:
+            mark_startup_complete()
+        except Exception:
+            pass
+
 # --- Bookmarks API blueprint ---
 try:
     from webapp.bookmarks_api import bookmarks_bp  # noqa: E402
@@ -158,13 +230,31 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# Trigger preload after app object exists
+_preload_heavy_assets_async()
+
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
-    from metrics import record_request_outcome, record_http_request  # type: ignore
+    from metrics import (
+        record_request_outcome,
+        record_http_request,
+        get_boot_monotonic,
+        mark_startup_complete,
+        note_first_request_latency,
+        record_dependency_init,
+    )  # type: ignore
 except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
         return None
     def record_http_request(method, endpoint, status_code, duration_seconds):  # type: ignore
+        return None
+    def get_boot_monotonic() -> float:  # type: ignore
+        return 0.0
+    def mark_startup_complete() -> None:  # type: ignore
+        return None
+    def note_first_request_latency(_d: float | None = None) -> None:  # type: ignore
+        return None
+    def record_dependency_init(_name: str, _dur: float) -> None:  # type: ignore
         return None
 
 # --- Search: metrics, limiter (lightweight, optional) ---
@@ -425,6 +515,7 @@ def get_db():
             raise Exception("MONGODB_URL is not configured")
         try:
             # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
+            _t0 = _time.perf_counter()
             client = MongoClient(
                 MONGODB_URL,
                 serverSelectionTimeoutMS=5000,
@@ -441,6 +532,10 @@ def get_db():
                 pass
             try:
                 ensure_code_snippets_indexes()
+            except Exception:
+                pass
+            try:
+                record_dependency_init("mongodb", max(0.0, float(_time.perf_counter() - _t0)))
             except Exception:
                 pass
         except Exception as e:
@@ -946,6 +1041,13 @@ def _metrics_after(resp):  # type: ignore[override]
                 method = getattr(request, "method", "GET")
                 endpoint = getattr(request, "endpoint", None)
                 record_http_request(method, endpoint, status, dur)
+            except Exception:
+                pass
+            # מדידת זמן "בקשה ראשונה" מול זמן אתחול התהליך
+            try:
+                if not hasattr(app, "_first_request_recorded"):
+                    setattr(app, "_first_request_recorded", True)
+                    note_first_request_latency()
             except Exception:
                 pass
     except Exception:
