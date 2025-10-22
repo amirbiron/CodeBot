@@ -219,3 +219,11 @@ h6:hover .header-anchor { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .header-anchor, .permalink-tooltip { transition: none; }
 }
+
+/* Mobile/touch devices: אין hover, לכן האייקון תמיד גלוי ומגדילים hit-area */
+@media (hover: none) {
+  .header-anchor { opacity: 1; padding: 0.25em; display: inline-flex; align-items: center; }
+}
+@media (pointer: coarse) {
+  .header-anchor { opacity: 1; padding: 0.25em; display: inline-flex; align-items: center; }
+}
