@@ -3382,9 +3382,22 @@ def md_preview(file_id):
     html = render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
     if should_cache and md_cache_key:
         try:
-            cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
+            cache.set_dynamic(
+                md_cache_key,
+                html,
+                "markdown_render",
+                {
+                    "user_id": user_id,
+                    "user_tier": session.get("user_tier", "regular"),
+                    "last_modified_hours_ago": max(0.0, (datetime.now(timezone.utc) - (file.get('updated_at') or last_modified_dt)).total_seconds() / 3600.0) if file else 24,
+                    "endpoint": "md_preview",
+                },
+            )
         except Exception:
-            pass
+            try:
+                cache.set(md_cache_key, html, MD_PREVIEW_CACHE_TTL)
+            except Exception:
+                pass
     resp = Response(html, mimetype='text/html; charset=utf-8')
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
@@ -4110,9 +4123,22 @@ def api_stats():
     
     if should_cache:
         try:
-            cache.set(stats_cache_key, stats, API_STATS_CACHE_TTL)
+            cache.set_dynamic(
+                stats_cache_key,
+                stats,
+                "user_stats",
+                {
+                    "user_id": user_id,
+                    "user_tier": session.get("user_tier", "regular"),
+                    "endpoint": "api_stats",
+                    "access_frequency": "high",
+                },
+            )
         except Exception:
-            pass
+            try:
+                cache.set(stats_cache_key, stats, API_STATS_CACHE_TTL)
+            except Exception:
+                pass
     # הוספת ETag לתגובה גם כאשר לא שוחזר מהקאש
     try:
         etag = 'W/"' + hashlib.sha256(json.dumps(stats, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()[:16] + '"'
