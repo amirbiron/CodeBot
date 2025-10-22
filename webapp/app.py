@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
 import threading
+import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
 from flask_compress import Compress
@@ -215,11 +216,24 @@ def _preload_heavy_assets_async() -> None:
             # Optionally attempt DB ping in background (best-effort)
             try:
                 _t0 = _time.perf_counter()
-                _db = get_db()
-                try:
-                    _ = _db.command('ping') if hasattr(_db, 'command') else None
-                except Exception:
-                    pass
+                # Use a short‑lived client to avoid mutating the global shared client
+                if MONGODB_URL:
+                    _tmp_client = MongoClient(
+                        MONGODB_URL,
+                        serverSelectionTimeoutMS=2000,
+                        tz_aware=True,
+                        tzinfo=timezone.utc,
+                    )
+                    try:
+                        # Best‑effort ping; ignore failures silently
+                        _ = _tmp_client.admin.command('ping')
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            _tmp_client.close()
+                        except Exception:
+                            pass
                 try:
                     record_dependency_init("mongodb_ping", max(0.0, float(_time.perf_counter() - _t0)))
                 except Exception:
@@ -527,43 +541,59 @@ def inject_globals():
 def get_db():
     """מחזיר חיבור למסד הנתונים"""
     global client, db
-    # Double-checked locking to avoid race on MongoClient init (preload vs requests)
+    # Proper double-checked locking: perform initialization under the lock
     if client is None:
-        _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock() )
+        _db_lock = globals().setdefault("_DB_INIT_LOCK", threading.Lock())
         with _db_lock:
-            if client is not None:
-                return db
-        if not MONGODB_URL:
-            raise Exception("MONGODB_URL is not configured")
-        try:
-            # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
-            _t0 = _time.perf_counter()
-            client = MongoClient(
-                MONGODB_URL,
-                serverSelectionTimeoutMS=5000,
-                tz_aware=True,
-                tzinfo=timezone.utc,
-            )
-            # בדיקת חיבור
-            client.server_info()
-            db = client[DATABASE_NAME]
-            # קריאה חד-פעמית להבטחת אינדקסים באוספים
-            try:
-                ensure_recent_opens_indexes()
-            except Exception:
-                pass
-            try:
-                ensure_code_snippets_indexes()
-            except Exception:
-                pass
-            try:
-                record_dependency_init("mongodb", max(0.0, float(_time.perf_counter() - _t0)))
-            except Exception:
-                pass
-        except Exception as e:
-            logger.exception("Failed to connect to MongoDB")
-            raise
+            if client is None:
+                if not MONGODB_URL:
+                    raise Exception("MONGODB_URL is not configured")
+                try:
+                    # החזר אובייקטי זמן tz-aware כדי למנוע השוואות naive/aware
+                    _t0 = _time.perf_counter()
+                    client = MongoClient(
+                        MONGODB_URL,
+                        serverSelectionTimeoutMS=5000,
+                        tz_aware=True,
+                        tzinfo=timezone.utc,
+                    )
+                    # בדיקת חיבור
+                    client.server_info()
+                    db = client[DATABASE_NAME]
+                    # קריאה חד-פעמית להבטחת אינדקסים באוספים
+                    try:
+                        ensure_recent_opens_indexes()
+                    except Exception:
+                        pass
+                    try:
+                        ensure_code_snippets_indexes()
+                    except Exception:
+                        pass
+                    try:
+                        record_dependency_init("mongodb", max(0.0, float(_time.perf_counter() - _t0)))
+                    except Exception:
+                        pass
+                except Exception:
+                    logger.exception("Failed to connect to MongoDB")
+                    raise
     return db
+
+
+# --- Graceful MongoClient shutdown on process exit ---
+def _close_mongo_client_on_exit() -> None:
+    try:
+        global client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+            finally:
+                client = None
+    except Exception:
+        pass
+
+atexit.register(_close_mongo_client_on_exit)
 
 # --- Ensure indexes for recent_opens once per process ---
 _recent_opens_indexes_ready = False

@@ -1077,23 +1077,18 @@ function loadScript(src){
     })
     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
-    // עוגני כותרות נגישים עם תמיכה בעברית וקישורי קבע – מיקום הסמל אחרי הכותרת
+    // עוגני כותרות נגישים עם תמיכה בעברית וקישורי קבע – תואם לגרסאות חדשות של markdown-it-anchor
     if (window.markdownitAnchor) {
       try {
         const pe = window.markdownitAnchor.permalink || {};
-        const permalinkFactory = pe.linkAfterHeader || pe.before || pe.headerLink;
-        md.use(window.markdownitAnchor, {
+        const permalinkFactory = (
+          (typeof pe.linkAfterHeader === 'function' && pe.linkAfterHeader) ||
+          (typeof pe.headerLink === 'function' && pe.headerLink) ||
+          (typeof pe.before === 'function' && pe.before) ||
+          null
+        );
+        const anchorOpts = {
           level: [1, 2, 3, 4],
-          permalink: permalinkFactory ? permalinkFactory({
-            safariReaderFix: true,
-            class: 'header-anchor',
-            symbol: '🔗',
-            ariaHidden: false,
-            renderAttrs: (slug) => ({
-              'aria-label': `קישור קבוע לסעיף: ${slug}`,
-              'title': 'לחץ להעתקת קישור'
-            })
-          }) : true,
           slugify: (s) => {
             try {
               return String(s)
@@ -1104,17 +1099,30 @@ function loadScript(src){
                 .replace(/^-+|-+$/g, '');
             } catch (_) { return ''; }
           }
-        });
+        };
+        if (permalinkFactory) {
+          anchorOpts.permalink = permalinkFactory({
+            safariReaderFix: true,
+            class: 'header-anchor',
+            symbol: '🔗',
+            ariaHidden: false,
+            renderAttrs: (slug) => ({
+              'aria-label': `קישור קבוע לסעיף: ${slug}`,
+              'title': 'לחץ להעתקת קישור'
+            })
+          });
+        }
+        md.use(window.markdownitAnchor, anchorOpts);
       } catch(_) {
-        // fallback להגדרה הפשוטה
-        md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
+        // fallback: ללא permalink כדי למנוע קריסה על שינויי API
+        try { md.use(window.markdownitAnchor); } catch(__) {}
       }
     }
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
     // תמיכה גם בשמות גלובליים שונים של התוסף (markdown-it-admonition)
     (function(){
       try {
-        const admonitionPlugin = (window.markdownitAdmonition || window.markdownItAdmonition);
+        const admonitionPlugin = (window.markdownitAdmonition || window.markdownItAdmonition || window.markdownItAdmonitionDefault || null);
         if (admonitionPlugin) {
           md.use(admonitionPlugin, {
             types: ['note','tip','warning','danger','info','success','question','example','quote','experimental','deprecated','todo','abstract']
@@ -1125,7 +1133,7 @@ function loadScript(src){
     // תמיכה רשמית בתחביר ::: ע"י markdown-it-container עבור כל הסוגים וה-details
     (function(){
       try {
-        const containerPlugin = window.markdownitContainer;
+        const containerPlugin = (window.markdownitContainer || window.markdownItContainer || null);
         if (!containerPlugin) return;
         const types = ['details','note','tip','warning','danger','info','success','question','example','quote','experimental','deprecated','todo','abstract'];
         const DEFAULT_TITLES = { note:'הערה', tip:'טיפ', warning:'אזהרה', danger:'סכנה', info:'מידע', success:'הצלחה', question:'שאלה', example:'דוגמה', quote:'ציטוט', experimental:'ניסוי', deprecated:'לא מומלץ', todo:'לעשות', abstract:'תקציר' };
