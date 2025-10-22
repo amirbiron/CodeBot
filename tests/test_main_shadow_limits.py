@@ -6,7 +6,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_main_global_shadow_limit_logs(monkeypatch, caplog):
-    # Enable Redis URL (won't actually connect here) and shadow mode
+    # Enable Redis URL but stub Redis storage to avoid real connection
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("RATE_LIMIT_SHADOW_MODE", "true")
 
@@ -33,11 +33,27 @@ async def test_main_global_shadow_limit_logs(monkeypatch, caplog):
             except Exception:
                 self._rate_limiter = None
             try:
-                from limits.storage import RedisStorage
-                from limits.strategies import MovingWindowRateLimiter
                 from limits import RateLimitItemPerMinute
-                self._limits_storage = RedisStorage(str(self.config.REDIS_URL))
-                self._advanced_limiter = MovingWindowRateLimiter(self._limits_storage)
+                # Stub storage/strategy to avoid network calls
+                class _DummyStorage:
+                    def __init__(self):
+                        self._counters = {}
+                    def incr(self, key, expiry, elastic_expiry=False):
+                        self._counters[key] = self._counters.get(key, 0) + 1
+                        return True
+                    def get(self, key):
+                        return self._counters.get(key, 0)
+                    # Moving window API shim
+                    def acquire_entry(self, *a, **k):
+                        return True
+                class _DummyMWLimiter:
+                    def __init__(self, storage):
+                        self.storage = storage
+                    def hit(self, limit_item, key):
+                        # always pretend window allows hit but records it
+                        return True
+                self._limits_storage = _DummyStorage()
+                self._advanced_limiter = _DummyMWLimiter(self._limits_storage)
                 self._per_user_global = RateLimitItemPerMinute(50)
                 self._shadow_mode = True
             except Exception:
