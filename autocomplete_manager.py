@@ -8,12 +8,7 @@ from typing import Any, List, Dict, Set, Callable, TypeVar
 try:
     from typing import ParamSpec  # Python 3.10+
 except Exception:  # pragma: no cover
-    try:
-        from typing_extensions import ParamSpec  # runtime/type-checker fallback
-    except Exception:  # pragma: no cover
-        # Minimal runtime fallback: behave like a TypeVar; adequate for runtime only
-        def ParamSpec(name: str):  # type: ignore[override]
-            return TypeVar(name)
+    from typing_extensions import ParamSpec  # type: ignore  # runtime/type-checker fallback
 P = ParamSpec("P")
 R = TypeVar("R")
 

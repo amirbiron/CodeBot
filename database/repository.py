@@ -30,10 +30,12 @@ except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
 # הבטח ש-cache תמיד קיים עם ממשק מינימלי הנדרש כאן
 if cache is None:  # pragma: no cover
     class _NullCache:
-        def invalidate_user_cache(self, *args, **kwargs):
+        def invalidate_user_cache(self, *args, **kwargs) -> int:
+            return 0
+        def invalidate_file_related(self, *args, **kwargs) -> int:
             return 0
 
-    cache = _NullCache()  # type: ignore[assignment]
+    cache = _NullCache()
 from .manager import DatabaseManager
 from utils import normalize_code
 from config import config
