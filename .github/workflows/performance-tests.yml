@@ -14,18 +14,6 @@ permissions:
   statuses: write
 
 jobs:
-  performance-test:
-    name: "🚀 Load Testing"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: "🔥 Run Load Tests"
-        run: |
-          echo "🔥 Running performance tests..."
-          # Place your load-testing tool invocation here (e.g., k6, locust)
-          # k6 run performance/load-test.js
-
   python-performance:
     name: "🐍 PyTest Performance"
     runs-on: ubuntu-latest
@@ -52,11 +40,15 @@ jobs:
       # ברירת מחדל: להריץ הכל (כולל heavy)
       - name: Run ALL performance tests (default)
         if: github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light'))
+        env:
+          RUN_PERF: '1'
         run: |
           echo "Running all performance tests (if any)..."
           pytest -v -o addopts="" -m performance --perf-heavy-percentile=90 || echo "No performance tests found or none collected."
       - name: Collect test durations (default)
         if: always() && (github.event_name != 'pull_request' || !(github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'perf-light')))
+        env:
+          RUN_PERF: '1'
         run: |
           echo "Collecting durations for all performance tests..."
           pytest -o addopts="" -m performance --durations=0 --json-report --json-report-file=durations.json || true
