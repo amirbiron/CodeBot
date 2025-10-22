@@ -16,6 +16,7 @@ from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
 import requests
+import errno
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
@@ -2225,12 +2226,21 @@ class GitHubMenuHandler:
                         import tempfile as _tmp
                         with _tmp.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
                             zip_path = tmp_file.name
-                            for chunk in r.iter_content(chunk_size=128 * 1024):
-                                if not chunk:
-                                    continue
-                                tmp_file.write(chunk)
-                                if tmp_file.tell() > MAX_ZIP_TOTAL_BYTES:
-                                    too_big_for_telegram = True
+                            try:
+                                for chunk in r.iter_content(chunk_size=128 * 1024):
+                                    if not chunk:
+                                        continue
+                                    tmp_file.write(chunk)
+                                    if tmp_file.tell() > MAX_ZIP_TOTAL_BYTES:
+                                        too_big_for_telegram = True
+                            except OSError as e_os:
+                                try:
+                                    if getattr(e_os, 'errno', None) == errno.ENOSPC:
+                                        await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת. נא לפנות מקום ולנסות שוב.")
+                                        emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error="ENOSPC")
+                                except Exception:
+                                    pass
+                                raise
 
                         # ספר קבצים קיימים (ללא metadata) והוסף metadata.json במצב append
                         try:
@@ -2256,7 +2266,13 @@ class GitHubMenuHandler:
                         except Exception as e_append:
                             # אירוע יצירה
                             try:
-                                emit_event("github_zip_create_error", severity="error", repo=str(repo.full_name), error=str(e_append))
+                                code = "ENOSPC" if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC else "zip_append_error"
+                                emit_event("github_zip_create_error", severity="error", repo=str(repo.full_name), error=str(e_append), code=code)
+                            except Exception:
+                                pass
+                            try:
+                                if isinstance(e_append, OSError) and getattr(e_append, 'errno', None) == errno.ENOSPC:
+                                    await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת בעת כתיבת המטא-דאטה.")
                             except Exception:
                                 pass
                             raise
@@ -2272,9 +2288,15 @@ class GitHubMenuHandler:
                             backup_manager.save_backup_file(zip_path)
                         except Exception as e_persist:
                             try:
-                                emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error=str(e_persist))
+                                code = "ENOSPC" if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC else "persist_error"
+                                emit_event("github_zip_persist_error", severity="error", repo=str(repo.full_name), error=str(e_persist), code=code)
                                 if errors_total is not None:
                                     errors_total.labels(code="github_zip_persist_error").inc()
+                            except Exception:
+                                pass
+                            try:
+                                if isinstance(e_persist, OSError) and getattr(e_persist, 'errno', None) == errno.ENOSPC:
+                                    await query.message.reply_text("❌ אין מקום פנוי בדיסק של השרת לשמירת הגיבוי.")
                             except Exception:
                                 pass
                             raise
