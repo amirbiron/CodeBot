@@ -1884,7 +1884,8 @@ class CodeKeeperBot:
                             top_levels.add(n.split('/', 1)[0])
                     common_root = list(top_levels)[0] if len(top_levels) == 1 else None
                     def strip_root(path: str) -> str:
-                        if common_root and path.startswith(common_root + '/'): return path[len(common_root)+1:]
+                        if common_root and path.startswith(common_root + '/'):
+                            return path[len(common_root)+1:]
                         return path
                     files = []
                     for name in members:
