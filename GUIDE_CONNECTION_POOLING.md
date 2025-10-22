@@ -4,7 +4,7 @@
 
 
 ### TL;DR – ברירות מחדל בטוחות ומומלצות
-- **MongoDB (PyMongo)**: `maxPoolSize=50~200`, `minPoolSize=5~10`, `waitQueueTimeoutMS=2000~5000`, `maxIdleTimeMS=30_000~60_000`.
+- **MongoDB (PyMongo)**: `maxPoolSize=50~200` (ברירת מחדל מומלצת: 100), `minPoolSize=5~10`, `waitQueueTimeoutMS=2000~5000`, `maxIdleTimeMS=30_000~60_000`.
 - **Redis (redis-py)**: `REDIS_MAX_CONNECTIONS=50~200`, `socket_connect_timeout=1~5`, `socket_timeout=1~5`, `health_check_interval=30`.
 - **aiohttp (Async HTTP)**: שימוש ב-ClientSession משותף לתהליך עם `TCPConnector(limit=50~200, limit_per_host=10~50)` ו-`ClientTimeout(total=10~15)`.
 - **requests (Sync HTTP)**: שימוש ב-`requests.Session` גלובלי עם `HTTPAdapter(pool_connections=20~50, pool_maxsize=50~200, max_retries=2~3)`.
@@ -50,11 +50,13 @@ MONGODB_CONNECT_TIMEOUT_MS=10000
 סקיצה לשדרוג פונקציית החיבור (ליישום עתידי בקוד – לא חובה עכשיו):
 ```python
 # database/manager.py (הדגמה)
+import os
+from datetime import timezone
 from config import config
 ...
 self.client = MongoClient(
     config.MONGODB_URL,
-    maxPoolSize=int(os.getenv('MONGODB_MAX_POOL_SIZE', '50')),
+    maxPoolSize=int(os.getenv('MONGODB_MAX_POOL_SIZE', '100')),
     minPoolSize=int(os.getenv('MONGODB_MIN_POOL_SIZE', '5')),
     maxIdleTimeMS=int(os.getenv('MONGODB_MAX_IDLE_TIME_MS', '30000')),
     waitQueueTimeoutMS=int(os.getenv('MONGODB_WAIT_QUEUE_TIMEOUT_MS', '5000')),
@@ -65,6 +67,9 @@ self.client = MongoClient(
     retryReads=True,
     tz_aware=True,
     tzinfo=timezone.utc,
+    appname=os.getenv('MONGODB_APPNAME') or None,
+    compressors=[c for c in (os.getenv('MONGODB_COMPRESSORS') or '').split(',') if c],
+    heartbeatFrequencyMS=int(os.getenv('MONGODB_HEARTBEAT_FREQUENCY_MS', '10000')),
 )
 ```
 
@@ -120,10 +125,9 @@ def get_session() -> aiohttp.ClientSession:
     if _session is None or _session.closed:
         total = int(os.getenv('AIOHTTP_TIMEOUT_TOTAL', '10'))
         limit = int(os.getenv('AIOHTTP_POOL_LIMIT', '50'))
-        limit_per_host_env = os.getenv('AIOHTTP_LIMIT_PER_HOST', '')
         try:
-            limit_per_host = int(limit_per_host_env) if limit_per_host_env else 0
-        except Exception:
+            limit_per_host = int(os.getenv('AIOHTTP_LIMIT_PER_HOST', '0'))
+        except (ValueError, TypeError):
             limit_per_host = 0  # 0 = ללא מגבלה פר-הוסט
         timeout = aiohttp.ClientTimeout(total=total)
         connector = aiohttp.TCPConnector(limit=limit, limit_per_host=limit_per_host)
@@ -156,7 +160,12 @@ from http_async import close_session
 @atexit.register
 def _shutdown_http_session():
     try:
-        asyncio.get_event_loop().run_until_complete(close_session())
+        loop = asyncio.get_event_loop()
+        if not loop.is_closed():
+            loop.run_until_complete(close_session())
+    except RuntimeError:
+        # אין event loop פעיל
+        pass
     except Exception:
         pass
 ```
@@ -180,31 +189,40 @@ REQUESTS_RETRIES=2
 ```python
 # http_sync.py (מומלץ להוסיף)
 import os
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
-_session = None
+_local = threading.local()
 
-def get_session() -> requests.Session:
-    global _session
-    if _session is None:
-        pool_conns = int(os.getenv('REQUESTS_POOL_CONNECTIONS', '20'))
-        pool_max = int(os.getenv('REQUESTS_POOL_MAXSIZE', '100'))
-        retries = int(os.getenv('REQUESTS_RETRIES', '2'))
-        backoff = float(os.getenv('REQUESTS_RETRY_BACKOFF', '0.2'))
-        status_forcelist = (500, 502, 503, 504)
-        allowed = frozenset(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+def _create_session() -> requests.Session:
+    pool_conns = int(os.getenv('REQUESTS_POOL_CONNECTIONS', '20'))
+    pool_max = int(os.getenv('REQUESTS_POOL_MAXSIZE', '100'))
+    retries = int(os.getenv('REQUESTS_RETRIES', '2'))
+    backoff = float(os.getenv('REQUESTS_RETRY_BACKOFF', '0.2'))
+    status_forcelist = (500, 502, 503, 504)
+    allowed = frozenset(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 
-        sess = requests.Session()
+    sess = requests.Session()
+    # הערה: urllib3 ישנות משתמשות ב-`method_whitelist` ולא ב-`allowed_methods`.
+    try:
         retry = Retry(total=retries, backoff_factor=backoff,
                       status_forcelist=status_forcelist,
                       allowed_methods=allowed, raise_on_status=False)
-        adapter = HTTPAdapter(pool_connections=pool_conns, pool_maxsize=pool_max, max_retries=retry)
-        sess.mount('https://', adapter)
-        sess.mount('http://', adapter)
-        _session = sess
-    return _session
+    except TypeError:
+        retry = Retry(total=retries, backoff_factor=backoff,
+                      status_forcelist=status_forcelist,
+                      method_whitelist=allowed, raise_on_status=False)
+    adapter = HTTPAdapter(pool_connections=pool_conns, pool_maxsize=pool_max, max_retries=retry)
+    sess.mount('https://', adapter)
+    sess.mount('http://', adapter)
+    return sess
+
+def get_session() -> requests.Session:
+    if not hasattr(_local, 'session'):
+        _local.session = _create_session()
+    return _local.session
 
 def request(method: str, url: str, **kwargs):
     timeout = kwargs.pop('timeout', float(os.getenv('REQUESTS_TIMEOUT', '8')))
@@ -224,6 +242,7 @@ resp = request('GET', url, headers=headers)  # timeout יוגדר מה-ENV כב�
 
 ```python
 import os, aiohttp
+url = "https://example.com"  # דוגמה בלבד; קבעו SSL לפי היעד בפועל
 connector = aiohttp.TCPConnector(
     limit=int(os.getenv('AIOHTTP_POOL_LIMIT', '50')),
     limit_per_host=int(os.getenv('AIOHTTP_LIMIT_PER_HOST', '25')),
@@ -231,6 +250,7 @@ connector = aiohttp.TCPConnector(
     ttl_dns_cache=300,
     enable_cleanup_closed=True,
     force_close=False,
+    ssl=False if url.startswith('http://') else None,
 )
 timeout = aiohttp.ClientTimeout(total=int(os.getenv('AIOHTTP_TIMEOUT_TOTAL', '10')))
 session = aiohttp.ClientSession(timeout=timeout, connector=connector)
