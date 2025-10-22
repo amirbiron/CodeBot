@@ -119,15 +119,27 @@ def setup_telemetry(
             trace.set_tracer_provider(tracer_provider)
 
         # ----- Metrics (best-effort) -----
+        # Guard metrics initialization behind both an explicit feature flag and a valid endpoint.
+        # This prevents noisy retries to localhost:4317 when no collector is present.
         if _METRICS_AVAILABLE:
             try:
-                metric_exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
-                metric_reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=60000)
-                meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
-                metrics.set_meter_provider(meter_provider)
+                enable_metrics = _str2bool(os.getenv("ENABLE_METRICS", "false"))
             except Exception:
-                # Metrics are optional – ignore exporter/transport errors
-                pass
+                enable_metrics = False
+
+            if enable_metrics and endpoint.strip():
+                try:
+                    metric_exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
+                    metric_reader = PeriodicExportingMetricReader(
+                        metric_exporter, export_interval_millis=60000
+                    )
+                    meter_provider = MeterProvider(
+                        resource=resource, metric_readers=[metric_reader]
+                    )
+                    metrics.set_meter_provider(meter_provider)
+                except Exception:
+                    # Metrics are optional – ignore exporter/transport errors
+                    pass
 
         # ----- Auto-instrumentation -----
         try:
