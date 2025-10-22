@@ -232,8 +232,8 @@ class EnhancedMongoPool:
                 'topology': {
                     'type': str(topology.topology_type),
                     'servers': len(topology.server_descriptions()),
-                    'has_primary': topology.has_readable_server(),
-                    'has_secondary': topology.has_writable_server(),
+                    'has_primary': topology.has_writable_server(),  # Primary is writable
+                    'has_secondary': topology.has_readable_server(),  # Secondary is readable
                 },
                 'retry_count': self._retry_count,
             }
