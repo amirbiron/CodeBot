@@ -72,8 +72,15 @@ class Repository:
                     cache.invalidate_user_cache(snippet.user_id)
                 except Exception:
                     pass
+                # עדיפות ל-ID ייחודי אם קיים; fallback לשם קובץ
                 try:
-                    cache.invalidate_file_related(file_id=str(snippet.file_name), user_id=snippet.user_id)
+                    file_identifier = str(getattr(snippet, 'id', '') or getattr(snippet, '_id', '') or '')
+                except Exception:
+                    file_identifier = ''
+                if not file_identifier:
+                    file_identifier = str(snippet.file_name)
+                try:
+                    cache.invalidate_file_related(file_id=file_identifier, user_id=snippet.user_id)
                 except Exception:
                     pass
                 from autocomplete_manager import autocomplete
@@ -210,6 +217,7 @@ class Repository:
             except Exception:
                 pass
             try:
+                # אין לנו _id כאן — נשתמש ב-file_name כמזהה דטרמיניסטי למפתחות הקשורים
                 cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
             except Exception:
                 pass
