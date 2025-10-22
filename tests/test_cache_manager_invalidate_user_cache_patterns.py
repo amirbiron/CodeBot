@@ -34,4 +34,3 @@ def test_invalidate_user_cache_patterns(monkeypatch):
     n = cm.cache.invalidate_user_cache(42)
     assert isinstance(n, int)
     assert n >= 3
-}
