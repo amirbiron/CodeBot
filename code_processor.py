@@ -63,7 +63,27 @@ except Exception:  # noqa: BLE001
         pass
 
 from config import config
-from cache_manager import cache, cached
+# cache_manager עלול להיות ממוקף ע"י טסטים: ספקי fallback
+try:
+    from cache_manager import cache  # type: ignore
+except Exception:  # pragma: no cover
+    cache = None  # type: ignore[assignment]
+try:
+    from cache_manager import cached  # type: ignore
+except Exception:  # pragma: no cover
+    def cached(expire_seconds: int = 300, key_prefix: str = "default"):  # type: ignore[no-redef]
+        def _decorator(func):
+            return func
+        return _decorator
+if cache is None:  # pragma: no cover
+    class _NullCache:
+        def delete_pattern(self, *args, **kwargs):
+            return 0
+        def set(self, *a, **k):
+            return False
+        def get(self, *a, **k):
+            return None
+    cache = _NullCache()  # type: ignore[assignment]
 from utils import normalize_code
 
 logger = logging.getLogger(__name__)

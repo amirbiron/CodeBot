@@ -12,7 +12,28 @@ except Exception:
 
 ObjectId = _RealObjectId
 
-from cache_manager import cache, cached
+# ייבוא חסין לעיטור cache ולאובייקט cache — הטסטים לעיתים מחליפים את המודול
+# `cache_manager` עם SimpleNamespace שמכיל רק `cache` ללא `cached`, ולכן נדרש fallback.
+try:  # נסה להביא את cache (גם אם המודול ממוקף)
+    from cache_manager import cache  # type: ignore
+except Exception:  # pragma: no cover - fallback ללא-אופ
+    cache = None  # type: ignore[assignment]
+
+try:  # נסה להביא את הדקורטור cached
+    from cache_manager import cached  # type: ignore
+except Exception:  # pragma: no cover - דקורטור no-op במקרה שחסר
+    def cached(expire_seconds: int = 300, key_prefix: str = "default"):  # type: ignore[no-redef]
+        def _decorator(func):
+            return func
+        return _decorator
+
+# הבטח ש-cache תמיד קיים עם ממשק מינימלי הנדרש כאן
+if cache is None:  # pragma: no cover
+    class _NullCache:
+        def invalidate_user_cache(self, *args, **kwargs):
+            return 0
+
+    cache = _NullCache()  # type: ignore[assignment]
 from .manager import DatabaseManager
 from utils import normalize_code
 from config import config
