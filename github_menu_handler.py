@@ -2210,7 +2210,8 @@ class GitHubMenuHandler:
                         url = repo.get_archive_link("zipball")
                         # הורדה במצב זרימה + מניעת דחיסה מיותרת
                         headers = {"Accept-Encoding": "identity"}
-                        r = requests.get(url, headers=headers, stream=True, timeout=60)
+                        # הארכת timeout כדי לאפשר הורדת ריפו גדול
+                        r = requests.get(url, headers=headers, stream=True, timeout=180)
                         r.raise_for_status()
                         # בדיקת גודל מראש (אם ידוע) מול מגבלת שליחת קובץ לטלגרם
                         try:
@@ -2218,25 +2219,17 @@ class GitHubMenuHandler:
                             content_length = int(cl_header) if cl_header else 0
                         except Exception:
                             content_length = 0
-                        if content_length and content_length > MAX_ZIP_TOTAL_BYTES:
-                            # גדול מדי לשליחה בבוט – שלח קישור ישיר להורדה
-                            await query.edit_message_text(
-                                f"⚠️ ה‑ZIP גדול ({format_bytes(content_length)}). להורדה: <a href=\"{url}\">קישור ישיר</a>",
-                                parse_mode="HTML",
-                            )
-                            return
+                        # קבצים מעל מגבלת השליחה בטלגרם: עדיין נשמור גיבוי, אבל לא נשלח כקובץ
+                        too_big_for_telegram = bool(content_length and content_length > MAX_ZIP_TOTAL_BYTES)
                         # צבירת הנתונים בבטיחות עד לגבול המותר
                         tmp_buf = BytesIO()
                         for chunk in r.iter_content(chunk_size=128 * 1024):
                             if not chunk:
                                 continue
                             tmp_buf.write(chunk)
+                            # גם אם עברנו את מגבלת השליחה – נמשיך לצבור כדי לשמור גיבוי
                             if tmp_buf.tell() > MAX_ZIP_TOTAL_BYTES:
-                                await query.edit_message_text(
-                                    f"⚠️ ה‑ZIP חורג מהמגבלה ({format_bytes(tmp_buf.tell())} > {format_bytes(MAX_ZIP_TOTAL_BYTES)}). להורדה: <a href=\"{url}\">קישור ישיר</a>",
-                                    parse_mode="HTML",
-                                )
-                                return
+                                too_big_for_telegram = True
                         tmp_buf.seek(0)
                         # בנה ZIP חדש עם metadata.json משולב כדי לאפשר רישום בגיבויים
                         src_buf = tmp_buf
@@ -2284,14 +2277,21 @@ class GitHubMenuHandler:
                             filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
                             out_buf.name = filename
                             caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
-                            try:
-                                await query.message.reply_document(
-                                    document=out_buf, filename=filename, caption=caption
-                                )
-                            except Exception:
-                                # נפילה בטלגרם (למשל 413) – שלח קישור ישיר
+                            if not too_big_for_telegram:
+                                try:
+                                    await query.message.reply_document(
+                                        document=out_buf, filename=filename, caption=caption
+                                    )
+                                except Exception:
+                                    # נפילה בטלגרם (למשל 413) – שלח קישור ישיר
+                                    await query.message.reply_text(
+                                        f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
+                                    )
+                            else:
+                                # גדול מדי לשליחה – דווח שנשמר והצע קישור ישיר
                                 await query.message.reply_text(
-                                    f"⚠️ שליחת הקובץ נכשלה. להורדה ישירה מ‑GitHub: {url}"
+                                    f"✅ הגיבוי נשמר ({format_bytes(total_bytes)}). להורדה ישירה מ‑GitHub: <a href=\"{url}\">קישור</a>",
+                                    parse_mode="HTML",
                                 )
                             # הצג שורת סיכום בסגנון המבוקש ואז בקש תיוג
                             try:

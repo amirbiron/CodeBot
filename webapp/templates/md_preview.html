@@ -17,6 +17,64 @@
   border-radius: 12px;
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
   padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* צבעי רקע חומים לתצוגת מארקדאון */
+#md-content.bg-light {
+  background: #f5e6d3;
+  color: #2d2d2d;
+}
+
+#md-content.bg-medium {
+  background: #e8d4b0;
+  color: #1a1a1a;
+}
+
+#md-content.bg-dark {
+  background: #d4b896;
+  color: #0d0d0d;
+}
+
+/* התאמת צבעי אלמנטים פנימיים לרקע החום */
+#md-content.bg-light code:not(pre code),
+#md-content.bg-medium code:not(pre code),
+#md-content.bg-dark code:not(pre code) {
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+#md-content.bg-light blockquote,
+#md-content.bg-medium blockquote,
+#md-content.bg-dark blockquote {
+  background: rgba(255, 255, 255, 0.3);
+  border-inline-start-color: rgba(0, 0, 0, 0.2);
+}
+
+#md-content.bg-light table thead,
+#md-content.bg-medium table thead,
+#md-content.bg-dark table thead {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+#md-content.bg-light table th,
+#md-content.bg-light table td,
+#md-content.bg-medium table th,
+#md-content.bg-medium table td,
+#md-content.bg-dark table th,
+#md-content.bg-dark table td {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* hover effect for color options */
+.bg-color-option:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.bg-color-option.active {
+  border: 2px solid #4a90e2 !important;
+  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
 }
 /* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
 #mdCard:fullscreen { height: 100vh; overflow: auto; }
@@ -802,7 +860,28 @@ input.md-task-checkbox {
         מסך מלא
       </button>
     </div>
-    <div class="search-bar" id="md-search" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-16px -16px 0 -16px;">
+    <div class="search-bar" id="md-search" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-16px -16px 0 -16px;position:relative;">
+      <!-- כפתור החלפת צבעי רקע -->
+      <div id="bgColorSwitcher" style="position:absolute;top:-45px;left:50%;transform:translateX(-50%);z-index:100;">
+        <button id="bgColorBtn" class="btn btn-secondary btn-icon" style="background:rgba(255,255,255,0.95);color:#333;border:1px solid #ddd;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:8px 16px;border-radius:8px;font-size:14px;cursor:pointer;transition:all 0.2s ease;" title="החלף צבע רקע">
+          <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#ffffff;border:2px solid #333;vertical-align:middle;margin-left:6px;"></span>
+          צבע רקע
+        </button>
+        <div id="bgColorOptions" style="display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;background:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:10px;white-space:nowrap;">
+          <button class="bg-color-option" data-color="light" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#f5e6d3;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#f5e6d3;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+            חום בהיר
+          </button>
+          <button class="bg-color-option" data-color="medium" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#e8d4b0;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#e8d4b0;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+            חום בינוני
+          </button>
+          <button class="bg-color-option" data-color="dark" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#d4b896;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#d4b896;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+            חום כהה
+          </button>
+        </div>
+      </div>
       <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1 1 220px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
       <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;flex:0 0 auto;"></span>
       <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
@@ -1529,6 +1608,144 @@ function loadScript(src){
     console.error('Markdown preview failed', e);
     const container = document.getElementById('md-content');
     container.innerHTML = '<div class="alert alert-error">שגיאה ברינדור Markdown</div>';
+  }
+})();
+
+// === מערכת החלפת צבעי רקע למארקדאון ===
+(function initBackgroundColorSwitcher() {
+  'use strict';
+  
+  const COLORS = {
+    light: '#f5e6d3',
+    medium: '#e8d4b0',
+    dark: '#d4b896'
+  };
+  
+  const STORAGE_KEY = 'md_bg_color_preference';
+  
+  // שליפת העדפה שמורה
+  function getSavedColorPreference() {
+    try {
+      return localStorage.getItem(STORAGE_KEY) || null;
+    } catch(_) {
+      return null;
+    }
+  }
+  
+  // שמירת העדפה
+  function saveColorPreference(color) {
+    try {
+      if (color) {
+        localStorage.setItem(STORAGE_KEY, color);
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch(_) {}
+  }
+  
+  // החלת צבע רקע
+  function applyBackgroundColor(color) {
+    const mdContent = document.getElementById('md-content');
+    if (!mdContent) return;
+    
+    // הסרת כל המחלקות הקודמות
+    mdContent.classList.remove('bg-light', 'bg-medium', 'bg-dark');
+    
+    // החלת צבע חדש אם נבחר
+    if (color && COLORS[color]) {
+      mdContent.classList.add(`bg-${color}`);
+      
+      // עדכון הכפתור הראשי
+      const indicator = document.querySelector('#bgColorBtn span');
+      if (indicator) {
+        indicator.style.background = COLORS[color];
+      }
+    } else {
+      // חזרה לצבע ברירת המחדל (לבן)
+      const indicator = document.querySelector('#bgColorBtn span');
+      if (indicator) {
+        indicator.style.background = '#ffffff';
+      }
+    }
+    
+    // סימון האפשרות הפעילה
+    document.querySelectorAll('.bg-color-option').forEach(btn => {
+      btn.classList.remove('active');
+      // השוואה גם לערך ריק עבור ברירת המחדל
+      if ((color === null || color === '') && (btn.dataset.color === '' || btn.dataset.color === 'default')) {
+        btn.classList.add('active');
+      } else if (btn.dataset.color === color) {
+        btn.classList.add('active');
+      }
+    });
+    
+    // שמירת ההעדפה
+    saveColorPreference(color);
+  }
+  
+  // אתחול המערכת
+  function init() {
+    const bgColorBtn = document.getElementById('bgColorBtn');
+    const bgColorOptions = document.getElementById('bgColorOptions');
+    
+    if (!bgColorBtn || !bgColorOptions) return;
+    
+    // טעינת העדפה שמורה
+    const savedColor = getSavedColorPreference();
+    if (savedColor) {
+      applyBackgroundColor(savedColor);
+    }
+    
+    // פתיחה/סגירה של התפריט
+    bgColorBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = bgColorOptions.style.display !== 'none';
+      bgColorOptions.style.display = isVisible ? 'none' : 'block';
+    });
+    
+    // בחירת צבע
+    document.querySelectorAll('.bg-color-option').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const color = btn.dataset.color;
+        applyBackgroundColor(color);
+        bgColorOptions.style.display = 'none';
+      });
+    });
+    
+    // סגירת התפריט בלחיצה מחוץ לאזור
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#bgColorSwitcher')) {
+        bgColorOptions.style.display = 'none';
+      }
+    });
+    
+    // הוספת אפשרות לחזור לצבע הלבן המקורי
+    const defaultBtn = document.createElement('button');
+    defaultBtn.className = 'bg-color-option';
+    defaultBtn.dataset.color = ''; // ערך ריק לברירת מחדל
+    defaultBtn.style = 'display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#ffffff;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;';
+    defaultBtn.innerHTML = `
+      <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#ffffff;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+      לבן (ברירת מחדל)
+    `;
+    defaultBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyBackgroundColor(null); // שימוש בפונקציה המרכזית
+      bgColorOptions.style.display = 'none';
+    });
+    
+    // הוספת כפתור ברירת המחדל לתחילת הרשימה
+    bgColorOptions.insertBefore(defaultBtn, bgColorOptions.firstChild);
+    
+    // סימון ברירת המחדל אם אין צבע שמור - יעשה אוטומטית דרך applyBackgroundColor
+  }
+  
+  // הפעלת המערכת לאחר טעינת הדף
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
 })();
 
