@@ -424,8 +424,10 @@ async def test_download_zip_of_root_sends_backup_and_summary(monkeypatch):
         def __init__(self):
             self.saved = []
             self.listed = []
-        def save_backup_bytes(self, data, metadata):
-            self.saved.append((data, metadata))
+        def save_backup_file(self, file_path):
+            # במקום לשמור bytes, נרשום את הנתיב שקיבלנו (סימולציה של persist מדיסק)
+            self.saved.append(("file", file_path))
+            return "bid"
         def list_backups(self, user_id):
             self.listed.append(user_id)
             return []

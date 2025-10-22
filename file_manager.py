@@ -456,7 +456,7 @@ class BackupManager:
     def save_backup_file(self, file_path: str) -> Optional[str]:
         """שומר קובץ ZIP קיים לאחסון היעד (Mongo/FS) ומחזיר backup_id אם הצליח."""
         try:
-            # נסה לקרוא metadata.json מתוך ה-ZIP
+            # 1) קרא מטאדטה מתוך ה‑ZIP (ללא קריאה של כל הקובץ לזיכרון)
             metadata: Dict[str, Any] = {}
             try:
                 with zipfile.ZipFile(file_path, 'r') as zf:
@@ -465,12 +465,52 @@ class BackupManager:
                         metadata = json.loads(md_raw) if md_raw else {}
             except Exception:
                 metadata = {}
-            if "backup_id" not in metadata:
-                # הפק מזהה מגיבוי
-                metadata["backup_id"] = os.path.splitext(os.path.basename(file_path))[0]
-            with open(file_path, 'rb') as f:
-                data = f.read()
-            return self.save_backup_bytes(data, metadata)
+
+            # הפק backup_id אם חסר
+            backup_id = metadata.get("backup_id") or os.path.splitext(os.path.basename(file_path))[0]
+            metadata["backup_id"] = backup_id
+            filename = f"{backup_id}.zip"
+
+            # 2) שמירה לפי מצב אחסון — הימנע מקריאה מלאה של הקובץ לזיכרון
+            if self.storage_mode == "mongo":
+                fs = self._get_gridfs()
+                if fs is None:
+                    # נפילה לאחסון קבצים
+                    target_path = self.backup_dir / filename
+                    try:
+                        # העתקה חסכונית בזיכרון
+                        import shutil
+                        shutil.copyfile(file_path, target_path)
+                    except Exception:
+                        # fallback לכתיבה בבלוקים אם shutil נכשל
+                        with open(file_path, 'rb') as src, open(target_path, 'wb') as dst:
+                            while True:
+                                chunk = src.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                dst.write(chunk)
+                    return backup_id
+                # GridFS – מחיקה של עותק קודם (בשם זהה) ושמירה בזרימה
+                with suppress(Exception):
+                    for fdoc in fs.find({"filename": filename}):
+                        fs.delete(fdoc._id)
+                with open(file_path, 'rb') as fobj:
+                    fs.put(fobj, filename=filename, metadata=metadata)  # type: ignore[arg-type]
+                return backup_id
+
+            # ברירת מחדל: קבצים
+            target_path = self.backup_dir / filename
+            try:
+                import shutil
+                shutil.copyfile(file_path, target_path)
+            except Exception:
+                with open(file_path, 'rb') as src, open(target_path, 'wb') as dst:
+                    while True:
+                        chunk = src.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+            return backup_id
         except Exception as e:
             logger.warning(f"save_backup_file failed: {e}")
             return None
