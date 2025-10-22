@@ -89,3 +89,18 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:  # t
     store: Dict[str, float] = getattr(session.config, "_perf_times", {})  # type: ignore[attr-defined]
     session.config.cache.set("perf/last_durations", store)  # type: ignore[attr-defined]
 
+
+@pytest.fixture(autouse=True)
+def _reset_cache_manager_stub_before_test() -> None:
+    """מבטל Stub שדלף למודול cache_manager בין טסטים.
+
+    ישנם טסטים שממקפים את `sys.modules['cache_manager']` ל-`types.SimpleNamespace`.
+    אם מסיבה כלשהי ה-Stubbing לא שוחזר, נוודא לפני כל טסט שהייבוא הבא
+    יחזיר את המודול האמיתי ע"י הסרת ה-Stub מה-`sys.modules`.
+    """
+    import sys
+    from types import SimpleNamespace
+
+    cm = sys.modules.get('cache_manager')
+    if isinstance(cm, SimpleNamespace):
+        sys.modules.pop('cache_manager', None)
