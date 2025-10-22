@@ -8,7 +8,6 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 from html import escape as html_escape
 from utils import get_language_emoji
-from cache_manager import cache, cached
 
 logger = logging.getLogger(__name__)
 

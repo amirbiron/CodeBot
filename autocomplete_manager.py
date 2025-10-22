@@ -4,7 +4,13 @@ Autocomplete Manager for File Names and Tags
 """
 
 import logging
-from typing import Any, List, Dict, Set
+from typing import Any, List, Dict, Set, Callable, TypeVar
+try:
+    from typing import ParamSpec  # Python 3.10+
+except Exception:  # pragma: no cover
+    from typing_extensions import ParamSpec  # type: ignore  # runtime/type-checker fallback
+P = ParamSpec("P")
+R = TypeVar("R")
 
 fuzz: Any
 process: Any
@@ -39,7 +45,23 @@ except Exception:
             return [(c, s) for c, s in scored[:limit]]
     process = _Process()
 from database import db
-from cache_manager import cache, cached
+# ייבוא חסין: בטסטים לעיתים ממקפים את cache_manager כך שיכיל רק cache
+try:
+    from cache_manager import cache
+except Exception:  # pragma: no cover
+    cache = None
+try:
+    from cache_manager import cached
+except Exception:  # pragma: no cover
+    def cached(expire_seconds: int = 300, key_prefix: str = "default") -> Callable[[Callable[P, R]], Callable[P, R]]:
+        def _decorator(func: Callable[P, R]) -> Callable[P, R]:
+            return func
+        return _decorator
+if cache is None:  # pragma: no cover
+    class _NullCache:
+        def delete_pattern(self, *args: Any, **kwargs: Any) -> int:
+            return 0
+    cache = _NullCache()
 
 logger = logging.getLogger(__name__)
 
