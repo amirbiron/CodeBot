@@ -10,7 +10,7 @@ try:
 except Exception:  # pragma: no cover
     # Fallback for very old type checkers
     ParamSpec = lambda name: List[Any]  # type: ignore
-P = ParamSpec("P")  # type: ignore[misc]
+P = ParamSpec("P")
 R = TypeVar("R")
 
 fuzz: Any
@@ -50,11 +50,11 @@ from database import db
 try:
     from cache_manager import cache
 except Exception:  # pragma: no cover
-    cache = None  # type: ignore[assignment]
+    cache = None
 try:
     from cache_manager import cached
 except Exception:  # pragma: no cover
-    def cached(expire_seconds: int = 300, key_prefix: str = "default") -> Callable[[Callable[P, R]], Callable[P, R]]:  # type: ignore[misc]
+    def cached(expire_seconds: int = 300, key_prefix: str = "default") -> Callable[[Callable[P, R]], Callable[P, R]]:
         def _decorator(func: Callable[P, R]) -> Callable[P, R]:
             return func
         return _decorator
