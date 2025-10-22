@@ -3210,15 +3210,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 await _cache_maintenance_job(_Ctx())
             except Exception:
                 pass
-        else:
-            # בסביבות טסטים, הבטחת אמיתות: הפעל הרצה חד-פעמית כדי לפלוט אירוע
-            try:
-                if os.getenv("PYTEST_CURRENT_TEST"):
-                    class _Ctx2:
-                        application = application  # type: ignore[assignment]
-                    await _cache_maintenance_job(_Ctx2())
-            except Exception:
-                pass
+        # הערה: לא נפעיל הרצה כפולה כאשר התזמון מצליח
+        # כדי למנוע פליקות בטסטים/סייד-אפקטים כפולים. הרצה חד-פעמית
+        # מתבצעת רק ב-fallback כאשר התזמון נכשל.
 
         async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
             try:
