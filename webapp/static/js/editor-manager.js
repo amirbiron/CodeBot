@@ -13,11 +13,14 @@
 
     loadPreference() {
       try {
+        // קדימות: localStorage, אחר כך העדפת שרת (אם קיימת), ולבסוף ברירת מחדל codemirror
         const saved = localStorage.getItem('preferredEditor');
         if (saved === 'codemirror' || saved === 'simple') return saved;
+        const serverPref = (window.__serverPreferredEditor || '').toLowerCase();
+        if (serverPref === 'codemirror' || serverPref === 'simple') return serverPref;
       } catch(_) {}
-      // ברירת מחדל: עורך רגיל (textarea)
-      return 'simple';
+      // ברירת מחדל חדשה: עורך מתקדם (CodeMirror)
+      return 'codemirror';
     }
 
     savePreference(editorType) {
