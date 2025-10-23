@@ -12,6 +12,12 @@
 4. **ניהול פשוט**: הוספה/הסרה/עריכת אוספים בקלות
 5. **חווית משתמש מעולה**: ממשק אינטואיטיבי עם אנימציות חלקות
 
+## ⚠️ הערות אבטחה חשובות
+
+1. **מניעת XSS**: כל הנתונים שמגיעים מהמשתמש (שמות, תיאורים, אייקונים) חייבים לעבור escape לפני הצגה ב-DOM
+2. **וולידציה של אייקונים**: רק אייקונים מרשימה מוגדרת מראש (whitelist) מותרים למניעת הזרקת קוד
+3. **ניהול Cache**: השתמשנו ב-`cache.invalidate_user_cache()` במקום `delete_memoized` שאינה קיימת
+
 ---
 
 ## 📐 ארכיטקטורה
@@ -66,6 +72,13 @@ DEFAULT_COLLECTION_ICONS = {
     'טסטים': '🧪',
     'דוגמאות': '💡',
     'ברירת מחדל': '📂'
+}
+
+# רשימת אייקונים מותרים (Whitelist)
+ALLOWED_ICONS = {
+    '📂', '📘', '🎨', '🧩', '🐛', '⚙️', '📝', '🧪', '💡',
+    '📁', '📚', '🎯', '🚀', '⭐', '🔖', '🏆', '💼', '🎓',
+    '🔬', '🛠️', '🎭', '🎪', '🎡', '🎢', '🎨', '🖼️', '🎬'
 }
 
 # צבעי רקע לאוספים (classes בעיצוב)
@@ -159,8 +172,8 @@ class CollectionsManager:
                     "error": f"הגעת למגבלה של {MAX_COLLECTIONS_PER_USER} אוספים"
                 }
             
-            # בחירת אייקון אוטומטית אם לא סופק
-            if not icon:
+            # בחירת אייקון אוטומטית אם לא סופק או לא תקין
+            if not icon or icon not in ALLOWED_ICONS:
                 icon = DEFAULT_COLLECTION_ICONS.get(name, DEFAULT_COLLECTION_ICONS['ברירת מחדל'])
             
             # בחירת צבע אקראי אם לא סופק
@@ -258,7 +271,9 @@ class CollectionsManager:
                 update_doc["description"] = description.strip()[:MAX_COLLECTION_DESCRIPTION_LENGTH]
             
             if icon is not None:
-                update_doc["icon"] = icon
+                # בדיקת תקינות אייקון
+                if icon in ALLOWED_ICONS:
+                    update_doc["icon"] = icon
             
             if color is not None and color in COLLECTION_COLORS:
                 update_doc["color"] = color
@@ -677,9 +692,10 @@ from bson import ObjectId
 from functools import wraps
 from typing import Optional, Dict, List
 import logging
+import html
 
-from database.collections_manager import CollectionsManager
-from cache_manager import dynamic_cache, cache
+from database.collections_manager import CollectionsManager, ALLOWED_ICONS
+from cache_manager import cache
 
 logger = logging.getLogger(__name__)
 
@@ -738,18 +754,23 @@ def create_collection():
         if not name:
             return jsonify({'success': False, 'error': 'שם האוסף חסר'}), 400
         
+        # וולידציה של אייקון
+        icon = data.get('icon')
+        if icon and icon not in ALLOWED_ICONS:
+            icon = None  # יבחר אוטומטית במנג'ר
+        
         manager = get_collections_manager()
         result = manager.create_collection(
             user_id=user_id,
             name=name,
             description=data.get('description', ''),
-            icon=data.get('icon'),
+            icon=icon,
             color=data.get('color')
         )
         
         if result['success']:
-            # נקה cache
-            cache.delete_memoized(get_collections, user_id)
+            # נקה cache של המשתמש
+            cache.invalidate_user_cache(user_id)
             return jsonify(result)
         else:
             return jsonify(result), 400
@@ -800,7 +821,7 @@ def update_collection(collection_id):
         
         if success:
             # נקה cache
-            cache.delete_memoized(get_collections, user_id)
+            cache.invalidate_user_cache(user_id)
             return jsonify({'success': True})
         else:
             return jsonify({'success': False, 'error': 'עדכון האוסף נכשל'}), 400
@@ -820,7 +841,7 @@ def delete_collection(collection_id):
         
         if success:
             # נקה cache
-            cache.delete_memoized(get_collections, user_id)
+            cache.invalidate_user_cache(user_id)
             return jsonify({'success': True})
         else:
             return jsonify({'success': False, 'error': 'מחיקת האוסף נכשלה'}), 400
@@ -842,7 +863,7 @@ def reorder_collections():
         success = manager.reorder_collections(user_id, collection_ids)
         
         if success:
-            cache.delete_memoized(get_collections, user_id)
+            cache.invalidate_user_cache(user_id)
             return jsonify({'success': True})
         else:
             return jsonify({'success': False, 'error': 'שינוי הסדר נכשל'}), 400
@@ -2017,21 +2038,21 @@ class CollectionsUI {
         }
         
         container.innerHTML = collections.map(collection => `
-            <div class="collection-item color-${collection.color}" 
-                 data-collection-id="${collection._id}"
-                 onclick="window.location.href='/collections/${collection._id}'">
-                <span class="collection-item-icon">${collection.icon}</span>
+            <div class="collection-item color-${this.escapeHtml(collection.color)}" 
+                 data-collection-id="${this.escapeHtml(collection._id)}"
+                 onclick="window.location.href='/collections/${this.escapeHtml(collection._id)}'">
+                <span class="collection-item-icon">${this.escapeHtml(collection.icon)}</span>
                 <div class="collection-item-info">
                     <div class="collection-item-name">${this.escapeHtml(collection.name)}</div>
                     <div class="collection-item-count">${collection.files_count} קבצים</div>
                 </div>
                 <div class="collection-item-actions">
                     ${collection.is_favorite 
-                        ? '<button class="collection-action-btn" onclick="collectionsManager.toggleFavorite(\'' + collection._id + '\', true); event.stopPropagation();" title="הסר ממועדפים">⭐</button>'
-                        : '<button class="collection-action-btn" onclick="collectionsManager.toggleFavorite(\'' + collection._id + '\', false); event.stopPropagation();" title="הוסף למועדפים">☆</button>'
+                        ? '<button class="collection-action-btn" onclick="collectionsManager.toggleFavorite(\'' + this.escapeHtml(collection._id) + '\', true); event.stopPropagation();" title="הסר ממועדפים">⭐</button>'
+                        : '<button class="collection-action-btn" onclick="collectionsManager.toggleFavorite(\'' + this.escapeHtml(collection._id) + '\', false); event.stopPropagation();" title="הוסף למועדפים">☆</button>'
                     }
                     <button class="collection-action-btn" 
-                            onclick="collectionsManager.deleteCollection('${collection._id}'); event.stopPropagation();" 
+                            onclick="collectionsManager.deleteCollection('${this.escapeHtml(collection._id)}'); event.stopPropagation();" 
                             title="מחק אוסף">🗑️</button>
                 </div>
             </div>
@@ -2049,11 +2070,11 @@ class CollectionsUI {
             container.innerHTML = collections.map(collection => `
                 <div class="collection-checkbox-item">
                     <input type="checkbox" 
-                           id="collection-${collection._id}"
-                           value="${collection._id}"
+                           id="collection-${this.escapeHtml(collection._id)}"
+                           value="${this.escapeHtml(collection._id)}"
                            ${currentIds.includes(collection._id) ? 'checked' : ''}>
-                    <label for="collection-${collection._id}" class="collection-checkbox-label">
-                        <span class="collection-checkbox-icon">${collection.icon}</span>
+                    <label for="collection-${this.escapeHtml(collection._id)}" class="collection-checkbox-label">
+                        <span class="collection-checkbox-icon">${this.escapeHtml(collection.icon)}</span>
                         <span class="collection-checkbox-name">${this.escapeHtml(collection.name)}</span>
                         <span class="collection-checkbox-count">(${collection.files_count} קבצים)</span>
                     </label>
@@ -2150,6 +2171,12 @@ class CollectionsUI {
     }
     
     escapeHtml(text) {
+        // פונקציה קריטית למניעת XSS - מחליפה תווים מסוכנים ב-HTML entities
+        // חובה להשתמש בה על כל נתון שמגיע מהשרת לפני הכנסה ל-DOM
+        if (text === null || text === undefined) {
+            return '';
+        }
+        const str = String(text);
         const map = {
             '&': '&amp;',
             '<': '&lt;',
@@ -2157,7 +2184,7 @@ class CollectionsUI {
             '"': '&quot;',
             "'": '&#039;'
         };
-        return text.replace(/[&<>"']/g, m => map[m]);
+        return str.replace(/[&<>"']/g, m => map[m]);
     }
 }
 
@@ -2400,6 +2427,15 @@ document.addEventListener('DOMContentLoaded', () => {
 3. **ביצועים**: השתמשנו באינדקסים וב-caching לביצועים אופטימליים
 4. **עיצוב**: העיצוב תואם לנושאים הקיימים (classic, ocean, forest)
 5. **נגישות**: כל הפעולות נגישות גם במקלדת
+
+## 🔐 סיכום שיפורי אבטחה שבוצעו
+
+1. **תיקון Cache API**: שימוש ב-`cache.invalidate_user_cache()` במקום הפונקציה הלא קיימת `delete_memoized`
+2. **מניעת Stored XSS באייקונים**:
+   - הגדרת whitelist של אייקונים מותרים (`ALLOWED_ICONS`)
+   - וולידציה בצד שרת לפני שמירה
+   - Escape של כל הנתונים בצד לקוח לפני הכנסה ל-DOM
+3. **Escape כללי**: שימוש בפונקציית `escapeHtml()` על כל הנתונים המוצגים בממשק
 
 ---
 
