@@ -67,6 +67,7 @@ Code Keeper Bot - תיעוד API
    monitoring
    git-lfs
    user/bookmarks
+   user/reminders
    user/share_code
    user/github_browse
    user/download_repo
@@ -89,6 +90,8 @@ Code Keeper Bot - תיעוד API
    webapp/api-reference
    webapp/bulk-actions
    webapp/editor
+   webapp/shortcuts-menu
+   webapp/high-contrast
 
 .. toctree::
    :maxdepth: 2

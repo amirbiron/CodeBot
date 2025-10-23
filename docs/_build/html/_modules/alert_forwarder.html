@@ -176,19 +176,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -202,6 +208,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -222,6 +231,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/database.collections_manager.html">database.collections_manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.manager.html">database.manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.models.html">database.models module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.repository.html">database.repository module</a></li>
@@ -388,10 +398,15 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -449,6 +464,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../api/http_sync.html">http_sync module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/i18n.html">i18n package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/i18n.html#submodules">Submodules</a></li>
 </ul>
@@ -484,6 +504,10 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -533,6 +557,10 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/remediation_manager.html">remediation_manager module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/reminders.html">reminders package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/reminders.html#submodules">Submodules</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/repo_analyzer.html">repo_analyzer module</a><ul>
@@ -921,10 +949,13 @@
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
@@ -944,6 +975,20 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/reminders.html">תזכורות בבוט – ‎/remind ו-/reminders</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id1">מטרת הפיצ’ר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id2">מתי להשתמש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id3">פקודות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#quick-add">שימוש מהיר (Quick Add)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#conversation">אשף יצירה (Conversation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id4">רשימה ופעולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id5">עריכה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id6">מגבלות ואימותים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id7">בעיות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id8">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id9">אבטחה ופרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1048,6 +1093,25 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#id1">המלצות</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/shortcuts-menu.html">תפריט קיצורי דרך – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id2">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id3">איפה זה מופיע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id4">ממשק ושימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id5">נגישות והתנהגות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id6">מימוש בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id7">הנחיות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id8">תקלות נפוצות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/high-contrast.html">מצב ניגודיות גבוהה – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id2">מה זה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id3">איך מפעילים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id4">איך זה עובד טכנית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id5">התאמות עיקריות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id6">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id7">תקלות נפוצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1149,6 +1213,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
 </ul>
 </li>
@@ -1257,8 +1323,18 @@
 <span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">annotations</span>
 
 <span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">requests</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span>
+
+<span class="c1"># Graceful degradation for HTTP client: prefer pooled http_sync for retries/backoff,</span>
+<span class="c1"># fallback to plain requests when pooler is unavailable.</span>
+<span class="k">try</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
+    <span class="kn">from</span> <span class="nn">http_sync</span> <span class="kn">import</span> <span class="n">request</span> <span class="k">as</span> <span class="n">_pooled_request</span>  <span class="c1"># type: ignore</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
+    <span class="n">_pooled_request</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+<span class="k">try</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
+    <span class="kn">import</span> <span class="nn">requests</span> <span class="k">as</span> <span class="nn">_requests</span>  <span class="c1"># type: ignore</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
+    <span class="n">_requests</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">emit_event</span>  <span class="c1"># type: ignore</span>
@@ -1291,7 +1367,13 @@
     <span class="k">if</span> <span class="ow">not</span> <span class="n">url</span><span class="p">:</span>
         <span class="k">return</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">text</span><span class="p">},</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="c1"># Prefer pooled client for retry/backoff in production.</span>
+        <span class="k">if</span> <span class="n">_pooled_request</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_pooled_request</span><span class="p">(</span><span class="s1">&#39;POST&#39;</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">text</span><span class="p">},</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">_requests</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">text</span><span class="p">},</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;no http client available&quot;</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;alert_forward_slack_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;warn&quot;</span><span class="p">)</span>
 
@@ -1304,7 +1386,13 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="n">api</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;https://api.telegram.org/bot</span><span class="si">{</span><span class="n">token</span><span class="si">}</span><span class="s2">/sendMessage&quot;</span>
         <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;chat_id&quot;</span><span class="p">:</span> <span class="n">chat_id</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">text</span><span class="p">}</span>
-        <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">api</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="c1"># Prefer pooled client for retry/backoff in production.</span>
+        <span class="k">if</span> <span class="n">_pooled_request</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_pooled_request</span><span class="p">(</span><span class="s1">&#39;POST&#39;</span><span class="p">,</span> <span class="n">api</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">_requests</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">_requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">api</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">payload</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;no http client available&quot;</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;alert_forward_telegram_error&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;warn&quot;</span><span class="p">)</span>
 
@@ -1312,7 +1400,7 @@
 <div class="viewcode-block" id="forward_alerts">
 <a class="viewcode-back" href="../api/alert_forwarder.html#alert_forwarder.forward_alerts">[תיעוד]</a>
 <span class="k">def</span> <span class="nf">forward_alerts</span><span class="p">(</span><span class="n">alerts</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Forward a list of Alertmanager alerts to configured sinks and log them.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Forward a list of Alertmanager alerts to configured sinks, respecting silences (best-effort).&quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">alerts</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
         <span class="k">return</span>
     <span class="k">for</span> <span class="n">alert</span> <span class="ow">in</span> <span class="n">alerts</span><span class="p">:</span>
@@ -1331,6 +1419,27 @@
                 <span class="n">status</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">alert</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
                 <span class="n">handled</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
             <span class="p">)</span>
+            <span class="c1"># Silence enforcement (pattern on name). Fail-open on errors.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="kn">from</span> <span class="nn">monitoring.silences</span> <span class="kn">import</span> <span class="n">is_silenced</span>  <span class="c1"># type: ignore</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">labels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;alertname&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">labels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">sev_norm</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">severity</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span>
+                <span class="n">silenced</span><span class="p">,</span> <span class="n">silence_info</span> <span class="o">=</span> <span class="n">is_silenced</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="n">sev_norm</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="n">silenced</span><span class="p">,</span> <span class="n">silence_info</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">silenced</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">emit_event</span><span class="p">(</span>
+                        <span class="s2">&quot;alert_silenced&quot;</span><span class="p">,</span>
+                        <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span>
+                        <span class="n">name</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">labels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;alertname&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">labels</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+                        <span class="n">silence_id</span><span class="o">=</span><span class="nb">str</span><span class="p">((</span><span class="n">silence_info</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;_id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+                        <span class="n">until</span><span class="o">=</span><span class="nb">str</span><span class="p">((</span><span class="n">silence_info</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;until_ts&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+                    <span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                <span class="c1"># Do not send to sinks</span>
+                <span class="k">continue</span>
             <span class="n">_post_to_slack</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
             <span class="n">_post_to_telegram</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>

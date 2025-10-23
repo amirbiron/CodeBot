@@ -238,6 +238,7 @@
 <li class="toctree-l3"><a class="reference internal" href="api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/database.collections_manager.html">database.collections_manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.manager.html">database.manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.models.html">database.models module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/database.repository.html">database.repository module</a></li>
@@ -470,6 +471,11 @@
 <li class="toctree-l4"><a class="reference internal" href="api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="api/http_sync.html">http_sync module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/i18n.html">i18n package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/i18n.html#submodules">Submodules</a></li>
 </ul>
@@ -558,6 +564,10 @@
 <li class="toctree-l3"><a class="reference internal" href="api/remediation_manager.html">remediation_manager module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/reminders.html">reminders package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/reminders.html#submodules">Submodules</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/repo_analyzer.html">repo_analyzer module</a><ul>
@@ -946,10 +956,13 @@
 <li class="toctree-l3"><a class="reference internal" href="monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="monitoring.html#id3">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="monitoring.html#id4">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="git-lfs.html">Git LFS Integration</a><ul>
@@ -969,6 +982,20 @@
 <li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="user/reminders.html">תזכורות בבוט – ‎/remind ו-/reminders</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id1">מטרת הפיצ’ר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id2">מתי להשתמש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id3">פקודות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#quick-add">שימוש מהיר (Quick Add)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#conversation">אשף יצירה (Conversation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id4">רשימה ופעולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id5">עריכה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id6">מגבלות ואימותים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id7">בעיות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id8">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/reminders.html#id9">אבטחה ופרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1073,6 +1100,25 @@
 <li class="toctree-l2"><a class="reference internal" href="webapp/editor.html#id1">המלצות</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/shortcuts-menu.html">תפריט קיצורי דרך – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id2">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id3">איפה זה מופיע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id4">ממשק ושימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id5">נגישות והתנהגות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id6">מימוש בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id7">הנחיות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/shortcuts-menu.html#id8">תקלות נפוצות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/high-contrast.html">מצב ניגודיות גבוהה – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/high-contrast.html#id2">מה זה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/high-contrast.html#id3">איך מפעילים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/high-contrast.html#id4">איך זה עובד טכנית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/high-contrast.html#id5">התאמות עיקריות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/high-contrast.html#id6">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/high-contrast.html#id7">תקלות נפוצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1174,6 +1220,8 @@
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#errors">/errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#rate-limit">/rate_limit</a></li>
 </ul>
 </li>
@@ -1430,6 +1478,11 @@
        <td>&#160;&#160;&#160;
        <a href="api/handlers.states.html#module-handlers.states"><code class="xref">handlers.states</code></a></td><td>
        <em></em></td></tr>
+     <tr>
+       <td></td>
+       <td>
+       <a href="api/http_sync.html#module-http_sync"><code class="xref">http_sync</code></a></td><td>
+       <em></em></td></tr>
      <tr class="pcap"><td></td><td>&#160;</td><td></td></tr>
      <tr class="cap" id="cap-i"><td></td><td>
        <strong>i</strong></td><td></td></tr>
@@ -1481,12 +1534,22 @@
      <tr class="cg-5">
        <td></td>
        <td>&#160;&#160;&#160;
+       <a href="api/monitoring.alerts_storage.html#module-monitoring.alerts_storage"><code class="xref">monitoring.alerts_storage</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-5">
+       <td></td>
+       <td>&#160;&#160;&#160;
        <a href="api/monitoring.cleanup.html#module-monitoring.cleanup"><code class="xref">monitoring.cleanup</code></a></td><td>
        <em></em></td></tr>
      <tr class="cg-5">
        <td></td>
        <td>&#160;&#160;&#160;
        <a href="api/monitoring.metrics_storage.html#module-monitoring.metrics_storage"><code class="xref">monitoring.metrics_storage</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-5">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/monitoring.silences.html#module-monitoring.silences"><code class="xref">monitoring.silences</code></a></td><td>
        <em></em></td></tr>
      <tr class="pcap"><td></td><td>&#160;</td><td></td></tr>
      <tr class="cap" id="cap-o"><td></td><td>
@@ -1528,6 +1591,27 @@
        <a href="api/remediation_manager.html#module-remediation_manager"><code class="xref">remediation_manager</code></a></td><td>
        <em></em></td></tr>
      <tr>
+       <td><img src="_static/minus.png" class="toggler"
+              id="toggle-6" style="display: none" alt="-" /></td>
+       <td>
+       <a href="api/reminders.html#module-reminders"><code class="xref">reminders</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-6">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/reminders.models.html#module-reminders.models"><code class="xref">reminders.models</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-6">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/reminders.utils.html#module-reminders.utils"><code class="xref">reminders.utils</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-6">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/reminders.validators.html#module-reminders.validators"><code class="xref">reminders.validators</code></a></td><td>
+       <em></em></td></tr>
+     <tr>
        <td></td>
        <td>
        <a href="api/repo_analyzer.html#module-repo_analyzer"><code class="xref">repo_analyzer</code></a></td><td>
@@ -1547,31 +1631,31 @@
        <em></em></td></tr>
      <tr>
        <td><img src="_static/minus.png" class="toggler"
-              id="toggle-6" style="display: none" alt="-" /></td>
+              id="toggle-7" style="display: none" alt="-" /></td>
        <td>
        <a href="api/services.html#module-services"><code class="xref">services</code></a></td><td>
        <em></em></td></tr>
-     <tr class="cg-6">
+     <tr class="cg-7">
        <td></td>
        <td>&#160;&#160;&#160;
        <a href="api/services.backoff_state.html#module-services.backoff_state"><code class="xref">services.backoff_state</code></a></td><td>
        <em></em></td></tr>
-     <tr class="cg-6">
+     <tr class="cg-7">
        <td></td>
        <td>&#160;&#160;&#160;
        <a href="api/services.backup_service.html#module-services.backup_service"><code class="xref">services.backup_service</code></a></td><td>
        <em></em></td></tr>
-     <tr class="cg-6">
+     <tr class="cg-7">
        <td></td>
        <td>&#160;&#160;&#160;
        <a href="api/services.code_service.html#module-services.code_service"><code class="xref">services.code_service</code></a></td><td>
        <em></em></td></tr>
-     <tr class="cg-6">
+     <tr class="cg-7">
        <td></td>
        <td>&#160;&#160;&#160;
        <a href="api/services.investigation_service.html#module-services.investigation_service"><code class="xref">services.investigation_service</code></a></td><td>
        <em></em></td></tr>
-     <tr class="cg-6">
+     <tr class="cg-7">
        <td></td>
        <td>&#160;&#160;&#160;
        <a href="api/services.webserver.html#module-services.webserver"><code class="xref">services.webserver</code></a></td><td>
@@ -1606,9 +1690,25 @@
      <tr class="cap" id="cap-w"><td></td><td>
        <strong>w</strong></td><td></td></tr>
      <tr>
-       <td></td>
+       <td><img src="_static/minus.png" class="toggler"
+              id="toggle-8" style="display: none" alt="-" /></td>
        <td>
        <a href="api/webapp.html#module-webapp"><code class="xref">webapp</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-8">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/webapp.collections_api.html#module-webapp.collections_api"><code class="xref">webapp.collections_api</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-8">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/webapp.collections_ui.html#module-webapp.collections_ui"><code class="xref">webapp.collections_ui</code></a></td><td>
+       <em></em></td></tr>
+     <tr class="cg-8">
+       <td></td>
+       <td>&#160;&#160;&#160;
+       <a href="api/webapp.sticky_notes_api.html#module-webapp.sticky_notes_api"><code class="xref">webapp.sticky_notes_api</code></a></td><td>
        <em></em></td></tr>
    </table>
 

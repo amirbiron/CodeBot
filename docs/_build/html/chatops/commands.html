@@ -208,13 +208,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../performance-scaling.html#id2"></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -235,6 +232,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/database.collections_manager.html">database.collections_manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.manager.html">database.manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.models.html">database.models module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.repository.html">database.repository module</a></li>
@@ -467,6 +465,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../api/http_sync.html">http_sync module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/i18n.html">i18n package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/i18n.html#submodules">Submodules</a></li>
 </ul>
@@ -555,6 +558,10 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/remediation_manager.html">remediation_manager module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/reminders.html">reminders package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/reminders.html#submodules">Submodules</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/repo_analyzer.html">repo_analyzer module</a><ul>
@@ -943,10 +950,13 @@
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
@@ -966,6 +976,20 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/reminders.html">תזכורות בבוט – ‎/remind ו-/reminders</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id1">מטרת הפיצ’ר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id2">מתי להשתמש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id3">פקודות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#quick-add">שימוש מהיר (Quick Add)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#conversation">אשף יצירה (Conversation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id4">רשימה ופעולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id5">עריכה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id6">מגבלות ואימותים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id7">בעיות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id8">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id9">אבטחה ופרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1070,6 +1094,25 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#id1">המלצות</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/shortcuts-menu.html">תפריט קיצורי דרך – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id2">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id3">איפה זה מופיע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id4">ממשק ושימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id5">נגישות והתנהגות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id6">מימוש בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id7">הנחיות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id8">תקלות נפוצות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/high-contrast.html">מצב ניגודיות גבוהה – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id2">מה זה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id3">איך מפעילים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id4">איך זה עובד טכנית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id5">התאמות עיקריות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id6">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id7">תקלות נפוצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1171,6 +1214,8 @@
 <li class="toctree-l2"><a class="reference internal" href="#errors">/errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#rate-limit">/rate_limit</a></li>
 </ul>
 </li>
@@ -1311,6 +1356,81 @@
 <li><p>הרשאות: כולם</p></li>
 <li><p>מה לחפש בפלט: מגמת לטנציה/שגיאות (🔴/🟢/⚪) והתרעות צפויות</p></li>
 </ul>
+</section>
+<section id="observe-v">
+<h2>/observe -v (מפורט)<a class="headerlink" href="#observe-v" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>מתי להשתמש: כשצריך תמונת מצב מפורטת בזמן אמת.</p></li>
+<li><p>פרמטרים: אופציונליים <code class="docutils literal notranslate"><span class="pre">source=db|memory|all</span></code> (ברירת מחדל: all), <code class="docutils literal notranslate"><span class="pre">window=5m|1h|24h</span></code> (ברירת מחדל: 24h)</p></li>
+<li><p>הרשאות: מנהלים בלבד</p></li>
+<li><p>מה לחפש בפלט:</p>
+<ul>
+<li><p>Uptime/Error Rate/Latency – כולל ציון מקור הנתונים (memory) והספים האדפטיביים</p></li>
+<li><p>Alerts (DB) – סך הכל ו-Critical לפי חלון הזמן, עם ציון מקור</p></li>
+<li><p>Alerts (Memory) – ספירה מה-buffer הפנימי והשוואה ל-Dispatch Log לצורך de-dup</p></li>
+<li><p>Recent Errors – רשימה קצרה של שגיאות אחרונות (מזיכרון)</p></li>
+<li><p>Cooling &amp; Health – מצב cooldown להתראות ומצב משלוח ל-sinks (Telegram/Grafana)</p></li>
+</ul>
+</li>
+<li><p>דוגמאות:</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/</span><span class="n">observe</span> <span class="o">-</span><span class="n">v</span> <span class="n">window</span><span class="o">=</span><span class="mi">5</span><span class="n">m</span> <span class="n">source</span><span class="o">=</span><span class="nb">all</span>
+<span class="o">/</span><span class="n">observe</span> <span class="o">-</span><span class="n">v</span> <span class="n">source</span><span class="o">=</span><span class="n">memory</span>
+</pre></div>
+</div>
+<p><strong>פלט לדוגמה:</strong></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>🔍 Observability – verbose
+Uptime: 99.87% (source: memory)
+Error Rate (5m): curr=0.12% | thr=4.85% (source: memory)
+Latency (5m): curr=0.210s | thr=1.740s (source: memory)
+Alerts (DB, window=5m): total=2 | critical=1
+Alerts (Memory, window=5m): total=3 | critical=1; unique_critical_ids=1
+Recent Errors (memory, N≤5):
+- [API_002] github_rate_limit_exceeded — 2025-10-23T03:55:12+00:00
+- [DB_001] db_connection_timeout — 2025-10-23T03:54:08+00:00
+Cooling:
+- error_rate_percent: idle
+- latency_seconds: active (~120s left)
+Sinks:
+- telegram: 9/9 ok
+- grafana: 8/9 ok
+</pre></div>
+</div>
+</section>
+<section id="observe-vv">
+<h2>/observe -vv (מפורט מאוד)<a class="headerlink" href="#observe-vv" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>מתי להשתמש: כשצריך לזהות מזהי התראות אחרונות מה-DB לצורך מעקב/חקירה.</p></li>
+<li><p>פרמטרים: כמו <code class="docutils literal notranslate"><span class="pre">-v</span></code>.</p></li>
+<li><p>הרשאות: מנהלים בלבד</p></li>
+<li><p>מה לחפש בפלט: בנוסף לכל הנ“ל, יוצגו N=10 מזהי התראות אחרונות מה-DB.</p></li>
+<li><p>דוגמה:</p></li>
+</ul>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">/</span><span class="n">observe</span> <span class="o">-</span><span class="n">vv</span> <span class="n">source</span><span class="o">=</span><span class="n">db</span>
+</pre></div>
+</div>
+<p><strong>פלט לדוגמה:</strong></p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>🔍 Observability – verbose
+Uptime: 99.87% (source: memory)
+Error Rate (5m): curr=0.20% | thr=4.60% (source: memory)
+Latency (5m): curr=0.180s | thr=1.520s (source: memory)
+Alerts (DB, window=24h): total=12 | critical=3
+Alerts (Memory, window=24h): total=10 | critical=3; unique_critical_ids=3
+Recent Errors (memory, N≤5):
+- [CONN_001] Database connection timeout — 2025-10-23T02:02:31+00:00
+- [API_002] GitHub rate limit exceeded — 2025-10-23T01:49:12+00:00
+Cooling:
+- error_rate_percent: idle
+- latency_seconds: idle
+Sinks:
+- telegram: 5/5 ok
+- grafana: 5/5 ok
+Recent Alert IDs (DB, N≤10):
+- id:58f3e3f8-1a62-4c34-8a90-4fb3a1a6c0a1
+- id:1c2d3e4f-5a6b-7c8d-9e0f-123456789abc
+- h:3a6f5e...
+</pre></div>
+</div>
 </section>
 <section id="rate-limit">
 <h2>/rate_limit<a class="headerlink" href="#rate-limit" title="Link to this heading"></a></h2>

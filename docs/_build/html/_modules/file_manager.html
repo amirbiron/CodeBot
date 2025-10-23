@@ -176,19 +176,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -202,6 +208,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -222,6 +231,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/database.collections_manager.html">database.collections_manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.manager.html">database.manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.models.html">database.models module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.repository.html">database.repository module</a></li>
@@ -388,10 +398,15 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -449,6 +464,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../api/http_sync.html">http_sync module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/i18n.html">i18n package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/i18n.html#submodules">Submodules</a></li>
 </ul>
@@ -484,6 +504,10 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -533,6 +557,10 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/remediation_manager.html">remediation_manager module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/reminders.html">reminders package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/reminders.html#submodules">Submodules</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/repo_analyzer.html">repo_analyzer module</a><ul>
@@ -921,10 +949,13 @@
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
@@ -944,6 +975,20 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/reminders.html">תזכורות בבוט – ‎/remind ו-/reminders</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id1">מטרת הפיצ’ר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id2">מתי להשתמש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id3">פקודות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#quick-add">שימוש מהיר (Quick Add)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#conversation">אשף יצירה (Conversation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id4">רשימה ופעולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id5">עריכה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id6">מגבלות ואימותים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id7">בעיות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id8">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id9">אבטחה ופרטיות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1048,6 +1093,25 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/editor.html#id1">המלצות</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/shortcuts-menu.html">תפריט קיצורי דרך – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id2">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id3">איפה זה מופיע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id4">ממשק ושימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id5">נגישות והתנהגות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id6">מימוש בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id7">הנחיות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/shortcuts-menu.html#id8">תקלות נפוצות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/high-contrast.html">מצב ניגודיות גבוהה – הווב-אפליקציה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id2">מה זה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id3">איך מפעילים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id4">איך זה עובד טכנית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id5">התאמות עיקריות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id6">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/high-contrast.html#id7">תקלות נפוצות</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1149,6 +1213,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
 </ul>
 </li>
@@ -1349,6 +1415,263 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">max_backup_size</span> <span class="o">=</span> <span class="mi">100</span> <span class="o">*</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>  <span class="c1"># 100MB</span></div>
 
 
+    <span class="k">def</span> <span class="nf">_is_safe_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">allow_under</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;בדיקת בטיחות למסלול לפני מחיקה/ניקוי.</span>
+
+<span class="sd">        - מונע מחיקה של נתיבים מסוכנים (&quot;/&quot;, HOME, או ה־PWD הנוכחי)</span>
+<span class="sd">        - מאשר רק נתיבים שנמצאים תחת allow_under</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">rp_target</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+            <span class="n">rp_base</span> <span class="o">=</span> <span class="n">allow_under</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">rp_target</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;/&quot;</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">rp_target</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">())</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="n">rp_target</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()):</span>
+                <span class="k">return</span> <span class="kc">False</span>
+            <span class="c1"># דרוש שהנתיב יהיה מתחת ל־allow_under</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">rp_target</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">rp_base</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;/&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">rp_target</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">rp_base</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+
+<div class="viewcode-block" id="BackupManager.cleanup_expired_backups">
+<a class="viewcode-back" href="../modules/index.html#file_manager.BackupManager.cleanup_expired_backups">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">cleanup_expired_backups</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">retention_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">max_per_user</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">budget_seconds</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ניקוי גיבויים ישנים ממערכת הקבצים ומ‑GridFS באופן מבוקר.</span>
+
+<span class="sd">        פרמטרים:</span>
+<span class="sd">        - retention_days: ימים לשמירת גיבוי לפני מחיקה (ברירת מחדל: BACKUPS_RETENTION_DAYS או 30)</span>
+<span class="sd">        - max_per_user: כמות מקסימלית של גיבויים לשמירה לכל משתמש (ברירת מחדל: BACKUPS_MAX_PER_USER או None)</span>
+<span class="sd">        - budget_seconds: תקציב זמן לניקוי כדי לא לחסום את ה־worker (ברירת מחדל: BACKUPS_CLEANUP_BUDGET_SECONDS או 3)</span>
+
+<span class="sd">        החזרה: dict עם counters לסריקה/מחיקות ושגיאות.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">suppress</span>
+        <span class="kn">import</span> <span class="nn">time</span>
+        <span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span><span class="p">,</span> <span class="n">timezone</span>
+        <span class="kn">import</span> <span class="nn">os</span>
+
+        <span class="c1"># דגלי בטיחות: אפשר לכבות ניקוי רקע לחלוטין</span>
+        <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;DISABLE_BACKGROUND_CLEANUP&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span> <span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;on&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;skipped&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="s2">&quot;disabled_by_env&quot;</span><span class="p">}</span>
+
+        <span class="c1"># SAFE_MODE → אל תמחק מהדיסק (נחזיר skipped כדי להימנע מהפתעות בסביבת טסטים)</span>
+        <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SAFE_MODE&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span> <span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;on&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;skipped&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="s2">&quot;safe_mode&quot;</span><span class="p">}</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">retention_days</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">retention_days</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;BACKUPS_RETENTION_DAYS&quot;</span><span class="p">,</span> <span class="s2">&quot;30&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">30</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">retention_days</span> <span class="o">=</span> <span class="mi">30</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">max_per_user</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;BACKUPS_MAX_PER_USER&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">max_per_user</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">val</span><span class="p">)</span> <span class="k">if</span> <span class="n">val</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">max_per_user</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">budget_seconds</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">budget_seconds</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;BACKUPS_CLEANUP_BUDGET_SECONDS&quot;</span><span class="p">,</span> <span class="s2">&quot;3&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">budget_seconds</span> <span class="o">=</span> <span class="mf">3.0</span>
+
+        <span class="n">now</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+        <span class="n">cutoff</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">retention_days</span> <span class="ow">or</span> <span class="mi">30</span><span class="p">)))</span>
+        <span class="n">deadline</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">budget_seconds</span> <span class="ow">or</span> <span class="mf">3.0</span><span class="p">))</span>
+
+        <span class="n">summary</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;fs_scanned&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;fs_deleted&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;gridfs_scanned&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;gridfs_deleted&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="s2">&quot;errors&quot;</span><span class="p">:</span> <span class="p">[],</span>
+            <span class="s2">&quot;retention_days&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">retention_days</span> <span class="ow">or</span> <span class="mi">30</span><span class="p">),</span>
+            <span class="s2">&quot;max_per_user&quot;</span><span class="p">:</span> <span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">max_per_user</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">max_per_user</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span><span class="p">),</span>
+        <span class="p">}</span>
+
+        <span class="c1"># --- ניקוי במערכת הקבצים ---</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">search_dirs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">backup_dir</span><span class="p">]</span>
+            <span class="c1"># הוסף נתיבי legacy בטוחים בלבד</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;legacy_backup_dir&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">legacy_backup_dir</span><span class="p">,</span> <span class="n">Path</span><span class="p">):</span>
+                    <span class="n">search_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">legacy_backup_dir</span><span class="p">)</span>
+            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                <span class="n">app_backups</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/app/backups&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">app_backups</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">backup_dir</span><span class="p">:</span>
+                    <span class="n">search_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">app_backups</span><span class="p">)</span>
+
+            <span class="c1"># קיבוץ לפי משתמש</span>
+            <span class="n">by_user</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span><span class="p">,</span> <span class="n">datetime</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+
+            <span class="k">for</span> <span class="n">base_dir</span> <span class="ow">in</span> <span class="n">search_dirs</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">base_dir</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="s2">&quot;*.zip&quot;</span><span class="p">):</span>
+                        <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">deadline</span><span class="p">:</span>
+                            <span class="k">break</span>
+                        <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;fs_scanned&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="c1"># חילוץ owner ו‑created_at מתוך ה‑ZIP (best‑effort)</span>
+                        <span class="n">owner</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+                        <span class="n">created_at</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+                        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                            <span class="k">with</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">zf</span><span class="p">:</span>
+                                <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                                    <span class="n">md_raw</span> <span class="o">=</span> <span class="n">zf</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="s1">&#39;metadata.json&#39;</span><span class="p">)</span>
+                                    <span class="n">md</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">md_raw</span><span class="p">)</span> <span class="k">if</span> <span class="n">md_raw</span> <span class="k">else</span> <span class="p">{}</span>
+                                    <span class="n">uid_val</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">)</span>
+                                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">uid_val</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                                        <span class="n">owner</span> <span class="o">=</span> <span class="n">uid_val</span>
+                                    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">uid_val</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">uid_val</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+                                        <span class="n">owner</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">uid_val</span><span class="p">)</span>
+                                    <span class="n">cat</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;created_at&quot;</span><span class="p">)</span>
+                                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cat</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                                        <span class="k">try</span><span class="p">:</span>
+                                            <span class="n">created_at</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">cat</span><span class="p">)</span>
+                                            <span class="k">if</span> <span class="n">created_at</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                                                <span class="n">created_at</span> <span class="o">=</span> <span class="n">created_at</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+                                        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                                            <span class="n">created_at</span> <span class="o">=</span> <span class="kc">None</span>
+                        <span class="c1"># fallback</span>
+                        <span class="k">if</span> <span class="n">created_at</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                                <span class="n">created_at</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromtimestamp</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">stat</span><span class="p">()</span><span class="o">.</span><span class="n">st_mtime</span><span class="p">,</span> <span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">owner</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="c1"># נסה לחלץ מ‑backup_&lt;user&gt;_*</span>
+                            <span class="n">name</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">stem</span>
+                            <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                                <span class="kn">import</span> <span class="nn">re</span>
+                                <span class="n">m</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^backup_(\d+)_&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+                                <span class="k">if</span> <span class="n">m</span><span class="p">:</span>
+                                    <span class="n">owner</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+                        <span class="n">key</span> <span class="o">=</span> <span class="n">owner</span> <span class="k">if</span> <span class="n">owner</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;unknown&quot;</span>
+                        <span class="k">if</span> <span class="n">created_at</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">created_at</span> <span class="o">=</span> <span class="n">now</span>
+                        <span class="n">by_user</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">p</span><span class="p">,</span> <span class="n">created_at</span><span class="p">))</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fs_scan:</span><span class="si">{</span><span class="n">base_dir</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+            <span class="c1"># קבע מועמדים למחיקה לפי retention ו‑max_per_user</span>
+            <span class="n">candidates</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Path</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">candidate_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+            <span class="k">def</span> <span class="nf">_add_candidate</span><span class="p">(</span><span class="n">p</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># הוספה O(1) עם סט למניעת כפילויות במקום &#39;p not in list&#39;</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">rp</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">rp</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">rp</span> <span class="ow">in</span> <span class="n">candidate_set</span><span class="p">:</span>
+                    <span class="k">return</span>
+                <span class="n">candidate_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">rp</span><span class="p">)</span>
+                <span class="n">candidates</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">items</span> <span class="ow">in</span> <span class="n">by_user</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="c1"># מיון מהחדש לישן</span>
+                <span class="n">items</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="c1"># חריגה ממכסה</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">max_per_user</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">and</span> <span class="n">max_per_user</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">max_per_user</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">_dt</span> <span class="ow">in</span> <span class="n">items</span><span class="p">[</span><span class="n">max_per_user</span><span class="p">:]:</span>
+                        <span class="n">_add_candidate</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+                <span class="c1"># ישנים מעבר ל‑cutoff</span>
+                <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">dt</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">dt</span> <span class="o">&lt;</span> <span class="n">cutoff</span><span class="p">:</span>
+                        <span class="n">_add_candidate</span><span class="p">(</span><span class="n">p</span><span class="p">)</span>
+
+            <span class="c1"># מחיקה מבוקרת</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">candidates</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">deadline</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="c1"># ודא שהקובץ באמת נמצא תחת אחד מהנתיבים המותרים</span>
+                <span class="n">allowed_ok</span> <span class="o">=</span> <span class="nb">any</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_is_safe_path</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">base</span><span class="p">)</span> <span class="k">for</span> <span class="n">base</span> <span class="ow">in</span> <span class="n">search_dirs</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">Path</span><span class="p">))</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">allowed_ok</span><span class="p">:</span>
+                    <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;unsafe_path:</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+                    <span class="k">continue</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+                        <span class="n">p</span><span class="o">.</span><span class="n">unlink</span><span class="p">()</span>
+                        <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;fs_deleted&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fs_delete:</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;fs_cleanup:</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="c1"># --- ניקוי ב‑GridFS (אם קיים) ---</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">fs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_gridfs</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">fs</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">fs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="n">deadline</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">by_user_g</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">object</span><span class="p">,</span> <span class="n">datetime</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+                <span class="c1"># איטרציה עצלה כדי לכבד תקציב זמן; הימנע מ-materialize מלא</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">cursor</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">find</span><span class="p">()</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">cursor</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">fdoc</span> <span class="ow">in</span> <span class="n">cursor</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">deadline</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;gridfs_scanned&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">owner</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+                    <span class="n">created_at</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+                    <span class="n">md</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">fdoc</span><span class="p">,</span> <span class="s1">&#39;metadata&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
+                    <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                        <span class="n">uid_val</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;user_id&#39;</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">uid_val</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                            <span class="n">owner</span> <span class="o">=</span> <span class="n">uid_val</span>
+                        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">uid_val</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">uid_val</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+                            <span class="n">owner</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">uid_val</span><span class="p">)</span>
+                    <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                        <span class="n">created_at</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">fdoc</span><span class="p">,</span> <span class="s1">&#39;uploadDate&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">created_at</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">created_at</span><span class="p">,</span> <span class="s1">&#39;tzinfo&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">created_at</span> <span class="o">=</span> <span class="n">created_at</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">created_at</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                            <span class="n">cat</span> <span class="o">=</span> <span class="n">md</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;created_at&#39;</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cat</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                                <span class="n">created_at</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span><span class="n">cat</span><span class="p">)</span>
+                                <span class="k">if</span> <span class="n">created_at</span> <span class="ow">and</span> <span class="n">created_at</span><span class="o">.</span><span class="n">tzinfo</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                                    <span class="n">created_at</span> <span class="o">=</span> <span class="n">created_at</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">created_at</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">created_at</span> <span class="o">=</span> <span class="n">now</span>
+                    <span class="n">key</span> <span class="o">=</span> <span class="n">owner</span> <span class="k">if</span> <span class="n">owner</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s2">&quot;unknown&quot;</span>
+                    <span class="n">by_user_g</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">fdoc</span><span class="p">,</span> <span class="n">created_at</span><span class="p">))</span>
+
+                <span class="c1"># מועמדים למחיקה</span>
+                <span class="n">cand_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">cand_id_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">items</span> <span class="ow">in</span> <span class="n">by_user_g</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="n">items</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">max_per_user</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">and</span> <span class="n">max_per_user</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">max_per_user</span><span class="p">:</span>
+                        <span class="k">for</span> <span class="n">fdoc</span><span class="p">,</span> <span class="n">_dt</span> <span class="ow">in</span> <span class="n">items</span><span class="p">[</span><span class="n">max_per_user</span><span class="p">:]:</span>
+                            <span class="n">fid</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">fdoc</span><span class="p">,</span> <span class="s1">&#39;_id&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="n">fid</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cand_id_set</span><span class="p">:</span>
+                                <span class="n">cand_id_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">fid</span><span class="p">)</span>
+                                <span class="n">cand_ids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fid</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">fdoc</span><span class="p">,</span> <span class="n">dt</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">dt</span> <span class="o">&lt;</span> <span class="n">cutoff</span><span class="p">:</span>
+                            <span class="n">fid</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">fdoc</span><span class="p">,</span> <span class="s1">&#39;_id&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="n">fid</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cand_id_set</span><span class="p">:</span>
+                                <span class="n">cand_id_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">fid</span><span class="p">)</span>
+                                <span class="n">cand_ids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fid</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">fid</span> <span class="ow">in</span> <span class="n">cand_ids</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">deadline</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">fid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">fs</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">fid</span><span class="p">)</span>
+                            <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;gridfs_deleted&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;gridfs_delete:</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">summary</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;gridfs_cleanup:</span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">summary</span></div>
+
+
     <span class="c1"># =============================</span>
     <span class="c1"># GridFS helpers (Mongo storage)</span>
     <span class="c1"># =============================</span>
@@ -1464,7 +1787,7 @@
     <span class="k">def</span> <span class="nf">save_backup_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;שומר קובץ ZIP קיים לאחסון היעד (Mongo/FS) ומחזיר backup_id אם הצליח.&quot;&quot;&quot;</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="c1"># נסה לקרוא metadata.json מתוך ה-ZIP</span>
+            <span class="c1"># 1) קרא מטאדטה מתוך ה‑ZIP (ללא קריאה של כל הקובץ לזיכרון)</span>
             <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
             <span class="k">try</span><span class="p">:</span>
                 <span class="k">with</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">zf</span><span class="p">:</span>
@@ -1473,12 +1796,52 @@
                         <span class="n">metadata</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">md_raw</span><span class="p">)</span> <span class="k">if</span> <span class="n">md_raw</span> <span class="k">else</span> <span class="p">{}</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="n">metadata</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">if</span> <span class="s2">&quot;backup_id&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">metadata</span><span class="p">:</span>
-                <span class="c1"># הפק מזהה מגיבוי</span>
-                <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;backup_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">file_path</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
-            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-                <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">save_backup_bytes</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">metadata</span><span class="p">)</span>
+
+            <span class="c1"># הפק backup_id אם חסר</span>
+            <span class="n">backup_id</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;backup_id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">file_path</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">metadata</span><span class="p">[</span><span class="s2">&quot;backup_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">backup_id</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">backup_id</span><span class="si">}</span><span class="s2">.zip&quot;</span>
+
+            <span class="c1"># 2) שמירה לפי מצב אחסון — הימנע מקריאה מלאה של הקובץ לזיכרון</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage_mode</span> <span class="o">==</span> <span class="s2">&quot;mongo&quot;</span><span class="p">:</span>
+                <span class="n">fs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_gridfs</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">fs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="c1"># נפילה לאחסון קבצים</span>
+                    <span class="n">target_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">backup_dir</span> <span class="o">/</span> <span class="n">filename</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="c1"># העתקה חסכונית בזיכרון</span>
+                        <span class="kn">import</span> <span class="nn">shutil</span>
+                        <span class="n">shutil</span><span class="o">.</span><span class="n">copyfile</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="n">target_path</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                        <span class="c1"># fallback לכתיבה בבלוקים אם shutil נכשל</span>
+                        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">src</span><span class="p">,</span> <span class="nb">open</span><span class="p">(</span><span class="n">target_path</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">dst</span><span class="p">:</span>
+                            <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                                <span class="n">chunk</span> <span class="o">=</span> <span class="n">src</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">)</span>
+                                <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
+                                    <span class="k">break</span>
+                                <span class="n">dst</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="n">backup_id</span>
+                <span class="c1"># GridFS – מחיקה של עותק קודם (בשם זהה) ושמירה בזרימה</span>
+                <span class="k">with</span> <span class="n">suppress</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+                    <span class="k">for</span> <span class="n">fdoc</span> <span class="ow">in</span> <span class="n">fs</span><span class="o">.</span><span class="n">find</span><span class="p">({</span><span class="s2">&quot;filename&quot;</span><span class="p">:</span> <span class="n">filename</span><span class="p">}):</span>
+                        <span class="n">fs</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">fdoc</span><span class="o">.</span><span class="n">_id</span><span class="p">)</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fobj</span><span class="p">:</span>
+                    <span class="n">fs</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">fobj</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="n">filename</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="n">metadata</span><span class="p">)</span>  <span class="c1"># type: ignore[arg-type]</span>
+                <span class="k">return</span> <span class="n">backup_id</span>
+
+            <span class="c1"># ברירת מחדל: קבצים</span>
+            <span class="n">target_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">backup_dir</span> <span class="o">/</span> <span class="n">filename</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="kn">import</span> <span class="nn">shutil</span>
+                <span class="n">shutil</span><span class="o">.</span><span class="n">copyfile</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="n">target_path</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">src</span><span class="p">,</span> <span class="nb">open</span><span class="p">(</span><span class="n">target_path</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">dst</span><span class="p">:</span>
+                    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                        <span class="n">chunk</span> <span class="o">=</span> <span class="n">src</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
+                            <span class="k">break</span>
+                        <span class="n">dst</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">backup_id</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;save_backup_file failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="kc">None</span></div>
