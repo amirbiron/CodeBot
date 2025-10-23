@@ -14,7 +14,10 @@
 .collection-item{display:flex;align-items:center;gap:.5rem;border:1px dashed rgba(255,255,255,.2);border-radius:8px;padding:.4rem .6rem;background:rgba(255,255,255,.05)}
 .collection-item .drag{cursor:grab;opacity:.7}
 .collection-item.dragging{opacity:.5}
-.collection-item .file{flex:1;overflow:hidden;text-overflow:ellipsis}
+.collection-item .file{flex:1;overflow:hidden;text-overflow:ellipsis;color:#aad;cursor:pointer;text-decoration:underline}
+.collection-item{cursor:pointer}
+.collection-item .drag{cursor:grab}
+.collection-item .remove{cursor:pointer}
 .collection-item .remove{background:none;border:1px solid var(--glass-border);border-radius:6px;color:#fff;padding:.2rem .5rem;cursor:pointer}
 .loading,.empty,.error{opacity:.85}
 @media(max-width:900px){.collections-layout{grid-template-columns:1fr}}
