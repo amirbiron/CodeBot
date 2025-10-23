@@ -1053,6 +1053,9 @@ class CodeKeeperBot:
         
         # הגדר conversation handler להעלאת קבצים
         from github_menu_handler import FILE_UPLOAD, REPO_SELECT, FOLDER_SELECT
+        async def _upload_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            return ConversationHandler.END
+
         upload_conv_handler = ConversationHandler(
             entry_points=[
                 CallbackQueryHandler(github_handler.handle_menu_callback, pattern='^upload_file$')
@@ -1068,7 +1071,7 @@ class CodeKeeperBot:
                     MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
                 ]
             },
-            fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)]
+            fallbacks=[CommandHandler('cancel', _upload_cancel)]
         )
         
         self.application.add_handler(upload_conv_handler)
