@@ -325,6 +325,11 @@
           let j = null; try { j = await resp.json(); } catch(_) {}
           if (resp.status === 409) {
             console.warn('sticky note update conflict, changes not applied', id);
+            // אם השרת מחזיר updated_at עדכני – עדכן מקומית כדי לא להיכנס ללופ קונפליקטים
+            if (j && j.updated_at) {
+              const item = this.notes.get(id);
+              if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+            }
             continue;
           }
           if (j && j.updated_at) {
@@ -347,6 +352,7 @@
         let j = null; try { j = await resp.json(); } catch(_) {}
         if (resp.status === 409) {
           console.warn('sticky note update conflict (flush), not applied', id);
+          if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
           return;
         }
         if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }

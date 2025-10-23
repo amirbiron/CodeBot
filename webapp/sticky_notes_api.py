@@ -284,10 +284,9 @@ def update_note(note_id: str):
             emit_event("sticky_note_updated", severity="info", user_id=int(user_id), note_id=str(note_id))
         except Exception:
             pass
-        # שליחת חותמת הזמן החדשה ללקוח לעדכון
-        new_doc = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id}) or {}
+        # שליחת חותמת הזמן שנוצרה עבור העדכון הנוכחי (ללא שאילתא נוספת)
         try:
-            updated_at_iso = new_doc.get('updated_at').isoformat() if new_doc.get('updated_at') else None
+            updated_at_iso = updates.get('updated_at').isoformat() if updates.get('updated_at') else None
         except Exception:
             updated_at_iso = None
         return jsonify({'ok': True, 'updated_at': updated_at_iso})
