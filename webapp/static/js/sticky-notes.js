@@ -119,10 +119,15 @@
       const header = createEl('div', 'sticky-note-header');
       const drag = createEl('div', 'sticky-note-drag');
       const actions = createEl('div', 'sticky-note-actions');
+      const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל עיגון לכותרת' }); pinBtn.textContent = '📌';
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
-      actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
+      actions.appendChild(pinBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
       header.appendChild(drag); header.appendChild(actions);
+      pinBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._toggleAnchor(el);
+      });
 
       const textarea = createEl('textarea', 'sticky-note-content');
       textarea.value = note.content || '';
@@ -182,6 +187,8 @@
 
     _enableDrag(el, handle){
       let startX=0, startY=0, origLeft=0, origTop=0, startScrollX=0, startScrollY=0, dragging=false;
+      let pressTimer=null, longPressHandled=false;
+      const LONG_PRESS_MS = 450;
       const onDown = (e)=>{
         dragging = true;
         const ev = e.touches ? e.touches[0] : e;
@@ -194,17 +201,29 @@
         origTop = Number.isFinite(parsedTop) ? parsedTop : Math.round(r.top + window.scrollY);
         startScrollX = window.scrollX; startScrollY = window.scrollY;
         try { e.preventDefault(); } catch(_) {}
+        longPressHandled = false;
+        try { clearTimeout(pressTimer); } catch(_) {}
+        pressTimer = setTimeout(() => {
+          longPressHandled = true;
+          // Toggle anchor on long-press without starting a drag
+          this._toggleAnchor(el);
+          dragging = false;
+        }, LONG_PRESS_MS);
       };
       const onMove = (e)=>{
         if (!dragging) return;
         const ev = e.touches ? e.touches[0] : e;
         const dx = ev.clientX - startX; const dy = ev.clientY - startY;
+        if (Math.abs(dx) > 6 || Math.abs(dy) > 6) { try { clearTimeout(pressTimer); } catch(_) {} }
         const sx = window.scrollX - startScrollX; const sy = window.scrollY - startScrollY;
         el.style.left = Math.round(origLeft + dx + sx) + 'px';
         el.style.top = Math.round(origTop + dy + sy) + 'px';
       };
       const onUp = ()=>{
-        if (!dragging) return; dragging=false;
+        try { clearTimeout(pressTimer); } catch(_) {}
+        if (!dragging) { dragging=false; return; }
+        if (longPressHandled) { dragging=false; return; }
+        dragging=false;
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
         // לאחר גרירה ידנית – ננתק עוגן אם התרחקנו משמעותית
@@ -228,6 +247,25 @@
       handle.addEventListener('touchstart', onDown, { passive: false });
       window.addEventListener('touchmove', onMove, { passive: false });
       window.addEventListener('touchend', onUp);
+    }
+    _toggleAnchor(el){
+      try {
+        const has = !!el.dataset.anchorId;
+        if (has) {
+          delete el.dataset.anchorId;
+          this._queueSave(el, { anchor_id: null, anchor_text: null });
+          this._flushFor(el);
+          return;
+        }
+        const anchor = this._nearestAnchor();
+        if (anchor && anchor.id) {
+          el.dataset.anchorId = anchor.id;
+          this._queueSave(el, { anchor_id: anchor.id, anchor_text: anchor.text });
+          this._flushFor(el);
+          this._positionRelativeToAnchor(el);
+          this._reflowWithinViewport(el);
+        }
+      } catch(_) {}
     }
 
     _enableResize(el, handle){
