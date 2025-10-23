@@ -114,7 +114,7 @@ def _build_key(alert_id: Optional[str], name: str, severity: str, summary: str, 
     # Fallback: stable hash by minute bucket
     minute_bucket = ts_dt.replace(second=0, microsecond=0).isoformat()
     raw = "|".join([name.strip(), severity.strip().lower(), summary.strip(), minute_bucket])
-    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"h:{digest}"
 
 
