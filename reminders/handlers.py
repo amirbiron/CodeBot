@@ -33,6 +33,21 @@ class ReminderHandlers:
         self.db = db
         self.validator = validator
 
+    def _ensure_user_data(self, context: ContextTypes.DEFAULT_TYPE) -> dict:
+        """Ensure context.user_data exists and is a dict.
+
+        In production, PTB provides user_data. In lightweight tests or stubs,
+        context may be a SimpleNamespace without this attribute.
+        """
+        try:
+            ud = getattr(context, "user_data")
+        except Exception:
+            ud = None
+        if not isinstance(ud, dict):
+            setattr(context, "user_data", {})
+            return context.user_data  # type: ignore[attr-defined]
+        return ud
+
     async def remind_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         # Limit per user
@@ -105,7 +120,7 @@ class ReminderHandlers:
         if len(title) > ReminderConfig.max_title_length or not self.validator.validate_text(title):
             await update.message.reply_text("❌ כותרת לא תקינה, נסה שוב:")
             return REMINDER_TITLE
-        context.user_data["reminder_title"] = title
+        self._ensure_user_data(context)["reminder_title"] = title
         keyboard = [
             [InlineKeyboardButton("בעוד שעה", callback_data="time_1h")],
             [InlineKeyboardButton("מחר בבוקר (09:00)", callback_data="time_tomorrow_9")],
@@ -154,7 +169,7 @@ class ReminderHandlers:
                 )
                 return REMINDER_TIME
 
-        context.user_data["reminder_time"] = remind_time.astimezone(timezone.utc)
+        self._ensure_user_data(context)["reminder_time"] = remind_time.astimezone(timezone.utc)
         keyboard = [
             [InlineKeyboardButton("ללא תיאור", callback_data="desc_skip")],
             [InlineKeyboardButton("הוסף תיאור", callback_data="desc_add")],
@@ -192,9 +207,9 @@ class ReminderHandlers:
         reminder = Reminder(
             reminder_id=str(uuid.uuid4()),
             user_id=update.effective_user.id,
-            title=context.user_data.get("reminder_title", ""),
+            title=self._ensure_user_data(context).get("reminder_title", ""),
             description=description,
-            remind_at=context.user_data.get("reminder_time"),
+            remind_at=self._ensure_user_data(context).get("reminder_time"),
             user_timezone=self._get_user_timezone(update.effective_user.id),
         )
         ok, result = self.db.create_reminder(reminder)
@@ -224,7 +239,12 @@ class ReminderHandlers:
                 await update.callback_query.edit_message_text(err)
             else:
                 await update.message.reply_text(err)
-        context.user_data.clear()
+        try:
+            ud = getattr(context, "user_data")
+            if isinstance(ud, dict):
+                ud.clear()
+        except Exception:
+            pass
         return ConversationHandler.END
 
     async def reminders_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -357,6 +377,8 @@ def setup_reminder_handlers(application):
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    application.add_handler(conv)
+    # Register conversation handlers with default/high priority group.
+    # Generic text handlers should use a larger group (e.g., 1) to avoid intercepting conversation messages.
+    application.add_handler(conv, group=0)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_)"))
