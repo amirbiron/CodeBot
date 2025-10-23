@@ -461,40 +461,40 @@
 
         .quick-access-dropdown {
             position: absolute;
-            top: 100%;
-            left: 0;
-            margin-top: 0.5rem;
+            top: 50%;
+            left: 100%;
+            transform: translate(0, -50%);
             background: white;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-            min-width: 220px;
             opacity: 0;
             visibility: hidden;
-            transform: translateY(-10px);
-            transition: all 0.3s ease;
+            transition: all 0.25s ease;
             z-index: 1000;
+            display: flex;
+            gap: .25rem;
+            padding: .4rem;
         }
 
         .quick-access-dropdown.active {
             opacity: 1;
             visibility: visible;
-            transform: translateY(0);
-            animation: slideDown 0.3s ease forwards;
         }
 
         .quick-access-item {
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border-radius: 10px;
             color: #333;
             text-decoration: none;
-            transition: all 0.2s ease;
-            border: none;
             background: none;
-            width: 100%;
-            text-align: right;
+            border: 1px solid rgba(0,0,0,0.08);
             cursor: pointer;
+            transition: transform .15s ease, background .2s ease;
         }
 
         .quick-access-item:first-child { border-radius: 12px 12px 0 0; }
@@ -505,8 +505,8 @@
             color: var(--primary);
         }
 
-        .qa-icon { font-size: 1.3rem; min-width: 30px; text-align: center; }
-        .qa-label { font-size: 0.9rem; font-weight: 500; }
+        .qa-icon { font-size: 1.1rem; }
+        .qa-label { display: none; }
 
         /* אנימציה לפתיחה */
         @keyframes slideDown {
@@ -564,12 +564,8 @@
 
         /* מובייל */
         @media (max-width: 768px) {
-            .quick-access-menu {
-                order: -1;
-                margin-left: 0;
-                margin-right: 0.5rem;
-            }
-            .quick-access-dropdown { right: 0; left: auto; min-width: 250px; }
+            .quick-access-menu { order: -1; margin-left: 0; margin-right: 0.5rem; }
+            .quick-access-dropdown { position: absolute; top: 100%; left: 0; transform: none; display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem; }
         }
 
         /* מצב כהה */

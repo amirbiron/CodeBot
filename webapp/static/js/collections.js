@@ -94,7 +94,7 @@
     if (!container) return;
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
-      const data = await api.getItems(cid, 1, 50);
+      const data = await api.getItems(cid, 1, 200);
       if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
       const items = (data.items||[]).map(it => `
         <div class="collection-item" data-source="${it.source}" data-name="${it.file_name}">
