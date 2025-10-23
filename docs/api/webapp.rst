@@ -14,3 +14,6 @@ Submodules
 
    webapp.app
    webapp.bookmarks_api
+   webapp.collections_api
+   webapp.collections_ui
+   webapp.sticky_notes_api

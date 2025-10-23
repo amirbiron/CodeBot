@@ -14,6 +14,7 @@ Submodules
 
    database.bookmark
    database.bookmarks_manager
+   database.collections_manager
    database.manager
    database.models
    database.repository
