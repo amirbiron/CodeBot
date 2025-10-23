@@ -3088,6 +3088,22 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     else:
         logger.info("ℹ️ Skipping internal web server (disabled or missing PUBLIC_BASE_URL)")
 
+    # Register reminders feature (handlers + scheduler)
+    try:
+        from reminders.handlers import setup_reminder_handlers  # type: ignore
+        from reminders.scheduler import setup_reminder_scheduler  # type: ignore
+        # שמור db_manager ב-bot_data כדי ש-reminders ישתמש באותו חיבור DB
+        try:
+            if 'db' in globals():
+                application.bot_data['db_manager'] = db  # type: ignore[name-defined]
+        except Exception:
+            pass
+        setup_reminder_handlers(application)
+        setup_reminder_scheduler(application)
+        logger.info("✅ Reminders registered")
+    except Exception as e:
+        logger.warning(f"Reminders init skipped: {e}")
+
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
         async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
