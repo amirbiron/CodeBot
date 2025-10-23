@@ -86,6 +86,8 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         # Emit structured log/event as well
         emit_event("internal_alert", severity=str(severity), name=str(name), summary=str(summary))
 
+        # Note: Do not persist here to avoid double counting with alert_manager.
+
         # For critical alerts – use alert_manager for Telegram + Grafana annotations with dispatch log
         if str(severity).lower() == "critical":
             try:
@@ -95,6 +97,12 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 # Fallback to Telegram only
                 try:
                     _send_telegram(_format_text(name, severity, summary, details))
+                except Exception:
+                    pass
+                # Best-effort: persist critical alert when fallback path used
+                try:
+                    from monitoring.alerts_storage import record_alert  # type: ignore
+                    record_alert(alert_id=None, name=str(name), severity="critical", summary=str(summary), source="internal_alerts")
                 except Exception:
                     pass
         else:
@@ -115,6 +123,12 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     _send_telegram(_format_text(name, severity, summary, details))
                 except Exception:
                     pass
+            # Best-effort: persist non-critical alert (single write)
+            try:
+                from monitoring.alerts_storage import record_alert  # type: ignore
+                record_alert(alert_id=None, name=str(name), severity=str(severity), summary=str(summary), source="internal_alerts")
+            except Exception:
+                pass
     except Exception:
         return
 
