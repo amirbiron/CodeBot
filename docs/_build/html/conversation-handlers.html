@@ -179,19 +179,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -204,7 +210,13 @@
 <li class="toctree-l1"><a class="reference internal" href="performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#projection">Projection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="performance-scaling.html#id2"></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -391,10 +403,15 @@
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -487,6 +504,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -1543,7 +1564,9 @@
 <h3>GitHub – תפריט ושיחת העלאה<a class="headerlink" href="#github" title="Link to this heading"></a></h3>
 <div class="literal-block-wrapper docutils container" id="id14">
 <div class="code-block-caption"><span class="caption-text">github_menu_handler.py – github_menu_command</span><a class="headerlink" href="#id14" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>                <span class="k">return</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>            <span class="k">if</span> <span class="n">_cl</span> <span class="ow">and</span> <span class="n">_cl</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_TOTAL_BYTES</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="s2">&quot;❌ ה‑ZIP גדול מדי לייבוא ישיר ברמת התוכן (מעל 20MB). נסה ייבוא סלקטיבי או ZIP חלקי.&quot;</span><span class="p">)</span>
+                <span class="k">return</span>
             <span class="c1"># כתיבה בזרם לדיסק תוך שמירה על תקרה</span>
             <span class="n">written</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">zip_path</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
@@ -1637,34 +1660,32 @@
                 <span class="n">track_github_sync</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">files_count</span><span class="o">=</span><span class="n">saved</span> <span class="o">+</span> <span class="n">updated</span><span class="p">,</span> <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
                 <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;github_sync&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">user_id</span><span class="p">),</span> <span class="n">files_count</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">saved</span> <span class="o">+</span> <span class="n">updated</span><span class="p">),</span> <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="k">pass</span>
-            <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id15">
 <div class="code-block-caption"><span class="caption-text">main.py – הגדרת upload_conv_handler (FILE_UPLOAD/REPO_SELECT/FOLDER_SELECT)</span><a class="headerlink" href="#id15" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>        <span class="c1"># Rate limiter instance (לאחר בניית האפליקציה)</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_rate_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="n">max_per_minute</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;RATE_LIMIT_PER_MINUTE&#39;</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">30</span><span class="p">))</span>
-            <span class="c1"># If advanced backend available and REDIS_URL configured, enable shadow-mode counters</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_advanced_limiter</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="k">if</span> <span class="n">_LIMITS_AVAILABLE</span><span class="p">:</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">redis_url</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;REDIS_URL&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s1">&#39;REDIS_URL&#39;</span><span class="p">)</span>
-                    <span class="k">if</span> <span class="n">redis_url</span><span class="p">:</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_limits_storage</span> <span class="o">=</span> <span class="n">RedisStorage</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">redis_url</span><span class="p">))</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_advanced_limiter</span> <span class="o">=</span> <span class="n">MovingWindowRateLimiter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_limits_storage</span><span class="p">)</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_per_user_global</span> <span class="o">=</span> <span class="n">RateLimitItemPerMinute</span><span class="p">(</span><span class="mi">50</span><span class="p">)</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_shadow_mode</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s1">&#39;RATE_LIMIT_SHADOW_MODE&#39;</span><span class="p">,</span> <span class="kc">False</span><span class="p">))</span>
-                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">_advanced_limiter</span> <span class="o">=</span> <span class="kc">None</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="kn">from</span> <span class="nn">refactor_handlers</span> <span class="kn">import</span> <span class="n">set_activity_reporter</span> <span class="k">as</span> <span class="n">set_rh_activity_reporter</span>
+                <span class="n">set_rh_activity_reporter</span><span class="p">(</span><span class="n">created_reporter</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_rate_limiter</span> <span class="o">=</span> <span class="n">RateLimiter</span><span class="p">(</span><span class="n">max_per_minute</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+            <span class="c1"># בסביבות CI/טסטים, אל נכשיל את הבנייה</span>
+            <span class="n">reporter</span> <span class="o">=</span> <span class="kc">None</span>
 
-    <span class="k">def</span> <span class="nf">_install_correlation_layer</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;רישום Handler מוקדם שמייצר ומקשר request_id ומודד מטריקות בסיסיות.&quot;&quot;&quot;</span>
-        <span class="k">async</span> <span class="k">def</span> <span class="nf">_pre_update</span><span class="p">(</span><span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setup_handlers</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">advanced_handlers</span> <span class="o">=</span> <span class="n">AdvancedBotHandlers</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="p">)</span>
+        <span class="c1"># רישום קטגוריית &quot;⭐ מועדפים&quot; לתפריט &quot;📚 הקבצים&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">conversation_handlers</span> <span class="kn">import</span> <span class="n">setup_favorites_category_handlers</span> <span class="k">as</span> <span class="n">_setup_fav</span>
+            <span class="n">_setup_fav</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c1"># Rate limiter instance (לאחר בניית האפליקציה)</span>
+        <span class="k">try</span><span class="p">:</span>
 </pre></div>
 </div>
 </div>

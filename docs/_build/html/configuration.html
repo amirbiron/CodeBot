@@ -177,19 +177,25 @@
 </li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -202,7 +208,13 @@
 <li class="toctree-l1"><a class="reference internal" href="performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#projection">Projection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="performance-scaling.html#id2"></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -389,10 +401,15 @@
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -485,6 +502,10 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -1255,9 +1276,38 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_ENABLED</span></code>: Enable rate limiting globally (default: <code class="docutils literal notranslate"><span class="pre">true</span></code>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_SHADOW_MODE</span></code>: Count-only mode, no blocking (default: <code class="docutils literal notranslate"><span class="pre">false</span></code>). Recommended to start with <code class="docutils literal notranslate"><span class="pre">true</span></code> in staging.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">RATE_LIMIT_STRATEGY</span></code>: <code class="docutils literal notranslate"><span class="pre">moving-window</span></code> or <code class="docutils literal notranslate"><span class="pre">fixed-window</span></code> (default: <code class="docutils literal notranslate"><span class="pre">moving-window</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>: Redis connection string. Use <code class="docutils literal notranslate"><span class="pre">rediss://</span></code> with TLS in production.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ADMIN_USER_IDS</span></code>: Comma-separated Telegram user IDs that bypass some limits.</p></li>
 </ul>
+</section>
+<section id="databases-and-cache-pooling-timeouts">
+<h2>Databases and Cache (Pooling/Timeouts)<a class="headerlink" href="#databases-and-cache-pooling-timeouts" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MONGODB_URL</span></code>: MongoDB connection string (<code class="docutils literal notranslate"><span class="pre">mongodb://</span></code> or <code class="docutils literal notranslate"><span class="pre">mongodb+srv://</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_POOL_SIZE</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_MIN_POOL_SIZE</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_IDLE_TIME_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_WAIT_QUEUE_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_SERVER_SELECTION_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_SOCKET_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_CONNECT_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_RETRY_WRITES</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_RETRY_READS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_APPNAME</span></code> – כוונון Pooling ו‑Timeouts ל‑MongoDB. ראו <a class="reference internal" href="environment-variables.html"><span class="doc">משתני סביבה - רפרנס</span></a> לברירות מחדל ודוגמאות.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>: Redis connection string. Use <code class="docutils literal notranslate"><span class="pre">rediss://</span></code> with TLS in production.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_MAX_CONNECTIONS</span></code> / <code class="docutils literal notranslate"><span class="pre">REDIS_CONNECT_TIMEOUT</span></code> / <code class="docutils literal notranslate"><span class="pre">REDIS_SOCKET_TIMEOUT</span></code> / <code class="docutils literal notranslate"><span class="pre">SAFE_MODE</span></code> – גודל Pool ו‑Timeouts ל‑Redis.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">הערה</p>
+<p>בעבודה עם Docker/Compose הגדירו כתובות ע״י שמות השירותים (למשל <code class="docutils literal notranslate"><span class="pre">redis://redis:6379</span></code> או <code class="docutils literal notranslate"><span class="pre">mongodb://mongo:27017</span></code>) — לא להשתמש ב‑<code class="docutils literal notranslate"><span class="pre">localhost</span></code> בין קונטיינרים.</p>
+</div>
+</section>
+<section id="http-clients">
+<h2>HTTP Clients<a class="headerlink" href="#http-clients" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Async (<code class="docutils literal notranslate"><span class="pre">aiohttp</span></code>): <code class="docutils literal notranslate"><span class="pre">AIOHTTP_POOL_LIMIT</span></code> / <code class="docutils literal notranslate"><span class="pre">AIOHTTP_LIMIT_PER_HOST</span></code> / <code class="docutils literal notranslate"><span class="pre">AIOHTTP_TIMEOUT_TOTAL</span></code></p></li>
+<li><p>Sync (<code class="docutils literal notranslate"><span class="pre">requests</span></code> via <code class="docutils literal notranslate"><span class="pre">http_sync</span></code>): <code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_CONNECTIONS</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_MAXSIZE</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_TIMEOUT</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRIES</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRY_BACKOFF</span></code></p></li>
+</ul>
+</section>
+<section id="http-sync-sync-http">
+<h2>שימוש ב‑http_sync (Sync HTTP)<a class="headerlink" href="#http-sync-sync-http" title="Link to this heading"></a></h2>
+<p>בעת ביצוע קריאות סינכרוניות מומלץ להשתמש במודול <code class="docutils literal notranslate"><span class="pre">http_sync</span></code> שמספק <code class="docutils literal notranslate"><span class="pre">requests.Session</span></code> גלובלי עם Pool ו‑Retries מוגדרים לפי ENV.</p>
+<p>דוגמה קצרה:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">http_sync</span> <span class="kn">import</span> <span class="n">request</span>
+<span class="n">resp</span> <span class="o">=</span> <span class="n">request</span><span class="p">(</span><span class="s1">&#39;GET&#39;</span><span class="p">,</span> <span class="s1">&#39;https://api.example.com/data&#39;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;Accept&#39;</span><span class="p">:</span> <span class="s1">&#39;application/json&#39;</span><span class="p">})</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</pre></div>
+</div>
 </section>
 <section id="flask">
 <h2>Flask<a class="headerlink" href="#flask" title="Link to this heading"></a></h2>
@@ -1288,12 +1338,42 @@
 <li><p>Keep <code class="docutils literal notranslate"><span class="pre">ADMIN_USER_IDS</span></code> minimal.</p></li>
 </ul>
 </section>
+<section id="id1">
+<h2>Databases and Cache (Pooling/Timeouts)<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MONGODB_URL</span></code>: MongoDB connection string (<code class="docutils literal notranslate"><span class="pre">mongodb://</span></code> or <code class="docutils literal notranslate"><span class="pre">mongodb+srv://</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_POOL_SIZE</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_MIN_POOL_SIZE</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_MAX_IDLE_TIME_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_WAIT_QUEUE_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_SERVER_SELECTION_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_SOCKET_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_CONNECT_TIMEOUT_MS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_RETRY_WRITES</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_RETRY_READS</span></code> / <code class="docutils literal notranslate"><span class="pre">MONGODB_APPNAME</span></code> – כוונון Pooling ו‑Timeouts ל‑MongoDB. ראו <a class="reference internal" href="environment-variables.html"><span class="doc">משתני סביבה - רפרנס</span></a> לברירות מחדל ודוגמאות.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_URL</span></code>: Redis connection string (use <code class="docutils literal notranslate"><span class="pre">rediss://</span></code> with TLS in production).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">REDIS_MAX_CONNECTIONS</span></code> / <code class="docutils literal notranslate"><span class="pre">REDIS_CONNECT_TIMEOUT</span></code> / <code class="docutils literal notranslate"><span class="pre">REDIS_SOCKET_TIMEOUT</span></code> / <code class="docutils literal notranslate"><span class="pre">SAFE_MODE</span></code> – גודל Pool ו‑Timeouts ל‑Redis.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">הערה</p>
+<p>בעבודה עם Docker/Compose הגדירו כתובות ע“י שמות השירותים (למשל <code class="docutils literal notranslate"><span class="pre">redis://redis:6379</span></code> או <code class="docutils literal notranslate"><span class="pre">mongodb://mongo:27017</span></code>) — אל תשתמשו ב‑<code class="docutils literal notranslate"><span class="pre">localhost</span></code> בין קונטיינרים.</p>
+</div>
+</section>
+<section id="id2">
+<h2>HTTP Clients<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Async (<code class="docutils literal notranslate"><span class="pre">aiohttp</span></code>): <code class="docutils literal notranslate"><span class="pre">AIOHTTP_POOL_LIMIT</span></code> / <code class="docutils literal notranslate"><span class="pre">AIOHTTP_LIMIT_PER_HOST</span></code> / <code class="docutils literal notranslate"><span class="pre">AIOHTTP_TIMEOUT_TOTAL</span></code></p></li>
+<li><p>Sync (<code class="docutils literal notranslate"><span class="pre">requests</span></code> via <code class="docutils literal notranslate"><span class="pre">http_sync</span></code>): <code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_CONNECTIONS</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_POOL_MAXSIZE</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_TIMEOUT</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRIES</span></code> / <code class="docutils literal notranslate"><span class="pre">REQUESTS_RETRY_BACKOFF</span></code></p></li>
+</ul>
+</section>
+<section id="id3">
+<h2>שימוש ב-http_sync (Sync HTTP)<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<p>בעת ביצוע קריאות סינכרוניות מומלץ להשתמש במודול <code class="docutils literal notranslate"><span class="pre">http_sync</span></code> שמספק <code class="docutils literal notranslate"><span class="pre">requests.Session</span></code> גלובלי עם Pool ו‑Retries מוגדרים לפי ENV.</p>
+<p>דוגמה קצרה:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">http_sync</span> <span class="kn">import</span> <span class="n">request</span>
+<span class="n">resp</span> <span class="o">=</span> <span class="n">request</span><span class="p">(</span><span class="s1">&#39;GET&#39;</span><span class="p">,</span> <span class="s1">&#39;https://api.example.com/data&#39;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;Accept&#39;</span><span class="p">:</span> <span class="s1">&#39;application/json&#39;</span><span class="p">})</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="config-via-pydantic-settings">
 <h1>Config via Pydantic Settings<a class="headerlink" href="#config-via-pydantic-settings" title="Link to this heading"></a></h1>
 <p>הפרויקט משתמש ב-<code class="docutils literal notranslate"><span class="pre">pydantic-settings</span></code> לטעינת קונפיגורציה בצורה עקבית בכל השכבות (בוט/ווב/שירותים).</p>
-<section id="id1">
-<h2>היררכיית טעינה<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<section id="id4">
+<h2>היררכיית טעינה<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p>שרשור קבצים/ENV לפי הסדר: <code class="docutils literal notranslate"><span class="pre">.env.local</span></code> → <code class="docutils literal notranslate"><span class="pre">.env</span></code> → משתני סביבה</p></li>
 <li><p>טיפוסים מאומתים אוטומטית בזמן טעינה (Validation)</p></li>
@@ -1311,8 +1391,8 @@
 </pre></div>
 </div>
 </section>
-<section id="id2">
-<h2>ולידציות<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<section id="id5">
+<h2>ולידציות<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">MONGODB_URL</span></code> חייב להתחיל ב-<code class="docutils literal notranslate"><span class="pre">mongodb://</span></code> או <code class="docutils literal notranslate"><span class="pre">mongodb+srv://</span></code> – אחרת תיזרק שגיאת ולידציה.</p></li>
 </ul>
@@ -1329,15 +1409,15 @@
 </pre></div>
 </div>
 </section>
-<section id="id3">
-<h2>שימוש לסוכנים<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<section id="id6">
+<h2>שימוש לסוכנים<a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p>סוכן AI צריך להסתמך על API אחיד של <code class="docutils literal notranslate"><span class="pre">config</span></code> כדי למנוע פערים בין שכבות.</p></li>
 <li><p>אין להטמיע סודות בקוד; שימוש ב-ENV בלבד.</p></li>
 </ul>
 </section>
-<section id="id4">
-<h2>פרמטרי קונפיגורציה מרכזיים (חדשים)<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<section id="id7">
+<h2>פרמטרי קונפיגורציה מרכזיים (חדשים)<a class="headerlink" href="#id7" title="Link to this heading"></a></h2>
 <p>להלן פרמטרים שנוספו ל־<code class="docutils literal notranslate"><span class="pre">config.py</span></code> ומומלץ להכיר:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">AIOHTTP_POOL_LIMIT</span></code> – גודל בריכת חיבורים ברירת מחדל ל‑aiohttp</p></li>
@@ -1347,8 +1427,8 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">UI_PAGE_SIZE</span></code> – גודל דף ברירת מחדל לרשימות ב‑UI</p></li>
 </ul>
 </section>
-<section id="id5">
-<h2>איחוד תיעוד קונפיגורציה<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
+<section id="id8">
+<h2>איחוד תיעוד קונפיגורציה<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
 <ul class="simple">
 <li><p>עמוד זה (<a class="reference internal" href="#"><span class="doc">Rate Limiting</span></a>) מספק הסברים ו‑best‑practices.</p></li>
 <li><p>עמוד <a class="reference internal" href="environment-variables.html"><span class="doc">משתני סביבה - רפרנס</span></a> מכיל טבלת רפרנס מלאה עם דוגמאות.</p></li>

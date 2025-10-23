@@ -22,10 +22,10 @@ import os
 import time
 import uuid
 
-try:  # optional dependency for HTTP calls
-    import requests  # type: ignore
+try:
+    from http_sync import request  # type: ignore
 except Exception:  # pragma: no cover
-    requests = None  # type: ignore
+    request = None  # type: ignore
 
 try:  # structured events (optional)
     from observability import emit_event  # type: ignore
@@ -415,11 +415,11 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
 def _send_telegram(text: str) -> None:
     token = os.getenv("ALERT_TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("ALERT_TELEGRAM_CHAT_ID")
-    if not token or not chat_id or requests is None:
+    if not token or not chat_id or request is None:
         return
     api = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
-        requests.post(api, json={"chat_id": chat_id, "text": text}, timeout=5)
+        request('POST', api, json={"chat_id": chat_id, "text": text}, timeout=5)
     except Exception:
         # do not raise
         pass
@@ -428,7 +428,7 @@ def _send_telegram(text: str) -> None:
 def _send_grafana_annotation(name: str, summary: str) -> None:
     base = os.getenv("GRAFANA_URL")
     token = os.getenv("GRAFANA_API_TOKEN")
-    if not base or not token or requests is None:
+    if not base or not token or request is None:
         return
     url = base.rstrip("/") + "/api/annotations"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -438,7 +438,7 @@ def _send_grafana_annotation(name: str, summary: str) -> None:
         "text": f"{name}: {summary}",
     }
     try:
-        requests.post(url, json=payload, headers=headers, timeout=5)
+        request('POST', url, json=payload, headers=headers, timeout=5)
     except Exception:
         # swallow errors
         pass

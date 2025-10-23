@@ -20,9 +20,9 @@ from typing import Any, Dict, List
 import os
 
 try:  # runtime optional
-    import requests  # type: ignore
+    from http_sync import request  # type: ignore
 except Exception:  # pragma: no cover
-    requests = None  # type: ignore
+    request = None  # type: ignore
 
 try:  # observability event emission (optional)
     from observability import emit_event  # type: ignore
@@ -56,12 +56,12 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
 def _send_telegram(text: str) -> None:
     token = os.getenv("ALERT_TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("ALERT_TELEGRAM_CHAT_ID")
-    if not token or not chat_id or requests is None:
+    if not token or not chat_id or request is None:
         return
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
-        requests.post(api, json=payload, timeout=5)
+        request('POST', api, json=payload, timeout=5)
     except Exception:
         # Don't raise
         pass
