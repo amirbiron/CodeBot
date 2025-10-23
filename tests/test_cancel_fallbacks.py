@@ -91,6 +91,10 @@ def _install_github_menu_handler_stubs(monkeypatch):
         async def handle_inline_query(self, *a, **k):
             return None
     gm.GitHubMenuHandler = GitHubMenuHandler
+    # Provide constants used by main
+    gm.FILE_UPLOAD = object()
+    gm.REPO_SELECT = object()
+    gm.FOLDER_SELECT = object()
     monkeypatch.setitem(sys.modules, "github_menu_handler", gm)
 
 
