@@ -57,8 +57,9 @@ else
     exit 1
 fi
 
-# Generate API documentation from source
+# Generate API documentation from source (exclude non-module script get-pip.py)
 echo "🔄 Updating API documentation..."
-sphinx-apidoc -o api -f -e -M ../ ../tests ../docs ../.* 2>/dev/null || true
+# Exclude tests, docs, dotfiles, and get-pip.py which isn't a valid Python module
+sphinx-apidoc -o api -f -e -M ../ ../tests ../docs ../get-pip.py ../.* 2>/dev/null || true
 
 echo -e "${GREEN}✨ Documentation generation complete!${NC}"

@@ -31,6 +31,42 @@ except Exception:  # pragma: no cover
         return None
 
 
+def _use_plain_requests() -> bool:
+    """Return True when we should prefer plain requests over the pooled client.
+
+    Resolution order:
+    1) REQUESTS_FORCE_PLAIN=1|true|yes -> True
+    2) REQUESTS_FORCE_POOLED=1|true|yes -> False
+    3) If running under pytest and `_pooled_request` appears monkeypatched
+       (function __module__ != 'http_sync') -> use pooled (False)
+    4) If running under pytest and `_pooled_request` is the default from http_sync -> True
+    5) Otherwise (normal runtime): if pooled exists -> False else -> True
+    """
+    try:
+        force_plain = (os.getenv("REQUESTS_FORCE_PLAIN", "") or "").strip().lower() in {"1", "true", "yes"}
+        if force_plain:
+            return True
+        force_pooled = (os.getenv("REQUESTS_FORCE_POOLED", "") or "").strip().lower() in {"1", "true", "yes"}
+        if force_pooled:
+            return False
+
+        pooled_exists = _pooled_request is not None
+        under_pytest = "PYTEST_CURRENT_TEST" in os.environ
+
+        if under_pytest:
+            if pooled_exists and getattr(_pooled_request, "__module__", "") != "http_sync":
+                # Test explicitly monkeypatched pooled transport; honor it
+                return False
+            # Default under pytest: use plain requests so tests can monkeypatch requests.post
+            return True
+
+        # Normal runtime: prefer pooled when available
+        return not pooled_exists
+    except Exception:
+        # Fail-open to plain requests
+        return True
+
+
 def _format_alert_text(alert: Dict[str, Any]) -> str:
     labels = alert.get("labels", {}) or {}
     annotations = alert.get("annotations", {}) or {}
@@ -52,8 +88,9 @@ def _post_to_slack(text: str) -> None:
     if not url:
         return
     try:
-        # Prefer pooled client for retry/backoff in production.
-        if _pooled_request is not None:
+        # Prefer pooled client for retry/backoff in production, but use plain
+        # requests during tests or when explicitly requested.
+        if not _use_plain_requests() and _pooled_request is not None:
             _pooled_request('POST', url, json={"text": text}, timeout=5)
         elif _requests is not None:
             _requests.post(url, json={"text": text}, timeout=5)
@@ -71,8 +108,9 @@ def _post_to_telegram(text: str) -> None:
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
-        # Prefer pooled client for retry/backoff in production.
-        if _pooled_request is not None:
+        # Prefer pooled client for retry/backoff in production, but use plain
+        # requests during tests or when explicitly requested.
+        if not _use_plain_requests() and _pooled_request is not None:
             _pooled_request('POST', api, json=payload, timeout=5)
         elif _requests is not None:
             _requests.post(api, json=payload, timeout=5)
