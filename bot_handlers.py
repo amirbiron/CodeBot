@@ -775,7 +775,7 @@ class AdvancedBotHandlers:
                     raw_host = parsed.hostname or ''
                     # Sentry SaaS DSN hosts look like o123.ingest.sentry.io or ingest.sentry.io
                     # ללינק UI נרצה https://sentry.io/...
-                    if 'sentry.io' in raw_host:
+                    if raw_host == 'sentry.io' or raw_host.endswith('.sentry.io'):
                         host = 'sentry.io'
                     elif raw_host.startswith('ingest.'):
                         host = raw_host[len('ingest.'):]
