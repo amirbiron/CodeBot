@@ -55,9 +55,9 @@
 - `/observe -v` – תצוגה מפורטת של Observability בזמן אמת, עם:
   - Uptime/Error Rate/Latency + ספים אדפטיביים (memory)
   - Alerts (DB/memory) לפי חלון `window=5m|1h|24h`, כולל de-dup מול Dispatch Log
-  - Recent Errors (N<=5)
+  - Recent Errors (N≤5)
   - Cooling & Health (cooldown פעיל וסטטוס sinks)
-- `/observe -vv` – כולל גם רשימת N=10 מזהי התראות האחרונות מה-DB.
+- `/observe -vv` – כולל גם רשימת N≤10 מזהי התראות האחרונות מה-DB.
 
 ### הרשאות ChatOps ו-Rate Limit
 

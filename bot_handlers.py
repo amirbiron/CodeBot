@@ -1113,7 +1113,7 @@ class AdvancedBotHandlers:
             except Exception:
                 recent = []
             if recent:
-                lines.append("Recent Errors (memory, N<=5):")
+                lines.append("Recent Errors (memory, N≤5):")
                 for r in recent[-5:]:
                     try:
                         code = str(r.get("error_code") or r.get("code") or "-")
@@ -1142,7 +1142,7 @@ class AdvancedBotHandlers:
                 except Exception:
                     ids = []
                 if ids:
-                    lines.append("Recent Alert IDs (DB, N<=10):")
+                    lines.append("Recent Alert IDs (DB, N≤10):")
                     for i in (ids[:10]):
                         lines.append(f"- {i}")
 
