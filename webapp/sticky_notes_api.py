@@ -267,12 +267,29 @@ def update_note(note_id: str):
         note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        # מניעת דריסה בין מכשירים: אם התקבלה prev_updated_at ונמוכה מהעדכנית – החזר 409
+        try:
+            prev_updated_at = data.get('prev_updated_at')
+            if prev_updated_at:
+                try:
+                    prev_dt = datetime.fromisoformat(str(prev_updated_at))
+                except Exception:
+                    prev_dt = None
+                if prev_dt and isinstance(note.get('updated_at'), datetime) and prev_dt < note['updated_at']:
+                    return jsonify({'ok': False, 'error': 'Conflict', 'updated_at': note['updated_at'].isoformat()}), 409
+        except Exception:
+            pass
         db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, {'$set': updates})
         try:
             emit_event("sticky_note_updated", severity="info", user_id=int(user_id), note_id=str(note_id))
         except Exception:
             pass
-        return jsonify({'ok': True})
+        # שליחת חותמת הזמן שנוצרה עבור העדכון הנוכחי (ללא שאילתא נוספת)
+        try:
+            updated_at_iso = updates.get('updated_at').isoformat() if updates.get('updated_at') else None
+        except Exception:
+            updated_at_iso = None
+        return jsonify({'ok': True, 'updated_at': updated_at_iso})
     except Exception as e:
         try:
             emit_event("sticky_notes_update_error", severity="anomaly", note_id=str(note_id), error=str(e))

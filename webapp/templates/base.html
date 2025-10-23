@@ -462,7 +462,7 @@
         .quick-access-dropdown {
             position: absolute;
             top: 50%;
-            left: 100%;
+            right: 100%;
             transform: translate(0, -50%);
             background: white;
             border-radius: 12px;
@@ -565,7 +565,7 @@
         /* מובייל */
         @media (max-width: 768px) {
             .quick-access-menu { order: -1; margin-left: 0; margin-right: 0.5rem; }
-            .quick-access-dropdown { position: absolute; top: 100%; left: 0; transform: none; display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem; }
+            .quick-access-dropdown { position: absolute; top: 100%; right: 0; left: auto; transform: none; display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem; }
         }
 
         /* מצב כהה */
