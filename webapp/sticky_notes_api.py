@@ -10,6 +10,19 @@ from functools import wraps
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 import html
+# Robust ObjectId/InvalidId import with fallbacks for stub environments
+try:  # type: ignore
+    from bson import ObjectId  # type: ignore
+    from bson.errors import InvalidId  # type: ignore
+except Exception:  # pragma: no cover
+    class InvalidId(Exception):
+        pass
+    def ObjectId(x):  # type: ignore
+        # Minimal fallback that accepts hex-like strings; raises on others
+        s = str(x or "")
+        if len(s) != 24:
+            raise InvalidId("malformed ObjectId")
+        return s
 
 # Fail-open observability and tracing
 try:  # type: ignore
@@ -246,11 +259,15 @@ def update_note(note_id: str):
         updates['updated_at'] = datetime.now(timezone.utc)
 
         db = get_db()
-        from bson import ObjectId  # type: ignore
-        note = db.sticky_notes.find_one({'_id': ObjectId(note_id), 'user_id': user_id})
+        # Validate ObjectId early and return 400 on malformed input
+        try:
+            oid = ObjectId(note_id)
+        except InvalidId:
+            return jsonify({'ok': False, 'error': 'Invalid note_id'}), 400
+        note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
-        db.sticky_notes.update_one({'_id': ObjectId(note_id), 'user_id': user_id}, {'$set': updates})
+        db.sticky_notes.update_one({'_id': oid, 'user_id': user_id}, {'$set': updates})
         try:
             emit_event("sticky_note_updated", severity="info", user_id=int(user_id), note_id=str(note_id))
         except Exception:
@@ -272,8 +289,11 @@ def delete_note(note_id: str):
     try:
         user_id = int(session['user_id'])
         db = get_db()
-        from bson import ObjectId  # type: ignore
-        res = db.sticky_notes.delete_one({'_id': ObjectId(note_id), 'user_id': user_id})
+        try:
+            oid = ObjectId(note_id)
+        except InvalidId:
+            return jsonify({'ok': False, 'error': 'Invalid note_id'}), 400
+        res = db.sticky_notes.delete_one({'_id': oid, 'user_id': user_id})
         if int(getattr(res, 'deleted_count', 0) or 0) <= 0:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
         try:
