@@ -110,6 +110,12 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     _send_telegram(_format_text(name, severity, summary, details))
                 except Exception:
                     pass
+                # Best-effort: persist critical alert when fallback path used
+                try:
+                    from monitoring.alerts_storage import record_alert  # type: ignore
+                    record_alert(alert_id=None, name=str(name), severity="critical", summary=str(summary), source="internal_alerts")
+                except Exception:
+                    pass
         else:
             # Prefer alert_forwarder when available; otherwise Telegram fallback
             try:
@@ -128,6 +134,12 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     _send_telegram(_format_text(name, severity, summary, details))
                 except Exception:
                     pass
+            # Best-effort: persist non-critical alert
+            try:
+                from monitoring.alerts_storage import record_alert  # type: ignore
+                record_alert(alert_id=None, name=str(name), severity=str(severity), summary=str(summary), source="internal_alerts")
+            except Exception:
+                pass
     except Exception:
         return
 
