@@ -461,9 +461,9 @@
 
         .quick-access-dropdown {
             position: absolute;
-            top: 50%;
-            right: 100%;
-            transform: translate(0, -50%);
+            top: 100%;
+            right: 0; /* נפתח מתחת לכפתור ולא מכסה את הלוגו */
+            transform: translateY(6px);
             background: white;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
@@ -474,6 +474,8 @@
             display: flex;
             gap: .25rem;
             padding: .4rem;
+            max-width: calc(100vw - 24px); /* אין גלילה אופקית */
+            overflow-x: hidden;
         }
 
         .quick-access-dropdown.active {
@@ -565,7 +567,11 @@
         /* מובייל */
         @media (max-width: 768px) {
             .quick-access-menu { order: -1; margin-left: 0; margin-right: 0.5rem; }
-            .quick-access-dropdown { position: absolute; top: 100%; right: 0; left: auto; transform: none; display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem; }
+            .quick-access-dropdown {
+              position: absolute; top: 100%; right: 0; left: auto; transform: none;
+              display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem;
+              max-width: calc(100vw - 16px);
+            }
         }
 
         /* מצב כהה */

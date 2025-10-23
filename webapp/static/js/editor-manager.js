@@ -46,7 +46,15 @@
       if (!this.textarea) return;
 
       if (this.currentEditor === 'codemirror') {
-        await this.initCodeMirror(container, { language, value, theme });
+        try {
+          await this.initCodeMirror(container, { language, value, theme });
+        } catch (e) {
+          // אם Codemirror נכשל – ניפול חזרה לפשוט ונשמור העדפה
+          console.warn('Falling back to simple editor due to CM init error', e);
+          this.currentEditor = 'simple';
+          this.savePreference('simple');
+          this.initSimpleEditor(container, { value });
+        }
       } else {
         this.initSimpleEditor(container, { value });
       }
