@@ -486,7 +486,8 @@ def setup_reminder_handlers(application):
 
     # Register conversation handlers with default/high priority group.
     # Generic text handlers should use a larger group (e.g., 1) to avoid intercepting conversation messages.
-    application.add_handler(conv, group=0)
+    # Place conversation before generic text handlers (e.g., group -1) to avoid interception
+    application.add_handler(conv, group=-2)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_|edit_)"))
     # Text handler for edit input; placed after conversation to avoid conflicts
