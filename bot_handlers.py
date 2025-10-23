@@ -835,12 +835,15 @@ class AdvancedBotHandlers:
             except Exception:
                 active_users = 0
 
-            # Alerts count (24h) using internal_alerts buffer (approx, not persisted)
+            # Alerts count (24h): combine internal_alerts (all severities) with
+            # alert_manager dispatch log (critical only), avoiding double count.
             alerts_24h = 0
             critical_24h = 0
+            internal_total = 0
+            internal_critical = 0
             try:
                 from internal_alerts import get_recent_alerts  # type: ignore
-                items = get_recent_alerts(limit=200) or []
+                items = get_recent_alerts(limit=400) or []
                 # Filter by timestamp (ISO) last 24h
                 now = datetime.now(timezone.utc)
                 day_ago = now.timestamp() - 24 * 3600
@@ -851,12 +854,42 @@ class AdvancedBotHandlers:
                     except Exception:
                         t = 0.0
                     if t >= day_ago:
-                        alerts_24h += 1
+                        internal_total += 1
                         if str(a.get('severity', '')).lower() == 'critical':
-                            critical_24h += 1
+                            internal_critical += 1
             except Exception:
-                alerts_24h = 0
-                critical_24h = 0
+                internal_total = 0
+                internal_critical = 0
+
+            # Count unique critical alerts in the last 24h from alert_manager dispatch log
+            dispatch_critical = 0
+            try:
+                from alert_manager import get_dispatch_log  # type: ignore
+                ditems = get_dispatch_log(limit=500) or []
+                now = datetime.now(timezone.utc)
+                day_ago = now.timestamp() - 24 * 3600
+                seen_ids = set()
+                for di in ditems:
+                    try:
+                        ts = di.get('ts')
+                        t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
+                    except Exception:
+                        t = 0.0
+                    if t >= day_ago:
+                        aid = str(di.get('alert_id') or '').strip()
+                        if aid:
+                            seen_ids.add(aid)
+                dispatch_critical = len(seen_ids)
+            except Exception:
+                dispatch_critical = 0
+
+            # Combine: prefer internal total when available; otherwise fallback to dispatch
+            if internal_total > 0:
+                alerts_24h = internal_total
+                critical_24h = max(internal_critical, dispatch_critical)
+            else:
+                alerts_24h = dispatch_critical
+                critical_24h = dispatch_critical
 
             text = (
                 "🔍 Observability Overview\n"
