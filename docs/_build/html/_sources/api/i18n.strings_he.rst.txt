@@ -1,7 +1,0 @@
-i18n.strings\_he module
-=======================
-
-.. automodule:: i18n.strings_he
-   :members:
-   :undoc-members:
-   :show-inheritance:

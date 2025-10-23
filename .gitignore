@@ -47,3 +47,6 @@ coverage.xml
 
 # Cursor/agent artifacts (local only)
 .cursor/
+
+# Sphinx build output (do not commit)
+docs/_build/
