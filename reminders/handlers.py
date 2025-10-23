@@ -92,6 +92,7 @@ class ReminderHandlers:
                 title=title,
                 remind_at=remind_time.astimezone(timezone.utc),
                 user_timezone=self._get_user_timezone(update.effective_user.id),
+                chat_id=update.effective_chat.id if update.effective_chat else None,
             )
             success, result = self.db.create_reminder(reminder)
             if success:
@@ -211,6 +212,7 @@ class ReminderHandlers:
             description=description,
             remind_at=self._ensure_user_data(context).get("reminder_time"),
             user_timezone=self._get_user_timezone(update.effective_user.id),
+            chat_id=(update.effective_chat.id if update.effective_chat else (update.callback_query.message.chat_id if update.callback_query else None)),
         )
         ok, result = self.db.create_reminder(reminder)
         if ok:
@@ -276,6 +278,9 @@ class ReminderHandlers:
                 else:
                     await update.message.reply_text("❌ שגיאה בעדכון הכותרת")
             elif field == "description":
+                # Support clearing via /skip or /clear
+                if text in {"/skip", "/clear"}:
+                    text = ""
                 if len(text) > ReminderConfig.max_description_length or not self.validator.validate_text(text):
                     await update.message.reply_text("❌ תיאור לא תקין. נסה שוב:")
                     return
@@ -301,12 +306,13 @@ class ReminderHandlers:
                         job.schedule_removal()
                     doc = self.db.reminders_collection.find_one({"reminder_id": rid})
                     if doc:
+                        target_chat = doc.get("chat_id") or (update.effective_chat.id if update.effective_chat else None)
                         context.job_queue.run_once(
                             self._send_reminder_notification,
                             when=new_utc,
                             name=f"reminder_{rid}",
                             data=doc,
-                            chat_id=update.effective_chat.id,
+                            chat_id=target_chat,
                             user_id=user_id,
                         )
                     await update.message.reply_text("✅ הזמן עודכן והתזכורת תוזמנה מחדש")
@@ -490,5 +496,19 @@ def setup_reminder_handlers(application):
     application.add_handler(conv, group=-2)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_|edit_)"))
-    # Text handler for edit input; placed after conversation to avoid conflicts
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_edit_input), group=1)
+    # Text handler for edit input; narrow filter to avoid intercepting unrelated messages
+    def _in_edit_flow(message, context):  # type: ignore[no-redef]
+        try:
+            ud = context.user_data  # type: ignore[attr-defined]
+            return isinstance(ud, dict) and ud.get("edit_rid") and ud.get("edit_field")
+        except Exception:
+            return False
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handlers.handle_edit_input,
+            filter_callback=_in_edit_flow,  # processed only when in edit flow
+        ),
+        group=1,
+    )

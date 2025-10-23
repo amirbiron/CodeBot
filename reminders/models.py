@@ -76,6 +76,7 @@ class Reminder:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     user_timezone: str = "UTC"
+    chat_id: Optional[int] = None
 
     def validate(self) -> tuple[bool, str]:
         if not self.title or not self.title.strip():
@@ -122,4 +123,5 @@ class Reminder:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "user_timezone": self.user_timezone,
+            "chat_id": self.chat_id,
         }

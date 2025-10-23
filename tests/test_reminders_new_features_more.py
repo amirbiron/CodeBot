@@ -1,5 +1,5 @@
 import types
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -91,7 +91,7 @@ async def test_handle_edit_input_title_empty_and_illegal():
 
 
 @pytest.mark.asyncio
-async def test_handle_edit_input_desc_success_and_invalid():
+async def test_handle_edit_input_desc_success_invalid_and_clear_and_empty():
     from database import db as _dbm
     db = RemindersDB(_dbm)
     h = ReminderHandlers(db, ReminderValidator())
@@ -113,6 +113,24 @@ async def test_handle_edit_input_desc_success_and_invalid():
     ctx = types.SimpleNamespace(user_data={"edit_rid": "r3", "edit_field": "description"}, job_queue=_JobQ())
     await h.handle_edit_input(upd, ctx)
     assert upd.message.replies and any("לא תקין" in t for t, _ in upd.message.replies)
+
+    # Clear description via /clear
+    called2 = {"updates": None}
+    h.db.update_reminder = lambda user_id, rid, updates: called2.update({"updates": updates}) or True  # type: ignore
+    upd = _Update()
+    upd.message.text = "/clear"
+    ctx = types.SimpleNamespace(user_data={"edit_rid": "r3", "edit_field": "description"}, job_queue=_JobQ())
+    await h.handle_edit_input(upd, ctx)
+    assert called2["updates"]["description"] == ""
+
+    # Clear description via empty input
+    called3 = {"updates": None}
+    h.db.update_reminder = lambda user_id, rid, updates: called3.update({"updates": updates}) or True  # type: ignore
+    upd = _Update()
+    upd.message.text = ""
+    ctx = types.SimpleNamespace(user_data={"edit_rid": "r3", "edit_field": "description"}, job_queue=_JobQ())
+    await h.handle_edit_input(upd, ctx)
+    assert called3["updates"]["description"] == ""
 
 
 @pytest.mark.asyncio
@@ -189,3 +207,31 @@ def test_db_update_reminder_invalid_inputs():
 
     assert db.update_reminder(1, "r1", None) is False  # type: ignore
     assert db.update_reminder(1, "r1", {}) is False
+
+
+@pytest.mark.asyncio
+async def test_time_edit_reschedules_in_original_chat():
+    from database import db as _dbm
+    db = RemindersDB(_dbm)
+    h = ReminderHandlers(db, ReminderValidator())
+
+    # DB returns doc with original chat_id 999 (different than current 5555)
+    h.db.update_reminder = lambda user_id, rid, updates: True  # type: ignore
+    original_chat = 999
+    h.db.reminders_collection.find_one = lambda q: {
+        "reminder_id": q.get("reminder_id"),
+        "user_id": 5555,
+        "title": "טסט",
+        "remind_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "chat_id": original_chat,
+    }  # type: ignore[attr-defined]
+
+    upd = _Update(cid=5555)  # current chat is 5555
+    upd.message.text = "15:30"
+    jobq = _JobQ()
+    ctx = types.SimpleNamespace(user_data={"edit_rid": "rX", "edit_field": "remind_at"}, job_queue=jobq)
+
+    await h.handle_edit_input(upd, ctx)
+
+    # Ensure job scheduled to the original chat id, not current chat
+    assert any(chat_id == original_chat for *_, chat_id, _ in jobq.calls)
