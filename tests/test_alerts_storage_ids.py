@@ -117,3 +117,26 @@ def test_list_recent_alert_ids_limit_zero_or_disabled(monkeypatch):
     monkeypatch.delenv("MONGODB_URL", raising=False)
     mod = _import_fresh(monkeypatch)
     assert mod.list_recent_alert_ids(limit=0) == []
+
+
+def test_list_recent_alert_ids_handles_find_exception(monkeypatch):
+    # Enabled but find raises -> []
+    class _BadColl:
+        def find(self, *a, **k):
+            raise RuntimeError("boom")
+
+    class _DB:
+        def __getitem__(self, name):
+            return _BadColl()
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.admin = types.SimpleNamespace(command=lambda *a, **k: {"ok": 1})
+        def __getitem__(self, name):
+            return _DB()
+
+    monkeypatch.setitem(sys.modules, "pymongo", types.SimpleNamespace(MongoClient=_Client, ASCENDING=1))
+    monkeypatch.setenv("ALERTS_DB_ENABLED", "1")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017")
+    mod = _import_fresh(monkeypatch)
+    assert mod.list_recent_alert_ids(limit=10) == []

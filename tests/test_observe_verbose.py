@@ -374,3 +374,107 @@ async def test_observe_verbose_metrics_error_defaults_to_zero(monkeypatch):
     out = "\n".join(upd.message.texts)
     assert "curr=0.00%" in out
     assert "curr=0.000s" in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_param_parsing_case_insensitive_and_invalid_window(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    # SOURCE upper-case, invalid window value -> defaults to 24h
+    ctx = _Context(args=["-v", "SOURCE=DB", "window=bogus"])
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    # Stub DB counts
+    sys.modules["monitoring.alerts_storage"] = types.SimpleNamespace(count_alerts_since=lambda since: (5, 2))
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Observability – verbose" in out
+    assert "Alerts (DB, window=24h): total=5 | critical=2" in out
+    assert "Alerts (Memory," not in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_thresholds_displayed(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v"])  # default source=all, window=24h
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    import alert_manager as am
+
+    monkeypatch.setattr(am, "get_current_error_rate_percent", lambda *a, **k: 1.2345, raising=False)
+    monkeypatch.setattr(am, "get_current_avg_latency_seconds", lambda *a, **k: 0.4567, raising=False)
+    monkeypatch.setattr(
+        am,
+        "get_thresholds_snapshot",
+        lambda: {
+            "error_rate_percent": {"threshold": 5.0},
+            "latency_seconds": {"threshold": 1.0},
+        },
+        raising=False,
+    )
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Error Rate (5m): curr=1.23% | thr=5.00%" in out
+    assert "Latency (5m): curr=0.457s | thr=1.000s" in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_recent_errors_listed(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v"])  # default
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    import observability as obs
+
+    monkeypatch.setattr(
+        obs,
+        "get_recent_errors",
+        lambda limit=5: [
+            {"error_code": "E1", "event": "evt1", "ts": "2025-10-23T03:00:00+00:00"},
+            {"error_code": "E2", "event": "evt2", "ts": "2025-10-23T03:01:00+00:00"},
+        ],
+        raising=False,
+    )
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Recent Errors (memory, N<=5):" in out
+    assert "[E1] evt1" in out and "[E2] evt2" in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_truncation_on_long_sinks(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v"])  # default
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    import alert_manager as am
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    # 100 unique sinks with very long names to exceed 3500 chars
+    ditems = [
+        {"ts": now, "alert_id": f"id-{i}", "sink": ("sink_" + ("x" * 60) + str(i)), "ok": True}
+        for i in range(100)
+    ]
+    monkeypatch.setattr(am, "get_dispatch_log", lambda limit=100: list(ditems), raising=False)
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert out.endswith("… (truncated)")
