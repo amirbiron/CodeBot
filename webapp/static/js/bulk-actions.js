@@ -580,6 +580,29 @@ class BulkActions {
             }
         });
     }
+
+    async addSelectedToCollection() {
+        try {
+            const files = window.multiSelect?.getSelectedFiles?.() || [];
+            if (!files.length) { this.showNotification('לא נבחרו קבצים', 'warning'); return; }
+            // הוצא שמות קבצים מהכרטיסים בדף (data-file-name נמצא על ה-checkbox)
+            const names = files.map(f => {
+                const cb = document.querySelector(`.file-card input.file-checkbox[data-file-id="${f.id}"]`);
+                return cb ? (cb.getAttribute('data-file-name') || '') : '';
+            }).filter(n => n);
+            if (!names.length) { this.showNotification('לא נמצאו שמות קבצים תקפים', 'error'); return; }
+            // פתח מודאל הוספה עם שמות מרובים
+            if (window.openBulkAddToCollectionModal) {
+                window.openBulkAddToCollectionModal(names);
+            } else {
+                // נפילה לאחור – מודאל יחיד, ניקח את הראשון
+                window.openAddToCollectionModal(names[0]);
+            }
+        } catch (e) {
+            console.error('bulk add to collection failed', e);
+            this.showNotification('שגיאה בהכנת הוספה לאוסף', 'error');
+        }
+    }
 }
 
 // יצירת instance גלובלי
@@ -592,3 +615,4 @@ window.showBulkTagDialog = () => window.bulkActions.addTags();
 window.bulkDownloadZip = () => window.bulkActions.downloadZip();
 window.bulkShareFiles = () => window.bulkActions.shareFiles();
 window.clearSelection = () => window.multiSelect?.clearSelection();
+window.bulkAddSelectedToCollection = () => window.bulkActions.addSelectedToCollection();
