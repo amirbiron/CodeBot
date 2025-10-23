@@ -114,25 +114,41 @@
           const res = await api.removeItems(cid, [{source, file_name: name}]);
           if (!res || !res.ok) return alert(res && res.error || 'שגיאה במחיקה');
           row.remove();
+          return;
         }
         // פתיחת קובץ בלחיצה על שם הקובץ
         const link = ev.target.closest('a.file[data-open]');
         if (link) {
           ev.preventDefault();
           const fname = link.getAttribute('data-open') || '';
-          try {
-            const r = await fetch(`/api/files/resolve?name=${encodeURIComponent(fname)}`);
-            const j = await r.json();
-            if (j && j.ok && j.id) {
-              window.location.href = `/file/${encodeURIComponent(j.id)}`;
-            } else {
-              alert('הקובץ לא נמצא לצפייה');
-            }
-          } catch(_e){ alert('שגיאה בפתיחת הקובץ'); }
+          await openFileByName(fname);
+          return;
+        }
+        // פתיחת קובץ בלחיצה על כל השורה (מלבד כפתור הסרה/ידית גרירה)
+        if (row && !ev.target.closest('.drag')) {
+          const fname = row.getAttribute('data-name') || '';
+          await openFileByName(fname);
         }
       });
     } catch (e) {
       container.innerHTML = '<div class="error">שגיאה בטעינת פריטים</div>';
+    }
+  }
+
+  // פתיחת קובץ לפי שם הקובץ (שימושי גם ללחיצה על כל השורה)
+  async function openFileByName(fname){
+    const name = String(fname || '').trim();
+    if (!name) return;
+    try {
+      const r = await fetch(`/api/files/resolve?name=${encodeURIComponent(name)}`);
+      const j = await r.json();
+      if (j && j.ok && j.id) {
+        window.location.href = `/file/${encodeURIComponent(j.id)}`;
+      } else {
+        alert('הקובץ לא נמצא לצפייה');
+      }
+    } catch(_e){
+      alert('שגיאה בפתיחת הקובץ');
     }
   }
 
