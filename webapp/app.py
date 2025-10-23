@@ -3111,6 +3111,48 @@ def api_recent_files():
             pass
         return jsonify({'error': 'Failed to fetch recent files'}), 500
 
+@app.route('/api/files/resolve')
+@login_required
+def api_resolve_file_by_name():
+    """Resolve latest active file id by exact file_name for current user.
+
+    Returns JSON: {ok: bool, id?: str, language?: str, file_name?: str}
+    """
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        name = (request.args.get('name') or '').strip()
+        if not name:
+            return jsonify({'ok': False, 'error': 'missing name'}), 400
+
+        try:
+            # Prefer the latest version for this user and file name
+            doc = db.code_snippets.find_one(
+                {
+                    'user_id': user_id,
+                    'file_name': name,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}},
+                    ],
+                },
+                sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
+            )
+        except Exception:
+            doc = None
+
+        if not doc:
+            return jsonify({'ok': False, 'error': 'not_found'})
+
+        lang = (doc.get('programming_language') or 'text').lower()
+        return jsonify({'ok': True, 'id': str(doc.get('_id')), 'file_name': doc.get('file_name'), 'language': lang})
+    except Exception as e:
+        try:
+            logger.error('api_resolve_file_by_name failed: %s', e)
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
 @app.route('/edit/<file_id>', methods=['GET', 'POST'])
 @login_required
 def edit_file_page(file_id):
