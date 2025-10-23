@@ -835,61 +835,74 @@ class AdvancedBotHandlers:
             except Exception:
                 active_users = 0
 
-            # Alerts count (24h): combine internal_alerts (all severities) with
-            # alert_manager dispatch log (critical only), avoiding double count.
+            # Alerts count (24h): Prefer MongoDB storage when available; fallback to in-memory sources.
             alerts_24h = 0
             critical_24h = 0
-            internal_total = 0
-            internal_critical = 0
+            used_db = False
+            # 1) Try DB first
             try:
-                from internal_alerts import get_recent_alerts  # type: ignore
-                items = get_recent_alerts(limit=400) or []
-                # Filter by timestamp (ISO) last 24h
-                now = datetime.now(timezone.utc)
-                day_ago = now.timestamp() - 24 * 3600
-                for a in items:
-                    try:
-                        ts = a.get('ts')
-                        t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
-                    except Exception:
-                        t = 0.0
-                    if t >= day_ago:
-                        internal_total += 1
-                        if str(a.get('severity', '')).lower() == 'critical':
-                            internal_critical += 1
+                from monitoring.alerts_storage import count_alerts_last_hours  # type: ignore
+                total_db, critical_db = count_alerts_last_hours(hours=24)
+                if (total_db or critical_db):
+                    alerts_24h = int(total_db)
+                    critical_24h = int(critical_db)
+                    used_db = True
             except Exception:
+                used_db = False
+
+            if not used_db:
+                # 2) Fallback: combine internal_alerts (all severities) with alert_manager dispatch log (critical only)
                 internal_total = 0
                 internal_critical = 0
+                try:
+                    from internal_alerts import get_recent_alerts  # type: ignore
+                    items = get_recent_alerts(limit=400) or []
+                    # Filter by timestamp (ISO) last 24h
+                    now = datetime.now(timezone.utc)
+                    day_ago = now.timestamp() - 24 * 3600
+                    for a in items:
+                        try:
+                            ts = a.get('ts')
+                            t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
+                        except Exception:
+                            t = 0.0
+                        if t >= day_ago:
+                            internal_total += 1
+                            if str(a.get('severity', '')).lower() == 'critical':
+                                internal_critical += 1
+                except Exception:
+                    internal_total = 0
+                    internal_critical = 0
 
-            # Count unique critical alerts in the last 24h from alert_manager dispatch log
-            dispatch_critical = 0
-            try:
-                from alert_manager import get_dispatch_log  # type: ignore
-                ditems = get_dispatch_log(limit=500) or []
-                now = datetime.now(timezone.utc)
-                day_ago = now.timestamp() - 24 * 3600
-                seen_ids = set()
-                for di in ditems:
-                    try:
-                        ts = di.get('ts')
-                        t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
-                    except Exception:
-                        t = 0.0
-                    if t >= day_ago:
-                        aid = str(di.get('alert_id') or '').strip()
-                        if aid:
-                            seen_ids.add(aid)
-                dispatch_critical = len(seen_ids)
-            except Exception:
+                # Count unique critical alerts in the last 24h from alert_manager dispatch log
                 dispatch_critical = 0
+                try:
+                    from alert_manager import get_dispatch_log  # type: ignore
+                    ditems = get_dispatch_log(limit=500) or []
+                    now = datetime.now(timezone.utc)
+                    day_ago = now.timestamp() - 24 * 3600
+                    seen_ids = set()
+                    for di in ditems:
+                        try:
+                            ts = di.get('ts')
+                            t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
+                        except Exception:
+                            t = 0.0
+                        if t >= day_ago:
+                            aid = str(di.get('alert_id') or '').strip()
+                            if aid:
+                                seen_ids.add(aid)
+                    dispatch_critical = len(seen_ids)
+                except Exception:
+                    dispatch_critical = 0
 
-            # Combine: prefer internal total when available; otherwise fallback to dispatch
-            if internal_total > 0:
-                alerts_24h = internal_total
-                critical_24h = max(internal_critical, dispatch_critical)
-            else:
-                alerts_24h = dispatch_critical
-                critical_24h = dispatch_critical
+                # Combine: prefer internal total when available; otherwise fallback to dispatch
+                if internal_total > 0:
+                    alerts_24h = internal_total
+                    critical_24h = max(internal_critical, dispatch_critical)
+                else:
+                    alerts_24h = dispatch_critical
+                    critical_24h = dispatch_critical
 
             text = (
                 "🔍 Observability Overview\n"

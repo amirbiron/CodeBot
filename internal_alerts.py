@@ -86,6 +86,19 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         # Emit structured log/event as well
         emit_event("internal_alert", severity=str(severity), name=str(name), summary=str(summary))
 
+        # Persist all alerts (best-effort) to MongoDB for unified counts
+        try:
+            from monitoring.alerts_storage import record_alert  # type: ignore
+            # Attempt to use a stable id when available
+            aid = None
+            try:
+                aid = str(details.get("alert_id")) if details and details.get("alert_id") else None
+            except Exception:
+                aid = None
+            record_alert(alert_id=aid, name=str(name), severity=str(severity), summary=str(summary), source="internal_alerts")
+        except Exception:
+            pass
+
         # For critical alerts – use alert_manager for Telegram + Grafana annotations with dispatch log
         if str(severity).lower() == "critical":
             try:

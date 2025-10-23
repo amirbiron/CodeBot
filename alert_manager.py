@@ -375,6 +375,12 @@ def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) 
     """
     alert_id = str(uuid.uuid4())
     text = _format_text(name=name, severity="CRITICAL", summary=summary, details=details)
+    # Persist to MongoDB (best-effort) for unified 24h counts across services
+    try:
+        from monitoring.alerts_storage import record_alert  # type: ignore
+        record_alert(alert_id=alert_id, name=str(name), severity="critical", summary=str(summary), source="alert_manager")
+    except Exception:
+        pass
     # Telegram
     _dispatch("telegram", alert_id, _send_telegram, text)
     # Grafana annotation
