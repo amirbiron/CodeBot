@@ -4546,12 +4546,13 @@ def api_persistent_login():
 @app.route('/api/ui_prefs', methods=['POST'])
 @login_required
 def api_ui_prefs():
-    """שמירת העדפות UI: תומך בעדכונים חלקיים (font_scale/theme/editor).
+    """שמירת העדפות UI: תומך בעדכונים חלקיים (font_scale/theme/editor/work_state).
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
     - theme: אחד מ-{"classic","ocean","forest","high-contrast"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
+    - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     """
     try:
         payload = request.get_json(silent=True) or {}
@@ -4595,6 +4596,32 @@ def api_ui_prefs():
                 update_fields['ui_prefs.editor'] = editor_type
                 session['preferred_editor'] = editor_type
                 resp_payload['editor'] = editor_type
+
+        # עדכון work_state (שחזור מצב עבודה חוצה סשנים)
+        if 'work_state' in payload:
+            try:
+                ws = payload.get('work_state') or {}
+                safe_ws: Dict[str, Any] = {}
+                lu = str(ws.get('last_url') or '').strip()
+                if lu.startswith('/') and len(lu) <= 512:
+                    safe_ws['last_url'] = lu
+                try:
+                    sy = float(ws.get('scroll_y'))
+                    if sy < 0:
+                        sy = 0.0
+                    if sy > 10_000_000:
+                        sy = 10_000_000.0
+                    safe_ws['scroll_y'] = int(sy)
+                except Exception:
+                    pass
+                ts = str(ws.get('timestamp') or '').strip()
+                if ts:
+                    safe_ws['timestamp'] = ts[:64]
+                if safe_ws:
+                    update_fields['ui_prefs.work_state'] = safe_ws
+                    resp_payload['work_state'] = safe_ws
+            except Exception:
+                pass
 
         # אם לא התקבל אף שדה עדכני – אין מה לעדכן
         if len(update_fields) == 1:  # רק updated_at
@@ -4761,7 +4788,9 @@ def api_me():
             },
             'ui_prefs': {
                 'font_scale': prefs.get('font_scale'),
-                'theme': prefs.get('theme')
+                'theme': prefs.get('theme'),
+                'editor': prefs.get('editor'),
+                'work_state': prefs.get('work_state'),
             }
         })
     except Exception:

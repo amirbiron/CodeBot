@@ -206,9 +206,18 @@ class BookmarkManager {
     }
 
     async handleMarkdownClick(event) {
+        // אם המשתמש כבר סימן טקסט – אל תפריע לתפריט המובנה (העתק/בחר הכל)
+        try {
+            const sel = window.getSelection && window.getSelection();
+            if (sel && typeof sel.toString === 'function' && sel.toString().trim().length > 0) {
+                return; // אפשר לתפריט/התנהגות ברירת מחדל לפעול
+            }
+        } catch (_) {}
+
         // לחיצה על כותרת H1..H6 בעלת id — סימון עוגן
         const heading = event.target.closest('#md-content h1[id], #md-content h2[id], #md-content h3[id], #md-content h4[id], #md-content h5[id], #md-content h6[id]');
         if (!heading) return;
+        // נבלום ברירת מחדל רק כאשר אנו מבצעים פעולה ייעודית
         event.preventDefault();
         event.stopPropagation();
         const anchorId = heading.id || '';
@@ -218,6 +227,13 @@ class BookmarkManager {
 
         // בחירת צבע דרך קליק ימני
         if (event.button === 2 || event.type === 'contextmenu') {
+            // אם יש טקסט מסומן – אל תחליף את תפריט ההקשר
+            try {
+                const sel = window.getSelection && window.getSelection();
+                if (sel && typeof sel.toString === 'function' && sel.toString().trim().length > 0) {
+                    return;
+                }
+            } catch(_) {}
             this.ui.showInlineColorMenu(heading, (color) => {
                 this.api.toggleBookmarkAnchor(anchorId, anchorText, 'md_heading', color)
                     .then((result) => {
