@@ -12,5 +12,7 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
+   monitoring.alerts_storage
    monitoring.cleanup
    monitoring.metrics_storage
+   monitoring.silences
