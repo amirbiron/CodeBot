@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}האוספים שלי · Code Keeper{% endblock %}
+
+{% block content %}
+<div class="glass-card">
+  <h1 class="page-title">📁 האוספים שלי</h1>
+  <p>זהו מסך MVP. ניהול מתבצע דרך ה-API. בהמשך נוסיף UI מלא.</p>
+  <div id="collectionsRoot" class="section">
+    <button class="btn btn-primary" onclick="createDemoCollection()">צור אוסף לדוגמה</button>
+    <div id="collectionsList" style="margin-top:1rem;"></div>
+  </div>
+</div>
+<script>
+async function fetchCollections(){
+  const r = await fetch('/api/collections');
+  if(!r.ok){ document.getElementById('collectionsList').innerText = 'שגיאה בטעינה'; return; }
+  const data = await r.json();
+  if(!data.ok){ document.getElementById('collectionsList').innerText = data.error || 'שגיאה'; return; }
+  const list = (data.collections||[]).map(c => `<div class="badge" style="margin:0 .5rem .5rem 0">${escapeHtml(c.name)}<small style="margin-right:.5rem;opacity:.8">(${c.items_count||0})</small></div>`).join('');
+  document.getElementById('collectionsList').innerHTML = list || '<div class="badge">אין אוספים</div>';
+}
+async function createDemoCollection(){
+  const r = await fetch('/api/collections', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'אוסף חדש', mode:'manual'})});
+  await fetchCollections();
+}
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+fetchCollections();
+</script>
+{% endblock %}

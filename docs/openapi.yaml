@@ -271,6 +271,188 @@ components:
         work_state:
           type: object
 paths:
+  /api/collections:
+    get:
+      summary: List user collections
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+        - in: query
+          name: skip
+          schema: { type: integer, default: 0, minimum: 0 }
+      responses:
+        '200': { description: Collections list }
+        '401': { description: Unauthorized }
+    post:
+      summary: Create collection
+      security: [ { cookieAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 500 }
+                mode: { type: string, enum: [manual, smart, mixed], default: manual }
+                rules: { type: object }
+      responses:
+        '200': { description: Created }
+        '401': { description: Unauthorized }
+
+  /api/collections/{id}:
+    get:
+      summary: Get collection
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Collection }
+        '401': { description: Unauthorized }
+    put:
+      summary: Update collection
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 500 }
+                mode: { type: string, enum: [manual, smart, mixed] }
+                rules: { type: object }
+      responses:
+        '200': { description: Updated }
+        '401': { description: Unauthorized }
+    delete:
+      summary: Soft delete collection
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Deleted }
+        '401': { description: Unauthorized }
+
+  /api/collections/{id}/items:
+    get:
+      summary: List items (manual + smart)
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 20, minimum: 1, maximum: 200 }
+        - in: query
+          name: include_computed
+          schema: { type: boolean, default: true }
+      responses:
+        '200': { description: Items list }
+        '401': { description: Unauthorized }
+    post:
+      summary: Add items to collection
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, file_name]
+                    properties:
+                      source: { type: string, enum: [regular, large] }
+                      file_name: { type: string }
+                      note: { type: string, maxLength: 500 }
+                      pinned: { type: boolean }
+      responses:
+        '200': { description: Added }
+        '401': { description: Unauthorized }
+    delete:
+      summary: Remove items from collection
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, file_name]
+                    properties:
+                      source: { type: string, enum: [regular, large] }
+                      file_name: { type: string }
+      responses:
+        '200': { description: Deleted }
+        '401': { description: Unauthorized }
+
+  /api/collections/{id}/reorder:
+    put:
+      summary: Reorder items in a collection
+      security: [ { cookieAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, file_name]
+                    properties:
+                      source: { type: string, enum: [regular, large] }
+                      file_name: { type: string }
+      responses:
+        '200': { description: Reordered }
+        '401': { description: Unauthorized }
   /api/bookmarks/{file_id}/toggle:
     post:
       summary: Toggle bookmark for a specific line

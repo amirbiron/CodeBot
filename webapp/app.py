@@ -253,12 +253,33 @@ def _preload_heavy_assets_async() -> None:
         except Exception:
             pass
 
-# --- Bookmarks API blueprint ---
+# --- API blueprints registration ---
 try:
     from webapp.bookmarks_api import bookmarks_bp  # noqa: E402
     app.register_blueprint(bookmarks_bp)
 except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
+    pass
+
+# Collections (My Collections) behind feature flag
+try:
+    from config import config as _cfg
+except Exception:
+    _cfg = None
+
+try:
+    enabled = bool(getattr(_cfg, 'FEATURE_MY_COLLECTIONS', False))
+    if enabled:
+        from webapp.collections_api import collections_bp  # noqa: E402
+        app.register_blueprint(collections_bp)
+        # UI route (server-rendered) best-effort
+        try:
+            from webapp.collections_ui import collections_ui  # noqa: E402
+            app.register_blueprint(collections_ui)
+        except Exception:
+            pass
+except Exception:
+    # אל תפיל את היישום אם ה-Blueprint אינו זמין
     pass
 
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
