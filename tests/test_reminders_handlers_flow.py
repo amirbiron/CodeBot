@@ -13,6 +13,7 @@ from reminders.handlers import (
     REMINDER_TIME,
     REMINDER_DESCRIPTION,
 )
+from telegram.ext import ConversationHandler
 
 
 class _User:
