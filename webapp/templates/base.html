@@ -892,6 +892,8 @@
         });
 
         // Add to Collection modal helpers
+        function getLastCollectionId(){ try { return localStorage.getItem('last_collection_id') || ''; } catch(_) { return ''; } }
+        function setLastCollectionId(id){ try { localStorage.setItem('last_collection_id', String(id||'')); } catch(_) {} }
         window.openAddToCollectionModal = async function(fileName){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
@@ -901,7 +903,8 @@
               const res = await fetch('/api/collections');
               const data = await res.json();
               if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
-              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}"><span>${escapeHtml(c.name||'')}</span></label>`).join('');
+              const last = getLastCollectionId();
+              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}" ${String(c.id)===String(last)?'checked':''}><span>${escapeHtml(c.name||'')}</span></label>`).join('');
               body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
             } catch (e) {
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
@@ -918,7 +921,8 @@
               const res = await fetch('/api/collections');
               const data = await res.json();
               if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
-              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}"><span>${escapeHtml(c.name||'')}</span></label>`).join('');
+              const last = getLastCollectionId();
+              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}" ${String(c.id)===String(last)?'checked':''}><span>${escapeHtml(c.name||'')}</span></label>`).join('');
               body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
             } catch (e) {
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
@@ -949,6 +953,7 @@
               const data = await r.json();
               if (!r.ok || !data.ok) throw new Error(data && data.error || 'שגיאה');
               alert(items.length > 1 ? ('נוספו ' + items.length + ' קבצים לאוסף') : 'נוסף לאוסף בהצלחה');
+              try { setLastCollectionId(cid); } catch(_) {}
               try { window.CollectionsUI && CollectionsUI.refreshSidebar && CollectionsUI.refreshSidebar(); } catch(_){ }
               closeAddToCollectionModal();
             } catch (e) {
