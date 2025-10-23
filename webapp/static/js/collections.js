@@ -94,10 +94,10 @@
     if (!container) return;
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
-      const data = await api.getItems(cid, 1, 50);
+      const data = await api.getItems(cid, 1, 200);
       if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
       const items = (data.items||[]).map(it => `
-        <div class="collection-item" data-source="${it.source}" data-name="${it.file_name}">
+        <div class="collection-item" data-source="${it.source}" data-name="${it.file_name}" data-id="${it.id||''}">
           <span class="drag" draggable="true">⋮⋮</span>
           <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
           <button class="remove" title="הסר">✕</button>
@@ -119,6 +119,12 @@
         const link = ev.target.closest('a.file[data-open]');
         if (link) {
           ev.preventDefault();
+          const row = link.closest('.collection-item');
+          const fid = row ? (row.getAttribute('data-id') || '') : '';
+          if (fid) {
+            window.location.href = `/file/${encodeURIComponent(fid)}`;
+            return;
+          }
           const fname = link.getAttribute('data-open') || '';
           try {
             const r = await fetch(`/api/files/resolve?name=${encodeURIComponent(fname)}`);

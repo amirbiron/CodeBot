@@ -56,10 +56,12 @@
 
     async createNote(){
       try {
+        const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
         const payload = {
           content: '',
-          position: { x: 120, y: window.scrollY + 120 },
-          size: { width: 260, height: 200 },
+          // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
+          position: { x: isMobile ? 80 : 120, y: window.scrollY + (isMobile ? 80 : 120) },
+          size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
           line_start: null
         };
@@ -111,7 +113,8 @@
       });
       textarea.addEventListener('blur', () => this._flushFor(el));
 
-      minimizeBtn.addEventListener('click', () => {
+      minimizeBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
         const nowMin = !el.classList.contains('is-minimized');
         el.classList.toggle('is-minimized');
         this._queueSave(el, { is_minimized: nowMin });
@@ -139,27 +142,35 @@
     }
 
     _enableDrag(el, handle){
-      let startX=0, startY=0, origX=0, origY=0, dragging=false;
+      let startX=0, startY=0, origLeft=0, origTop=0, startScrollX=0, startScrollY=0, dragging=false;
       const onDown = (e)=>{
         dragging = true;
         const ev = e.touches ? e.touches[0] : e;
         startX = ev.clientX; startY = ev.clientY;
         const r = el.getBoundingClientRect();
-        origX = r.left; origY = r.top;
-        e.preventDefault();
+        // חשב מיקום מוחלט בדף בעת התחלת גרירה כדי למנוע "קפיצה" במובייל
+        const parsedLeft = parseInt(el.style.left || '', 10);
+        const parsedTop = parseInt(el.style.top || '', 10);
+        origLeft = Number.isFinite(parsedLeft) ? parsedLeft : Math.round(r.left + window.scrollX);
+        origTop = Number.isFinite(parsedTop) ? parsedTop : Math.round(r.top + window.scrollY);
+        startScrollX = window.scrollX; startScrollY = window.scrollY;
+        try { e.preventDefault(); } catch(_) {}
       };
       const onMove = (e)=>{
         if (!dragging) return;
         const ev = e.touches ? e.touches[0] : e;
         const dx = ev.clientX - startX; const dy = ev.clientY - startY;
-        el.style.left = Math.round(origX + dx + window.scrollX) + 'px';
-        el.style.top = Math.round(origY + dy + window.scrollY) + 'px';
+        const sx = window.scrollX - startScrollX; const sy = window.scrollY - startScrollY;
+        el.style.left = Math.round(origLeft + dx + sx) + 'px';
+        el.style.top = Math.round(origTop + dy + sy) + 'px';
       };
       const onUp = ()=>{
         if (!dragging) return; dragging=false;
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
       };
+      // מניעת מחוות ברירת מחדל במובייל
+      try { handle.style.touchAction = 'none'; } catch(_) {}
       handle.addEventListener('mousedown', onDown);
       window.addEventListener('mousemove', onMove, { passive: false });
       window.addEventListener('mouseup', onUp);
@@ -176,7 +187,7 @@
         startX = ev.clientX; startY = ev.clientY;
         const r = el.getBoundingClientRect();
         startW = r.width; startH = r.height;
-        e.preventDefault();
+        try { e.preventDefault(); } catch(_) {}
       };
       const onMove = (e)=>{
         if (!resizing) return;
@@ -191,6 +202,7 @@
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
       };
+      try { handle.style.touchAction = 'none'; } catch(_) {}
       handle.addEventListener('mousedown', onDown);
       window.addEventListener('mousemove', onMove, { passive: false });
       window.addEventListener('mouseup', onUp);

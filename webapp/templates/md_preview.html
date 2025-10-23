@@ -845,6 +845,7 @@ input.md-task-checkbox {
   <div class="file-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;">
       {% if not is_public %}
       <a href="#" onclick="return goBackToFile(event)" class="btn btn-secondary btn-icon">↩️ חזרה לתצוגת קוד</a>
+      <a href="#" onclick="return goBackGeneric(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם"><i class="fas fa-arrow-right"></i> חזור</a>
       {% endif %}
     </div>
   </div>
@@ -2345,6 +2346,26 @@ function goBackToFile(ev){
     }
   } catch(_){ }
   try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
+  return false;
+}
+
+// כפתור "חזור" כללי – אם אין היסטוריה חוזרים לרשימת הקבצים
+function goBackGeneric(ev){
+  try { if (ev) ev.preventDefault(); } catch(_){ }
+  try {
+    if (window.history && window.history.length > 1) {
+      window.history.back();
+      return false;
+    }
+    if (document.referrer) {
+      const ref = new URL(document.referrer, window.location.origin);
+      if (ref.origin === window.location.origin) {
+        window.location.href = ref.toString();
+        return false;
+      }
+    }
+  } catch(_){ }
+  window.location.href = '/files';
   return false;
 }
 
