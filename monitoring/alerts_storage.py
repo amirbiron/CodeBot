@@ -125,6 +125,7 @@ def record_alert(
     severity: str,
     summary: str = "",
     source: str = "",
+    silenced: bool = False,
 ) -> None:
     """Insert (or upsert via unique key) a single alert record.
 
@@ -147,6 +148,11 @@ def record_alert(
             "source": str(source or ""),
             "_key": key,
         }
+        # Transparency: mark whether this alert was silenced at dispatch time
+        try:
+            doc["silenced"] = bool(silenced)
+        except Exception:
+            doc["silenced"] = False
         if alert_id:
             doc["alert_id"] = str(alert_id)
         try:

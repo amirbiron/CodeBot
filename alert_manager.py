@@ -369,29 +369,55 @@ def forward_critical_alert(name: str, summary: str, **details: Any) -> None:
 
 
 def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) -> None:
-    """Send critical alert to Telegram and Grafana annotation and log dispatches.
+    """Send critical alert to sinks with silence enforcement and log dispatches.
 
-    This works independently of internal_alerts/alert_forwarder for resilience.
+    Enforcement:
+    - If a matching active silence exists (pattern on name, optional severity), do not send to sinks
+      but still record the alert in DB with silenced=true for transparency.
     """
     alert_id = str(uuid.uuid4())
     text = _format_text(name=name, severity="CRITICAL", summary=summary, details=details)
-    # Persist to MongoDB (best-effort) for unified 24h counts across services
+    # Silences check (best-effort)
+    silenced = False
+    silence_info: Optional[Dict[str, Any]] = None
+    try:
+        from monitoring.silences import is_silenced  # type: ignore
+        silenced, silence_info = is_silenced(name=name, severity="critical")
+    except Exception:
+        silenced, silence_info = False, None
+
+    # Persist to MongoDB (best-effort) for unified counts across services; include silenced flag
     try:
         from monitoring.alerts_storage import record_alert  # type: ignore
-        record_alert(alert_id=alert_id, name=str(name), severity="critical", summary=str(summary), source="alert_manager")
+        record_alert(alert_id=alert_id, name=str(name), severity="critical", summary=str(summary), source="alert_manager", silenced=bool(silenced))
     except Exception:
         pass
-    # Telegram
-    _dispatch("telegram", alert_id, _send_telegram, text)
-    # Grafana annotation
-    _dispatch("grafana", alert_id, _send_grafana_annotation, name, summary)
+
+    if silenced:
+        # Emit observability event that alert was silenced (best-effort)
+        try:
+            emit_event(
+                "alert_silenced",
+                severity="info",
+                alert_id=alert_id,
+                name=name,
+                silence_id=str((silence_info or {}).get("_id") or ""),
+                until=str((silence_info or {}).get("until_ts") or ""),
+            )
+        except Exception:
+            pass
+    else:
+        # Telegram
+        _dispatch("telegram", alert_id, _send_telegram, text)
+        # Grafana annotation
+        _dispatch("grafana", alert_id, _send_grafana_annotation, name, summary)
     try:
         emit_event(
             "critical_alert_dispatched",
             severity="anomaly",
             alert_id=alert_id,
             name=name,
-            handled=True,
+            handled=(not silenced),
         )
     except Exception:
         pass
