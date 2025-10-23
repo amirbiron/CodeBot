@@ -33,9 +33,13 @@
   - `name` (str, עד 80 תווים)
   - `slug` (str, ייחודי למשתמש — נובע מ־name; אותיות/ספרות/מקף)
   - `description` (str, עד 500)
+  - `icon` (str) — מתוך רשימת אייקונים מאושרת בלבד (whitelist)
+  - `color` (str) — מתוך פלטת צבעים מצומצמת ל-UI עקבי
+  - `is_favorite` (bool, אופציונלי) — סידור/הדגשה של אוספים מועדפים
+  - `sort_order` (int, אופציונלי) — סדר ידני להצגה בסיידבר
   - `mode` (str: "manual" | "smart" | "mixed")
   - `rules` (dict, כאשר smart/mixed: `{query, programming_language, tags[], repo_tag}`)
-  - `items_count` (int, נגזר/מעודכן)
+  - `items_count` (int, נגזר/מעודכן; ניתן גם `files_count` כשם חלופי)
   - `pinned_count` (int, נגזר/מעודכן)
   - `is_active` (bool, ברירת־מחדל true; למחיקה רכה)
   - `created_at`, `updated_at` (datetime)
@@ -75,6 +79,10 @@ class UserCollection:
     name: str
     slug: str
     description: str = ""
+    icon: str = ""         # אייקון מתוך רשימת ALLOWED_ICONS
+    color: str = ""        # צבע מתוך פלטת COLLECTION_COLORS
+    is_favorite: bool = False
+    sort_order: int = 0
     mode: str = "manual"  # manual|smart|mixed
     rules: Dict = field(default_factory=dict)
     items_count: int = 0
@@ -94,6 +102,32 @@ class CollectionItem:
     custom_order: Optional[int] = None
     added_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+```
+
+### אייקונים וצבעים (בהשראת הגיסט)
+- Whitelist לאייקונים מותריים בלבד, כדי למנוע XSS והזרקות לא צפויות. דוגמה:
+
+```json
+{"ALLOWED_ICONS": ["📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀"]}
+```
+
+- פלטת צבעים קבועה לרקעים/תגיות של אוספים, לשמירה על נראות עקבית:
+
+```json
+{"COLLECTION_COLORS": ["blue","green","purple","orange","red","teal","pink","yellow"]}
+```
+
+- מפה לאייקוני ברירת־מחדל לפי שם (אופציונלי):
+
+```json
+{
+  "DEFAULT_COLLECTION_ICONS": {
+    "מדריכי קוד": "📘",
+    "רעיונות עיצוב": "🎨",
+    "פיצ'רים בבנייה": "🧩",
+    "ברירת מחדל": "📂"
+  }
+}
 ```
 
 ---
@@ -166,6 +200,9 @@ Endpoints מוצעים (דוגמאות):
 Observability (דוגמאות):
 - אירועים: `collections_create`, `collections_update`, `collections_delete_soft`, `collections_items_add`, `collections_items_remove`, `collections_reorder`, `collections_get_list`, `collections_get_items`.
 
+Feature flag ורול־אאוט:
+- עטפו את תצוגת ה-UI וה-Blueprint בדגל קונפיג (למשל `config.FEATURE_MY_COLLECTIONS`), והפעילו בהדרגה. ספקו fallback מלא כאשר הדגל כבוי.
+
 ---
 
 ## 🧠 Smart Collections — חוקים
@@ -200,6 +237,11 @@ Observability (דוגמאות):
 
 הערה: גם ללא אינטגרציה הדוקה, פריטי smart יחושבו מחדש על כל cache miss/פג תוקף.
 
+TTL מומלץ (ניתן להתאמה):
+- `collections_list` — 30-60 שניות
+- `collections_detail` — 30 שניות
+- `collections_items` — 20-30 שניות (מאחר שעלול להשתנות תדיר)
+
 ---
 
 ## 🎨 UI/Frontend
@@ -227,6 +269,69 @@ Observability (דוגמאות):
 
 ---
 
+## 🧭 הוראות הטמעה (תכל'ס)
+1) Backend
+- צור `database/collections_manager.py` והגדר אינדקסים עבור `user_collections` ו-`collection_items`.
+- צור `webapp/collections_api.py` עם Blueprint, `@require_auth`, `@traced`, `emit_event`.
+- רשום את ה-Blueprint ב-`webapp/app.py` (בלי לשבור קוד קיים, מאחורי feature flag אם צריך).
+
+2) Frontend
+- הוסף קבצים: `webapp/static/css/collections.css`, `webapp/static/js/collections.js`.
+- עדכן `templates/base.html` בקישור ל"האוספים שלי"; הוסף מסך `templates/collections.html` לרשימות וניהול.
+- בכותרת קובץ (`view_file.html`), הוסף כפתור "הוסף לאוסף" + מודל בחירה.
+
+3) בדיקות
+- בדיקות יחידה ל-Manager ול-API (happy + 4xx), אימות קאשינג ואינהולידציה.
+- בדיקות smoke ל-UI דרך endpoints קיימים.
+
+4) תצפיות ורול־אאוט
+- הוסיפו אירועים לפי הסעיף לעיל; הפעילו בהדרגה עם feature flag.
+
+---
+
+## 🗃️ סכמת מסד נתונים (JSON דוגמתי)
+
+`user_collections`
+```json
+{
+  "_id": "ObjectId",
+  "user_id": 123,
+  "name": "📁 נבחרים",
+  "slug": "favorites",
+  "description": "קבצים חשובים",
+  "icon": "📂",
+  "color": "blue",
+  "is_favorite": false,
+  "sort_order": 0,
+  "mode": "manual",
+  "rules": {},
+  "items_count": 12,
+  "pinned_count": 2,
+  "is_active": true,
+  "created_at": "2025-10-23T05:00:00Z",
+  "updated_at": "2025-10-23T05:00:00Z",
+  "share": {"enabled": false, "token": null, "visibility": "private"}
+}
+```
+
+`collection_items` (המקביל לשם `collection_files` בגיסט)
+```json
+{
+  "_id": "ObjectId",
+  "collection_id": "ObjectId",
+  "user_id": 123,
+  "source": "regular",
+  "file_name": "algo.py",
+  "note": "דוגמה",
+  "pinned": false,
+  "custom_order": 10,
+  "added_at": "2025-10-23T05:00:00Z",
+  "updated_at": "2025-10-23T05:00:00Z"
+}
+```
+
+---
+
 ## 🔐 אבטחה וולידציה
 - Auth: `require_auth` בכל endpoint.
 - סניטציה: להשתמש ב־`sanitize_input` (escape + חיתוך אורכים) ל־`name`/`description`/`note`.
@@ -234,6 +339,11 @@ Observability (דוגמאות):
   - עד 100 אוספים למשתמש (קונפיגורבילי).
   - עד 5,000 פריטים ידניים בכלל האוספים למשתמש (קונפיגורבילי).
 - מחיקה רכה בלבד (`is_active=False`).
+
+שיפורי אבטחה (מהגיסט):
+- השתמשו ב-`cache.invalidate_user_cache()` (אל תסמכו על פונקציות לא קיימות).
+- ולידציית אייקונים מול `ALLOWED_ICONS` בלבד; בצד לקוח בצעו escape לכל טקסט שמוזרק ל-DOM.
+- מניעת IDOR: סננו תמיד לפי `user_id` גם ב-`user_collections` וגם ב-`collection_items` בכל פעולה.
 
 ---
 
