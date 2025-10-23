@@ -109,3 +109,11 @@ def test_list_recent_alert_ids_handles_errors(monkeypatch):
     ids = mod.list_recent_alert_ids(limit=10)
     # Fail-open: return [] on errors
     assert ids == []
+
+
+def test_list_recent_alert_ids_limit_zero_or_disabled(monkeypatch):
+    # Disabled DB -> should return []
+    monkeypatch.setenv("ALERTS_DB_ENABLED", "0")
+    monkeypatch.delenv("MONGODB_URL", raising=False)
+    mod = _import_fresh(monkeypatch)
+    assert mod.list_recent_alert_ids(limit=0) == []

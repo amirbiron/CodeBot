@@ -243,6 +243,71 @@ async def test_observe_verbose_db_only_counts(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_observe_verbose_source_all_5m_dedup(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v", "source=all", "window=5m"])
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    # DB counts: return zeros to focus on memory and dedup
+    sys.modules["monitoring.alerts_storage"] = types.SimpleNamespace(count_alerts_since=lambda since: (0, 0))
+
+    # Seed memory alerts (one critical, one warn)
+    import internal_alerts as ia
+    try:
+        ia._ALERTS.clear()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    now_iso = "2025-10-23T03:59:00+00:00"
+    ia._ALERTS.append({"ts": now_iso, "name": "Z1", "severity": "critical"})  # type: ignore[attr-defined]
+    ia._ALERTS.append({"ts": now_iso, "name": "Z2", "severity": "warn"})  # type: ignore[attr-defined]
+
+    # Dispatch log with duplicate alert_id and a unique one
+    import alert_manager as am
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    ditems = [
+        {"ts": now, "alert_id": "dup", "sink": "telegram", "ok": True},
+        {"ts": now, "alert_id": "dup", "sink": "grafana", "ok": True},
+        {"ts": now, "alert_id": "uniq", "sink": "telegram", "ok": True},
+    ]
+    monkeypatch.setattr(am, "get_dispatch_log", lambda limit=100: list(ditems), raising=False)
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Observability – verbose" in out
+    # Ensure dedup reported as 2 unique critical IDs
+    assert "Alerts (Memory, window=5m):" in out and "unique_critical_ids=2" in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_vv_source_all_db_unavailable_no_ids(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-vv", "source=all", "window=24h"])
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    # DB unavailable
+    def _raise_count(_since):  # noqa: D401
+        raise RuntimeError("boom")
+
+    sys.modules["monitoring.alerts_storage"] = types.SimpleNamespace(count_alerts_since=_raise_count)
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Observability – verbose" in out
+    # There should be no Recent Alert IDs section when DB isn't ok
+    assert "Recent Alert IDs (DB, N<=10):" not in out
+
+
+@pytest.mark.asyncio
 async def test_observe_verbose_no_cooling_no_sinks_no_errors(monkeypatch):
     app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
     adv = AdvancedBotHandlers(app)
