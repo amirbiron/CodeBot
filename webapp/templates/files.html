@@ -310,6 +310,7 @@
                     <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="הורד">
                         <i class="fas fa-download"></i>
                     </a>
+                    <button class="btn btn-secondary btn-icon" style="padding:0.5rem 1rem;" title="הוסף לאוסף" onclick="openAddToCollectionModal('{{ file.file_name|escape }}')">📁+</button>
                 </div>
                 {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
                 <div>

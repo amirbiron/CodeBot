@@ -141,6 +141,13 @@ class CollectionsManager:
         is_favorite: Optional[bool] = None,
         sort_order: Optional[int] = None,
     ) -> Dict[str, Any]:
+        # מגבלה: עד 100 אוספים למשתמש
+        try:
+            total = int(self.collections.count_documents({"user_id": int(user_id), "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}))
+            if total >= 100:
+                return {"ok": False, "error": "חרגת מהמגבלה: עד 100 אוספים למשתמש"}
+        except Exception:
+            pass
         if not self._validate_name(name):
             return {"ok": False, "error": "שם האוסף חייב להיות 1..80 תווים"}
         if not self._validate_description(description or ""):
@@ -313,6 +320,13 @@ class CollectionsManager:
             return {"ok": False, "error": "collection_id לא תקין"}
         if not isinstance(items, list) or not items:
             return {"ok": False, "error": "items חסר"}
+        # מגבלה: עד 5000 פריטים ידניים למשתמש בכלל האוספים
+        try:
+            current_total = int(self.items.count_documents({"user_id": int(user_id)}))
+            if current_total >= 5000:
+                return {"ok": False, "error": "חרגת מהמגבלה: עד 5000 פריטים ידניים למשתמש"}
+        except Exception:
+            pass
         ok_count = 0
         now = _now()
         for it in items:

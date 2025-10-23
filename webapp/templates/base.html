@@ -585,6 +585,7 @@
     </style>
     
     {% block extra_css %}{% endblock %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}">
@@ -693,6 +694,20 @@
             {% block content %}{% endblock %}
         </div>
     </main>
+    <!-- Modal: Add to Collection -->
+    <div id="addToCollectionModal" style="display:none; position:fixed; inset:0; z-index:9999; align-items:center; justify-content:center;">
+      <div onclick="closeAddToCollectionModal()" style="position:absolute; inset:0; background: rgba(0,0,0,0.5);"></div>
+      <div style="position:relative; background:white; color:#333; border-radius:12px; max-width:420px; width:90%; padding:1rem;">
+        <h3 style="margin-top:0">הוסף לאוסף</h3>
+        <div id="addToCollectionBody">
+          <div>טוען…</div>
+        </div>
+        <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:1rem;">
+          <button class="btn btn-secondary" onclick="closeAddToCollectionModal()">בטל</button>
+          <button class="btn btn-primary" onclick="confirmAddToCollection()">הוסף</button>
+        </div>
+      </div>
+    </div>
     
     <script>
         function toggleMobileMenu() {
@@ -875,6 +890,46 @@
                 }
             } catch (e) {}
         });
+
+        // Add to Collection modal helpers
+        window.openAddToCollectionModal = async function(fileName){
+            const modal = document.getElementById('addToCollectionModal');
+            const body = document.getElementById('addToCollectionBody');
+            modal.style.display = 'flex';
+            modal.setAttribute('data-file-name', String(fileName||''));
+            try {
+              const res = await fetch('/api/collections');
+              const data = await res.json();
+              if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}"><span>${escapeHtml(c.name||'')}</span></label>`).join('');
+              body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+            } catch (e) {
+              body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
+            }
+        }
+        window.closeAddToCollectionModal = function(){
+            const modal = document.getElementById('addToCollectionModal');
+            modal.style.display = 'none';
+            modal.removeAttribute('data-file-name');
+        }
+        window.confirmAddToCollection = async function(){
+            const modal = document.getElementById('addToCollectionModal');
+            const fileName = modal.getAttribute('data-file-name') || '';
+            const sel = document.querySelector('#addToCollectionBody input[name="collectionId"]:checked');
+            if (!sel) { alert('בחר אוסף'); return; }
+            const cid = sel.value;
+            try {
+              const r = await fetch(`/api/collections/${encodeURIComponent(cid)}/items`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({items:[{source:'regular', file_name: String(fileName)}]}) });
+              const data = await r.json();
+              if (!r.ok || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              alert('נוסף לאוסף בהצלחה');
+              try { window.CollectionsUI && CollectionsUI.refreshSidebar && CollectionsUI.refreshSidebar(); } catch(_){ }
+              closeAddToCollectionModal();
+            } catch (e) {
+              alert('שגיאה בהוספה לאוסף');
+            }
+        }
+        function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
     </script>
     
     {% if uptime_widget_id and uptime_widget_script_url %}
@@ -946,6 +1001,7 @@
     </script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/collections.js') }}" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

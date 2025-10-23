@@ -966,6 +966,20 @@ class Repository:
                 ]},
                 {"$set": {"file_name": new_name, "updated_at": datetime.now(timezone.utc)}},
             )
+            # Update collection_items references so collections stay intact after rename
+            try:
+                coll = getattr(self.manager.db, 'collection_items', None)
+                if coll is not None:
+                    coll.update_many(
+                        {"user_id": int(user_id), "file_name": str(old_name)},
+                        {"$set": {"file_name": str(new_name), "updated_at": datetime.now(timezone.utc)}}
+                    )
+                try:
+                    cache.invalidate_user_cache(int(user_id))
+                except Exception:
+                    pass
+            except Exception:
+                pass
             return bool(result.modified_count and result.modified_count > 0)
         except Exception as e:
             emit_event("db_rename_file_error", severity="error", error=str(e), old_name=old_name, new_name=new_name)
