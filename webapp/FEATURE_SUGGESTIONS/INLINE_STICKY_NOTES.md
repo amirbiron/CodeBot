@@ -82,6 +82,7 @@ interface StickyNote {
 ### 1. סכמת מסד נתונים
 
 ```sql
+-- יצירת טבלת הפתקים
 CREATE TABLE IF NOT EXISTS sticky_notes (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,
@@ -97,9 +98,12 @@ CREATE TABLE IF NOT EXISTS sticky_notes (
     is_minimized BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    INDEX idx_user_file (user_id, file_path)
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+-- יצירת אינדקס לשיפור ביצועים
+CREATE INDEX IF NOT EXISTS idx_user_file 
+ON sticky_notes (user_id, file_path);
 ```
 
 ### 2. API Endpoints
