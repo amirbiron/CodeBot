@@ -84,7 +84,9 @@ class Reminder:
             return False, f"כותרת ארוכה מדי (מקסימום {ReminderConfig.max_title_length} תווים)"
         if len(self.description) > ReminderConfig.max_description_length:
             return False, f"תיאור ארוך מדי (מקסימום {ReminderConfig.max_description_length} תווים)"
-        dangerous_pattern = r"[<>\{}\[\]` ]"
+        # Disallow potentially dangerous characters often problematic in UIs/markdown
+        # Space must be allowed; do NOT include whitespace here.
+        dangerous_pattern = r"[<>\{\}\[\]`]"
         if re.search(dangerous_pattern, self.title + self.description):
             return False, "תווים לא חוקיים בטקסט"
         now = datetime.now(timezone.utc)

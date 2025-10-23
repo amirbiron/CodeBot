@@ -4,7 +4,8 @@ import re
 
 
 class ReminderValidator:
-    pattern = re.compile(r"^[\w\sא-ת.,;:!?'""()\-\/\\]+$")
+    # Allow common letters, whitespace, Hebrew, punctuation and basic symbols
+    pattern = re.compile(r"^[\w\sא-ת\.\,\;\:\!\?\'\"\(\)\-\/\\]+$")
 
     def validate_text(self, text: str) -> bool:
         try:

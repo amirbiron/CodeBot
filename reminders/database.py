@@ -4,8 +4,19 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 
-from pymongo import ASCENDING, DESCENDING, IndexModel
-from pymongo.errors import DuplicateKeyError
+try:
+    from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+    from pymongo.errors import DuplicateKeyError  # type: ignore
+except Exception:  # pragma: no cover - fallback stubs for test envs without pymongo
+    ASCENDING = 1  # type: ignore[assignment]
+    DESCENDING = -1  # type: ignore[assignment]
+
+    class IndexModel:  # type: ignore
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+    class DuplicateKeyError(Exception):  # type: ignore
+        pass
 
 from database import db as _dbm
 from .models import Reminder, ReminderConfig, ReminderStatus, RecurrenceType
