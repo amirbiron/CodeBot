@@ -907,22 +907,48 @@
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
             }
         }
+        // גרסה לבאלק: fileNames=Array<string>
+        window.openBulkAddToCollectionModal = async function(fileNames){
+            const modal = document.getElementById('addToCollectionModal');
+            const body = document.getElementById('addToCollectionBody');
+            modal.style.display = 'flex';
+            modal.removeAttribute('data-file-name');
+            modal.setAttribute('data-file-names', JSON.stringify(Array.isArray(fileNames)?fileNames:[]));
+            try {
+              const res = await fetch('/api/collections');
+              const data = await res.json();
+              if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
+              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}"><span>${escapeHtml(c.name||'')}</span></label>`).join('');
+              body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+            } catch (e) {
+              body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
+            }
+        }
         window.closeAddToCollectionModal = function(){
             const modal = document.getElementById('addToCollectionModal');
             modal.style.display = 'none';
             modal.removeAttribute('data-file-name');
+            modal.removeAttribute('data-file-names');
         }
         window.confirmAddToCollection = async function(){
             const modal = document.getElementById('addToCollectionModal');
             const fileName = modal.getAttribute('data-file-name') || '';
+            const bulkNamesRaw = modal.getAttribute('data-file-names') || '';
             const sel = document.querySelector('#addToCollectionBody input[name="collectionId"]:checked');
             if (!sel) { alert('בחר אוסף'); return; }
             const cid = sel.value;
             try {
-              const r = await fetch(`/api/collections/${encodeURIComponent(cid)}/items`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({items:[{source:'regular', file_name: String(fileName)}]}) });
+              let items = [];
+              if (bulkNamesRaw) {
+                try { const arr = JSON.parse(bulkNamesRaw) || []; items = arr.filter(Boolean).map(n => ({source:'regular', file_name: String(n)})); } catch(_){ items = []; }
+              } else if (fileName) {
+                items = [{source:'regular', file_name: String(fileName)}];
+              }
+              if (!items.length) { alert('לא נבחרו קבצים להוספה'); return; }
+              const r = await fetch(`/api/collections/${encodeURIComponent(cid)}/items`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({items}) });
               const data = await r.json();
               if (!r.ok || !data.ok) throw new Error(data && data.error || 'שגיאה');
-              alert('נוסף לאוסף בהצלחה');
+              alert(items.length > 1 ? ('נוספו ' + items.length + ' קבצים לאוסף') : 'נוסף לאוסף בהצלחה');
               try { window.CollectionsUI && CollectionsUI.refreshSidebar && CollectionsUI.refreshSidebar(); } catch(_){ }
               closeAddToCollectionModal();
             } catch (e) {
