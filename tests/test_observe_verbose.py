@@ -257,7 +257,11 @@ async def test_observe_verbose_no_cooling_no_sinks_no_errors(monkeypatch):
 
     if "get_cooldown_snapshot" in dir(am):
         monkeypatch.delattr(am, "get_cooldown_snapshot", raising=False)
-    monkeypatch.setattr(am, "get_dispatch_log", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))), False)
+    # Make get_dispatch_log raise to ensure Sinks section is skipped
+    def _raise_dispatch(*a, **k):  # noqa: D401
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(am, "get_dispatch_log", _raise_dispatch, raising=False)
 
     # No recent errors
     import observability as obs
