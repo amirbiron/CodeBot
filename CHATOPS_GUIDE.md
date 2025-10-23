@@ -102,6 +102,34 @@ Alerts (24h): 3 (1 critical)
 
 ---
 
+### `/observe -v` - תצוגה מפורטת
+מעניק תמונת מצב עשירה בזמן אמת, כולל מקורות נתונים וספי התראות אדפטיביים.
+
+**פרמטרים:**
+- `source=db|memory|all` – סינון מקור הנתונים לספירות ההתראות (ברירת מחדל: `all`).
+- `window=5m|1h|24h` – חלון זמן לספירת התראות (ברירת מחדל: `24h`).
+
+**דוגמאות:**
+```
+/observe -v window=5m source=all
+/observe -v source=memory
+```
+
+בפלט תראו:
+- Uptime, Error Rate (5m), Latency (5m) לצד Thresholds (mean+3σ) – מקור: memory
+- Alerts (DB) ו-Alerts (Memory) לפי החלון הנבחר, עם השוואת de-dup ל-Dispatch Log
+- Recent Errors (N<=5)
+- Cooling & Health – מצב cooldown והתפלגות הצלחות/כשלונות משלוח ליעדי sinks
+
+### `/observe -vv` - מפורט מאוד
+מוסיף רשימה קצרה (N=10) של מזהי ההתראות האחרונות מה-DB לטובת חקירה ומעקב.
+
+```
+/observe -vv source=db
+```
+
+---
+
 ### `/errors` - השגיאות האחרונות
 מציג את 10 השגיאות האחרונות במערכת.
 
