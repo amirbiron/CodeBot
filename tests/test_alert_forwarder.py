@@ -9,17 +9,8 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
     monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
 
-    # Capture outgoing HTTP posts
+    # Capture outgoing HTTP posts via pooled client
     calls = {"posts": []}
-
-    def _post(url, json=None, timeout=5):
-        calls["posts"].append((url, json))
-        class _Resp:
-            status_code = 200
-        return _Resp()
-
-    import requests as _requests
-    monkeypatch.setattr(_requests, "post", _post)
 
     # Capture emitted events
     events = {"evts": []}
@@ -27,8 +18,15 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
 
     # Ensure module sees our emit_event
     monkeypatch.setitem(importlib.sys.modules, "observability", fake_obs)
-    import alert_forwarder as af  # noqa: F401
+    import alert_forwarder as af
     importlib.reload(af)
+
+    # Stub pooled HTTP client so we don't perform real network calls
+    def _pooled(method, url, json=None, timeout=5):  # noqa: ARG001
+        calls["posts"].append((url, json))
+        return types.SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr(af, "_pooled_request", _pooled)
 
     alert = {
         "status": "firing",
@@ -50,19 +48,19 @@ def test_forward_alerts_handles_sink_errors(monkeypatch):
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
     monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
 
-    # Make HTTP posting fail
-    def _post_fail(url, json=None, timeout=5):  # noqa: ARG001
+    # Make HTTP posting fail via pooled client
+    def _pooled_fail(method, url, json=None, timeout=5):  # noqa: ARG001
         raise RuntimeError("boom")
-
-    import requests as _requests
-    monkeypatch.setattr(_requests, "post", _post_fail)
 
     # Capture events
     events = {"evts": []}
     fake_obs = types.SimpleNamespace(emit_event=lambda evt, severity="info", **kw: events["evts"].append((evt, severity, kw)))
     monkeypatch.setitem(importlib.sys.modules, "observability", fake_obs)
-    import alert_forwarder as af  # noqa: F401
+    import alert_forwarder as af
     importlib.reload(af)
+
+    # Route pooled requests to failing stub
+    monkeypatch.setattr(af, "_pooled_request", _pooled_fail)
 
     alert = {
         "status": "firing",

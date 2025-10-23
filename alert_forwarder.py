@@ -13,7 +13,8 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List
 
-# Graceful degradation for HTTP client: prefer pooled http_sync, fallback to requests
+# Graceful degradation for HTTP client: prefer pooled http_sync for retries/backoff,
+# fallback to plain requests when pooler is unavailable.
 try:  # pragma: no cover
     from http_sync import request as _pooled_request  # type: ignore
 except Exception:  # pragma: no cover
@@ -51,6 +52,7 @@ def _post_to_slack(text: str) -> None:
     if not url:
         return
     try:
+        # Prefer pooled client for retry/backoff in production.
         if _pooled_request is not None:
             _pooled_request('POST', url, json={"text": text}, timeout=5)
         elif _requests is not None:
@@ -69,6 +71,7 @@ def _post_to_telegram(text: str) -> None:
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
+        # Prefer pooled client for retry/backoff in production.
         if _pooled_request is not None:
             _pooled_request('POST', api, json=payload, timeout=5)
         elif _requests is not None:
