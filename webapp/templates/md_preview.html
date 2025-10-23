@@ -977,6 +977,10 @@ input.md-task-checkbox {
   </div>
   {% endif %}
   <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
+  <script>
+    // חשוף מזהה קובץ לשימוש רכיבי אינטראקציה (פתקים דביקים וכו')
+    window.FILE_ID = "{{ file.id }}";
+  </script>
 </div>
 
 <script>
@@ -2361,6 +2365,28 @@ function goBackToFile(ev){
     }
   } catch(_) { }
 })();
+</script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}">
+<script src="{{ url_for('static', filename='js/sticky-notes.js') }}"></script>
+<script>
+  // אתחול פתקים דביקים לאחר שהדף נטען לחלוטין
+  (function(){
+    try{
+      const init = function(){
+        if (typeof window.StickyNotesManager !== 'function') return;
+        if (!window.FILE_ID) return;
+        // אל תציג למבקרים ציבוריים
+        {% if not is_public %}
+        window._stickyNotes = new window.StickyNotesManager(window.FILE_ID);
+        {% endif %}
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    } catch(e) { console.warn('sticky notes init failed', e); }
+  })();
 </script>
 {% if not is_public %}{% include 'bookmarks_snippet.html' %}{% endif %}
 {% endblock %}

@@ -261,6 +261,14 @@ except Exception:
     # אם יש כשל בייבוא (למשל בזמן דוקס/CI בלי תלותים), אל תפיל את השרת
     pass
 
+# Sticky Notes API (Markdown inline notes)
+try:
+    from webapp.sticky_notes_api import sticky_notes_bp  # noqa: E402
+    app.register_blueprint(sticky_notes_bp)
+except Exception:
+    # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    pass
+
 # Collections (My Collections) behind feature flag
 try:
     from config import config as _cfg
