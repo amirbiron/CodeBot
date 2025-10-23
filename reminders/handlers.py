@@ -377,7 +377,8 @@ def setup_reminder_handlers(application):
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    # Ensure conversation handlers run before generic text handlers registered elsewhere
-    application.add_handler(conv, group=-1)
+    # Register conversation handlers with default/high priority group.
+    # Generic text handlers should use a larger group (e.g., 1) to avoid intercepting conversation messages.
+    application.add_handler(conv, group=0)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_)"))
