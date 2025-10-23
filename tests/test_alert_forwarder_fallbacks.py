@@ -11,7 +11,7 @@ def _sample_alert():
     }
 
 
-def test_prefers_requests_over_pooled(monkeypatch):
+def test_prefers_pooled_over_requests(monkeypatch):
     # Ensure sinks are configured
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc")
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
@@ -31,15 +31,15 @@ def test_prefers_requests_over_pooled(monkeypatch):
         calls["pooled"] += 1
         return types.SimpleNamespace(status_code=200)
 
-    # Both clients available: should prefer requests
+    # Both clients available: should prefer pooled
     monkeypatch.setattr(af._requests, "post", _req_post)
     monkeypatch.setattr(af, "_pooled_request", _pooled)
 
     af.forward_alerts([_sample_alert()])
 
-    # Both sinks (Slack + Telegram) should go via requests, not pooled
-    assert calls["requests"] == 2
-    assert calls["pooled"] == 0
+    # Both sinks (Slack + Telegram) should go via pooled, not requests
+    assert calls["pooled"] == 2
+    assert calls["requests"] == 0
 
 
 def test_fallback_to_pooled_when_requests_missing(monkeypatch):
