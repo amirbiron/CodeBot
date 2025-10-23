@@ -35,6 +35,12 @@
         this._createFab();
         window.addEventListener('resize', () => this._reflowWithinViewport());
         window.addEventListener('scroll', () => this._reflowWithinViewport(), { passive: true });
+        // במובייל: שינוי visual viewport (מקלדת) עלול להזיז את הפתקים – נתאים אותם לבטיחות
+        if (window.visualViewport) {
+          const reflow = () => this._reflowWithinViewport();
+          try { window.visualViewport.addEventListener('resize', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('resize', reflow); }
+          try { window.visualViewport.addEventListener('scroll', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('scroll', reflow); }
+        }
       } catch(e){ console.error('StickyNotes init failed', e); }
     }
 
@@ -54,16 +60,38 @@
       document.body.appendChild(btn);
     }
 
+    _nearestAnchor(){
+      try {
+        const container = document.getElementById('md-content') || document.body;
+        const headers = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+        if (!headers.length) return null;
+        const targetY = window.scrollY + Math.min(160, Math.round((window.innerHeight || 600) * 0.25));
+        let best = null; let bestDy = Infinity;
+        for (const h of headers) {
+          const y = Math.round(h.getBoundingClientRect().top + window.scrollY);
+          const dy = Math.abs(y - targetY);
+          if (dy < bestDy) { bestDy = dy; best = h; }
+        }
+        if (!best) return null;
+        const id = best.id || '';
+        const text = (best.textContent || '').trim().slice(0, 120);
+        return id ? { id, text, y: Math.round(best.getBoundingClientRect().top + window.scrollY) } : null;
+      } catch(_) { return null; }
+    }
+
     async createNote(){
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
+        const anchor = this._nearestAnchor();
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
           position: { x: isMobile ? 80 : 120, y: window.scrollY + (isMobile ? 80 : 120) },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
-          line_start: null
+          line_start: null,
+          anchor_id: anchor ? anchor.id : undefined,
+          anchor_text: anchor ? anchor.text : undefined
         };
         const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
@@ -78,8 +106,12 @@
     _renderNote(note, focus){
       const el = createEl('div', 'sticky-note');
       el.dataset.noteId = note.id;
-      el.style.left = (note.position?.x ?? note.position_x ?? 120) + 'px';
-      el.style.top = (note.position?.y ?? note.position_y ?? (window.scrollY + 120)) + 'px';
+      if (note.anchor_id) el.dataset.anchorId = String(note.anchor_id);
+      // קביעת מיקום התחלתי – אם יש עוגן נשתמש בו, אחרת לפי שמור
+      const initialX = (note.position?.x ?? note.position_x ?? 120);
+      const initialY = (note.position?.y ?? note.position_y ?? (window.scrollY + 120));
+      el.style.left = initialX + 'px';
+      el.style.top = initialY + 'px';
       el.style.width = (note.size?.width ?? note.width ?? 260) + 'px';
       el.style.height = (note.size?.height ?? note.height ?? 200) + 'px';
       if (note.color) el.style.backgroundColor = note.color;
@@ -107,6 +139,10 @@
       // interactions
       this._enableDrag(el, drag);
       this._enableResize(el, resizer);
+      // בעת פוקוס, הצמד לעוגן (במיוחד במובייל בעת הופעת מקלדת)
+      textarea.addEventListener('focus', () => {
+        try { this._positionRelativeToAnchor(el); this._reflowWithinViewport(el); } catch(_){ }
+      });
 
       textarea.addEventListener('input', () => {
         this._queueSave(el, { content: textarea.value });
@@ -126,7 +162,10 @@
       });
 
       if (focus) try { textarea.focus(); } catch(_) {}
+      if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
       this.notes.set(note.id, { el, data: note });
+      // אם יש עוגן – תמקם יחסית אליו כבר בהתחלה
+      this._positionRelativeToAnchor(el);
       this._reflowWithinViewport(el);
       return el;
     }
@@ -168,6 +207,18 @@
         if (!dragging) return; dragging=false;
         const payload = this._notePayloadFromEl(el);
         this._queueSave(el, payload); this._flushFor(el);
+        // לאחר גרירה ידנית – ננתק עוגן אם התרחקנו משמעותית
+        try {
+          const anchorId = el.dataset.anchorId;
+          if (anchorId) {
+            const anchor = document.getElementById(anchorId);
+            if (anchor) {
+              const ay = Math.round(anchor.getBoundingClientRect().top + window.scrollY);
+              const y = parseInt(el.style.top||'0',10) || 0;
+              if (Math.abs(y - ay) > 300) { delete el.dataset.anchorId; this._queueSave(el, { anchor_id: null, anchor_text: null }); }
+            }
+          }
+        } catch(_) {}
       };
       // מניעת מחוות ברירת מחדל במובייל
       try { handle.style.touchAction = 'none'; } catch(_) {}
@@ -214,6 +265,13 @@
     _queueSave(el, fragment){
       const id = el.dataset.noteId;
       const pending = Object.assign({}, this._pending.get(id) || {}, fragment || {});
+      // צירוף חותמת זמן קודמת למניעת דריסת שינויים בין מכשירים
+      try {
+        if (!('prev_updated_at' in pending)) {
+          const prev = el.dataset.updatedAt;
+          if (prev) pending.prev_updated_at = prev;
+        }
+      } catch(_) {}
       this._pending.set(id, pending);
       this._saveDebounced();
     }
@@ -223,9 +281,18 @@
       this._pending.clear();
       for (const [id, data] of entries){
         try {
-          await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+          const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
           });
+          let j = null; try { j = await resp.json(); } catch(_) {}
+          if (resp.status === 409) {
+            console.warn('sticky note update conflict, changes not applied', id);
+            continue;
+          }
+          if (j && j.updated_at) {
+            const item = this.notes.get(id);
+            if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+          }
         } catch(e){ console.warn('save note failed', id, e); }
       }
     }
@@ -236,9 +303,15 @@
       if (!data) return;
       this._pending.delete(id);
       try {
-        await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+        const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
         });
+        let j = null; try { j = await resp.json(); } catch(_) {}
+        if (resp.status === 409) {
+          console.warn('sticky note update conflict (flush), not applied', id);
+          return;
+        }
+        if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
       } catch(e){ console.warn('flush save failed', id, e); }
     }
 
@@ -249,17 +322,41 @@
       this.notes.delete(id);
     }
 
+    _positionRelativeToAnchor(el){
+      try {
+        const anchorId = el?.dataset?.anchorId;
+        if (!anchorId) return;
+        const anchor = document.getElementById(anchorId);
+        if (!anchor) return;
+        const rect = anchor.getBoundingClientRect();
+        const anchorTop = Math.round(rect.top + window.scrollY);
+        const desiredTop = clamp(anchorTop + 12, 60, Math.max(100, (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 20) + window.scrollY);
+        // שמור X קיים אבל הגבל בתוך viewport הנוכחי
+        const currentLeft = parseInt(el.style.left || '120', 10) || 120;
+        el.style.top = desiredTop + 'px';
+        el.style.left = currentLeft + 'px';
+      } catch(_) { }
+    }
+
     _reflowWithinViewport(target){
       const items = target ? [target] : Array.from(document.querySelectorAll('.sticky-note'));
-      const maxX = Math.max(100, window.innerWidth - 40);
-      const maxY = Math.max(100, window.innerHeight - 40 + window.scrollY);
+      const vp = window.visualViewport;
+      const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
+      const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+      const vpLeft = vp ? Math.round(vp.offsetLeft + window.scrollX) : window.scrollX;
+      const vpTop = vp ? Math.round(vp.offsetTop + window.scrollY) : window.scrollY;
+      const maxX = vpLeft + vpW - 20;
+      const maxY = vpTop + vpH - 20;
       items.forEach(el => {
         const rect = el.getBoundingClientRect();
-        let x = Math.round(rect.left + window.scrollX);
-        let y = Math.round(rect.top + window.scrollY);
+        // אם יש עוגן – מצב יחסי אליו קודם
+        this._positionRelativeToAnchor(el);
+        let x = parseInt(el.style.left || String(Math.round(rect.left + window.scrollX)), 10) || Math.round(rect.left + window.scrollX);
+        let y = parseInt(el.style.top || String(Math.round(rect.top + window.scrollY)), 10) || Math.round(rect.top + window.scrollY);
         let w = Math.round(rect.width);
         let h = Math.round(rect.height);
-        x = clamp(x, 0, maxX - 20); y = clamp(y, 60, maxY - 20);
+        x = clamp(x, vpLeft, maxX - w);
+        y = clamp(y, Math.max(60, vpTop), maxY - h);
         w = clamp(w, 120, 1200); h = clamp(h, 80, 1200);
         el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px';
       });
