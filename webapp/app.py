@@ -576,6 +576,10 @@ def get_db():
         ensure_code_snippets_indexes()
     except Exception:
         pass
+    try:
+        ensure_comments_indexes()
+    except Exception:
+        pass
     return db
 
 
@@ -758,6 +762,68 @@ def ensure_code_snippets_indexes() -> None:
 
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
 
+
+# --- Ensure indexes for comments collections once per process ---
+_comments_indexes_ready = False
+
+def ensure_comments_indexes() -> None:
+    """יוצר אינדקסים נחוצים לאוספים comment_threads ו-comment_messages פעם אחת בתהליך.
+
+    comment_threads:
+    - (file_id, anchor.type, anchor.heading_id, anchor.line)
+    - (user_id, created_at)
+    - (last_activity_at)
+
+    comment_messages:
+    - (thread_id, created_at)
+    """
+    global _comments_indexes_ready
+    if _comments_indexes_ready:
+        return
+    try:
+        _db = db if db is not None else None
+        if _db is None:
+            return
+        try:
+            from pymongo import ASCENDING, DESCENDING
+        except Exception:
+            # אם pymongo לא זמין בסביבה (למשל דוקס) – נוותר בשקט
+            _comments_indexes_ready = True
+            return
+
+        thr = _db.comment_threads
+        msg = _db.comment_messages
+        try:
+            thr.create_index([
+                ('file_id', ASCENDING),
+                ('anchor.type', ASCENDING),
+                ('anchor.heading_id', ASCENDING),
+                ('anchor.line', ASCENDING),
+            ], name='file_anchor_idx', background=True)
+        except Exception:
+            pass
+        try:
+            thr.create_index([
+                ('user_id', ASCENDING),
+                ('created_at', DESCENDING),
+            ], name='user_created_at', background=True)
+        except Exception:
+            pass
+        try:
+            thr.create_index([('last_activity_at', DESCENDING)], name='last_activity_at', background=True)
+        except Exception:
+            pass
+        try:
+            msg.create_index([
+                ('thread_id', ASCENDING),
+                ('created_at', ASCENDING),
+            ], name='thread_created_at', background=True)
+        except Exception:
+            pass
+        _comments_indexes_ready = True
+    except Exception:
+        # אין להפיל את האפליקציה במקרה של בעיית DB בתחילת חיים
+        pass
 
 # --- Cursor encoding helpers for pagination ---
 def _encode_cursor(created_at: datetime, oid: ObjectId) -> str:
@@ -4795,6 +4861,335 @@ def api_me():
         })
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+# --- Inline Comments API ---
+def _validate_anchor(anchor: dict) -> tuple[bool, str]:
+    try:
+        if not isinstance(anchor, dict):
+            return (False, 'anchor_must_be_object')
+        a_type = str(anchor.get('type') or '').strip().lower()
+        if a_type not in {'heading', 'code_line', 'range'}:
+            return (False, 'invalid_anchor_type')
+        if a_type == 'heading':
+            hid = str(anchor.get('heading_id') or '').strip()
+            if not hid:
+                return (False, 'missing_heading_id')
+        elif a_type == 'code_line':
+            try:
+                line = int(anchor.get('line'))
+                if line < 1:
+                    return (False, 'invalid_line')
+            except Exception:
+                return (False, 'invalid_line')
+        elif a_type == 'range':
+            r = anchor.get('range') or {}
+            try:
+                s_line = int(r.get('start_line'))
+                e_line = int(r.get('end_line'))
+                s_col = int(r.get('start_col')) if r.get('start_col') is not None else 0
+                e_col = int(r.get('end_col')) if r.get('end_col') is not None else 0
+                if s_line < 1 or e_line < 1 or e_line < s_line:
+                    return (False, 'invalid_range')
+                if s_col < 0 or e_col < 0:
+                    return (False, 'invalid_range')
+            except Exception:
+                return (False, 'invalid_range')
+        return (True, '')
+    except Exception:
+        return (False, 'invalid_anchor')
+
+
+def _get_file_for_user_or_404(dbh, user_id: int, file_id: str) -> dict | None:
+    try:
+        file = dbh.code_snippets.find_one({'_id': ObjectId(file_id), 'user_id': user_id})
+    except (InvalidId, Exception):
+        file = None
+    return file
+
+
+def _thread_to_public(doc: dict) -> dict:
+    return {
+        'id': str(doc.get('_id')),
+        'file_id': str(doc.get('file_id')) if doc.get('file_id') else None,
+        'user_id': doc.get('user_id'),
+        'anchor': doc.get('anchor') or {},
+        'status': doc.get('status') or 'open',
+        'replies_count': int(doc.get('replies_count') or 0),
+        'last_activity_at': str(doc.get('last_activity_at') or ''),
+        'created_at': str(doc.get('created_at') or ''),
+        'updated_at': str(doc.get('updated_at') or ''),
+    }
+
+
+def _message_to_public(doc: dict) -> dict:
+    return {
+        'id': str(doc.get('_id')),
+        'thread_id': str(doc.get('thread_id')) if doc.get('thread_id') else None,
+        'user_id': doc.get('user_id'),
+        'text': doc.get('text') or '',
+        'is_edited': bool(doc.get('is_edited') or False),
+        'created_at': str(doc.get('created_at') or ''),
+        'updated_at': str(doc.get('updated_at') or ''),
+    }
+
+
+@app.route('/api/comments', methods=['GET'])
+@login_required
+def api_comments_list():
+    try:
+        user_id = int(session.get('user_id'))
+        dbh = get_db()
+        file_id = (request.args.get('file_id') or '').strip()
+        include_messages = str(request.args.get('include_messages') or '').strip().lower() in {'1', 'true', 'yes'}
+        if not file_id:
+            return jsonify({'ok': False, 'error': 'missing_file_id'}), 400
+        file = _get_file_for_user_or_404(dbh, user_id, file_id)
+        if not file:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        threads = list(dbh.comment_threads.find({'file_id': ObjectId(file_id)}).sort('last_activity_at', DESCENDING if 'DESCENDING' in globals() else -1))
+        out = []
+        for t in threads:
+            item = _thread_to_public(t)
+            if include_messages:
+                msgs = list(dbh.comment_messages.find({'thread_id': t['_id']}).sort('created_at', 1))
+                item['messages'] = [_message_to_public(m) for m in msgs]
+            out.append(item)
+        return jsonify({'ok': True, 'threads': out})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
+
+
+@app.route('/api/comments', methods=['POST'])
+@login_required
+def api_comments_create():
+    try:
+        # Rate limit (best-effort, IP-based if limiter is configured)
+        try:
+            if limiter is not None:
+                # apply a dynamic limit
+                limiter.limit("30 per minute")(lambda: None)()
+        except Exception:
+            pass
+        user_id = int(session.get('user_id'))
+        payload = request.get_json(silent=True) or {}
+        file_id = str(payload.get('file_id') or '').strip()
+        anchor = payload.get('anchor') or {}
+        text = str(payload.get('text') or '').strip()
+        status = str(payload.get('status') or 'open').strip().lower()
+        if status not in {'open', 'resolved'}:
+            status = 'open'
+        if not file_id or not text:
+            return jsonify({'ok': False, 'error': 'missing_required'}), 400
+        if len(text) > 2000:
+            return jsonify({'ok': False, 'error': 'text_too_long'}), 422
+        ok, err = _validate_anchor(anchor)
+        if not ok:
+            return jsonify({'ok': False, 'error': err}), 400
+        dbh = get_db()
+        file = _get_file_for_user_or_404(dbh, user_id, file_id)
+        if not file:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        now = datetime.now(timezone.utc)
+        thread_doc = {
+            'user_id': user_id,
+            'file_id': ObjectId(file_id),
+            'anchor': anchor,
+            'file_etag': _compute_file_etag(file),
+            'status': status,
+            'replies_count': 0,
+            'last_activity_at': now,
+            'created_at': now,
+            'updated_at': now,
+        }
+        res = dbh.comment_threads.insert_one(thread_doc)
+        thread_id = res.inserted_id
+        msg_doc = {
+            'thread_id': thread_id,
+            'user_id': user_id,
+            'text': text,
+            'is_edited': False,
+            'created_at': now,
+            'updated_at': now,
+        }
+        res2 = dbh.comment_messages.insert_one(msg_doc)
+        thread_doc['_id'] = thread_id
+        msg_doc['_id'] = res2.inserted_id
+        return jsonify({
+            'ok': True,
+            'thread': _thread_to_public(thread_doc),
+            'message': _message_to_public(msg_doc),
+        })
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
+
+
+@app.route('/api/comments/<thread_id>/reply', methods=['POST'])
+@login_required
+def api_comments_reply(thread_id: str):
+    try:
+        # Rate limit (best-effort)
+        try:
+            if limiter is not None:
+                limiter.limit("30 per minute")(lambda: None)()
+        except Exception:
+            pass
+        user_id = int(session.get('user_id'))
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get('text') or '').strip()
+        if not text:
+            return jsonify({'ok': False, 'error': 'empty_text'}), 400
+        if len(text) > 2000:
+            return jsonify({'ok': False, 'error': 'text_too_long'}), 422
+        dbh = get_db()
+        try:
+            thr = dbh.comment_threads.find_one({'_id': ObjectId(thread_id)})
+        except (InvalidId, Exception):
+            thr = None
+        if not thr:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        # הרשאות: בעל הקובץ או אדמין (בפועל יוצר השרשור אמור להיות בעל הקובץ)
+        file_doc = dbh.code_snippets.find_one({'_id': thr.get('file_id')})
+        if not file_doc:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        if int(file_doc.get('user_id') or -1) != user_id and not is_admin(user_id):
+            return jsonify({'ok': False, 'error': 'forbidden'}), 403
+        now = datetime.now(timezone.utc)
+        msg_doc = {
+            'thread_id': thr['_id'],
+            'user_id': user_id,
+            'text': text,
+            'is_edited': False,
+            'created_at': now,
+            'updated_at': now,
+        }
+        res = dbh.comment_messages.insert_one(msg_doc)
+        try:
+            dbh.comment_threads.update_one({'_id': thr['_id']}, {'$set': {'last_activity_at': now, 'updated_at': now}, '$inc': {'replies_count': 1}})
+        except Exception:
+            pass
+        msg_doc['_id'] = res.inserted_id
+        return jsonify({'ok': True, 'message': _message_to_public(msg_doc)})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
+
+
+@app.route('/api/comments/<thread_id>', methods=['PATCH'])
+@login_required
+def api_comments_update(thread_id: str):
+    try:
+        user_id = int(session.get('user_id'))
+        payload = request.get_json(silent=True) or {}
+        status = str(payload.get('status') or '').strip().lower()
+        if status not in {'open', 'resolved'}:
+            return jsonify({'ok': False, 'error': 'invalid_status'}), 400
+        dbh = get_db()
+        try:
+            thr = dbh.comment_threads.find_one({'_id': ObjectId(thread_id)})
+        except (InvalidId, Exception):
+            thr = None
+        if not thr:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        # רק יוצר השרשור או אדמין
+        if int(thr.get('user_id') or -1) != user_id and not is_admin(user_id):
+            return jsonify({'ok': False, 'error': 'forbidden'}), 403
+        now = datetime.now(timezone.utc)
+        dbh.comment_threads.update_one({'_id': thr['_id']}, {'$set': {'status': status, 'updated_at': now, 'last_activity_at': now}})
+        thr['status'] = status
+        thr['updated_at'] = now
+        thr['last_activity_at'] = now
+        return jsonify({'ok': True, 'thread': _thread_to_public(thr)})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
+
+
+@app.route('/api/comments/<thread_id>', methods=['DELETE'])
+@login_required
+def api_comments_delete(thread_id: str):
+    try:
+        user_id = int(session.get('user_id'))
+        dbh = get_db()
+        try:
+            thr = dbh.comment_threads.find_one({'_id': ObjectId(thread_id)})
+        except (InvalidId, Exception):
+            thr = None
+        if not thr:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        if int(thr.get('user_id') or -1) != user_id and not is_admin(user_id):
+            return jsonify({'ok': False, 'error': 'forbidden'}), 403
+        dbh.comment_messages.delete_many({'thread_id': thr['_id']})
+        dbh.comment_threads.delete_one({'_id': thr['_id']})
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
+
+
+@app.route('/api/comments/message/<message_id>', methods=['PUT'])
+@login_required
+def api_comments_message_update(message_id: str):
+    try:
+        user_id = int(session.get('user_id'))
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get('text') or '').strip()
+        if not text:
+            return jsonify({'ok': False, 'error': 'empty_text'}), 400
+        if len(text) > 2000:
+            return jsonify({'ok': False, 'error': 'text_too_long'}), 422
+        dbh = get_db()
+        try:
+            msg = dbh.comment_messages.find_one({'_id': ObjectId(message_id)})
+        except (InvalidId, Exception):
+            msg = None
+        if not msg:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        if int(msg.get('user_id') or -1) != user_id and not is_admin(user_id):
+            return jsonify({'ok': False, 'error': 'forbidden'}), 403
+        now = datetime.now(timezone.utc)
+        dbh.comment_messages.update_one({'_id': msg['_id']}, {'$set': {'text': text, 'is_edited': True, 'updated_at': now}})
+        # bump thread activity
+        try:
+            dbh.comment_threads.update_one({'_id': msg.get('thread_id')}, {'$set': {'last_activity_at': now, 'updated_at': now}})
+        except Exception:
+            pass
+        msg['text'] = text
+        msg['is_edited'] = True
+        msg['updated_at'] = now
+        return jsonify({'ok': True, 'message': _message_to_public(msg)})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
+
+
+@app.route('/api/comments/message/<message_id>', methods=['DELETE'])
+@login_required
+def api_comments_message_delete(message_id: str):
+    try:
+        user_id = int(session.get('user_id'))
+        dbh = get_db()
+        try:
+            msg = dbh.comment_messages.find_one({'_id': ObjectId(message_id)})
+        except (InvalidId, Exception):
+            msg = None
+        if not msg:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        if int(msg.get('user_id') or -1) != user_id and not is_admin(user_id):
+            return jsonify({'ok': False, 'error': 'forbidden'}), 403
+        # decrement replies_count if this is not the first message in thread
+        thr_id = msg.get('thread_id')
+        dbh.comment_messages.delete_one({'_id': msg['_id']})
+        try:
+            # First message deletion implies deleting the thread entirely; prevent that
+            first = dbh.comment_messages.find_one({'thread_id': thr_id}, sort=[('created_at', 1)])
+            if not first:
+                # no messages remain; delete thread
+                dbh.comment_threads.delete_one({'_id': thr_id})
+            else:
+                # if deleted was not first message, reduce replies_count by 1
+                dbh.comment_threads.update_one({'_id': thr_id}, {'$inc': {'replies_count': -1}})
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'unexpected'}), 500
 
 # --- External uptime public endpoint ---
 @app.route('/api/uptime')
