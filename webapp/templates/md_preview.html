@@ -371,72 +371,6 @@ input.md-task-checkbox {
   width: 100%;
 }
 
-/* === Inline comments (headings) === */
-.md-comment-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  font-size: 12px;
-  line-height: 1;
-  border-radius: 999px;
-  background: #ffd54f;
-  color: #000;
-  padding: 0 6px;
-  margin-inline-start: 6px;
-  border: 1px solid rgba(0,0,0,0.15);
-  cursor: pointer;
-}
-.md-comment-add {
-  display: inline-block;
-  margin-inline-start: 6px;
-  opacity: 0;
-  transition: opacity .15s ease;
-  cursor: pointer;
-  background: rgba(102,126,234,0.12);
-  color: #2d4a7c;
-  border: 1px solid rgba(102,126,234,0.3);
-  border-radius: 6px;
-  padding: 0 6px;
-  font-size: 12px;
-}
-#md-content h1:hover .md-comment-add,
-#md-content h2:hover .md-comment-add,
-#md-content h3:hover .md-comment-add,
-#md-content h4:hover .md-comment-add,
-#md-content h5:hover .md-comment-add,
-#md-content h6:hover .md-comment-add { opacity: 1; }
-
-/* Side panel */
-.comments-panel {
-  position: fixed;
-  top: 100px;
-  right: 20px;
-  width: 320px;
-  max-height: calc(100vh - 140px);
-  background: rgba(255,255,255,0.98);
-  border: 1px solid rgba(0,0,0,0.1);
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-  overflow: hidden;
-  display: none;
-  z-index: 901;
-}
-.comments-panel .cp-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: .6rem .8rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff;
-}
-.comments-panel .cp-list { overflow-y:auto; max-height: calc(100vh - 190px); padding: .5rem; }
-.cp-item { padding: .5rem; border-bottom: 1px solid rgba(0,0,0,0.08); cursor: pointer; border-radius: 8px; }
-.cp-item:hover { background: rgba(102, 126, 234, 0.06); }
-.cp-item .cp-meta { font-size: .8rem; opacity: .7; }
-.cp-empty { padding: .75rem; opacity: .7; }
-
-.comments-toggle {
-  position: fixed; right: 20px; top: 60px; z-index: 901;
-}
-
 /* קישורים בכותרות - ללא קו תחתון */
 #md-content h1 a,
 #md-content h2 a,
@@ -1023,20 +957,6 @@ input.md-task-checkbox {
           title="הצג תוכן עניינים">
     <i class="fas fa-bars"></i>
   </button>
-
-  <!-- כפתור ופאנל תגובות -->
-  {% if not is_public %}
-  <button class="btn btn-secondary btn-icon comments-toggle" id="commentsToggle">💬 הערות</button>
-  <div class="comments-panel" id="commentsPanel" aria-label="הערות למסמך">
-    <div class="cp-header">
-      <div>הערות</div>
-      <button class="btn btn-secondary btn-icon" id="commentsClose">✕</button>
-    </div>
-    <div class="cp-list" id="commentsList">
-      <div class="cp-empty">אין עדיין הערות למסמך זה</div>
-    </div>
-  </div>
-  {% endif %}
 
   {% if not is_public %}
   <div class="glass-card" style="margin-top: 1rem;">
@@ -1745,83 +1665,6 @@ function loadScript(src){
         });
       }
       enhanceHeaderPermalinks();
-    } catch(_){ }
-
-    // === Inline comments (headings only v1) ===
-    try {
-      if (typeof FILE_ID !== 'undefined' && FILE_ID && {{ 'true' if not is_public else 'false' }}) {
-        async function fetchThreads() {
-          try {
-            const resp = await fetch(`/api/comments?file_id=${encodeURIComponent(FILE_ID)}`);
-            const data = await resp.json();
-            return (data && data.ok && Array.isArray(data.threads)) ? data.threads : [];
-          } catch(_) { return []; }
-        }
-        function renderBadges(threads) {
-          const byHeading = new Map();
-          threads.forEach(t => {
-            if ((t.anchor||{}).type === 'heading' && (t.anchor||{}).heading_id) {
-              const k = t.anchor.heading_id;
-              byHeading.set(k, (byHeading.get(k)||0) + 1);
-            }
-          });
-          const headers = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
-          headers.forEach(h => {
-            const id = h.id;
-            if (!id) return;
-            // add "+ הערה" button
-            if (!h.querySelector('.md-comment-add')) {
-              const add = document.createElement('button');
-              add.type = 'button';
-              add.className = 'md-comment-add';
-              add.textContent = '+ הערה';
-              add.addEventListener('click', async (e) => {
-                e.preventDefault(); e.stopPropagation();
-                const text = prompt('הזן הערה חדשה:');
-                if (!text) return;
-                try {
-                  const resp = await fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id: FILE_ID, anchor: { type: 'heading', heading_id: id }, text }) });
-                  const data = await resp.json();
-                  if (data && data.ok) { await refresh(); }
-                  else { alert('שמירת ההערה נכשלה'); }
-                } catch(_) { alert('שמירת ההערה נכשלה'); }
-              });
-              h.appendChild(add);
-            }
-            // badge count
-            const count = byHeading.get(id) || 0;
-            let badge = h.querySelector('.md-comment-badge');
-            if (count > 0) {
-              if (!badge) { badge = document.createElement('span'); badge.className = 'md-comment-badge'; h.appendChild(badge); }
-              badge.textContent = String(count);
-              badge.title = 'פתח פאנל הערות';
-              badge.addEventListener('click', () => { try { openPanel(); scrollToHeading(id); } catch(_){} });
-            } else if (badge) {
-              badge.remove();
-            }
-          });
-        }
-        function renderPanel(threads) {
-          const list = document.getElementById('commentsList');
-          if (!list) return;
-          list.innerHTML = '';
-          if (!threads.length) { const empty = document.createElement('div'); empty.className='cp-empty'; empty.textContent='אין עדיין הערות למסמך זה'; list.appendChild(empty); return; }
-          threads.forEach(t => {
-            const item = document.createElement('div'); item.className='cp-item';
-            const a = t.anchor||{}; const where = (a.type === 'heading' && a.heading_id) ? `כותרת: #${a.heading_id}` : (a.type === 'code_line' ? `שורה: ${a.line}` : 'טווח');
-            item.innerHTML = `<div class="cp-meta">${where} · ${t.status === 'resolved' ? 'פתור' : 'פתוח'} · ${t.replies_count} תגובות</div>`;
-            item.addEventListener('click', () => { try { if (a.type==='heading' && a.heading_id) scrollToHeading(a.heading_id); closePanel(); } catch(_){} });
-            list.appendChild(item);
-          });
-        }
-        function openPanel(){ const p=document.getElementById('commentsPanel'); if(p){ p.style.display='block'; } }
-        function closePanel(){ const p=document.getElementById('commentsPanel'); if(p){ p.style.display='none'; } }
-        function scrollToHeading(id){ const h=document.getElementById(id); if(h){ h.scrollIntoView({behavior:'smooth', block:'start'}); } }
-        async function refresh(){ const th = await fetchThreads(); renderBadges(th); renderPanel(th); }
-        const toggle = document.getElementById('commentsToggle'); if (toggle) toggle.addEventListener('click', async ()=>{ openPanel(); await refresh(); });
-        const closeBtn = document.getElementById('commentsClose'); if (closeBtn) closeBtn.addEventListener('click', ()=> closePanel());
-        await refresh();
-      }
     } catch(_){ }
 
     // קיצורי מקלדת בסיסיים: העתקת קוד ראשון והעתקת קישור לכותרת גלויה
