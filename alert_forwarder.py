@@ -13,15 +13,16 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List
 
-# Graceful degradation for HTTP client: prefer pooled http_sync, fallback to requests
-try:  # pragma: no cover
-    from http_sync import request as _pooled_request  # type: ignore
-except Exception:  # pragma: no cover
-    _pooled_request = None  # type: ignore
+# Graceful degradation for HTTP client: prefer plain requests for testability,
+# fallback to pooled http_sync when requests is unavailable.
 try:  # pragma: no cover
     import requests as _requests  # type: ignore
 except Exception:  # pragma: no cover
     _requests = None  # type: ignore
+try:  # pragma: no cover
+    from http_sync import request as _pooled_request  # type: ignore
+except Exception:  # pragma: no cover
+    _pooled_request = None  # type: ignore
 
 try:
     from observability import emit_event  # type: ignore
@@ -51,10 +52,11 @@ def _post_to_slack(text: str) -> None:
     if not url:
         return
     try:
-        if _pooled_request is not None:
-            _pooled_request('POST', url, json={"text": text}, timeout=5)
-        elif _requests is not None:
+        # Prefer direct requests.post so test monkeypatches can intercept.
+        if _requests is not None:
             _requests.post(url, json={"text": text}, timeout=5)
+        elif _pooled_request is not None:
+            _pooled_request('POST', url, json={"text": text}, timeout=5)
         else:
             raise RuntimeError("no http client available")
     except Exception:
@@ -69,10 +71,11 @@ def _post_to_telegram(text: str) -> None:
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
-        if _pooled_request is not None:
-            _pooled_request('POST', api, json=payload, timeout=5)
-        elif _requests is not None:
+        # Prefer direct requests.post so test monkeypatches can intercept.
+        if _requests is not None:
             _requests.post(api, json=payload, timeout=5)
+        elif _pooled_request is not None:
+            _pooled_request('POST', api, json=payload, timeout=5)
         else:
             raise RuntimeError("no http client available")
     except Exception:
