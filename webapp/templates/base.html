@@ -885,38 +885,62 @@
             const STORAGE_KEY = 'work_state';
             function loadState(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_) { return {}; } }
             function saveState(s){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s || {})); } catch(_) {} }
-            function postServer(s){ try { fetch('/api/ui_prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_state: s }) }).catch(()=>{}); } catch(_) {}
+            function buildState(){
+                return {
+                    last_url: window.location.pathname + window.location.search + window.location.hash,
+                    scroll_y: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
+                    timestamp: new Date().toISOString(),
+                };
             }
+            function postServer(s){
+                try { fetch('/api/ui_prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_state: s }) }).catch(()=>{}); } catch(_) {}
+            }
+            function persistNow(){ const s = buildState(); saveState(s); /* שליחה לשרת תוגבל ע"י מצבר זמן */ tryThrottlePost(s); }
+            let lastSent = 0, t;
+            function tryThrottlePost(s){
+                const now = Date.now();
+                if (now - lastSent > 3000) { lastSent = now; postServer(s); }
+            }
+            function schedulePersist(){
+                clearTimeout(t);
+                t = setTimeout(() => { const s = buildState(); saveState(s); tryThrottlePost(s); }, 200);
+            }
+
+            // Restore only on reload/back-forward or external entry, once per tab
             try {
+                const nav = (performance && performance.getEntriesByType) ? (performance.getEntriesByType('navigation')[0] || null) : null;
+                const navType = (nav && nav.type) || '';
+                const hasRef = !!document.referrer;
+                let sameOriginRef = false;
+                try { sameOriginRef = hasRef && (new URL(document.referrer)).origin === window.location.origin; } catch(_) { sameOriginRef = false; }
+                const allowRestore = !sessionStorage.getItem('ws_restored') && (navType === 'reload' || navType === 'back_forward' || !sameOriginRef);
                 const st = loadState();
                 const current = window.location.pathname + window.location.search + window.location.hash;
-                if (st && typeof st.last_url === 'string' && st.last_url.startsWith('/') && st.last_url !== current) {
+                if (allowRestore && st && typeof st.last_url === 'string' && st.last_url.startsWith('/') && st.last_url !== current) {
+                    // שחזור אגרסיבי רק בריענון/חזרה או כניסה חיצונית – לא בניווט פנימי
+                    sessionStorage.setItem('ws_restored', '1');
                     window.location.replace(st.last_url);
                     return;
                 }
-                if (typeof st.scroll_y === 'number' && st.scroll_y > 0) {
+                if (st && typeof st.scroll_y === 'number' && st.scroll_y > 0) {
                     window.requestAnimationFrame(() => { try { window.scrollTo({ top: st.scroll_y, behavior: 'instant' }); } catch(_) { window.scrollTo(0, st.scroll_y); } });
                 }
             } catch(_) {}
-            let lastSent = 0, t;
-            function schedulePersist(){
-                clearTimeout(t);
-                t = setTimeout(() => {
-                    const s = {
-                        last_url: window.location.pathname + window.location.search + window.location.hash,
-                        scroll_y: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
-                        timestamp: new Date().toISOString(),
-                    };
-                    saveState(s);
-                    const now = Date.now();
-                    if (now - lastSent > 3000) { lastSent = now; postServer(s); }
-                }, 250);
-            }
+
             window.addEventListener('scroll', schedulePersist, { passive: true });
             window.addEventListener('popstate', schedulePersist);
             window.addEventListener('hashchange', schedulePersist);
-            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') schedulePersist(); });
-            document.addEventListener('click', (e) => { try { const a = e.target.closest('a[href]'); if (!a) return; const href = a.getAttribute('href') || ''; if (href.startsWith('/')) schedulePersist(); } catch(_) {} });
+            window.addEventListener('pagehide', persistNow);
+            window.addEventListener('beforeunload', persistNow);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persistNow(); });
+            document.addEventListener('click', (e) => {
+                try {
+                    const a = e.target.closest('a[href]');
+                    if (!a) return;
+                    const href = a.getAttribute('href') || '';
+                    if (href.startsWith('/')) { persistNow(); }
+                } catch(_) {}
+            });
         })();
     </script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
