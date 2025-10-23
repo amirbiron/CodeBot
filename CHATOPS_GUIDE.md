@@ -118,7 +118,7 @@ Alerts (24h): 3 (1 critical)
 בפלט תראו:
 - Uptime, Error Rate (5m), Latency (5m) לצד Thresholds (mean+3σ) – מקור: memory
 - Alerts (DB) ו-Alerts (Memory) לפי החלון הנבחר, עם השוואת de-dup ל-Dispatch Log
-- Recent Errors (N<=5)
+- Recent Errors (N≤5)
 - Cooling & Health – מצב cooldown והתפלגות הצלחות/כשלונות משלוח ליעדי sinks
 
 ### `/observe -vv` - מפורט מאוד
