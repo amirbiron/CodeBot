@@ -772,7 +772,15 @@ class AdvancedBotHandlers:
                 try:
                     from urllib.parse import urlparse
                     parsed = urlparse(dsn)
-                    host = (parsed.hostname or '').replace('ingest.', '') if parsed.hostname else None
+                    raw_host = parsed.hostname or ''
+                    # Sentry SaaS DSN hosts look like o123.ingest.sentry.io or ingest.sentry.io
+                    # ללינק UI נרצה https://sentry.io/...
+                    if 'sentry.io' in raw_host:
+                        host = 'sentry.io'
+                    elif raw_host.startswith('ingest.'):
+                        host = raw_host[len('ingest.'):]
+                    else:
+                        host = raw_host or None
                 except Exception:
                     host = None
                 org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
@@ -938,7 +946,8 @@ class AdvancedBotHandlers:
                     f"Active Users: {active_users}\n"
                     f"Alerts (24h): {alerts_24h} ({critical_24h} critical)"
                 )
-                await update.message.reply_text(text)
+                # חשוב: לבטל HTML parsing כדי למנוע כשלים על תווים/מזהים לא-מותרים
+                await update.message.reply_text(text, parse_mode=None)
                 return
 
             # ---- מצב מפורט (-v / -vv) ----
@@ -1150,7 +1159,8 @@ class AdvancedBotHandlers:
             text = "\n".join(lines)
             if len(text) > 3500:
                 text = text[:3400] + "\n… (truncated)"
-            await update.message.reply_text(text)
+            # חשוב: לבטל HTML parsing כדי למנוע כשלים על תווים/מזהים לא-מותרים (למשל IDs עם '<')
+            await update.message.reply_text(text, parse_mode=None)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/observe: {html.escape(str(e))}")
 
