@@ -158,7 +158,7 @@ async def test_observe_verbose_db_and_ids(monkeypatch):
     out = "\n".join(upd.message.texts)
     assert "Observability – verbose" in out
     assert "Alerts (DB, window=24h):" in out
-    assert "Recent Alert IDs (DB, N<=10):" in out
+    assert "Recent Alert IDs (DB, N≤10):" in out
     # IDs presence (either full id or fallback _key)
     assert ("id-1" in out) or ("h:abc" in out)
 
@@ -304,7 +304,7 @@ async def test_observe_verbose_vv_source_all_db_unavailable_no_ids(monkeypatch):
     out = "\n".join(upd.message.texts)
     assert "Observability – verbose" in out
     # There should be no Recent Alert IDs section when DB isn't ok
-    assert "Recent Alert IDs (DB, N<=10):" not in out
+    assert "Recent Alert IDs (DB, N≤10):" not in out
 
 
 @pytest.mark.asyncio
@@ -450,7 +450,7 @@ async def test_observe_verbose_recent_errors_listed(monkeypatch):
 
     await adv.observe_command(upd, ctx)
     out = "\n".join(upd.message.texts)
-    assert "Recent Errors (memory, N<=5):" in out
+    assert "Recent Errors (memory, N≤5):" in out
     assert "[E1] evt1" in out and "[E2] evt2" in out
 
 

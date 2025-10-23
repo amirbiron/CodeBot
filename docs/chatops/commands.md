@@ -55,7 +55,7 @@ Error Rate (5m): curr=0.12% | thr=4.85% (source: memory)
 Latency (5m): curr=0.210s | thr=1.740s (source: memory)
 Alerts (DB, window=5m): total=2 | critical=1
 Alerts (Memory, window=5m): total=3 | critical=1; unique_critical_ids=1
-Recent Errors (memory, N<=5):
+Recent Errors (memory, N≤5):
 - [API_002] github_rate_limit_exceeded — 2025-10-23T03:55:12+00:00
 - [DB_001] db_connection_timeout — 2025-10-23T03:54:08+00:00
 Cooling:
@@ -84,7 +84,7 @@ Error Rate (5m): curr=0.20% | thr=4.60% (source: memory)
 Latency (5m): curr=0.180s | thr=1.520s (source: memory)
 Alerts (DB, window=24h): total=12 | critical=3
 Alerts (Memory, window=24h): total=10 | critical=3; unique_critical_ids=3
-Recent Errors (memory, N<=5):
+Recent Errors (memory, N≤5):
 - [CONN_001] Database connection timeout — 2025-10-23T02:02:31+00:00
 - [API_002] GitHub rate limit exceeded — 2025-10-23T01:49:12+00:00
 Cooling:
@@ -93,7 +93,7 @@ Cooling:
 Sinks:
 - telegram: 5/5 ok
 - grafana: 5/5 ok
-Recent Alert IDs (DB, N<=10):
+Recent Alert IDs (DB, N≤10):
 - id:58f3e3f8-1a62-4c34-8a90-4fb3a1a6c0a1
 - id:1c2d3e4f-5a6b-7c8d-9e0f-123456789abc
 - h:3a6f5e...
