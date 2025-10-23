@@ -22,7 +22,7 @@ Public API:
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 import hashlib
 import os
 
@@ -190,3 +190,41 @@ def count_alerts_last_hours(hours: int = 24) -> tuple[int, int]:
         return 0, 0
     since = datetime.now(timezone.utc) - timedelta(hours=int(hours))
     return count_alerts_since(since)
+
+
+def list_recent_alert_ids(limit: int = 10) -> List[str]:
+    """Return recent alert identifiers from the DB (fail-open).
+
+    Preference order: document ``alert_id`` when present, otherwise the
+    stable unique ``_key`` used for de-duplication. Results are ordered by
+    ``ts_dt`` descending and truncated to ``limit``.
+    """
+    if not _enabled() or _init_failed:
+        return []
+    try:
+        coll = _get_collection()
+        if coll is None:
+            return []
+        try:
+            # Projection keeps payload small; sorting by time desc
+            cursor = (
+                coll.find({}, {"alert_id": 1, "_key": 1, "ts_dt": 1})  # type: ignore[attr-defined]
+                .sort([("ts_dt", -1)])  # type: ignore[attr-defined]
+                .limit(max(1, min(200, int(limit or 10))))  # type: ignore[attr-defined]
+            )
+        except Exception:
+            return []
+        out: List[str] = []
+        try:
+            for doc in cursor:  # type: ignore[assignment]
+                try:
+                    ident = doc.get("alert_id") or doc.get("_key")
+                    if ident:
+                        out.append(str(ident))
+                except Exception:
+                    continue
+        except Exception:
+            return []
+        return out
+    except Exception:
+        return []

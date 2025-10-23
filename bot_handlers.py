@@ -810,7 +810,7 @@ class AdvancedBotHandlers:
             await update.message.reply_text(f"❌ שגיאה ב-/uptime: {html.escape(str(e))}")
 
     async def observe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/observe – סיכום חי מתוך /metrics ו-/alerts (24h/5m)"""
+        """/observe – סיכום חי; /observe -v/ -vv – תצוגה מפורטת עם מקורות"""
         try:
             # הרשאות: אדמינים בלבד
             try:
@@ -821,6 +821,127 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
 
+            args = list(context.args or [])
+            verbose_level = 0
+            if any(str(a).strip().lower() == "-vv" for a in args):
+                verbose_level = 2
+            elif any(str(a).strip().lower() in {"-v", "--verbose"} for a in args):
+                verbose_level = 1
+
+            # פרמטרים אופציונליים: source=db|memory|all, window=5m|1h|24h
+            source = "all"
+            window = "24h"
+            for a in args:
+                s = str(a).strip().lower()
+                if s.startswith("source="):
+                    v = s.split("=", 1)[1].strip()
+                    if v in {"db", "memory", "all"}:
+                        source = v
+                if s.startswith("window="):
+                    v = s.split("=", 1)[1].strip()
+                    if v in {"5m", "1h", "24h"}:
+                        window = v
+
+            # אם לא מצב מפורט – השאר התנהגות קיימת ללא שינוי
+            if verbose_level == 0 and not any(t.startswith("source=") or t.startswith("window=") for t in args):
+                # Uptime
+                try:
+                    from metrics import get_uptime_percentage  # type: ignore
+                    uptime = float(get_uptime_percentage())
+                except Exception:
+                    uptime = 100.0
+
+                # Error rate
+                try:
+                    from alert_manager import get_current_error_rate_percent  # type: ignore
+                    error_rate = float(get_current_error_rate_percent(window_sec=5 * 60))
+                except Exception:
+                    error_rate = 0.0
+
+                # Active users – כרגע placeholder
+                active_users = 0
+                try:
+                    from metrics import codebot_active_users_total  # type: ignore
+                    if codebot_active_users_total is not None:
+                        active_users = 0
+                except Exception:
+                    active_users = 0
+
+                # Alerts count (24h) עם fallback
+                alerts_24h = 0
+                critical_24h = 0
+                used_db = False
+                try:
+                    from monitoring.alerts_storage import count_alerts_last_hours  # type: ignore
+                    total_db, critical_db = count_alerts_last_hours(hours=24)
+                    if (total_db or critical_db):
+                        alerts_24h = int(total_db)
+                        critical_24h = int(critical_db)
+                        used_db = True
+                except Exception:
+                    used_db = False
+
+                if not used_db:
+                    internal_total = 0
+                    internal_critical = 0
+                    try:
+                        from internal_alerts import get_recent_alerts  # type: ignore
+                        items = get_recent_alerts(limit=400) or []
+                        now = datetime.now(timezone.utc)
+                        day_ago = now.timestamp() - 24 * 3600
+                        for a in items:
+                            try:
+                                ts = a.get('ts')
+                                t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
+                            except Exception:
+                                t = 0.0
+                            if t >= day_ago:
+                                internal_total += 1
+                                if str(a.get('severity', '')).lower() == 'critical':
+                                    internal_critical += 1
+                    except Exception:
+                        internal_total = 0
+                        internal_critical = 0
+
+                    dispatch_critical = 0
+                    try:
+                        from alert_manager import get_dispatch_log  # type: ignore
+                        ditems = get_dispatch_log(limit=500) or []
+                        now = datetime.now(timezone.utc)
+                        day_ago = now.timestamp() - 24 * 3600
+                        seen_ids = set()
+                        for di in ditems:
+                            try:
+                                ts = di.get('ts')
+                                t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
+                            except Exception:
+                                t = 0.0
+                            if t >= day_ago:
+                                aid = str(di.get('alert_id') or '').strip()
+                                if aid:
+                                    seen_ids.add(aid)
+                        dispatch_critical = len(seen_ids)
+                    except Exception:
+                        dispatch_critical = 0
+
+                    if internal_total > 0:
+                        alerts_24h = internal_total
+                        critical_24h = max(internal_critical, dispatch_critical)
+                    else:
+                        alerts_24h = dispatch_critical
+                        critical_24h = dispatch_critical
+
+                text = (
+                    "🔍 Observability Overview\n"
+                    f"Uptime: {uptime:.2f}%\n"
+                    f"Error Rate: {error_rate:.2f}%\n"
+                    f"Active Users: {active_users}\n"
+                    f"Alerts (24h): {alerts_24h} ({critical_24h} critical)"
+                )
+                await update.message.reply_text(text)
+                return
+
+            # ---- מצב מפורט (-v / -vv) ----
             # Uptime
             try:
                 from metrics import get_uptime_percentage  # type: ignore
@@ -828,103 +949,207 @@ class AdvancedBotHandlers:
             except Exception:
                 uptime = 100.0
 
-            # Error rate & Active users & alerts via internal helpers and endpoints
+            # Current metrics + thresholds (memory)
             try:
-                # Prefer internal metrics helpers when available
-                from alert_manager import get_current_error_rate_percent  # type: ignore
-                error_rate = float(get_current_error_rate_percent(window_sec=5 * 60))
+                from alert_manager import (
+                    get_current_error_rate_percent,  # type: ignore
+                    get_current_avg_latency_seconds,  # type: ignore
+                    get_thresholds_snapshot,  # type: ignore
+                )
+                cur_err = float(get_current_error_rate_percent(window_sec=5 * 60))
+                cur_lat = float(get_current_avg_latency_seconds(window_sec=5 * 60))
+                thr = get_thresholds_snapshot() or {}
+                err_thr = float(thr.get("error_rate_percent", {}).get("threshold", 0.0) or 0.0)
+                lat_thr = float(thr.get("latency_seconds", {}).get("threshold", 0.0) or 0.0)
             except Exception:
-                error_rate = 0.0
+                cur_err = 0.0
+                cur_lat = 0.0
+                err_thr = 0.0
+                lat_thr = 0.0
 
-            # Active users gauge – best-effort via Prometheus isn't available directly here;
-            # we maintain a rough number in memory in metrics via note_active_user, not per 24h.
-            # For ChatOps, provide a conservative placeholder if not available.
-            active_users = 0
-            try:
-                # Attempt to import the in-memory set if exposed (best-effort)
-                from metrics import codebot_active_users_total  # type: ignore
-                if codebot_active_users_total is not None:
-                    # Prometheus Gauge does not expose value portably; leave 0 if unavailable
-                    active_users = 0
-            except Exception:
-                active_users = 0
+            # חלון זמן לספירת התראות
+            from datetime import timedelta
+            now_dt = datetime.now(timezone.utc)
+            if window == "5m":
+                since_dt = now_dt - timedelta(minutes=5)
+                window_label = "5m"
+            elif window == "1h":
+                since_dt = now_dt - timedelta(hours=1)
+                window_label = "1h"
+            else:
+                since_dt = now_dt - timedelta(hours=24)
+                window_label = "24h"
 
-            # Alerts count (24h): Prefer MongoDB storage when available; fallback to in-memory sources.
-            alerts_24h = 0
-            critical_24h = 0
-            used_db = False
-            # 1) Try DB first
-            try:
-                from monitoring.alerts_storage import count_alerts_last_hours  # type: ignore
-                total_db, critical_db = count_alerts_last_hours(hours=24)
-                if (total_db or critical_db):
-                    alerts_24h = int(total_db)
-                    critical_24h = int(critical_db)
-                    used_db = True
-            except Exception:
-                used_db = False
+            # Alerts – DB
+            db_total = db_critical = None
+            db_ok = False
+            if source in {"db", "all"}:
+                try:
+                    from monitoring.alerts_storage import count_alerts_since  # type: ignore
+                    db_total, db_critical = count_alerts_since(since_dt)
+                    db_ok = True
+                except Exception:
+                    db_ok = False
 
-            if not used_db:
-                # 2) Fallback: combine internal_alerts (all severities) with alert_manager dispatch log (critical only)
-                internal_total = 0
-                internal_critical = 0
+            # Alerts – Memory (internal buffer) and dispatch de-dup check
+            mem_total = mem_critical = None
+            disp_unique_critical = None
+            if source in {"memory", "all"}:
                 try:
                     from internal_alerts import get_recent_alerts  # type: ignore
-                    items = get_recent_alerts(limit=400) or []
-                    # Filter by timestamp (ISO) last 24h
-                    now = datetime.now(timezone.utc)
-                    day_ago = now.timestamp() - 24 * 3600
+                    items = get_recent_alerts(limit=500) or []
+                except Exception:
+                    items = []
+                try:
+                    min_ts = since_dt.timestamp()
+                    t_total = 0
+                    t_critical = 0
                     for a in items:
                         try:
                             ts = a.get('ts')
                             t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
                         except Exception:
                             t = 0.0
-                        if t >= day_ago:
-                            internal_total += 1
+                        if t >= min_ts:
+                            t_total += 1
                             if str(a.get('severity', '')).lower() == 'critical':
-                                internal_critical += 1
+                                t_critical += 1
+                    mem_total = t_total
+                    mem_critical = t_critical
                 except Exception:
-                    internal_total = 0
-                    internal_critical = 0
+                    mem_total = mem_critical = 0
 
-                # Count unique critical alerts in the last 24h from alert_manager dispatch log
-                dispatch_critical = 0
+                # Unique critical IDs from dispatch log
                 try:
                     from alert_manager import get_dispatch_log  # type: ignore
                     ditems = get_dispatch_log(limit=500) or []
-                    now = datetime.now(timezone.utc)
-                    day_ago = now.timestamp() - 24 * 3600
-                    seen_ids = set()
+                    min_ts = since_dt.timestamp()
+                    seen = set()
                     for di in ditems:
                         try:
                             ts = di.get('ts')
                             t = datetime.fromisoformat(str(ts)).timestamp() if ts else 0.0
                         except Exception:
                             t = 0.0
-                        if t >= day_ago:
+                        if t >= min_ts:
                             aid = str(di.get('alert_id') or '').strip()
                             if aid:
-                                seen_ids.add(aid)
-                    dispatch_critical = len(seen_ids)
+                                seen.add(aid)
+                    disp_unique_critical = len(seen)
                 except Exception:
-                    dispatch_critical = 0
+                    disp_unique_critical = 0
 
-                # Combine: prefer internal total when available; otherwise fallback to dispatch
-                if internal_total > 0:
-                    alerts_24h = internal_total
-                    critical_24h = max(internal_critical, dispatch_critical)
-                else:
-                    alerts_24h = dispatch_critical
-                    critical_24h = dispatch_critical
+            # Cooling snapshot & sinks health (best-effort)
+            cooldown_lines: list[str] = []
+            try:
+                from alert_manager import get_cooldown_snapshot  # type: ignore
+            except Exception:
+                get_cooldown_snapshot = None  # type: ignore
+            if get_cooldown_snapshot is not None:  # type: ignore[truthy-bool]
+                try:
+                    snap = get_cooldown_snapshot() or {}
+                    for key in ("error_rate_percent", "latency_seconds"):
+                        info = snap.get(key) or {}
+                        active = bool(info.get("cooldown_active"))
+                        left = info.get("seconds_left")
+                        if active and left is not None:
+                            cooldown_lines.append(f"{key}: active (~{int(left)}s left)")
+                        else:
+                            cooldown_lines.append(f"{key}: idle")
+                except Exception:
+                    cooldown_lines = []
 
-            text = (
-                "🔍 Observability Overview\n"
-                f"Uptime: {uptime:.2f}%\n"
-                f"Error Rate: {error_rate:.2f}%\n"
-                f"Active Users: {active_users}\n"
-                f"Alerts (24h): {alerts_24h} ({critical_24h} critical)"
+            # Sinks health from dispatch log
+            sinks_lines: list[str] = []
+            try:
+                from alert_manager import get_dispatch_log  # type: ignore
+                ditems = get_dispatch_log(limit=100) or []
+                per_sink: dict[str, dict[str, int]] = {}
+                for di in ditems:
+                    sink = str(di.get('sink') or 'unknown')
+                    ok = bool(di.get('ok'))
+                    s = per_sink.setdefault(sink, {"ok": 0, "fail": 0})
+                    if ok:
+                        s["ok"] += 1
+                    else:
+                        s["fail"] += 1
+                for sink, agg in per_sink.items():
+                    total = max(1, int(agg.get("ok", 0) + agg.get("fail", 0)))
+                    okc = int(agg.get("ok", 0))
+                    sinks_lines.append(f"{sink}: {okc}/{total} ok")
+            except Exception:
+                sinks_lines = []
+
+            # בניית הודעה
+            lines: list[str] = []
+            lines.append("🔍 Observability – verbose")
+            lines.append(f"Uptime: {uptime:.2f}% (source: memory)")
+            lines.append(
+                f"Error Rate (5m): curr={cur_err:.2f}% | thr={err_thr:.2f}% (source: memory)"
             )
+            lines.append(
+                f"Latency (5m): curr={cur_lat:.3f}s | thr={lat_thr:.3f}s (source: memory)"
+            )
+
+            # Alerts sections
+            if source in {"db", "all"}:
+                if db_ok and db_total is not None and db_critical is not None:
+                    lines.append(f"Alerts (DB, window={window_label}): total={int(db_total)} | critical={int(db_critical)}")
+                else:
+                    lines.append(f"Alerts (DB, window={window_label}): unavailable (fallback to memory)")
+            if source in {"memory", "all"}:
+                if mem_total is not None and mem_critical is not None:
+                    extra = f"; unique_critical_ids={disp_unique_critical}" if disp_unique_critical is not None else ""
+                    lines.append(
+                        f"Alerts (Memory, window={window_label}): total={int(mem_total)} | critical={int(mem_critical)}{extra}"
+                    )
+                else:
+                    lines.append(f"Alerts (Memory, window={window_label}): n/a")
+
+            # Recent errors (limited)
+            try:
+                from observability import get_recent_errors  # type: ignore
+                recent = get_recent_errors(limit=5) or []
+            except Exception:
+                recent = []
+            if recent:
+                lines.append("Recent Errors (memory, N<=5):")
+                for r in recent[-5:]:
+                    try:
+                        code = str(r.get("error_code") or r.get("code") or "-")
+                        ev = str(r.get("event") or "error")
+                        ts = str(r.get("ts") or "")
+                        lines.append(f"- [{code}] {ev} — {ts}")
+                    except Exception:
+                        continue
+
+            # Cooling & Health
+            if cooldown_lines:
+                lines.append("Cooling:")
+                lines.extend(["- " + x for x in cooldown_lines])
+            if sinks_lines:
+                lines.append("Sinks:")
+                lines.extend(["- " + x for x in sinks_lines])
+
+            # -vv: רשימת מזהי התראות אחרונות מה-DB (N=10)
+            if verbose_level >= 2 and source in {"db", "all"}:
+                try:
+                    if db_ok:
+                        from monitoring.alerts_storage import list_recent_alert_ids  # type: ignore
+                        ids = list_recent_alert_ids(limit=10) or []
+                    else:
+                        ids = []
+                except Exception:
+                    ids = []
+                if ids:
+                    lines.append("Recent Alert IDs (DB, N<=10):")
+                    for i in (ids[:10]):
+                        lines.append(f"- {i}")
+
+            # גבול אורך: חתוך אם ארוך מדי
+            text = "\n".join(lines)
+            if len(text) > 3500:
+                text = text[:3400] + "\n… (truncated)"
             await update.message.reply_text(text)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/observe: {html.escape(str(e))}")
