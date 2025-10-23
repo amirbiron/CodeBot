@@ -99,7 +99,7 @@
       const items = (data.items||[]).map(it => `
         <div class="collection-item" draggable="true" data-source="${it.source}" data-name="${it.file_name}">
           <span class="drag">⋮⋮</span>
-          <span class="file">${escapeHtml(it.file_name||'')}</span>
+          <a class="file" href="#" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
           <button class="remove" title="הסר">✕</button>
         </div>
       `).join('');
@@ -114,6 +114,21 @@
           const res = await api.removeItems(cid, [{source, file_name: name}]);
           if (!res || !res.ok) return alert(res && res.error || 'שגיאה במחיקה');
           row.remove();
+        }
+        // פתיחת קובץ בלחיצה על שם הקובץ
+        const link = ev.target.closest('a.file[data-open]');
+        if (link) {
+          ev.preventDefault();
+          const fname = link.getAttribute('data-open') || '';
+          try {
+            const r = await fetch(`/api/files/resolve?name=${encodeURIComponent(fname)}`);
+            const j = await r.json();
+            if (j && j.ok && j.id) {
+              window.location.href = `/file/${encodeURIComponent(j.id)}`;
+            } else {
+              alert('הקובץ לא נמצא לצפייה');
+            }
+          } catch(_e){ alert('שגיאה בפתיחת הקובץ'); }
         }
       });
     } catch (e) {
