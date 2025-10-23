@@ -176,19 +176,25 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../configuration.html">Rate Limiting</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#metrics">Metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id1">היררכיית טעינה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id2">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">ולידציות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#env-example">.env.example</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id3">שימוש לסוכנים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id4">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id5">איחוד תיעוד קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
@@ -202,6 +208,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -388,10 +397,15 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
 </ul>
@@ -484,6 +498,10 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
@@ -921,10 +939,13 @@
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
@@ -944,6 +965,27 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/sticky_notes.html">פתקים דביקים (Sticky Notes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id1">מהם פתקים דביקים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id2">איך מוסיפים ומנהלים פתקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id3">עיגון יציב לעומת מיקום קבוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id4">שילוב עם סימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id5">מגבלות, פרטיות ואבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id6">טיפים שימושיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#troubleshooting">Troubleshooting קצר</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/my_collections.html">האוספים שלי (My Collections)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id1">מהם אוספים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id2">יכולות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id3">איך משתמשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id4">שילוב עם סימניות ופתקים דביקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id6">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1149,6 +1191,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
 </ul>
 </li>
@@ -1254,38 +1298,195 @@
 <span class="kn">import</span> <span class="nn">os</span>
 <span class="kn">import</span> <span class="nn">time</span>
 <span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">wraps</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">TypeVar</span><span class="p">,</span> <span class="n">ParamSpec</span><span class="p">,</span> <span class="n">Coroutine</span><span class="p">,</span> <span class="n">cast</span>
+<span class="kn">import</span> <span class="nn">random</span>
 <span class="k">try</span><span class="p">:</span>
-    <span class="kn">import</span> <span class="nn">redis</span>  <span class="c1"># type: ignore</span>
+    <span class="kn">import</span> <span class="nn">redis</span>
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># redis אינו חובה – נריץ במצב מושבת אם חסר</span>
-    <span class="n">redis</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore[assignment]</span>
+    <span class="n">redis</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="kn">import</span> <span class="nn">asyncio</span>
 <span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
-<span class="c1"># מטריקות Prometheus (best-effort)</span>
+<span class="c1"># מטריקות Prometheus (best-effort) — רישום חסין כפילויות</span>
 <span class="k">try</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
-    <span class="kn">from</span> <span class="nn">prometheus_client</span> <span class="kn">import</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">Histogram</span>
+    <span class="kn">from</span> <span class="nn">prometheus_client</span> <span class="kn">import</span> <span class="n">Counter</span><span class="p">,</span> <span class="n">Histogram</span><span class="p">,</span> <span class="n">REGISTRY</span>
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
-    <span class="n">Counter</span> <span class="o">=</span> <span class="n">Histogram</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+    <span class="n">Counter</span> <span class="o">=</span> <span class="n">Histogram</span> <span class="o">=</span> <span class="n">REGISTRY</span> <span class="o">=</span> <span class="kc">None</span>
 
-<span class="c1"># Cache metrics (labels kept minimal)</span>
-<span class="n">cache_hits_total</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n">Counter</span><span class="p">(</span><span class="s2">&quot;cache_hits_total&quot;</span><span class="p">,</span> <span class="s2">&quot;Total cache hits&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;backend&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="n">Counter</span> <span class="k">else</span> <span class="kc">None</span>
+
+<span class="k">def</span> <span class="nf">_ensure_metric</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">create_fn</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;יוצר או מחזיר מטריקה קיימת באותו שם מ-REGISTRY.</span>
+
+<span class="sd">    המטרה: למנוע ValueError על רישום כפול כאשר המודול נטען מחדש (importlib.reload).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># אם prometheus_client לא זמין, נחזיר None כדי שהקוד יקצר דרך best-effort</span>
+    <span class="k">if</span> <span class="n">REGISTRY</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">create_fn</span><span class="p">()</span>  <span class="c1"># ייתכן שמחזיר None ממילא</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c1"># שימוש ב-API פנימי אך יציב יחסית כדי לאתר קולקטור קיים</span>
+        <span class="n">existing</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">REGISTRY</span><span class="p">,</span> <span class="s2">&quot;_names_to_collectors&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">existing</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">existing</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="c1"># נפילה שקטה — ננסה ליצור ונחזור אם תתרחש כפילות</span>
+        <span class="k">pass</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">create_fn</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="c1"># במקרה של ValueError: Duplicated timeseries... נחפש ונחזיר את הקיים</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">REGISTRY</span><span class="p">,</span> <span class="s2">&quot;_names_to_collectors&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="c1"># Cache metrics (labels kept minimal) — נרשמות באופן אידמפוטנטי</span>
+<span class="n">cache_hits_total</span> <span class="o">=</span> <span class="n">_ensure_metric</span><span class="p">(</span>
+    <span class="s2">&quot;cache_hits_total&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">Counter</span><span class="p">(</span><span class="s2">&quot;cache_hits_total&quot;</span><span class="p">,</span> <span class="s2">&quot;Total cache hits&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;backend&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="n">Counter</span> <span class="k">else</span> <span class="kc">None</span>
 <span class="p">)</span>
-<span class="n">cache_misses_total</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n">Counter</span><span class="p">(</span><span class="s2">&quot;cache_misses_total&quot;</span><span class="p">,</span> <span class="s2">&quot;Total cache misses&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;backend&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="n">Counter</span> <span class="k">else</span> <span class="kc">None</span>
+<span class="n">cache_misses_total</span> <span class="o">=</span> <span class="n">_ensure_metric</span><span class="p">(</span>
+    <span class="s2">&quot;cache_misses_total&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">Counter</span><span class="p">(</span><span class="s2">&quot;cache_misses_total&quot;</span><span class="p">,</span> <span class="s2">&quot;Total cache misses&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;backend&quot;</span><span class="p">])</span> <span class="k">if</span> <span class="n">Counter</span> <span class="k">else</span> <span class="kc">None</span>
 <span class="p">)</span>
-<span class="n">cache_op_duration_seconds</span> <span class="o">=</span> <span class="p">(</span>
-    <span class="n">Histogram</span><span class="p">(</span>
+<span class="n">cache_op_duration_seconds</span> <span class="o">=</span> <span class="n">_ensure_metric</span><span class="p">(</span>
+    <span class="s2">&quot;cache_op_duration_seconds&quot;</span><span class="p">,</span>
+    <span class="k">lambda</span><span class="p">:</span> <span class="n">Histogram</span><span class="p">(</span>
         <span class="s2">&quot;cache_op_duration_seconds&quot;</span><span class="p">,</span>
         <span class="s2">&quot;Cache operation duration in seconds&quot;</span><span class="p">,</span>
         <span class="p">[</span><span class="s2">&quot;operation&quot;</span><span class="p">,</span> <span class="s2">&quot;backend&quot;</span><span class="p">],</span>
-    <span class="p">)</span>
-    <span class="k">if</span> <span class="n">Histogram</span>
-    <span class="k">else</span> <span class="kc">None</span>
+    <span class="p">)</span> <span class="k">if</span> <span class="n">Histogram</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
+
+
+<span class="c1"># ===================== Dynamic TTL utilities =====================</span>
+<div class="viewcode-block" id="DynamicTTL">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.DynamicTTL">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">DynamicTTL</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;ניהול TTL דינמי לפי סוג תוכן וקונטקסט.</span>
+
+<span class="sd">    הערכים כאן מייצגים TTL בסיסי בשניות עבור סוגי תוכן שכיחים.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">BASE_TTL</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;user_stats&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">,</span>         <span class="c1"># 5 דקות</span>
+        <span class="s2">&quot;file_content&quot;</span><span class="p">:</span> <span class="mi">3600</span><span class="p">,</span>      <span class="c1"># שעה</span>
+        <span class="s2">&quot;file_list&quot;</span><span class="p">:</span> <span class="mi">60</span><span class="p">,</span>           <span class="c1"># דקה</span>
+        <span class="s2">&quot;markdown_render&quot;</span><span class="p">:</span> <span class="mi">1800</span><span class="p">,</span>   <span class="c1"># 30 דקות</span>
+        <span class="s2">&quot;search_results&quot;</span><span class="p">:</span> <span class="mi">180</span><span class="p">,</span>     <span class="c1"># 3 דקות</span>
+        <span class="s2">&quot;public_stats&quot;</span><span class="p">:</span> <span class="mi">600</span><span class="p">,</span>       <span class="c1"># 10 דקות</span>
+        <span class="s2">&quot;bookmarks&quot;</span><span class="p">:</span> <span class="mi">120</span><span class="p">,</span>          <span class="c1"># 2 דקות</span>
+        <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="mi">300</span><span class="p">,</span>               <span class="c1"># 5 דקות</span>
+        <span class="s2">&quot;settings&quot;</span><span class="p">:</span> <span class="mi">60</span><span class="p">,</span>            <span class="c1"># דקה</span>
+        <span class="c1"># Collections (My Collections) – TTL מומלץ לפי המדריך</span>
+        <span class="s2">&quot;collections_list&quot;</span><span class="p">:</span> <span class="mi">60</span><span class="p">,</span>
+        <span class="s2">&quot;collections_detail&quot;</span><span class="p">:</span> <span class="mi">30</span><span class="p">,</span>
+        <span class="s2">&quot;collections_items&quot;</span><span class="p">:</span> <span class="mi">30</span><span class="p">,</span>
+    <span class="p">}</span>
+
+<div class="viewcode-block" id="DynamicTTL.calculate_ttl">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.DynamicTTL.calculate_ttl">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">calculate_ttl</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">content_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;חשב TTL בסיסי מוכוון קונטקסט.</span>
+
+<span class="sd">        מבטיח גבולות בטוחים: מינימום 30 שניות, מקסימום 7200 (שעתיים).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ctx</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">context</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="n">base_ttl</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">BASE_TTL</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">content_type</span><span class="p">,</span> <span class="mi">300</span><span class="p">))</span>
+
+        <span class="c1"># התאמות לפי קונטקסט</span>
+        <span class="k">if</span> <span class="nb">bool</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;is_favorite&quot;</span><span class="p">)):</span>
+            <span class="n">base_ttl</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">base_ttl</span> <span class="o">*</span> <span class="mf">1.5</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">last_mod_hours</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;last_modified_hours_ago&quot;</span><span class="p">,</span> <span class="mi">24</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">last_mod_hours</span> <span class="o">=</span> <span class="mf">24.0</span>
+        <span class="k">if</span> <span class="n">last_mod_hours</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span>
+            <span class="n">base_ttl</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">base_ttl</span> <span class="o">*</span> <span class="mf">0.5</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;access_frequency&quot;</span><span class="p">,</span> <span class="s2">&quot;low&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;high&quot;</span><span class="p">:</span>
+            <span class="n">base_ttl</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">base_ttl</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;user_tier&quot;</span><span class="p">,</span> <span class="s2">&quot;regular&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;premium&quot;</span><span class="p">:</span>
+            <span class="c1"># משתמשי פרימיום יעדיפו עדכונים מהירים</span>
+            <span class="n">base_ttl</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">base_ttl</span> <span class="o">*</span> <span class="mf">0.7</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="mi">30</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">base_ttl</span><span class="p">,</span> <span class="mi">7200</span><span class="p">))</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ActivityBasedTTL">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.ActivityBasedTTL">[תיעוד]</a>
+<span class="k">class</span> <span class="nc">ActivityBasedTTL</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;התאמת TTL לפי שעות פעילות (best-effort).&quot;&quot;&quot;</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_now_hour</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">hour</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">12</span>
+
+<div class="viewcode-block" id="ActivityBasedTTL.get_activity_multiplier">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.ActivityBasedTTL.get_activity_multiplier">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">get_activity_multiplier</span><span class="p">(</span><span class="bp">cls</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="n">hour</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">_now_hour</span><span class="p">()</span>
+        <span class="k">if</span> <span class="mi">9</span> <span class="o">&lt;=</span> <span class="n">hour</span> <span class="o">&lt;</span> <span class="mi">18</span><span class="p">:</span>      <span class="c1"># שעות שיא – קצר יותר</span>
+            <span class="k">return</span> <span class="mf">0.7</span>
+        <span class="k">if</span> <span class="mi">18</span> <span class="o">&lt;=</span> <span class="n">hour</span> <span class="o">&lt;</span> <span class="mi">23</span><span class="p">:</span>     <span class="c1"># ערב – בינוני</span>
+            <span class="k">return</span> <span class="mf">1.0</span>
+        <span class="k">return</span> <span class="mf">1.5</span>               <span class="c1"># לילה – ארוך יותר</span></div>
+
+
+<div class="viewcode-block" id="ActivityBasedTTL.adjust_ttl">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.ActivityBasedTTL.adjust_ttl">[תיעוד]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">adjust_ttl</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">base_ttl</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">mult</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">get_activity_multiplier</span><span class="p">())</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">mult</span> <span class="o">=</span> <span class="mf">1.0</span>
+        <span class="c1"># הוסף jitter קטן למניעת thundering herd</span>
+        <span class="n">ttl</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">base_ttl</span><span class="p">)</span> <span class="o">*</span> <span class="n">mult</span><span class="p">)</span>
+        <span class="n">jitter</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">ttl</span> <span class="o">//</span> <span class="mi">10</span><span class="p">))</span>  <span class="c1"># עד ±10%</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">ttl</span> <span class="o">=</span> <span class="n">ttl</span> <span class="o">+</span> <span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="o">-</span><span class="n">jitter</span><span class="p">,</span> <span class="n">jitter</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="mi">30</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">ttl</span><span class="p">),</span> <span class="mi">7200</span><span class="p">))</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="build_cache_key">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.build_cache_key">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">build_cache_key</span><span class="p">(</span><span class="o">*</span><span class="n">parts</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;בניית מפתח cache יעיל ומובנה מהחלקים הנתונים.</span>
+
+<span class="sd">    - מסנן חלקים ריקים</span>
+<span class="sd">    - ממיר לתווים בטוחים (רווחים/סלאשים)</span>
+<span class="sd">    - מגביל אורך ומוסיף hash קצר במידת הצורך</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">hashlib</span> <span class="kn">import</span> <span class="n">sha256</span>
+
+    <span class="n">clean_parts</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span> <span class="k">if</span> <span class="n">p</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)]</span>
+    <span class="n">key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;:&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">clean_parts</span><span class="p">)</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="s2">&quot;-&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">key</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">200</span><span class="p">:</span>
+        <span class="n">key_hash</span> <span class="o">=</span> <span class="n">sha256</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()[:</span><span class="mi">8</span><span class="p">]</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="p">[:</span><span class="mi">150</span><span class="p">]</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">key_hash</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="n">key</span></div>
+
 
 <div class="viewcode-block" id="CacheManager">
 <a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager">[תיעוד]</a>
@@ -1311,9 +1512,9 @@
                 <span class="k">return</span>
             <span class="c1"># קונפיג דרך pydantic אם זמין, אחרת ENV ישיר – לשמירת תאימות</span>
             <span class="k">try</span><span class="p">:</span>
-                <span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">config</span> <span class="k">as</span> <span class="n">_cfg</span>  <span class="c1"># type: ignore</span>
+                <span class="kn">from</span> <span class="nn">config</span> <span class="kn">import</span> <span class="n">config</span> <span class="k">as</span> <span class="n">_cfg</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="n">_cfg</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+                <span class="n">_cfg</span> <span class="o">=</span> <span class="kc">None</span>
 
             <span class="n">redis_url</span> <span class="o">=</span> <span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">_cfg</span><span class="p">,</span> <span class="s1">&#39;REDIS_URL&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="k">if</span> <span class="n">_cfg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s1">&#39;REDIS_URL&#39;</span><span class="p">)</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">redis_url</span> <span class="ow">or</span> <span class="n">redis_url</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;&quot;</span> <span class="ow">or</span> <span class="n">redis_url</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;disabled&quot;</span><span class="p">):</span>
@@ -1392,7 +1593,7 @@
             <span class="k">return</span> <span class="kc">None</span>
 
         <span class="n">backend</span> <span class="o">=</span> <span class="s2">&quot;redis&quot;</span>
-        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;get&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;get&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">redis_client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">value</span><span class="p">:</span>
@@ -1420,7 +1621,7 @@
             <span class="k">return</span> <span class="kc">False</span>
 
         <span class="n">backend</span> <span class="o">=</span> <span class="s2">&quot;redis&quot;</span>
-        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;set&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;set&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">serialized</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
             <span class="c1"># תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire</span>
@@ -1449,7 +1650,59 @@
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="k">pass</span></div>
 
-    
+
+    <span class="c1"># ===================== Dynamic TTL helpers =====================</span>
+<div class="viewcode-block" id="CacheManager.set_dynamic">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.set_dynamic">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">set_dynamic</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+        <span class="n">content_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;שמירה ב-cache עם TTL דינמי ותיעוד מינימלי במטריקות/לוגים.&quot;&quot;&quot;</span>
+        <span class="c1"># חישוב TTL דינמי וביצוע התאמות פעילות + jitter</span>
+        <span class="n">base_ttl</span> <span class="o">=</span> <span class="n">DynamicTTL</span><span class="o">.</span><span class="n">calculate_ttl</span><span class="p">(</span><span class="n">content_type</span><span class="p">,</span> <span class="n">context</span> <span class="ow">or</span> <span class="p">{})</span>
+        <span class="n">adjusted_ttl</span> <span class="o">=</span> <span class="n">ActivityBasedTTL</span><span class="o">.</span><span class="n">adjust_ttl</span><span class="p">(</span><span class="n">base_ttl</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+                <span class="s2">&quot;cache_set_dynamic&quot;</span><span class="p">,</span>
+                <span class="n">extra</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;key&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">key</span><span class="p">)[:</span><span class="mi">120</span><span class="p">],</span>
+                    <span class="s2">&quot;ttl&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">adjusted_ttl</span><span class="p">),</span>
+                    <span class="s2">&quot;content_type&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">content_type</span><span class="p">),</span>
+                <span class="p">},</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">adjusted_ttl</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="CacheManager.get_with_refresh">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.get_with_refresh">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">get_with_refresh</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">refresh_func</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[],</span> <span class="n">Any</span><span class="p">],</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">content_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+        <span class="n">context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;קריאה מ-cache; אם חסר – מחשב, שומר דינמית ומחזיר.&quot;&quot;&quot;</span>
+        <span class="n">cached_value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">cached_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">cached_value</span>
+        <span class="n">fresh_value</span> <span class="o">=</span> <span class="n">refresh_func</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">fresh_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">set_dynamic</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">fresh_value</span><span class="p">,</span> <span class="n">content_type</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="c1"># Fail-open: אם שמירה נכשלה לא נשבור זרימה</span>
+                <span class="k">pass</span>
+        <span class="k">return</span> <span class="n">fresh_value</span></div>
+
+
 <div class="viewcode-block" id="CacheManager.delete">
 <a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.delete">[תיעוד]</a>
     <span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
@@ -1458,7 +1711,7 @@
             <span class="k">return</span> <span class="kc">False</span>
 
         <span class="n">backend</span> <span class="o">=</span> <span class="s2">&quot;redis&quot;</span>
-        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;delete&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">redis_client</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">key</span><span class="p">))</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
@@ -1471,7 +1724,7 @@
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="k">pass</span></div>
 
-    
+
 <div class="viewcode-block" id="CacheManager.delete_pattern">
 <a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.delete_pattern">[תיעוד]</a>
     <span class="k">def</span> <span class="nf">delete_pattern</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
@@ -1480,7 +1733,7 @@
             <span class="k">return</span> <span class="mi">0</span>
 
         <span class="n">backend</span> <span class="o">=</span> <span class="s2">&quot;redis&quot;</span>
-        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;delete_pattern&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+        <span class="n">timer_ctx</span> <span class="o">=</span> <span class="n">cache_op_duration_seconds</span><span class="o">.</span><span class="n">labels</span><span class="p">(</span><span class="n">operation</span><span class="o">=</span><span class="s2">&quot;delete_pattern&quot;</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">)</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="k">if</span> <span class="n">cache_op_duration_seconds</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">keys</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">redis_client</span><span class="o">.</span><span class="n">keys</span><span class="p">(</span><span class="n">pattern</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">keys</span><span class="p">:</span>
@@ -1496,10 +1749,10 @@
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="k">pass</span></div>
 
-    
+
 <div class="viewcode-block" id="CacheManager.invalidate_user_cache">
 <a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.invalidate_user_cache">[תיעוד]</a>
-    <span class="k">def</span> <span class="nf">invalidate_user_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">invalidate_user_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;מחיקת כל ה-cache של משתמש ספציפי&quot;&quot;&quot;</span>
         <span class="c1"># התאמה רחבה יותר למפתחות כפי שהם נוצרים כיום ב-_make_key</span>
         <span class="c1"># המפתחות נראים כך: &quot;&lt;prefix&gt;:&lt;func_name&gt;:&lt;self&gt;:&lt;user_id&gt;:...&quot;</span>
@@ -1559,6 +1812,37 @@
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;clear_all failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ניקוי cache מלא: </span><span class="si">{</span><span class="n">deleted</span><span class="si">}</span><span class="s2"> מפתחות נמחקו&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">deleted</span></div>
+
+
+    <span class="c1"># ===================== Invalidation helpers (tag/pattern-based) =====================</span>
+<div class="viewcode-block" id="CacheManager.invalidate_file_related">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.invalidate_file_related">[תיעוד]</a>
+    <span class="k">def</span> <span class="nf">invalidate_file_related</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;ביטול קאש לפי קובץ: תוכן/רינדור/רשימות.</span>
+
+<span class="sd">        דפוסים נפוצים מעוגנים לאחור בהתאם למפתחות הקיימים בקוד.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">patterns</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="sa">f</span><span class="s2">&quot;file_content:</span><span class="si">{</span><span class="n">file_id</span><span class="si">}</span><span class="s2">*&quot;</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;markdown_render:</span><span class="si">{</span><span class="n">file_id</span><span class="si">}</span><span class="s2">*&quot;</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">&quot;md_render:</span><span class="si">{</span><span class="n">file_id</span><span class="si">}</span><span class="s2">*&quot;</span><span class="p">,</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="n">user_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">uid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+                <span class="n">patterns</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span>
+                    <span class="sa">f</span><span class="s2">&quot;web:files:user:</span><span class="si">{</span><span class="n">uid</span><span class="si">}</span><span class="s2">:*&quot;</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;user_files:*:</span><span class="si">{</span><span class="n">uid</span><span class="si">}</span><span class="s2">:*&quot;</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">&quot;latest_version:*:</span><span class="si">{</span><span class="n">uid</span><span class="si">}</span><span class="s2">:*&quot;</span><span class="p">,</span>
+                <span class="p">])</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">patterns</span><span class="p">:</span>
+                <span class="n">total</span> <span class="o">+=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">delete_pattern</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;invalidate_file_related failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">total</span></div>
 
 
 <div class="viewcode-block" id="CacheManager.clear_stale">
@@ -1621,14 +1905,14 @@
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ניקוי cache עדין (stale): נסרקו </span><span class="si">{</span><span class="n">scanned</span><span class="si">}</span><span class="s2"> / נמחקו </span><span class="si">{</span><span class="n">deleted</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">deleted</span></div>
 
-    
+
 <div class="viewcode-block" id="CacheManager.get_stats">
 <a class="viewcode-back" href="../modules/index.html#cache_manager.CacheManager.get_stats">[תיעוד]</a>
     <span class="k">def</span> <span class="nf">get_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;סטטיסטיקות cache&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">:</span>
             <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
-            
+
         <span class="k">try</span><span class="p">:</span>
             <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">redis_client</span><span class="o">.</span><span class="n">info</span><span class="p">()</span>
             <span class="k">return</span> <span class="p">{</span>
@@ -1638,8 +1922,8 @@
                 <span class="s2">&quot;keyspace_hits&quot;</span><span class="p">:</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_hits&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
                 <span class="s2">&quot;keyspace_misses&quot;</span><span class="p">:</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_misses&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
                 <span class="s2">&quot;hit_rate&quot;</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span>
-                    <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_hits&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">/</span> 
-                    <span class="nb">max</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_hits&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_misses&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="mi">100</span><span class="p">,</span> 
+                    <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_hits&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">/</span>
+                    <span class="nb">max</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_hits&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="n">info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;keyspace_misses&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="mi">100</span><span class="p">,</span>
                     <span class="mi">2</span>
                 <span class="p">)</span>
             <span class="p">}</span>
@@ -1647,6 +1931,99 @@
             <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;שגיאה בקבלת סטטיסטיקות cache: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)}</span></div>
 </div>
+
+
+
+<span class="c1"># ===================== Flask dynamic cache decorator =====================</span>
+<span class="n">P</span> <span class="o">=</span> <span class="n">ParamSpec</span><span class="p">(</span><span class="s2">&quot;P&quot;</span><span class="p">)</span>
+<span class="n">R</span> <span class="o">=</span> <span class="n">TypeVar</span><span class="p">(</span><span class="s2">&quot;R&quot;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="dynamic_cache">
+<a class="viewcode-back" href="../modules/index.html#cache_manager.dynamic_cache">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">dynamic_cache</span><span class="p">(</span><span class="n">content_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">key_prefix</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[[</span><span class="n">Callable</span><span class="p">[</span><span class="n">P</span><span class="p">,</span> <span class="n">R</span><span class="p">]],</span> <span class="n">Callable</span><span class="p">[</span><span class="n">P</span><span class="p">,</span> <span class="n">R</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;דקורטור ל-caching דינמי ל-Flask endpoints.</span>
+
+<span class="sd">    - בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים</span>
+<span class="sd">    - שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד</span>
+<span class="sd">    - Fail-open: לעולם לא מפיל endpoint על בעיות קאש</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="n">P</span><span class="p">,</span> <span class="n">R</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="n">P</span><span class="p">,</span> <span class="n">R</span><span class="p">]:</span>
+        <span class="nd">@wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">P</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">P</span><span class="o">.</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">R</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># ייבוא מאוחר כדי להימנע מתלות פלצ&#39;ית בזמן import מודולרי/טסטים</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">request</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">jsonify</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
+                    <span class="n">request</span> <span class="o">=</span> <span class="kc">None</span>
+                    <span class="n">session</span> <span class="o">=</span> <span class="p">{}</span>
+                    <span class="k">def</span> <span class="nf">jsonify</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+                        <span class="k">return</span> <span class="n">x</span>
+
+                <span class="c1"># זיהוי משתמש וקונטקסט בסיסי</span>
+                <span class="n">uid</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">uid</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;user_id&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="s1">&#39;get&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">uid</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">user_tier</span> <span class="o">=</span> <span class="p">(</span><span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;user_tier&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="s1">&#39;regular&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="s1">&#39;get&#39;</span><span class="p">)</span> <span class="k">else</span> <span class="s1">&#39;regular&#39;</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">user_tier</span> <span class="o">=</span> <span class="s1">&#39;regular&#39;</span>
+
+                <span class="c1"># מפתח קאש: prefix/שם פונקציה + user + path + query</span>
+                <span class="n">prefix</span> <span class="o">=</span> <span class="n">key_prefix</span> <span class="k">if</span> <span class="n">key_prefix</span> <span class="k">else</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s2">&quot;__name__&quot;</span><span class="p">,</span> <span class="s2">&quot;endpoint&quot;</span><span class="p">)</span>
+                <span class="n">req_path</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="s1">&#39;path&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">request</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s1">&#39;&#39;</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">q</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">query_string</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">errors</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">request</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="s1">&#39;&#39;</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="n">q</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
+                <span class="n">cache_key</span> <span class="o">=</span> <span class="n">build_cache_key</span><span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">uid</span> <span class="ow">or</span> <span class="s1">&#39;anonymous&#39;</span><span class="p">),</span> <span class="n">req_path</span><span class="p">,</span> <span class="n">q</span><span class="p">)</span>
+
+                <span class="c1"># ניסיון שליפה מהקאש</span>
+                <span class="n">cached_value</span> <span class="o">=</span> <span class="n">cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">cached_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cached_value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                        <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="n">R</span><span class="p">,</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">cached_value</span><span class="p">))</span>
+                    <span class="k">return</span> <span class="n">cast</span><span class="p">(</span><span class="n">R</span><span class="p">,</span> <span class="n">cached_value</span><span class="p">)</span>
+
+                <span class="c1"># חישוב התוצאה</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+                <span class="c1"># אם זו תגובת Flask עם JSON — שמור רק את ה-data</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="s1">&#39;get_json&#39;</span><span class="p">):</span>
+                        <span class="n">data</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">get_json</span><span class="p">(</span><span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                            <span class="n">cache</span><span class="o">.</span><span class="n">set_dynamic</span><span class="p">(</span><span class="n">cache_key</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">content_type</span><span class="p">,</span> <span class="p">{</span>
+                                <span class="s1">&#39;user_id&#39;</span><span class="p">:</span> <span class="n">uid</span><span class="p">,</span>
+                                <span class="s1">&#39;user_tier&#39;</span><span class="p">:</span> <span class="n">user_tier</span><span class="p">,</span>
+                                <span class="s1">&#39;endpoint&#39;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s1">&#39;__name__&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">),</span>
+                            <span class="p">})</span>
+                            <span class="k">return</span> <span class="n">result</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="k">pass</span>
+
+                <span class="c1"># שמירה של טיפוסים serializable נפוצים</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="p">(</span><span class="nb">dict</span><span class="p">,</span> <span class="nb">list</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">bool</span><span class="p">)):</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">cache</span><span class="o">.</span><span class="n">set_dynamic</span><span class="p">(</span><span class="n">cache_key</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">content_type</span><span class="p">,</span> <span class="p">{</span>
+                            <span class="s1">&#39;user_id&#39;</span><span class="p">:</span> <span class="n">uid</span><span class="p">,</span>
+                            <span class="s1">&#39;user_tier&#39;</span><span class="p">:</span> <span class="n">user_tier</span><span class="p">,</span>
+                            <span class="s1">&#39;endpoint&#39;</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s1">&#39;__name__&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">),</span>
+                        <span class="p">})</span>
+                    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                        <span class="k">pass</span>
+
+                <span class="k">return</span> <span class="n">result</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="c1"># Fail-open על כל תקלה במנגנון הקאש</span>
+                <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">wrapper</span>
+
+    <span class="k">return</span> <span class="n">decorator</span></div>
 
 
 <span class="c1"># יצירת instance גלובלי</span>

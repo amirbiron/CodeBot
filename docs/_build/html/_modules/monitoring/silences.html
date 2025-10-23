@@ -1,0 +1,1635 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="he" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>monitoring.silences &mdash; תיעוד Code Keeper Bot 1.0.0</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=2d7a82d5" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=0062297a"></script>
+      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../../_static/translations.js?v=714bf7a6"></script>
+      <script src="https://unpkg.com/mermaid@10.2.0/dist/mermaid.min.js"></script>
+      <script>mermaid.initialize({startOnLoad:true});</script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="אינדקס" href="../../genindex.html" />
+    <link rel="search" title="חיפוש" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Code Keeper Bot
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">למפתחים ולסוכני AI:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../quickstart-ai.html">התחלה מהירה - סוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#id2">מה אסור</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#id3">מה מותר ומומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#id4">פורמטי ציטוט קוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#tmp">מחיקה בטוחה (רק ב-/tmp)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#pr">קומיטים ו-PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#id5">קישורים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-ai.html#cheatsheet-github-cli-gh">Cheatsheet – GitHub CLI (gh)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../quickstart.html">התחלה מהירה - מפתחים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#id2">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#id3">שלב 1: התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#env">שלב 2: הגדרת .env</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#id4">שלב 3: הרצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#id5">מה הלאה?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../quickstart-contrib.html">Quickstart לתרומה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-contrib.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-contrib.html#id2">צעדי הכנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-contrib.html#id3">סביבת פיתוח</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-contrib.html#id4">הרצת טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-contrib.html#stubs">על ה‑Stubs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart-contrib.html#id5">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../ai-guidelines.html">הנחיות מלאות לסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-guidelines.html#id1">מגבלות קריטיות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../ai-guidelines.html#id2">הרצת פקודות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-guidelines.html#id3">כלי קבצים מאושרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-guidelines.html#id4">עקרונות עריכת קוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-guidelines.html#pull-requests">קומיטים ו-Pull Requests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-guidelines.html#id5">עבודה עם טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-guidelines.html#id6">קישורים מהירים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#pydantic-settings">קונפיגורציה (Pydantic Settings)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id6">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../doc-authoring.html">Doc Authoring Guide (Sphinx/RTD)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../doc-authoring.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../doc-authoring.html#id2">מדיניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../doc-authoring.html#id3">טיפים מהירים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../doc-authoring.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../style-glossary.html">Style &amp; Naming Glossary</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../style-glossary.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../style-glossary.html#id2">מיפוי מונחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../style-glossary.html#id3">כללים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../style-glossary.html#id4">עוגני תיעוד</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../versioning-stable-anchors.html">Versioning &amp; Stable Anchors</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../versioning-stable-anchors.html#id1">מדיניות עוגנים יציבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../versioning-stable-anchors.html#whats-new">What’s New</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../versioning-stable-anchors.html#anchors">דוגמת Anchors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../versioning-stable-anchors.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../whats-new.html">What’s New</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../whats-new.html#id1">2025-10-15</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">ארכיטקטורה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id2">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id3">תרשים רכיבים (תמציתי)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id4">מבנה תיקיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id5">זרימות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id6">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../contributing.html">מדריך תרומה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#id2">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#id3">כללים כלליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#workflow">Workflow בסיסי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#pre-commit">Pre-commit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#conventional-commits">Conventional Commits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#id4">דוגמאות שימושיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../contributing.html#id5">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../branch-protection-and-pr-rules.html">Branch Protection &amp; PR Rules</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../branch-protection-and-pr-rules.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../branch-protection-and-pr-rules.html#id2">כללי ענפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../branch-protection-and-pr-rules.html#pr">חוקי PR</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../branch-protection-and-pr-rules.html#ci-required-checks">CI – Required Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../branch-protection-and-pr-rules.html#id3">קישורים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">מדריכים בסיסיים:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">התקנה והגדרה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#id2">דרישות מערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#id3">התקנה מהירה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#id4">1. שכפל את הריפוזיטורי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#id5">2. התקן תלויות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#id6">3. הגדר משתני סביבה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#id7">4. הפעל את הבוט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#docker">התקנה עם Docker</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#image">1. בנה את ה-Image</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#docker-compose">2. הפעל עם Docker Compose</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#mongodb">הגדרת MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#telegram-bot">הגדרת Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#id8">הגדרות מתקדמות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#id9">בדיקת התקנה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#id10">פתרון בעיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#id11">תמיכה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../configuration.html">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#flask">Flask</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#telegram-bot">Telegram Bot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#security">Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id1">Databases and Cache (Pooling/Timeouts)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id2">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id3">שימוש ב-http_sync (Sync HTTP)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../configuration.html#config-via-pydantic-settings">Config via Pydantic Settings</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id4">היררכיית טעינה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id5">ולידציות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#env-example">.env.example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id6">שימוש לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id7">פרמטרי קונפיגורציה מרכזיים (חדשים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../environment-variables.html">משתני סביבה - רפרנס</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../environment-variables.html#id2">טבלה מרכזית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../environment-variables.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#projection">Projection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id1">דגשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../large-files-runbook.html#id1">מגבלות ופולבקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../large-files-runbook.html#id2">הנחיות הפעלה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../large-files-runbook.html#id3">ניטור</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/main.html">main module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/config.html">config module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/conversation_handlers.html">conversation_handlers module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/database.html">database package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/database.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.bookmark.html">database.bookmark module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.collections_manager.html">database.collections_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.manager.html">database.manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.models.html">database.models module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.repository.html">database.repository module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/services.html">services package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/services.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.backoff_state.html">services.backoff_state module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.backup_service.html">services.backup_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.code_service.html">services.code_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.github_service.html">services.github_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.google_drive_service.html">services.google_drive_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.investigation_service.html">services.investigation_service module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.webserver.html">services.webserver module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/handlers.html">handlers package</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/handlers.html#subpackages">Subpackages</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.github.html">handlers.github package</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/handlers.html#submodules">Submodules</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.file_view.html">handlers.file_view module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.pagination.html">handlers.pagination module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.save_flow.html">handlers.save_flow module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.states.html">handlers.states module</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/utils.html">utils module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger.__init__"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger.log_code_processing_error"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_code_processing_error()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger.log_code_activity"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_code_activity()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger.log_validation_failure"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_validation_failure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger.log_sanitization_success"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger.log_sanitization_success()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TimeUtils.format_relative_time"><code class="docutils literal notranslate"><span class="pre">TimeUtils.format_relative_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TimeUtils.parse_date_string"><code class="docutils literal notranslate"><span class="pre">TimeUtils.parse_date_string()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TimeUtils.get_time_ranges"><code class="docutils literal notranslate"><span class="pre">TimeUtils.get_time_ranges()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.TextUtils"><code class="docutils literal notranslate"><span class="pre">TextUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.truncate_text"><code class="docutils literal notranslate"><span class="pre">TextUtils.truncate_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.escape_markdown"><code class="docutils literal notranslate"><span class="pre">TextUtils.escape_markdown()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.clean_filename"><code class="docutils literal notranslate"><span class="pre">TextUtils.clean_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.extract_hashtags"><code class="docutils literal notranslate"><span class="pre">TextUtils.extract_hashtags()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.highlight_text"><code class="docutils literal notranslate"><span class="pre">TextUtils.highlight_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.format_file_size"><code class="docutils literal notranslate"><span class="pre">TextUtils.format_file_size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils.pluralize_hebrew"><code class="docutils literal notranslate"><span class="pre">TextUtils.pluralize_hebrew()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.SecurityUtils"><code class="docutils literal notranslate"><span class="pre">SecurityUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SecurityUtils.generate_secure_token"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.generate_secure_token()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SecurityUtils.hash_content"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.hash_content()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SecurityUtils.validate_user_input"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.validate_user_input()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SecurityUtils.sanitize_code"><code class="docutils literal notranslate"><span class="pre">SecurityUtils.sanitize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils"><code class="docutils literal notranslate"><span class="pre">TelegramUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.send_typing_action"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.send_typing_action()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.send_document_action"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.send_document_action()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.safe_answer"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.safe_answer()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.get_user_mention"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.get_user_mention()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.split_long_message"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.split_long_message()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.safe_edit_message_text"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.safe_edit_message_text()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.safe_edit_message_reply_markup"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.safe_edit_message_reply_markup()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils.extract_message_text_preserve_markdown"><code class="docutils literal notranslate"><span class="pre">TelegramUtils.extract_message_text_preserve_markdown()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.CallbackQueryGuard"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CallbackQueryGuard.DEFAULT_WINDOW_SECONDS"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard.DEFAULT_WINDOW_SECONDS</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CallbackQueryGuard.should_block"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard.should_block()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CallbackQueryGuard.should_block_async"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard.should_block_async()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.AsyncUtils"><code class="docutils literal notranslate"><span class="pre">AsyncUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.AsyncUtils.run_with_timeout"><code class="docutils literal notranslate"><span class="pre">AsyncUtils.run_with_timeout()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.AsyncUtils.batch_process"><code class="docutils literal notranslate"><span class="pre">AsyncUtils.batch_process()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.PerformanceUtils"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.PerformanceUtils.timing_decorator"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils.timing_decorator()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.PerformanceUtils.measure_time"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils.measure_time()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.ValidationUtils"><code class="docutils literal notranslate"><span class="pre">ValidationUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.ValidationUtils.is_valid_filename"><code class="docutils literal notranslate"><span class="pre">ValidationUtils.is_valid_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.ValidationUtils.is_safe_code"><code class="docutils literal notranslate"><span class="pre">ValidationUtils.is_safe_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.FileUtils"><code class="docutils literal notranslate"><span class="pre">FileUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.FileUtils.download_file"><code class="docutils literal notranslate"><span class="pre">FileUtils.download_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.FileUtils.get_file_extension"><code class="docutils literal notranslate"><span class="pre">FileUtils.get_file_extension()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.FileUtils.get_mime_type"><code class="docutils literal notranslate"><span class="pre">FileUtils.get_mime_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.FileUtils.create_temp_file"><code class="docutils literal notranslate"><span class="pre">FileUtils.create_temp_file()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.ConfigUtils"><code class="docutils literal notranslate"><span class="pre">ConfigUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.ConfigUtils.load_json_config"><code class="docutils literal notranslate"><span class="pre">ConfigUtils.load_json_config()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.ConfigUtils.save_json_config"><code class="docutils literal notranslate"><span class="pre">ConfigUtils.save_json_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.CacheUtils"><code class="docutils literal notranslate"><span class="pre">CacheUtils</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CacheUtils.set"><code class="docutils literal notranslate"><span class="pre">CacheUtils.set()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CacheUtils.get"><code class="docutils literal notranslate"><span class="pre">CacheUtils.get()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CacheUtils.delete"><code class="docutils literal notranslate"><span class="pre">CacheUtils.delete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CacheUtils.clear"><code class="docutils literal notranslate"><span class="pre">CacheUtils.clear()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.get_memory_usage"><code class="docutils literal notranslate"><span class="pre">get_memory_usage()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.setup_logging"><code class="docutils literal notranslate"><span class="pre">setup_logging()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.generate_summary_stats"><code class="docutils literal notranslate"><span class="pre">generate_summary_stats()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.detect_language_from_filename"><code class="docutils literal notranslate"><span class="pre">detect_language_from_filename()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.get_language_emoji"><code class="docutils literal notranslate"><span class="pre">get_language_emoji()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.SensitiveDataFilter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SensitiveDataFilter.filter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter.filter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.install_sensitive_filter"><code class="docutils literal notranslate"><span class="pre">install_sensitive_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#utils.normalize_code"><code class="docutils literal notranslate"><span class="pre">normalize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/modules.html">workspace</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/activity_reporter.html">activity_reporter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/activity_reporter.html#activity_reporter.get_mongo_client"><code class="docutils literal notranslate"><span class="pre">get_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/activity_reporter.html#activity_reporter.close_mongo_client"><code class="docutils literal notranslate"><span class="pre">close_mongo_client()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/activity_reporter.html#activity_reporter.SimpleActivityReporter"><code class="docutils literal notranslate"><span class="pre">SimpleActivityReporter</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/activity_reporter.html#activity_reporter.create_reporter"><code class="docutils literal notranslate"><span class="pre">create_reporter()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/alert_forwarder.html">alert_forwarder module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_forwarder.html#alert_forwarder.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_forwarder.html#alert_forwarder.forward_alerts"><code class="docutils literal notranslate"><span class="pre">forward_alerts()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/alert_manager.html">alert_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.reset_state_for_tests"><code class="docutils literal notranslate"><span class="pre">reset_state_for_tests()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.note_request"><code class="docutils literal notranslate"><span class="pre">note_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.get_current_error_rate_percent"><code class="docutils literal notranslate"><span class="pre">get_current_error_rate_percent()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.get_current_avg_latency_seconds"><code class="docutils literal notranslate"><span class="pre">get_current_avg_latency_seconds()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.bump_threshold"><code class="docutils literal notranslate"><span class="pre">bump_threshold()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.get_thresholds_snapshot"><code class="docutils literal notranslate"><span class="pre">get_thresholds_snapshot()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.check_and_emit_alerts"><code class="docutils literal notranslate"><span class="pre">check_and_emit_alerts()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.forward_critical_alert"><code class="docutils literal notranslate"><span class="pre">forward_critical_alert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/alert_manager.html#alert_manager.get_dispatch_log"><code class="docutils literal notranslate"><span class="pre">get_dispatch_log()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/autocomplete_manager.html">autocomplete_manager module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/batch_commands.html">batch_commands module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/batch_processor.html">batch_processor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/bot_handlers.html">bot_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/bot_rate_limiter.html">bot_rate_limiter module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cache_commands.html">cache_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.cache_stats_command"><code class="docutils literal notranslate"><span class="pre">cache_stats_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cache_manager.html">cache_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.DynamicTTL"><code class="docutils literal notranslate"><span class="pre">DynamicTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.ActivityBasedTTL"><code class="docutils literal notranslate"><span class="pre">ActivityBasedTTL</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.build_cache_key"><code class="docutils literal notranslate"><span class="pre">build_cache_key()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.CacheManager"><code class="docutils literal notranslate"><span class="pre">CacheManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.dynamic_cache"><code class="docutils literal notranslate"><span class="pre">dynamic_cache()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.cached"><code class="docutils literal notranslate"><span class="pre">cached()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_manager.html#cache_manager.async_cached"><code class="docutils literal notranslate"><span class="pre">async_cached()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/chatops.html">chatops package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/chatops.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/code_preview.html">code_preview module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/code_preview.html#code_preview.CodePreviewManager"><code class="docutils literal notranslate"><span class="pre">CodePreviewManager</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/code_processor.html">code_processor module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/config.html">config module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/conftest.html">conftest module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/conftest.html#conftest.pytest_sessionfinish"><code class="docutils literal notranslate"><span class="pre">pytest_sessionfinish()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/conversation_handlers.html">conversation_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/database.html">database package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/database.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/duplicate_detector.html">duplicate_detector module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/duplicate_detector.html#duplicate_detector.scan_duplicates"><code class="docutils literal notranslate"><span class="pre">scan_duplicates()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/file_manager.html">file_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/file_manager.html#file_manager.BackupInfo"><code class="docutils literal notranslate"><span class="pre">BackupInfo</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/file_manager.html#file_manager.BackupManager"><code class="docutils literal notranslate"><span class="pre">BackupManager</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/fix_telegram_parse_error.html">fix_telegram_parse_error module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/fix_telegram_parse_error.html#fix_telegram_parse_error.clean_for_telegram"><code class="docutils literal notranslate"><span class="pre">clean_for_telegram()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/fix_telegram_parse_error.html#fix_telegram_parse_error.apply_fix"><code class="docutils literal notranslate"><span class="pre">apply_fix()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/fix_telegram_parse_error.html#fix_telegram_parse_error.wrap_edit_message_calls"><code class="docutils literal notranslate"><span class="pre">wrap_edit_message_calls()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/github_menu_handler.html">github_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/github_upload_fix.html">github_upload_fix module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/github_upload_fix.html#github_upload_fix.github_upload_new_file"><code class="docutils literal notranslate"><span class="pre">github_upload_new_file()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/github_upload_fix.html#github_upload_fix.handle_document_fixed"><code class="docutils literal notranslate"><span class="pre">handle_document_fixed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/github_upload_fix.html#github_upload_fix.upload_to_github_fixed"><code class="docutils literal notranslate"><span class="pre">upload_to_github_fixed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/github_upload_fix.html#github_upload_fix.setup_minimal_commands"><code class="docutils literal notranslate"><span class="pre">setup_minimal_commands()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/github_upload_fix.html#github_upload_fix.stats_command_secured"><code class="docutils literal notranslate"><span class="pre">stats_command_secured()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/github_upload_fix.html#github_upload_fix.check_commands"><code class="docutils literal notranslate"><span class="pre">check_commands()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/handlers.html">handlers package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.html#subpackages">Subpackages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/handlers.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/http_sync.html">http_sync module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/i18n.html">i18n package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/i18n.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/integrations.html">integrations module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/integrations_github_monitor.html">integrations_github_monitor module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/integrations_github_monitor.html#integrations_github_monitor.fetch_rate_limit"><code class="docutils literal notranslate"><span class="pre">fetch_rate_limit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/integrations_github_monitor.html#integrations_github_monitor.summarize_rate_limit"><code class="docutils literal notranslate"><span class="pre">summarize_rate_limit()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/integrations_sentry.html">integrations_sentry module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/integrations_sentry.html#integrations_sentry.is_configured"><code class="docutils literal notranslate"><span class="pre">is_configured()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/integrations_sentry.html#integrations_sentry.get_recent_issues"><code class="docutils literal notranslate"><span class="pre">get_recent_issues()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/integrations_sentry.html#integrations_sentry.search_events"><code class="docutils literal notranslate"><span class="pre">search_events()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/integrations_sentry.html#integrations_sentry.get_issue_events"><code class="docutils literal notranslate"><span class="pre">get_issue_events()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/internal_alerts.html">internal_alerts module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/internal_alerts.html#internal_alerts.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/internal_alerts.html#internal_alerts.emit_internal_alert"><code class="docutils literal notranslate"><span class="pre">emit_internal_alert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/internal_alerts.html#internal_alerts.get_recent_alerts"><code class="docutils literal notranslate"><span class="pre">get_recent_alerts()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/large_files_handler.html">large_files_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/lazy_loader.html">lazy_loader module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/main.html">main module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/metrics.html">metrics module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.generate_latest"><code class="docutils literal notranslate"><span class="pre">generate_latest()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.track_performance"><code class="docutils literal notranslate"><span class="pre">track_performance()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.metrics_endpoint_bytes"><code class="docutils literal notranslate"><span class="pre">metrics_endpoint_bytes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.metrics_content_type"><code class="docutils literal notranslate"><span class="pre">metrics_content_type()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.track_search_performed"><code class="docutils literal notranslate"><span class="pre">track_search_performed()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.track_github_sync"><code class="docutils literal notranslate"><span class="pre">track_github_sync()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/monitoring.html">monitoring package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/monitoring.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/observability.html">observability module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/observability_instrumentation.html">observability_instrumentation module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/observability_instrumentation.html#observability_instrumentation.traced"><code class="docutils literal notranslate"><span class="pre">traced()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/observability_otel.html">observability_otel module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/observability_otel.html#observability_otel.setup_telemetry"><code class="docutils literal notranslate"><span class="pre">setup_telemetry()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/predictive_engine.html">predictive_engine module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.Trend"><code class="docutils literal notranslate"><span class="pre">Trend</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.note_observation"><code class="docutils literal notranslate"><span class="pre">note_observation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.evaluate_predictions"><code class="docutils literal notranslate"><span class="pre">evaluate_predictions()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.reset_state_for_tests"><code class="docutils literal notranslate"><span class="pre">reset_state_for_tests()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.maybe_recompute_and_preempt"><code class="docutils literal notranslate"><span class="pre">maybe_recompute_and_preempt()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.get_recent_predictions"><code class="docutils literal notranslate"><span class="pre">get_recent_predictions()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/predictive_engine.html#predictive_engine.get_trend_snapshot"><code class="docutils literal notranslate"><span class="pre">get_trend_snapshot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/rate_limiter.html">rate_limiter module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/rate_limiter.html#rate_limiter.RateLimiter"><code class="docutils literal notranslate"><span class="pre">RateLimiter</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/refactor_handlers.html">refactor_handlers module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/refactoring_engine.html">refactoring_engine module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.RefactorType"><code class="docutils literal notranslate"><span class="pre">RefactorType</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.FunctionInfo"><code class="docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.ClassInfo"><code class="docutils literal notranslate"><span class="pre">ClassInfo</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.RefactorProposal"><code class="docutils literal notranslate"><span class="pre">RefactorProposal</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.RefactorResult"><code class="docutils literal notranslate"><span class="pre">RefactorResult</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.CodeAnalyzer"><code class="docutils literal notranslate"><span class="pre">CodeAnalyzer</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/refactoring_engine.html#refactoring_engine.RefactoringEngine"><code class="docutils literal notranslate"><span class="pre">RefactoringEngine</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/remediation_manager.html">remediation_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/reminders.html">reminders package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/reminders.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/repo_analyzer.html">repo_analyzer module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/repo_analyzer.html#repo_analyzer.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/repo_analyzer.html#repo_analyzer.RepoAnalyzer"><code class="docutils literal notranslate"><span class="pre">RepoAnalyzer</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/search_engine.html">search_engine module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/secret_manager.html">secret_manager module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/secret_manager.html#secret_manager.encrypt_secret"><code class="docutils literal notranslate"><span class="pre">encrypt_secret()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/secret_manager.html#secret_manager.decrypt_secret"><code class="docutils literal notranslate"><span class="pre">decrypt_secret()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/services.html">services package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/services.html#submodules">Submodules</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/setup_bookmarks.html">setup_bookmarks module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/setup_bookmarks.html#setup_bookmarks.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/setup_bookmarks.html#setup_bookmarks.check_mongodb_connection"><code class="docutils literal notranslate"><span class="pre">check_mongodb_connection()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/setup_bookmarks.html#setup_bookmarks.setup_bookmarks_collection"><code class="docutils literal notranslate"><span class="pre">setup_bookmarks_collection()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/setup_bookmarks.html#setup_bookmarks.verify_installation"><code class="docutils literal notranslate"><span class="pre">verify_installation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/setup_bookmarks.html#setup_bookmarks.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/terminal_commands.html">terminal_commands module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.run_in_sandbox"><code class="docutils literal notranslate"><span class="pre">run_in_sandbox()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.terminal_enter"><code class="docutils literal notranslate"><span class="pre">terminal_enter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.terminal_exit"><code class="docutils literal notranslate"><span class="pre">terminal_exit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.terminal_run_command"><code class="docutils literal notranslate"><span class="pre">terminal_run_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.terminal_command"><code class="docutils literal notranslate"><span class="pre">terminal_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/terminal_commands.html#terminal_commands.setup_terminal_handlers"><code class="docutils literal notranslate"><span class="pre">setup_terminal_handlers()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/test_basic.html">test_basic module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/test_basic.html#test_basic.test_python_version"><code class="docutils literal notranslate"><span class="pre">test_python_version()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/test_basic.html#test_basic.test_import_main"><code class="docutils literal notranslate"><span class="pre">test_import_main()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/test_basic.html#test_basic.test_environment"><code class="docutils literal notranslate"><span class="pre">test_environment()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/test_basic.html#test_basic.test_basic_calculation"><code class="docutils literal notranslate"><span class="pre">test_basic_calculation()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/test_basic.html#test_basic.TestRequirements"><code class="docutils literal notranslate"><span class="pre">TestRequirements</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/test_bookmarks.html">test_bookmarks module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/user_stats.html">user_stats module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html">utils module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CodeErrorLogger"><code class="docutils literal notranslate"><span class="pre">CodeErrorLogger</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TimeUtils"><code class="docutils literal notranslate"><span class="pre">TimeUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TextUtils"><code class="docutils literal notranslate"><span class="pre">TextUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SecurityUtils"><code class="docutils literal notranslate"><span class="pre">SecurityUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.TelegramUtils"><code class="docutils literal notranslate"><span class="pre">TelegramUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CallbackQueryGuard"><code class="docutils literal notranslate"><span class="pre">CallbackQueryGuard</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.AsyncUtils"><code class="docutils literal notranslate"><span class="pre">AsyncUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.PerformanceUtils"><code class="docutils literal notranslate"><span class="pre">PerformanceUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.ValidationUtils"><code class="docutils literal notranslate"><span class="pre">ValidationUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.FileUtils"><code class="docutils literal notranslate"><span class="pre">FileUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.ConfigUtils"><code class="docutils literal notranslate"><span class="pre">ConfigUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.CacheUtils"><code class="docutils literal notranslate"><span class="pre">CacheUtils</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.get_memory_usage"><code class="docutils literal notranslate"><span class="pre">get_memory_usage()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.setup_logging"><code class="docutils literal notranslate"><span class="pre">setup_logging()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.generate_summary_stats"><code class="docutils literal notranslate"><span class="pre">generate_summary_stats()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.detect_language_from_filename"><code class="docutils literal notranslate"><span class="pre">detect_language_from_filename()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.get_language_emoji"><code class="docutils literal notranslate"><span class="pre">get_language_emoji()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.SensitiveDataFilter"><code class="docutils literal notranslate"><span class="pre">SensitiveDataFilter</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.install_sensitive_filter"><code class="docutils literal notranslate"><span class="pre">install_sensitive_filter()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/utils.html#utils.normalize_code"><code class="docutils literal notranslate"><span class="pre">normalize_code()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/webapp.html">webapp package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/webapp.html#submodules">Submodules</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../modules/index.html">מודולים ראשיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#file-management">File Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#github-integration">GitHub Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#backup-system">Backup System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#code-processing">Code Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#search-engine">Search Engine</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#repository-analysis">Repository Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#batch-processing">Batch Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#large-files-handling">Large Files Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#cache-management">Cache Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#user-statistics">User Statistics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#activity-reporting">Activity Reporting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#utilities">Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#lazy-loading">Lazy Loading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#integrations">Integrations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#terminal-commands">Terminal Commands</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../modules/index.html#autocomplete-manager">Autocomplete Manager</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../handlers/index.html">Handlers</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#show-command">Show Command</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../handlers/show.html">Show Command</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/show.html#show">מפרט פקודת <cite>/show</cite></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/show.html#html">דוגמת תגובת HTML</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/show.html#id1">הערות יישום</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/show.html#id2">קישורים</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#drive-menu">Drive Menu</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../handlers/drive_menu.html">Drive Menu V2</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#id1">סקירה</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#id2">דגל פיצ’ר</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#id3">זרימות עיקריות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#device-flow">התחברות (Device Flow)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#id4">טיפול שגיאות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#id5">ניטור</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../handlers/drive_menu.html#api-autodoc">API (autodoc)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#file-view-handler">File View Handler</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#pagination-handler">Pagination Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#states-handler">States Handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#github-handlers">GitHub Handlers</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../services/index.html">Services</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../services/index.html#code-service">Code Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../services/index.html#code-service-module">Code Service Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../services/index.html#github-service">GitHub Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../services/index.html#backup-service">Backup Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../services/index.html#google-drive-service">Google Drive Service</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../services/google_drive_service.html">Google Drive Service</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../services/google_drive_service.html#id1">סקירה</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../services/google_drive_service.html#oauth">הערות OAuth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../services/google_drive_service.html#id2">מבני קבצים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../services/google_drive_service.html#api-autodoc">API (autodoc)</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../database/index.html">Database</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../database/index.html#database-manager">Database Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/index.html#models">Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../database/index.html#codesnippet-model">CodeSnippet Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database/index.html#databasemanager-class">DatabaseManager Class</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/index.html#database-operations">Database Operations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../database/index.html#save-operations">Save Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database/index.html#search-operations">Search Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database/index.html#delete-operations">Delete Operations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database/index.html#statistics-operations">Statistics Operations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/index.html#users">אינדקסים בקולקציית users</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../database/indexing.html">MongoDB Indexing Cookbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#id1">למה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#id2">אינדקסים מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#python-pymongo">מתכונים (Python / PyMongo)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#explain-mongo-shell">בדיקות explain (Mongo Shell)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#explain">מה לחפש ב-explain?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#id3">בדיקת קיום אינדקסים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#id4">שיטות עבודה מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#id5">דוגמאות נוספות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/indexing.html#gotchas">Gotchas נפוצים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../database/cursor-pagination.html">Cursor-based Pagination (created_at / _id)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#id1">למה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#id2">עקרונות מיון יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#python">קידוד/פענוח קורסור (Python)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#id3">תבנית שאילתה (חדש → ישן)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#pymongo">PyMongo – דוגמה מלאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#id4">דפדוף לאחור (ישן → חדש)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#id5">שיטות עבודה מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#gotchas">Gotchas נפוצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database/cursor-pagination.html#id6">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../database-schema.html">Database Schema</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../database-schema.html#collections">Collections</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../database-schema.html#code-snippets"><code class="docutils literal notranslate"><span class="pre">code_snippets</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database-schema.html#users"><code class="docutils literal notranslate"><span class="pre">users</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database-schema.html#bookmarks"><code class="docutils literal notranslate"><span class="pre">bookmarks</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../database-schema.html#sessions-webapp"><code class="docutils literal notranslate"><span class="pre">sessions</span></code> (WebApp)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../database-schema.html#indexes">Indexes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database-schema.html#relationships">Relationships</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../database-schema.html#id1">קישורים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">עזרה ודוגמאות:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../examples.html">דוגמאות שימוש</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#id2">שימוש בסיסי</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id3">יצירת אפליקציית בוט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id4">שמירת קוד חדש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id5">חיפוש קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#handlers">שימוש ב-Handlers</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#command-handler">יצירת Command Handler</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#conversation-handler">יצירת Conversation Handler</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#services">שימוש ב-Services</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id6">זיהוי שפת תכנות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id7">ניתוח קוד</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#github">אינטגרציה עם GitHub</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#gist">העלאת קוד ל-Gist</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#gists">שליפת Gists של משתמש</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#id8">עבודה עם מסד הנתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id9">ביצוע שאילתות מורכבות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id10">עדכון קבצים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id11">סטטיסטיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#id12">טיפול בשגיאות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id13">טיפול בשגיאות בסיסי</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#retry-logic">Retry Logic</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#id14">בדיקות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id15">בדיקת יחידה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id16">בדיקת אינטגרציה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../examples.html#id17">דוגמאות מתקדמות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id18">עיבוד באצווה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../examples.html#id19">קאשינג</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../testing.html">Testing Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#quickstart">🚀 Quickstart לטסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#id1">הנחיות קריטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#stubs">טעינת Stubs לטלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#ci">CI נתמך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../testing-rate-limit-examples.html">דוגמאות טסטים – Rate Limiting ואסינכרוניות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../testing-rate-limit-examples.html#rate-limiting-redis-mock">Rate Limiting (Redis Mock)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing-rate-limit-examples.html#id1">טסטים אסינכרוניים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../performance-tests.html">בדיקות ביצועים (Performance Tests)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-tests.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-tests.html#id2">סימון טסטים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-tests.html#id3">הרצה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-tests.html#ci-github-actions">CI / GitHub Actions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-tests.html#id4">דוחות וזמני ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-tests.html#id5">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../ci-cd.html">CI/CD Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../ci-cd.html#id1">חוקים קשיחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ci-cd.html#id2">סטטוסים נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ci-cd.html#ci-overview">ריכוז CI (Overview)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ci-cd.html#id3">בדיקות מומלצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ci-cd.html#id4">בנייה של התיעוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ci-cd.html#id5">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../conversation-handlers.html">Conversation Handlers &amp; States</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#states">רשימת States (מבחר בפועל)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#save-flow">Save Flow (תרשים מצבים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#github-flow">GitHub Flow (תרשים מצבים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#handler">דוגמת Handler תמציתית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#id2">טבלת זרימות מלאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#id3">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#id4">דוגמאות קוד תמציתיות (ממשיות)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#save">Save – שלבים עיקריים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#github">GitHub – תפריט ושיחת העלאה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#backup">Backup – תפריט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#drive">Drive – תפריט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#id5">מוקשים נפוצים ופתרונות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#query-answer"><code class="docutils literal notranslate"><span class="pre">query.answer()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#message-is-not-modified">עריכת הודעות בבטחה – ”Message is not modified“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#filters">Filters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#persistent-data-context-user-data">Persistent data (<code class="docutils literal notranslate"><span class="pre">context.user_data</span></code>)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../conversation-handlers.html#id6">דוגמאות טסטים קצרות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#id7">Save – התחלה וזרימה בסיסית</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../conversation-handlers.html#github-upload-conv-handler">GitHub – upload_conv_handler</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">Troubleshooting Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#id1">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#id2">דיבוג מהיר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#id3">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../development.html">Development Workflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../development.html#handler">הוספת Handler חדש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../development.html#endpoint-webapp">הוספת Endpoint ל‑WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../development.html#schema">עדכון Schema במסד הנתונים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../development.html#id1">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../development/pre-commit.html">Pre-commit Hooks</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../development/pre-commit.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../development/pre-commit.html#id2">התקנה והרצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../development/pre-commit.html#hooks">Hooks פעילים (עיקריים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../development/pre-commit.html#id3">טיפים לפתרון בעיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../integrations.html">Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#github-api">GitHub API</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../integrations.html#gist">יצירת Gist (דוגמה)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#google-drive-oauth-flow">Google Drive (OAuth Flow)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#telegram-webhooks-vs-polling">Telegram Webhooks vs Polling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#github-scopes">GitHub – Scopes נדרשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#troubleshooting-github-rate-limits">Troubleshooting GitHub – Rate limits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#github-cli-gh">GitHub CLI (gh) – תקציר קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#repository-providers">Repository Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../integrations.html#best-practices-monorepos">Best Practices – מאגרים גדולים/Monorepos</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../repository-integrations.html">Repository Integrations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../repository-integrations.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../repository-integrations.html#id2">מצב תמיכה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../repository-integrations.html#id3">הערות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../security.html">Security Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../security.html#id1">סודות ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../security.html#id2">הצפנת טוקנים (דוגמה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../security.html#csrf-webapp">CSRF ב‑WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../security.html#rate-limiting">Rate Limiting (דוגמה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../security.html#id3">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../security.html#id4">אבטחת הודעות בטלגרם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../monitoring.html">Smart Observability v7 – Predictive Health &amp; Adaptive Feedback</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#grafana-telegram-webhook">חיבור Grafana → Telegram (Webhook)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#grafana-annotations">Grafana Annotations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#adaptive-thresholds">Adaptive Thresholds (ספים דינמיים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#predictive-health-v7">Predictive Health (v7)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#safe-mode">SAFE_MODE ודילוג על פעולות מנע</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#chatops">ChatOps</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#chatops-rate-limit">הרשאות ChatOps ו-Rate Limit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#grafana">Grafana – ייבוא דשבורד לדוגמה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#grafana-accuracy-prevention-panels">Grafana – Accuracy &amp; Prevention Panels</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#feedback-loop">תרשים זרימת Feedback Loop</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#autoremediation-v5">Auto‑Remediation (v5)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#incident-memory">Incident Memory</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#endpoints">Endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../monitoring.html#id4">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../git-lfs.html">Git LFS Integration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../git-lfs.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../git-lfs.html#lfs">מתי להשתמש ב‑LFS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../git-lfs.html#id2">התקנה בסיסית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../git-lfs.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../git-lfs.html#id3">מגבלות וגבולות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../git-lfs.html#id4">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../user/bookmarks.html">סימניות (Bookmarks)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#id1">מהן סימניות?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#id2">איך להוסיף סימנייה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#id3">פאנל הסימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#anchor">Anchor יציב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../user/sticky_notes.html">פתקים דביקים (Sticky Notes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#id1">מהם פתקים דביקים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#id2">איך מוסיפים ומנהלים פתקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#id3">עיגון יציב לעומת מיקום קבוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#id4">שילוב עם סימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#id5">מגבלות, פרטיות ואבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#id6">טיפים שימושיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/sticky_notes.html#troubleshooting">Troubleshooting קצר</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../user/my_collections.html">האוספים שלי (My Collections)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id1">מהם אוספים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id2">יכולות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id3">איך משתמשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id4">שילוב עם סימניות ופתקים דביקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id6">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#id2">מה זה עושה?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#id3">איפה הכפתור מופיע?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#id4">איך זה עובד (זרימה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#env">דרישות סביבתיות (ENV)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#id5">מגבלות והתנהגות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#id6">הודעות הצלחה/שגיאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#troubleshooting">Troubleshooting קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/share_code.html#id7">דוגמאות (טקסטואליות)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../user/github_browse.html">עיון בקוד GitHub (כולל חיפוש בשם קובץ)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../user/github_browse.html#id1">שורת כלים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/github_browse.html#id2">תוצאות חיפוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/github_browse.html#id3">ניווט ריפו</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../user/download_repo.html">הורדת ריפו</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../user/download_repo.html#id2">מה בדיוק מוריד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/download_repo.html#id3">מגבלות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/download_repo.html#id4">הודעות נפוצות</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">איכות וקונבנציות:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../quality/type-safety.html">📝 Type Hints – Best Practices</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#id1">אסטרטגיה: הקשחה הדרגתית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#id2">פרוטוקולים וסטאבים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#id3">דוגמאות מהקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#mypy">הגדרות MyPy</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#id4">מסלול מיגרציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#id5">הנחיות לסוכנים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quality/type-safety.html#id6">דוגמאות קצרות</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">WebApp:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/overview.html">המיני Web App (סקירה)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/overview.html#id1">מה נותן?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/overview.html#id2">כתובת והרשאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/overview.html#env">הגדרות ENV</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/overview.html#id3">קישורים ותמונות מסך</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/caching.html">Caching &amp; HTTP Validators (ETag / Last-Modified / 304)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#id1">למה זה חשוב?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#id2">עקרונות בסיס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#flask-werkzeug">מתכון: Flask + werkzeug</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#checklist">Checklist למימוש נכון</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#cache-control">כותרות Cache-Control</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#subresource-integrity-sri">Subresource Integrity (SRI)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#gotchas">Gotchas</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/api-reference.html">WebApp API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/api-reference.html#endpoints">Endpoints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/api-reference.html#authentication-flow">Authentication Flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/api-reference.html#response-schema-example">Response Schema Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/api-reference.html#errors">Errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/api-reference.html#id1">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/api-reference.html#files">מסנן ושדות קלט ל-<code class="docutils literal notranslate"><span class="pre">/files</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/api-reference.html#id2">טבלת פרמטרים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/api-reference.html#id3">דוגמאות בקשה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/api-reference.html#id4">דוגמאות תגובה</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/bulk-actions.html">Bulk actions (בחירה מרובה)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/bulk-actions.html#id1">סקירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/bulk-actions.html#endpoints">Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/bulk-actions.html#post-api-files-bulk-favorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-favorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/bulk-actions.html#post-api-files-bulk-unfavorite"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-unfavorite</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/bulk-actions.html#post-api-files-bulk-tag"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-tag</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/bulk-actions.html#post-api-files-create-zip"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-zip</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/bulk-actions.html#post-api-files-bulk-delete-soft-delete"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/bulk-delete</span></code> (Soft Delete)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/bulk-actions.html#post-api-files-create-share-link"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/files/create-share-link</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/bulk-actions.html#id2">שגיאות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/bulk-actions.html#id3">הערות למפתחים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/editor.html">⌨️ עורך קוד (WebApp Editor)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/editor.html#codemirror-isloading">טעינת CodeMirror ומצב isLoading</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/editor.html#api">שמירת העדפות משתמש – שני נתיבי API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/editor.html#id1">המלצות</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../observability.html">אובזרווביליות (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#id1">מטרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#id2">קהלי יעד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#id3">תצורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#backend-traces">בחירת Backend ל־Traces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#otlp">הגדרת OTLP לסביבות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#manual-instrumentation">אינסטרומנטציה ידנית (Manual Instrumentation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#jaeger">דוקר קומפוז – הפעלה מהירה עם Jaeger</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability.html#quick-start-jaeger">Quick start – אימות ספאנים ב־Jaeger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../rate-limiting.html">Rate Limiting</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#id1">מבוא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#shadow-mode">Shadow Mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#softwarning-80">Soft‑Warning (80%)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#admin-bypass">Admin Bypass</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#monitoring">Monitoring</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../rate-limiting.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/guidelines.html">📊 הנחיות Observability ואירועים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/guidelines.html#id1">תבנית אירוע/לוג – שדות חובה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/guidelines.html#fail-open">עקרון Fail-Open</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/guidelines.html#id2">הנחיות טיפול בשגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/guidelines.html#request-id">קורלציה עם request_id</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/guidelines.html#id3">סטנדרטים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../logging_schema.html">סכמת לוגים ואירועים (Observability)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../logging_schema.html#id1">שדות חובה בכל אירוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../logging_schema.html#id2">שדות מומלצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../logging_schema.html#id3">אירועים מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../logging_schema.html#sampling">דגימה (Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../logging_schema.html#id4">פרטיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../metrics.html">מדדים (Metrics)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#id1">נקודת קצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#id2">מטריקות קיימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#opentelemetry">מטריקות OpenTelemetry (אם זמינות)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#promql">דוגמאות PromQL</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#tracing-grafana">Tracing ב-Grafana</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#slo-sli">SLO/SLI לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../metrics.html#prometheus-alerting-rules">התראות (Prometheus alerting rules)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../alerts.html">התראות (Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../alerts.html#id1">חוקי התראה לדוגמה</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../sentry.html">Sentry</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../sentry.html#id1">הפעלה (משתני סביבה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../sentry.html#id2">עקרונות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../runbooks/logging-levels.html">שינוי רמות לוגים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/logging-levels.html#debug">מתי להעלות ל-DEBUG</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/logging-levels.html#id2">טיפ</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../runbooks/github_backup_restore.html">GitHub Backup &amp; Restore Runbook</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id2">דרישות מקדימות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#checkpoint-tag">יצירת נקודת גיבוי (Checkpoint Tag)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#zip">יצירת ארכיון ZIP</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id3">שחזור – בדיקה מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id4">שחזור מלא לפרודקשן (זהירות!)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id5">שחזור קבצים/תיקיות נקודתיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id6">טיפים ובטיחות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/github_backup_restore.html#id7">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../runbooks/slo.html">Runbooks – SLO Incidents</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/slo.html#higherrorrate">HighErrorRate</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/slo.html#sloavailabilitybreach-99-9">SLOAvailabilityBreach (זמינות &lt; 99.9%)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/slo.html#slolatencyp95breach-p95-0-5s">SLOLatencyP95Breach (P95 &gt; 0.5s)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../runbooks/slo.html#id1">דשבורד</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">ChatOps</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/overview.html">ChatOps – סקירה כללית</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/overview.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/overview.html#id2">קישורים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#status">/status</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#errors">/errors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/playbooks.html#p95-latency">p95 Latency עלה מעל הסף</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/playbooks.html#error-rate-1">Error Rate &gt; 1%</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/playbooks.html#memory-usage">Memory Usage מטפס</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/playbooks.html#id1">שירות חיצוני איטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/playbooks.html#repeated-incident-15">Repeated Incident תחת 15 דק«</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/permissions.html">הרשאות ו-Rate Limit</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/troubleshooting.html">פתרון תקלות (FAQ)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/faq.html">שאלות נפוצות</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">סוכני AI:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ai-agents/guide.html">🤖 מדריך לסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-agents/guide.html#id1">נקודת פתיחה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-agents/guide.html#id2">מבנה הפרויקט (בקצרה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-agents/guide.html#id3">הוספת פיצ’רים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-agents/guide.html#id4">סקריפטים חשובים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-agents/guide.html#id5">מפת דרכים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ai-agents/guide.html#github-issues-chatops">GitHub Issues ו-ChatOps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../agents/rate-limiting.html">🚦 מערכת Rate Limiting לסוכני AI ולווב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#shadow-mode">אסטרטגיה – Shadow Mode תחילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id1">משתני סביבה וקונפיג</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id2">אינטגרציה – בוט טלגרם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#flask-webapp">אינטגרציה – Flask/WebApp</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id3">החרגות חשובות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#prometheus">ניטור ומדדים (Prometheus)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id4">אבטחה והגנות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#pydantic-settings">קונפיגורציה (Pydantic Settings)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id5">תקלות נפוצות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../agents/rate-limiting.html#id6">קישורים</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Observability – Advanced</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/events_catalog.html">קטלוג אירועים קנוניים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/events_catalog.html#github">GitHub</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/events_catalog.html#db">DB</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/events_catalog.html#web-share">Web/Share</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/events_catalog.html#alerts">Alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/events_catalog.html#repo-analyzer">Repo Analyzer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/events_catalog.html#business">Business</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/error_codes.html">מילון קודי שגיאה (Error Codes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/error_codes.html#id1">דוגמאות מיפוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/error_codes.html#id2">הנחיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/metrics_promql.html">שאילתות PromQL שימושיות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/metrics_promql.html#latency">זמן תגובה (Latency)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/metrics_promql.html#id1">שיעור שגיאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/metrics_promql.html#id2">אירועי ביזנס</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/alerts_playbook.html">Playbook קצר להתראות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/alerts_playbook.html#id1">זרימה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/alerts_playbook.html#id2">קישורים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/alerts_playbook.html#id3">דגשים</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Code Keeper Bot</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">monitoring.silences</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>הראה קוד מקור ל monitoring.silences</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Mongo-backed alert silences for ChatOps.</span>
+
+<span class="sd">Goals:</span>
+<span class="sd">- Fail-open: never raise; return safe defaults</span>
+<span class="sd">- Lazy init with env-only config (avoid global config import cycles)</span>
+<span class="sd">- TTL on until_ts so expired silences auto-clean</span>
+<span class="sd">- Active flag to allow manual unsilence before TTL</span>
+
+<span class="sd">ENV:</span>
+<span class="sd">- ALERTS_DB_ENABLED or METRICS_DB_ENABLED: enable DB access</span>
+<span class="sd">- MONGODB_URL, DATABASE_NAME</span>
+<span class="sd">- ALERTS_SILENCES_COLLECTION (default: alerts_silences)</span>
+<span class="sd">- SILENCE_MAX_DAYS (default: 7)</span>
+<span class="sd">- SILENCES_MAX_ACTIVE (default: 50)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span><span class="p">,</span> <span class="n">timezone</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">uuid</span>
+
+
+<span class="k">def</span> <span class="nf">_is_true</span><span class="p">(</span><span class="n">val</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">val</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span> <span class="s2">&quot;yes&quot;</span><span class="p">,</span> <span class="s2">&quot;on&quot;</span><span class="p">}</span>
+
+
+<span class="k">def</span> <span class="nf">_enabled</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;DISABLE_DB&quot;</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">return</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;ALERTS_DB_ENABLED&quot;</span><span class="p">))</span> <span class="ow">or</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;METRICS_DB_ENABLED&quot;</span><span class="p">))</span>
+
+
+<span class="n">_client</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+<span class="n">_collection</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+<span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<span class="k">def</span> <span class="nf">_get_collection</span><span class="p">():</span>  <span class="c1"># pragma: no cover</span>
+    <span class="k">global</span> <span class="n">_client</span><span class="p">,</span> <span class="n">_collection</span><span class="p">,</span> <span class="n">_init_failed</span>
+    <span class="k">if</span> <span class="n">_collection</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">_init_failed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_collection</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_enabled</span><span class="p">():</span>
+        <span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">pymongo</span> <span class="kn">import</span> <span class="n">MongoClient</span><span class="p">,</span> <span class="n">ASCENDING</span>  <span class="c1"># type: ignore</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">mongo_url</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;MONGODB_URL&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">mongo_url</span><span class="p">:</span>
+            <span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">db_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;DATABASE_NAME&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;code_keeper_bot&quot;</span>
+        <span class="n">coll_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;ALERTS_SILENCES_COLLECTION&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;alerts_silences&quot;</span>
+        <span class="n">_client</span> <span class="o">=</span> <span class="n">MongoClient</span><span class="p">(</span>
+            <span class="n">mongo_url</span><span class="p">,</span>
+            <span class="n">maxPoolSize</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+            <span class="n">minPoolSize</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">serverSelectionTimeoutMS</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+            <span class="n">socketTimeoutMS</span><span class="o">=</span><span class="mi">5000</span><span class="p">,</span>
+            <span class="n">connectTimeoutMS</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+            <span class="n">retryWrites</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">retryReads</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">tz_aware</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">db</span> <span class="o">=</span> <span class="n">_client</span><span class="p">[</span><span class="n">db_name</span><span class="p">]</span>
+        <span class="n">_collection</span> <span class="o">=</span> <span class="n">db</span><span class="p">[</span><span class="n">coll_name</span><span class="p">]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_client</span><span class="o">.</span><span class="n">admin</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;ping&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c1"># Indexes: TTL on until_ts, plus pattern and active</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_collection</span><span class="o">.</span><span class="n">create_index</span><span class="p">([(</span><span class="s2">&quot;until_ts&quot;</span><span class="p">,</span> <span class="n">ASCENDING</span><span class="p">)],</span> <span class="n">expireAfterSeconds</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_collection</span><span class="o">.</span><span class="n">create_index</span><span class="p">([(</span><span class="s2">&quot;pattern&quot;</span><span class="p">,</span> <span class="n">ASCENDING</span><span class="p">)])</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_collection</span><span class="o">.</span><span class="n">create_index</span><span class="p">([(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="n">ASCENDING</span><span class="p">)])</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_collection</span><span class="o">.</span><span class="n">create_index</span><span class="p">([(</span><span class="s2">&quot;severity&quot;</span><span class="p">,</span> <span class="n">ASCENDING</span><span class="p">)])</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">return</span> <span class="n">_collection</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="parse_duration_to_seconds">
+<a class="viewcode-back" href="../../api/monitoring.silences.html#monitoring.silences.parse_duration_to_seconds">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">parse_duration_to_seconds</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">max_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse duration like &quot;30s&quot;, &quot;5m&quot;, &quot;2h&quot;, &quot;3d&quot; to seconds, bounded by max_days.</span>
+<span class="sd">    Returns None on invalid.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="p">(</span><span class="n">text</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">s</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\s*(\d+)\s*([smhd])\s*&quot;</span><span class="p">,</span> <span class="n">s</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">match</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">num</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="n">unit</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">unit</span> <span class="o">==</span> <span class="s2">&quot;s&quot;</span><span class="p">:</span>
+            <span class="n">seconds</span> <span class="o">=</span> <span class="n">num</span>
+        <span class="k">elif</span> <span class="n">unit</span> <span class="o">==</span> <span class="s2">&quot;m&quot;</span><span class="p">:</span>
+            <span class="n">seconds</span> <span class="o">=</span> <span class="n">num</span> <span class="o">*</span> <span class="mi">60</span>
+        <span class="k">elif</span> <span class="n">unit</span> <span class="o">==</span> <span class="s2">&quot;h&quot;</span><span class="p">:</span>
+            <span class="n">seconds</span> <span class="o">=</span> <span class="n">num</span> <span class="o">*</span> <span class="mi">3600</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">seconds</span> <span class="o">=</span> <span class="n">num</span> <span class="o">*</span> <span class="mi">86400</span>
+        <span class="n">max_seconds</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">max_days</span> <span class="ow">or</span> <span class="mi">7</span><span class="p">))</span> <span class="o">*</span> <span class="mi">86400</span>
+        <span class="k">if</span> <span class="n">seconds</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">seconds</span> <span class="o">&gt;</span> <span class="n">max_seconds</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">max_seconds</span>
+        <span class="k">return</span> <span class="n">seconds</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<span class="k">def</span> <span class="nf">_now_dt</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">datetime</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_max_active_allowed</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SILENCES_MAX_ACTIVE&quot;</span><span class="p">,</span> <span class="s2">&quot;50&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">50</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">50</span>
+
+
+<div class="viewcode-block" id="create_silence">
+<a class="viewcode-back" href="../../api/monitoring.silences.html#monitoring.silences.create_silence">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">create_silence</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">duration_seconds</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">created_by</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="n">severity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">force</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a new active silence. Returns stored document on success, else None.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_enabled</span><span class="p">()</span> <span class="ow">or</span> <span class="n">_init_failed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">patt</span> <span class="o">=</span> <span class="p">(</span><span class="n">pattern</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">patt</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="c1"># Guard against overly broad patterns unless forced</span>
+        <span class="n">dangerous</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;.*&quot;</span><span class="p">,</span> <span class="s2">&quot;^.*$&quot;</span><span class="p">,</span> <span class="s2">&quot;(?s).*&quot;</span><span class="p">,</span> <span class="s2">&quot;.+&quot;</span><span class="p">,</span> <span class="s2">&quot;^.+$&quot;</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">patt</span> <span class="ow">in</span> <span class="n">dangerous</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">force</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="n">coll</span> <span class="o">=</span> <span class="n">_get_collection</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">coll</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="c1"># Limit active silences</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">_now_dt</span><span class="p">()</span>
+        <span class="n">active_count</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">coll</span><span class="o">.</span><span class="n">count_documents</span><span class="p">({</span><span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;until_ts&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$gte&quot;</span><span class="p">:</span> <span class="n">now</span><span class="p">}}))</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">if</span> <span class="n">active_count</span> <span class="o">&gt;=</span> <span class="n">_max_active_allowed</span><span class="p">():</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="c1"># Normalize severity</span>
+        <span class="n">sev</span> <span class="o">=</span> <span class="p">(</span><span class="n">severity</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span>
+        <span class="c1"># Bound duration to SILENCE_MAX_DAYS</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">max_days</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;SILENCE_MAX_DAYS&quot;</span><span class="p">,</span> <span class="s2">&quot;7&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">7</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">max_days</span> <span class="o">=</span> <span class="mi">7</span>
+        <span class="n">max_seconds</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_days</span><span class="p">)</span> <span class="o">*</span> <span class="mi">86400</span>
+        <span class="n">dur</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">duration_seconds</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">dur</span> <span class="o">&gt;</span> <span class="n">max_seconds</span><span class="p">:</span>
+            <span class="n">dur</span> <span class="o">=</span> <span class="n">max_seconds</span>
+        <span class="n">until</span> <span class="o">=</span> <span class="n">now</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="n">dur</span><span class="p">)</span>
+        <span class="n">doc</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">,</span>
+            <span class="s2">&quot;pattern&quot;</span><span class="p">:</span> <span class="n">patt</span><span class="p">,</span>
+            <span class="s2">&quot;severity&quot;</span><span class="p">:</span> <span class="n">sev</span><span class="p">,</span>
+            <span class="s2">&quot;created_by&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">created_by</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">),</span>
+            <span class="s2">&quot;created_at&quot;</span><span class="p">:</span> <span class="n">now</span><span class="p">,</span>
+            <span class="s2">&quot;until_ts&quot;</span><span class="p">:</span> <span class="n">until</span><span class="p">,</span>
+            <span class="s2">&quot;reason&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">reason</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">),</span>
+            <span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">coll</span><span class="o">.</span><span class="n">insert_one</span><span class="p">(</span><span class="n">doc</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">return</span> <span class="n">doc</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<span class="k">def</span> <span class="nf">_iter_active</span><span class="p">(</span><span class="n">coll</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">_now_dt</span><span class="p">()</span>
+        <span class="n">cursor</span> <span class="o">=</span> <span class="n">coll</span><span class="o">.</span><span class="n">find</span><span class="p">({</span><span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;until_ts&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;$gte&quot;</span><span class="p">:</span> <span class="n">now</span><span class="p">}})</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="s2">&quot;until_ts&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">cursor</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+
+<div class="viewcode-block" id="is_silenced">
+<a class="viewcode-back" href="../../api/monitoring.silences.html#monitoring.silences.is_silenced">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">is_silenced</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">severity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return (True, silence_doc) if any active silence matches alert name and optional severity.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_enabled</span><span class="p">()</span> <span class="ow">or</span> <span class="n">_init_failed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">coll</span> <span class="o">=</span> <span class="n">_get_collection</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">coll</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="n">items</span> <span class="o">=</span> <span class="n">_iter_active</span><span class="p">(</span><span class="n">coll</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="n">sev_in</span> <span class="o">=</span> <span class="p">(</span><span class="n">severity</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">it</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">patt</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">it</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pattern&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+                <span class="n">sev</span> <span class="o">=</span> <span class="p">(</span><span class="n">it</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;severity&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">sev</span> <span class="ow">and</span> <span class="n">sev_in</span> <span class="ow">and</span> <span class="n">sev</span> <span class="o">!=</span> <span class="n">sev_in</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="k">if</span> <span class="n">patt</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">patt</span><span class="p">,</span> <span class="n">name</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">):</span>
+                            <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="n">it</span>
+                    <span class="k">except</span> <span class="n">re</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+                        <span class="c1"># Invalid regex in DB: fall back to exact compare</span>
+                        <span class="k">if</span> <span class="n">patt</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="p">(</span><span class="n">name</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                            <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="n">it</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">continue</span>
+        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="unsilence_by_id">
+<a class="viewcode-back" href="../../api/monitoring.silences.html#monitoring.silences.unsilence_by_id">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">unsilence_by_id</span><span class="p">(</span><span class="n">silence_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_enabled</span><span class="p">()</span> <span class="ow">or</span> <span class="n">_init_failed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">coll</span> <span class="o">=</span> <span class="n">_get_collection</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">coll</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">coll</span><span class="o">.</span><span class="n">update_one</span><span class="p">({</span><span class="s2">&quot;_id&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">silence_id</span><span class="p">)},</span> <span class="p">{</span><span class="s2">&quot;$set&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}})</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="s2">&quot;modified_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="s2">&quot;matched_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+
+
+<div class="viewcode-block" id="unsilence_by_pattern">
+<a class="viewcode-back" href="../../api/monitoring.silences.html#monitoring.silences.unsilence_by_pattern">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">unsilence_by_pattern</span><span class="p">(</span><span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_enabled</span><span class="p">()</span> <span class="ow">or</span> <span class="n">_init_failed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">coll</span> <span class="o">=</span> <span class="n">_get_collection</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">coll</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">coll</span><span class="o">.</span><span class="n">update_many</span><span class="p">({</span><span class="s2">&quot;pattern&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">pattern</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">),</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span> <span class="p">{</span><span class="s2">&quot;$set&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}})</span>  <span class="c1"># type: ignore[attr-defined]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="s2">&quot;modified_count&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="mi">0</span></div>
+
+
+
+<div class="viewcode-block" id="list_active_silences">
+<a class="viewcode-back" href="../../api/monitoring.silences.html#monitoring.silences.list_active_silences">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">list_active_silences</span><span class="p">(</span><span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_enabled</span><span class="p">()</span> <span class="ow">or</span> <span class="n">_init_failed</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">coll</span> <span class="o">=</span> <span class="n">_get_collection</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">coll</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="n">items</span> <span class="o">=</span> <span class="n">_iter_active</span><span class="p">(</span><span class="n">coll</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">items</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="n">items</span><span class="p">[:</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">limit</span> <span class="ow">or</span> <span class="mi">50</span><span class="p">))]</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Development Team.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

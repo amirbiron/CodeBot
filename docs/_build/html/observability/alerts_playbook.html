@@ -207,13 +207,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../performance-scaling.html">ביצועים והרחבה (Performance &amp; Scaling)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#pagination">עימוד (Pagination)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../performance-scaling.html#id2"></a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -234,6 +231,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/database.html#submodules">Submodules</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmark.html">database.bookmark module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.bookmarks_manager.html">database.bookmarks_manager module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/database.collections_manager.html">database.collections_manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.manager.html">database.manager module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.models.html">database.models module</a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/database.repository.html">database.repository module</a></li>
@@ -466,6 +464,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../api/http_sync.html">http_sync module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/i18n.html">i18n package</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/i18n.html#submodules">Submodules</a></li>
 </ul>
@@ -554,6 +557,10 @@
 <li class="toctree-l3"><a class="reference internal" href="../api/remediation_manager.html">remediation_manager module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.handle_critical_incident"><code class="docutils literal notranslate"><span class="pre">handle_critical_incident()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/remediation_manager.html#remediation_manager.get_incidents"><code class="docutils literal notranslate"><span class="pre">get_incidents()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../api/reminders.html">reminders package</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/reminders.html#submodules">Submodules</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/repo_analyzer.html">repo_analyzer module</a><ul>
@@ -942,10 +949,13 @@
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id2">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
@@ -965,6 +975,27 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id4">מגבלות, אבטחה ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/bookmarks.html#id5">הערות שימושיות</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/sticky_notes.html">פתקים דביקים (Sticky Notes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id1">מהם פתקים דביקים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id2">איך מוסיפים ומנהלים פתקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id3">עיגון יציב לעומת מיקום קבוע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id4">שילוב עם סימניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id5">מגבלות, פרטיות ואבטחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#id6">טיפים שימושיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/sticky_notes.html#troubleshooting">Troubleshooting קצר</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../user/my_collections.html">האוספים שלי (My Collections)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id1">מהם אוספים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id2">יכולות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id3">איך משתמשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id4">שילוב עם סימניות ופתקים דביקים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#api">API קצר (למפתחים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id6">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1170,6 +1201,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
 </ul>
 </li>
