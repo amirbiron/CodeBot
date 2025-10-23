@@ -75,6 +75,41 @@ def test_list_recent_alert_ids_prefers_alert_id(monkeypatch):
     # Fallback to _key when alert_id missing
     assert any(i.startswith("h:") for i in ids)
 
+
+def test_list_recent_alert_ids_handles_errors(monkeypatch):
+    # pymongo import ok, but collection returns cursor that raises
+    class _BadCursor:
+        def sort(self, *a, **k):
+            return self
+        def limit(self, *a, **k):
+            return self
+        def __iter__(self):
+            raise RuntimeError("boom")
+
+    class _BadColl:
+        def find(self, *a, **k):
+            return _BadCursor()
+
+    class _BadDB:
+        def __getitem__(self, name):
+            return _BadColl()
+
+    class _Client:
+        def __init__(self, *a, **k):
+            self.admin = types.SimpleNamespace(command=lambda *a, **k: {"ok": 1})
+        def __getitem__(self, name):
+            return _BadDB()
+
+    monkeypatch.setitem(sys.modules, "pymongo", types.SimpleNamespace(MongoClient=_Client, ASCENDING=1))
+    # Enable
+    monkeypatch.setenv("ALERTS_DB_ENABLED", "1")
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017")
+
+    mod = _import_fresh(monkeypatch)
+    ids = mod.list_recent_alert_ids(limit=10)
+    # Fail-open: return [] on errors
+    assert ids == []
+
 import importlib
 import sys
 import types

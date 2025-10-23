@@ -220,6 +220,79 @@ async def test_observe_verbose_db_unavailable_fallback_and_sinks(monkeypatch):
     assert "Cooling:" in out and "active (~123s left)" in out and "latency_seconds: idle" in out
     assert "Sinks:" in out and "telegram: 1/2 ok" in out and "grafana: 1/1 ok" in out
 
+
+@pytest.mark.asyncio
+async def test_observe_verbose_db_only_counts(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v", "source=db", "window=1h"])
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    # Stub count_alerts_since to return deterministic values
+    fake_mod = types.SimpleNamespace(count_alerts_since=lambda since: (7, 3))
+    sys.modules["monitoring.alerts_storage"] = fake_mod
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Alerts (DB, window=1h): total=7 | critical=3" in out
+    # Memory section should not appear for source=db
+    assert "Alerts (Memory," not in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_no_cooling_no_sinks_no_errors(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v"])  # default source=all, window=24h
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    _seed_alert_manager()
+
+    # Remove cooldown snapshot and dispatch log
+    import alert_manager as am
+
+    if "get_cooldown_snapshot" in dir(am):
+        monkeypatch.delattr(am, "get_cooldown_snapshot", raising=False)
+    monkeypatch.setattr(am, "get_dispatch_log", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x"))), False)
+
+    # No recent errors
+    import observability as obs
+
+    monkeypatch.setattr(obs, "get_recent_errors", lambda limit=5: [], raising=False)
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Observability – verbose" in out
+    assert "Cooling:" not in out
+    assert "Sinks:" not in out
+    assert "Recent Errors" not in out
+
+
+@pytest.mark.asyncio
+async def test_observe_verbose_metrics_error_defaults_to_zero(monkeypatch):
+    app = types.SimpleNamespace(add_handler=lambda *a, **k: None)
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["-v"])  # default window
+
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    # Make metrics raise to hit exception paths
+    import alert_manager as am
+
+    monkeypatch.setattr(am, "get_current_error_rate_percent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")), raising=False)
+    monkeypatch.setattr(am, "get_current_avg_latency_seconds", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")), raising=False)
+    monkeypatch.setattr(am, "get_thresholds_snapshot", lambda: (_ for _ in ()).throw(RuntimeError("x")), raising=False)
+
+    await adv.observe_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "curr=0.00%" in out
+    assert "curr=0.000s" in out
+
 import importlib
 import os
 import sys
