@@ -67,7 +67,6 @@ def _get_collection():  # pragma: no cover
             retryWrites=True,
             retryReads=True,
             tz_aware=True,
-            tzinfo=timezone.utc,
         )
         db = _client[db_name]
         _collection = db[coll_name]
