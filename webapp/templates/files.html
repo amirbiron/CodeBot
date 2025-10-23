@@ -208,9 +208,7 @@
                 <i class="fas fa-tasks"></i>
                 בחירה מרובה
             </button>
-            <button id="bulkAddToCollectionBtn" type="button" class="btn btn-secondary btn-icon" title="הוסף לאוסף" onclick="window.bulkAddSelectedToCollection && window.bulkAddSelectedToCollection()" style="min-width:0;">
-                📁 הוסף לאוסף
-            </button>
+            
         </div>
     </div>
 </div>
@@ -360,6 +358,10 @@
             <button class="btn btn-danger btn-icon" type="button" onclick="bulkDeleteFiles()" title="מחק">
                 <i class="fas fa-trash"></i>
                 מחק
+            </button>
+            <button class="btn btn-icon" type="button" onclick="window.bulkAddSelectedToCollection && window.bulkAddSelectedToCollection()" title="הוסף לאוסף">
+                <i class="fas fa-folder-plus"></i>
+                הוסף לאוסף
             </button>
             <button class="btn btn-secondary btn-icon" type="button" onclick="clearSelection()" title="נקה בחירה">
                 <i class="fas fa-times"></i>

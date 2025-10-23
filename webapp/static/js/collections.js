@@ -97,9 +97,9 @@
       const data = await api.getItems(cid, 1, 50);
       if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
       const items = (data.items||[]).map(it => `
-        <div class="collection-item" draggable="true" data-source="${it.source}" data-name="${it.file_name}">
-          <span class="drag">⋮⋮</span>
-          <a class="file" href="#" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
+        <div class="collection-item" data-source="${it.source}" data-name="${it.file_name}">
+          <span class="drag" draggable="true">⋮⋮</span>
+          <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
           <button class="remove" title="הסר">✕</button>
         </div>
       `).join('');
@@ -139,8 +139,11 @@
   function wireDnd(container, cid){
     let dragEl = null;
     container.querySelectorAll('.collection-item').forEach(el => {
-      el.addEventListener('dragstart', () => { dragEl = el; el.classList.add('dragging'); });
-      el.addEventListener('dragend', async () => {
+      const handle = el.querySelector('.drag');
+      if (!handle) return;
+      // גרירה מותרת רק מהידית כדי לא לחסום לחיצות על שם הקובץ
+      handle.addEventListener('dragstart', () => { dragEl = el; el.classList.add('dragging'); });
+      handle.addEventListener('dragend', async () => {
         el.classList.remove('dragging');
         // שליחת סדר חדש לשרת
         const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
@@ -152,6 +155,7 @@
     });
     container.addEventListener('dragover', (e) => {
       e.preventDefault();
+      if (!dragEl) return;
       const after = getDragAfterElement(container, e.clientY);
       if (after == null) {
         container.appendChild(dragEl);
