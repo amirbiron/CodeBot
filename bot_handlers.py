@@ -168,6 +168,20 @@ class AdvancedBotHandlers:
             "incidents",
             chat_allowlist_required(admin_required(self.incidents_command))
         ))
+
+        # ChatOps – Silences management
+        self.application.add_handler(CommandHandler(
+            "silence",
+            chat_allowlist_required(admin_required(limit_sensitive("silence")(self.silence_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "unsilence",
+            chat_allowlist_required(admin_required(limit_sensitive("unsilence")(self.unsilence_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "silences",
+            chat_allowlist_required(admin_required(self.silences_command))
+        ))
         
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
@@ -1039,6 +1053,110 @@ class AdvancedBotHandlers:
             await update.message.reply_text("\n".join(lines))
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/predict: {html.escape(str(e))}")
+
+    async def silence_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]
+
+        Examples:
+        /silence "High Latency" 2h reason=maintenance
+        /silence High.* 30m severity=critical
+        """
+        try:
+            # Admins only handled by decorator; parse args
+            args = context.args or []
+            if len(args) < 2:
+                await update.message.reply_text("ℹ️ שימוש: /silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]")
+                return
+            pattern = str(args[0])
+            duration_str = str(args[1])
+            reason_tokens = list(args[2:])
+            force = any(t.strip().lower() == "--force" for t in reason_tokens)
+            reason_tokens = [t for t in reason_tokens if t.strip().lower() != "--force"]
+            severity = None
+            # extract severity=xxx token if present
+            new_tokens = []
+            for t in reason_tokens:
+                if t.lower().startswith("severity="):
+                    severity = t.split("=", 1)[1].strip() or None
+                else:
+                    new_tokens.append(t)
+            reason_tokens = new_tokens
+            reason = " ".join(reason_tokens).strip()
+
+            # duration parse & bounds
+            try:
+                from monitoring.silences import parse_duration_to_seconds  # type: ignore
+                max_days_env = int(os.getenv("SILENCE_MAX_DAYS", "7") or 7)
+                dur_sec = parse_duration_to_seconds(duration_str, max_days=max_days_env)  # type: ignore[arg-type]
+            except Exception:
+                dur_sec = None
+            if not dur_sec:
+                await update.message.reply_text("❌ משך זמן לא תקין. השתמש ב-5m/1h/2d וכד'.")
+                return
+
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+
+            # Prevent dangerous patterns unless force
+            if not force:
+                dangerous = {".*", "^.*$", "(?s).*", ".+", "^.+$"}
+                if pattern.strip() in dangerous:
+                    await update.message.reply_text("⛔ תבנית מסוכנת. הוסף --force אם אתה בטוח.")
+                    return
+
+            from monitoring import silences as sil  # type: ignore
+            doc = sil.create_silence(pattern=pattern, duration_seconds=int(dur_sec), created_by=user_id, reason=reason, severity=severity, force=bool(force))
+            if not doc:
+                await update.message.reply_text("❌ יצירת השתקה נכשלה (בדוק מגבלות/תבנית/DB)")
+                return
+            sid = str(doc.get("_id") or "")
+            until = str(doc.get("until_ts") or "")
+            await update.message.reply_text(f"✅ הושתק: id={sid}\nפג ב- {until}")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/silence: {html.escape(str(e))}")
+
+    async def unsilence_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/unsilence <id|pattern> – disable active silence(s)."""
+        try:
+            args = context.args or []
+            if not args:
+                await update.message.reply_text("ℹ️ שימוש: /unsilence <id|pattern>")
+                return
+            target = " ".join(args).strip()
+            from monitoring import silences as sil  # type: ignore
+            # Heuristic: id is 32-hex (uuid hex); else treat as pattern
+            import re as _re
+            if _re.fullmatch(r"[0-9a-fA-F]{32}", target):
+                ok = sil.unsilence_by_id(target)
+                await update.message.reply_text("✅ בוטלה השתקה" if ok else "ℹ️ לא נמצאה/עודכנה השתקה")
+                return
+            else:
+                n = sil.unsilence_by_pattern(target)
+                await update.message.reply_text(f"✅ בוטלו {n} השתקות" if n > 0 else "ℹ️ לא נמצאו השתקות פעילות לתבנית")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/unsilence: {html.escape(str(e))}")
+
+    async def silences_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/silences – list active silences."""
+        try:
+            from monitoring import silences as sil  # type: ignore
+            items = sil.list_active_silences(limit=50) or []
+            if not items:
+                await update.message.reply_text("ℹ️ אין השתקות פעילות")
+                return
+            lines = ["🔕 השתקות פעילות:"]
+            for it in items:
+                sid = str(it.get("_id") or "")
+                patt = str(it.get("pattern") or "")
+                sev = str(it.get("severity") or "") or "-"
+                until = str(it.get("until_ts") or "")
+                reason = str(it.get("reason") or "")
+                lines.append(f"• {sid} | pattern={patt} | severity={sev} | until={until} | reason={reason}")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/silences: {html.escape(str(e))}")
 
     async def accuracy_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/accuracy — דיוק חיזוי נוכחי וסטטיסטיקת מניעה."""

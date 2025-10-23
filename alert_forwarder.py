@@ -80,7 +80,7 @@ def _post_to_telegram(text: str) -> None:
 
 
 def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
-    """Forward a list of Alertmanager alerts to configured sinks and log them."""
+    """Forward a list of Alertmanager alerts to configured sinks, respecting silences (best-effort)."""
     if not isinstance(alerts, list):
         return
     for alert in alerts:
@@ -99,6 +99,27 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
                 status=str(alert.get("status") or ""),
                 handled=False,
             )
+            # Silence enforcement (pattern on name). Fail-open on errors.
+            try:
+                from monitoring.silences import is_silenced  # type: ignore
+                name = str(labels.get("alertname") or labels.get("name") or "")
+                sev_norm = str(severity or "").lower() or None
+                silenced, silence_info = is_silenced(name=name, severity=sev_norm)
+            except Exception:
+                silenced, silence_info = False, None
+            if silenced:
+                try:
+                    emit_event(
+                        "alert_silenced",
+                        severity="info",
+                        name=str(labels.get("alertname") or labels.get("name") or ""),
+                        silence_id=str((silence_info or {}).get("_id") or ""),
+                        until=str((silence_info or {}).get("until_ts") or ""),
+                    )
+                except Exception:
+                    pass
+                # Do not send to sinks
+                continue
             _post_to_slack(text)
             _post_to_telegram(text)
         except Exception:
