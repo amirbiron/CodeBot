@@ -16,6 +16,9 @@
           {% if cdn_sri and cdn_sri.fa %}integrity="{{ cdn_sri.fa }}" crossorigin="anonymous" referrerpolicy="no-referrer"{% endif %} />
     <meta id="uiFont" data-scale="{{ '%.2f' % ui_font_scale }}">
 
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+
     <style>
         :root {
             --primary: #667eea;
