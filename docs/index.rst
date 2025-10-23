@@ -84,6 +84,7 @@ Code Keeper Bot - תיעוד API
 
    webapp/overview
    webapp/caching
+   webapp/advanced-caching
    webapp/static-checklist
    webapp/api-reference
    webapp/bulk-actions
@@ -110,6 +111,7 @@ Code Keeper Bot - תיעוד API
 
    chatops/overview
    chatops/commands
+   chatops/observe
    chatops/playbooks
    chatops/permissions
    chatops/troubleshooting
