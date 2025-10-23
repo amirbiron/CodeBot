@@ -374,12 +374,6 @@ def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) 
     This works independently of internal_alerts/alert_forwarder for resilience.
     """
     alert_id = str(uuid.uuid4())
-    # Persist to shared alerts storage (best-effort)
-    try:
-        from monitoring.alerts_storage import record_alert  # type: ignore
-        record_alert(alert_id=alert_id, name=name, severity="critical", summary=summary, source="alert_manager")
-    except Exception:
-        pass
     text = _format_text(name=name, severity="CRITICAL", summary=summary, details=details)
     # Persist to MongoDB (best-effort) for unified 24h counts across services
     try:
