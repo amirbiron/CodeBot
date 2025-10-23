@@ -54,6 +54,16 @@
     overflow: auto;
 }
 
+/* תגובות inline – בגרסה זו נוסיף רק hook דק לשילוב עתידי */
+.code-comment-badge { display:inline-block; background:#ffd54f; color:#000; border-radius:999px; padding:0 6px; font-size:12px; margin-left:6px; cursor:pointer; }
+.comments-panel { position: fixed; top: 100px; right: 20px; width: 320px; max-height: calc(100vh - 140px); background: rgba(255,255,255,0.98); border: 1px solid rgba(0,0,0,0.1); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); overflow: hidden; display: none; z-index: 901; }
+.comments-panel .cp-header { display:flex; align-items:center; justify-content:space-between; padding:.6rem .8rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; }
+.comments-panel .cp-list { overflow-y:auto; max-height: calc(100vh - 190px); padding: .5rem; }
+.cp-item { padding:.5rem; border-bottom:1px solid rgba(0,0,0,0.08); cursor:pointer; border-radius:8px; }
+.cp-item:hover { background: rgba(102, 126, 234, 0.06); }
+.cp-empty { padding:.75rem; opacity:.7; }
+.comments-toggle { position: fixed; right: 20px; top: 60px; z-index: 901; }
+
 /* מיכל הקוד יתפרס לרוחב מלא */
 .code-container {
     width: 100%;
@@ -374,6 +384,20 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>
     {% endif %}
 </div>
+
+{% if file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md') %}
+  {# לתצוגת קוד אין חיבור ל-comments בשלב זה; ב-Markdown אנחנו מציגים ב-md_preview #}
+{% else %}
+  {# Hook עתידי להצגת פאנל הערות גם לתצוגת קוד #}
+  <button class="btn btn-secondary btn-icon comments-toggle" id="commentsToggleCode" style="display:none">💬 הערות</button>
+  <div class="comments-panel" id="commentsPanelCode" aria-label="הערות לקוד" style="display:none">
+    <div class="cp-header">
+      <div>הערות (בקרוב)</div>
+      <button class="btn btn-secondary btn-icon" onclick="(function(){var p=document.getElementById('commentsPanelCode'); if(p) p.style.display='none';})()">✕</button>
+    </div>
+    <div class="cp-list"><div class="cp-empty">תמיכה בהערות לשורות קוד תתווסף בשלב הבא</div></div>
+  </div>
+{% endif %}
 
 {# Bookmarks snippet: כפתור ופאנל סימניות #}
 {% include 'bookmarks_snippet.html' %}
