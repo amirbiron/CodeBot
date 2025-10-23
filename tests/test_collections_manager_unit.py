@@ -223,3 +223,110 @@ def test_add_remove_reorder_and_counts(mgr: CollectionsManager):
 def test_get_collection_invalid_id(mgr: CollectionsManager):
     bad = mgr.get_collection(99, "not-an-id")
     assert not bad["ok"]
+
+
+def test_icon_color_whitelist_and_slug_uniqueness(mgr: CollectionsManager):
+    # invalid icon/color -> empty strings
+    res = mgr.create_collection(user_id=10, name="Guides", description="", mode="manual", icon="<x>", color="invalid")
+    assert res["ok"]
+    col = res["collection"]
+    assert col["icon"] == "" and col["color"] == ""
+
+    # slug uniqueness when names collide
+    res2 = mgr.create_collection(10, name="Guides")
+    assert res2["ok"]
+    c1 = col["slug"]
+    c2 = res2["collection"]["slug"]
+    assert c1 != c2
+
+
+def test_update_mode_rules_and_validation(mgr: CollectionsManager):
+    c = mgr.create_collection(11, "Smart")["collection"]
+    # invalid mode
+    bad = mgr.update_collection(11, c["id"], mode="invalid")
+    assert not bad["ok"]
+    # valid smart mode and rules
+    good = mgr.update_collection(11, c["id"], mode="smart", rules={"query": "http", "programming_language": "python", "tags": ["retry"], "repo_tag": "repo:core"})
+    assert good["ok"] and good["collection"]["mode"] == "smart"
+
+
+def test_add_items_duplicate_updates_note_and_pinned(mgr: CollectionsManager):
+    c = mgr.create_collection(12, "Work")["collection"]
+    cid = c["id"]
+    r1 = mgr.add_items(12, cid, [{"source": "regular", "file_name": "a.py", "note": "n1", "pinned": False}])
+    assert r1["ok"]
+    # add duplicate -> should update note/pinned (path goes through update_one)
+    r2 = mgr.add_items(12, cid, [{"source": "regular", "file_name": "a.py", "note": "n2", "pinned": True}])
+    assert r2["ok"]
+    # verify by reading raw fake storage
+    found = None
+    for d in mgr.items.docs:  # type: ignore[attr-defined]
+        if d.get("collection_id") == ObjectId(cid) and d.get("file_name") == "a.py":
+            found = d
+            break
+    assert found and found.get("note") == "n2" and bool(found.get("pinned")) is True
+
+
+def test_remove_items_invalid_and_then_ok(mgr: CollectionsManager):
+    c = mgr.create_collection(13, "R")["collection"]
+    # invalid body
+    bad = mgr.remove_items(13, c["id"], [])
+    assert not bad["ok"]
+    mgr.add_items(13, c["id"], [{"source": "regular", "file_name": "x.py"}])
+    ok = mgr.remove_items(13, c["id"], [{"source": "regular", "file_name": "x.py"}])
+    assert ok["ok"] and ok["deleted"] == 1
+
+
+def test_reorder_invalid_then_valid_and_sorting_mixed(monkeypatch, mgr: CollectionsManager):
+    c = mgr.create_collection(14, "Mix")["collection"]
+    cid = c["id"]
+    # invalid
+    bad = mgr.reorder_items(14, cid, [])
+    assert not bad["ok"]
+    # add manual items (one pinned)
+    mgr.add_items(14, cid, [
+        {"source": "regular", "file_name": "a.py"},
+        {"source": "regular", "file_name": "b.py", "pinned": True},
+        {"source": "regular", "file_name": "c.py"},
+    ])
+    # reorder sets custom_order: c -> 1, a -> 2, b -> 3
+    mgr.reorder_items(14, cid, [
+        {"source": "regular", "file_name": "c.py"},
+        {"source": "regular", "file_name": "a.py"},
+        {"source": "regular", "file_name": "b.py"},
+    ])
+    # switch mode to mixed and stub compute_smart_items to include duplicate and new file
+    mgr.update_collection(14, cid, mode="mixed")
+    monkeypatch.setattr(mgr, "compute_smart_items", lambda user_id, rules, limit=200: [
+        {"source": "regular", "file_name": "a.py"},  # duplicate -> must be deduped
+        {"source": "regular", "file_name": "d.py"},
+    ])
+    out = mgr.get_collection_items(14, cid, page=1, per_page=10, include_computed=True)
+    assert out["ok"]
+    names = [it["file_name"] for it in out["items"]]
+    # expected order: pinned(b) first, then c(custom_order=1), a(custom_order=2), d(no custom)
+    assert names[:4] == ["b.py", "c.py", "a.py", "d.py"]
+
+
+def test_list_pagination(mgr: CollectionsManager):
+    # ensure many
+    for i in range(15):
+        mgr.create_collection(15, f"P{i}")
+    p1 = mgr.list_collections(15, limit=5, skip=0)
+    p2 = mgr.list_collections(15, limit=5, skip=5)
+    p3 = mgr.list_collections(15, limit=5, skip=10)
+    assert p1["ok"] and p2["ok"] and p3["ok"]
+    assert len(p1["collections"]) == 5 and len(p2["collections"]) == 5 and len(p3["collections"]) == 5
+
+
+def test_add_remove_reorder_invalid_ids(mgr: CollectionsManager):
+    # invalid ObjectId
+    assert not mgr.add_items(99, "bad-id", [{"source":"regular","file_name":"x"}])["ok"]
+    assert not mgr.remove_items(99, "bad-id", [{"source":"regular","file_name":"x"}])["ok"]
+    assert not mgr.reorder_items(99, "bad-id", [{"source":"regular","file_name":"x"}])["ok"]
+
+
+def test_update_without_fields(mgr: CollectionsManager):
+    c = mgr.create_collection(16, "U")["collection"]
+    res = mgr.update_collection(16, c["id"])  # no fields
+    assert not res["ok"]
