@@ -92,6 +92,7 @@ class ReminderHandlers:
                 title=title,
                 remind_at=remind_time.astimezone(timezone.utc),
                 user_timezone=self._get_user_timezone(update.effective_user.id),
+                chat_id=update.effective_chat.id if update.effective_chat else None,
             )
             success, result = self.db.create_reminder(reminder)
             if success:
@@ -211,6 +212,7 @@ class ReminderHandlers:
             description=description,
             remind_at=self._ensure_user_data(context).get("reminder_time"),
             user_timezone=self._get_user_timezone(update.effective_user.id),
+            chat_id=(update.effective_chat.id if update.effective_chat else (update.callback_query.message.chat_id if update.callback_query else None)),
         )
         ok, result = self.db.create_reminder(reminder)
         if ok:
@@ -247,6 +249,83 @@ class ReminderHandlers:
             pass
         return ConversationHandler.END
 
+    async def handle_edit_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle free-text input after user selects an edit action.
+
+        Supports editing: title, description, remind_at.
+        """
+        text = (getattr(update.message, "text", "") or "").strip()
+        ud = self._ensure_user_data(context)
+        rid = ud.get("edit_rid")
+        field = ud.get("edit_field")
+        if not rid or not field:
+            return  # Not in edit flow
+
+        user_id = update.effective_user.id
+        user_tz = self._get_user_timezone(user_id)
+
+        try:
+            if field == "title":
+                if not text:
+                    await update.message.reply_text("❌ כותרת לא יכולה להיות ריקה. נסה שוב:")
+                    return
+                if len(text) > ReminderConfig.max_title_length or not self.validator.validate_text(text):
+                    await update.message.reply_text("❌ כותרת לא תקינה. נסה שוב:")
+                    return
+                ok = self.db.update_reminder(user_id, rid, {"title": text})
+                if ok:
+                    await update.message.reply_text("✅ הכותרת עודכנה בהצלחה")
+                else:
+                    await update.message.reply_text("❌ שגיאה בעדכון הכותרת")
+            elif field == "description":
+                # Support clearing via /skip or /clear
+                if text in {"/skip", "/clear"}:
+                    text = ""
+                if len(text) > ReminderConfig.max_description_length or not self.validator.validate_text(text):
+                    await update.message.reply_text("❌ תיאור לא תקין. נסה שוב:")
+                    return
+                ok = self.db.update_reminder(user_id, rid, {"description": text})
+                if ok:
+                    await update.message.reply_text("✅ התיאור עודכן בהצלחה")
+                else:
+                    await update.message.reply_text("❌ שגיאה בעדכון התיאור")
+            elif field == "remind_at":
+                new_dt = parse_time(text, user_tz)
+                if not new_dt:
+                    await update.message.reply_text("❌ לא הבנתי את הזמן. דוגמאות: tomorrow 10:00 / 15:30 / 2025-12-25 14:00")
+                    return
+                new_utc = new_dt.astimezone(timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                if new_utc <= now_utc:
+                    await update.message.reply_text("❌ הזמן חייב להיות בעתיד. נסה שוב:")
+                    return
+                ok = self.db.update_reminder(user_id, rid, {"remind_at": new_utc, "is_sent": False})
+                if ok:
+                    # Reschedule job
+                    for job in context.job_queue.get_jobs_by_name(f"reminder_{rid}"):
+                        job.schedule_removal()
+                    doc = self.db.reminders_collection.find_one({"reminder_id": rid})
+                    if doc:
+                        target_chat = doc.get("chat_id") or (update.effective_chat.id if update.effective_chat else None)
+                        context.job_queue.run_once(
+                            self._send_reminder_notification,
+                            when=new_utc,
+                            name=f"reminder_{rid}",
+                            data=doc,
+                            chat_id=target_chat,
+                            user_id=user_id,
+                        )
+                    await update.message.reply_text("✅ הזמן עודכן והתזכורת תוזמנה מחדש")
+                else:
+                    await update.message.reply_text("❌ שגיאה בעדכון הזמן")
+            else:
+                await update.message.reply_text("❌ שדה עריכה לא נתמך")
+                return
+        finally:
+            # Clear edit state on success or after response
+            ud.pop("edit_rid", None)
+            ud.pop("edit_field", None)
+
     async def reminders_list(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         page = int(context.args[0]) if context.args else 1
@@ -267,10 +346,19 @@ class ReminderHandlers:
                     ts = str(t)
             except Exception:
                 ts = str(t)
+            rid = str(rem.get("reminder_id", ""))
             message += f"{i}. **{title}**\n   ⏳ {ts}\n\n"
-        keyboard = [
-            [InlineKeyboardButton("➕ תזכורת חדשה", callback_data="rem_new")]
-        ]
+        # For simplicity in list view, provide generic actions via a menu callback
+        keyboard = []
+        for rem in reminders:
+            rid = str(rem.get("reminder_id", ""))
+            row = [
+                InlineKeyboardButton("✅", callback_data=f"rem_complete_{rid}"),
+                InlineKeyboardButton("✏️", callback_data=f"rem_edit_{rid}"),
+                InlineKeyboardButton("🗑️", callback_data=f"rem_delete_{rid}"),
+            ]
+            keyboard.append(row)
+        keyboard.append([InlineKeyboardButton("➕ תזכורת חדשה", callback_data="rem_new")])
         await update.message.reply_text(message, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.MARKDOWN)
 
     async def reminder_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -327,6 +415,31 @@ class ReminderHandlers:
                 await query.edit_message_text("🗑️ התזכורת נמחקה")
             else:
                 await query.answer("❌ שגיאה במחיקה", show_alert=True)
+        elif data.startswith("rem_edit_"):
+            rid = data.replace("rem_edit_", "")
+            # Ask what to edit
+            kb = [
+                [InlineKeyboardButton("כותרת", callback_data=f"edit_title_{rid}")],
+                [InlineKeyboardButton("תיאור", callback_data=f"edit_desc_{rid}")],
+                [InlineKeyboardButton("זמן", callback_data=f"edit_time_{rid}")],
+                [InlineKeyboardButton("⬅️ חזרה", callback_data="rem_list")],
+            ]
+            await query.edit_message_text("מה תרצה לערוך?", reply_markup=InlineKeyboardMarkup(kb))
+        elif data.startswith("edit_title_"):
+            rid = data.replace("edit_title_", "")
+            self._ensure_user_data(context)["edit_rid"] = rid
+            self._ensure_user_data(context)["edit_field"] = "title"
+            await query.edit_message_text("📝 הקלד כותרת חדשה:")
+        elif data.startswith("edit_desc_"):
+            rid = data.replace("edit_desc_", "")
+            self._ensure_user_data(context)["edit_rid"] = rid
+            self._ensure_user_data(context)["edit_field"] = "description"
+            await query.edit_message_text("📝 הקלד תיאור חדש (או ריק להסרה):")
+        elif data.startswith("edit_time_"):
+            rid = data.replace("edit_time_", "")
+            self._ensure_user_data(context)["edit_rid"] = rid
+            self._ensure_user_data(context)["edit_field"] = "remind_at"
+            await query.edit_message_text("⏰ הקלד זמן חדש (tomorrow 10:00 / 15:30 / 2025-12-25 14:00):")
         elif data == "rem_list":
             # reload list
             fake_update = Update(update.update_id, message=None, callback_query=query)
@@ -379,6 +492,23 @@ def setup_reminder_handlers(application):
 
     # Register conversation handlers with default/high priority group.
     # Generic text handlers should use a larger group (e.g., 1) to avoid intercepting conversation messages.
-    application.add_handler(conv, group=0)
+    # Place conversation before generic text handlers (e.g., group -1) to avoid interception
+    application.add_handler(conv, group=-2)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
-    application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_)"))
+    application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_|edit_)"))
+    # Text handler for edit input; narrow filter to avoid intercepting unrelated messages
+    def _in_edit_flow(message, context):  # type: ignore[no-redef]
+        try:
+            ud = context.user_data  # type: ignore[attr-defined]
+            return isinstance(ud, dict) and ud.get("edit_rid") and ud.get("edit_field")
+        except Exception:
+            return False
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handlers.handle_edit_input,
+            filter_callback=_in_edit_flow,  # processed only when in edit flow
+        ),
+        group=1,
+    )
