@@ -28,6 +28,7 @@ def _install_dummy_config(monkeypatch):
         RATE_LIMIT_PER_MINUTE=30,
         RATE_LIMIT_SHADOW_MODE=False,
         MAINTENANCE_MODE=False,
+        DOCUMENTATION_URL="https://example.com/docs",
     )
     monkeypatch.setitem(sys.modules, "config", types.SimpleNamespace(config=cfg))
 
@@ -63,6 +64,8 @@ def _install_drive_menu_stub(monkeypatch):
             return None
         async def handle_text(self, *a, **k):
             return None
+        async def menu(self, *a, **k):
+            return None
 
     menu_mod.GoogleDriveMenuHandler = GoogleDriveMenuHandler
 
@@ -80,6 +83,8 @@ def _install_github_menu_handler_stubs(monkeypatch):
     # Stub pieces used by github_menu_handler to avoid heavy deps
     gm = types.ModuleType("github_menu_handler")
     class GitHubMenuHandler:
+        def __init__(self):
+            self.user_sessions = {}
         def github_menu_command(self, *a, **k):
             return None
         def handle_menu_callback(self, *a, **k):
@@ -90,6 +95,8 @@ def _install_github_menu_handler_stubs(monkeypatch):
             return None
         async def handle_inline_query(self, *a, **k):
             return None
+        def get_user_session(self, user_id):
+            return self.user_sessions.setdefault(user_id, {})
     gm.GitHubMenuHandler = GitHubMenuHandler
     # Provide constants used by main
     gm.FILE_UPLOAD = object()
@@ -102,9 +109,13 @@ class _CaptureApp:
     def __init__(self):
         self.handlers = []
         self.bot_data = {}
-
+        self._error_handlers = []
     def add_handler(self, *args, **kwargs):
         self.handlers.append((args, kwargs))
+    def add_error_handler(self, *args, **kwargs):
+        self._error_handlers.append((args, kwargs))
+    def remove_handler(self, *args, **kwargs):
+        return None
 
 
 class _ConvStub:
@@ -160,13 +171,10 @@ async def test_main_upload_cancel_fallback_returns_end(monkeypatch):
         def run_once(self, *a, **k):
             return None
 
-    class _App:
+    class _App(_CaptureApp):
         def __init__(self):
-            self.handlers = []
-            self.bot_data = {}
+            super().__init__()
             self.job_queue = _JobQ()
-        def add_handler(self, *args, **kwargs):
-            self.handlers.append((args, kwargs))
 
     class _Builder:
         def token(self, *_a, **_k):
