@@ -4947,7 +4947,7 @@ def api_comments_list():
         file = _get_file_for_user_or_404(dbh, user_id, file_id)
         if not file:
             return jsonify({'ok': False, 'error': 'not_found'}), 404
-        threads = list(dbh.comment_threads.find({'file_id': ObjectId(file_id)}).sort('last_activity_at', DESCENDING if 'DESCENDING' in globals() else -1))
+        threads = list(dbh.comment_threads.find({'file_id': ObjectId(file_id)}).sort('last_activity_at', DESCENDING))
         out = []
         for t in threads:
             item = _thread_to_public(t)
@@ -4962,15 +4962,9 @@ def api_comments_list():
 
 @app.route('/api/comments', methods=['POST'])
 @login_required
+@_search_limiter_decorator("30 per minute")
 def api_comments_create():
     try:
-        # Rate limit (best-effort, IP-based if limiter is configured)
-        try:
-            if limiter is not None:
-                # apply a dynamic limit
-                limiter.limit("30 per minute")(lambda: None)()
-        except Exception:
-            pass
         user_id = int(session.get('user_id'))
         payload = request.get_json(silent=True) or {}
         file_id = str(payload.get('file_id') or '').strip()
@@ -5026,14 +5020,9 @@ def api_comments_create():
 
 @app.route('/api/comments/<thread_id>/reply', methods=['POST'])
 @login_required
+@_search_limiter_decorator("30 per minute")
 def api_comments_reply(thread_id: str):
     try:
-        # Rate limit (best-effort)
-        try:
-            if limiter is not None:
-                limiter.limit("30 per minute")(lambda: None)()
-        except Exception:
-            pass
         user_id = int(session.get('user_id'))
         payload = request.get_json(silent=True) or {}
         text = str(payload.get('text') or '').strip()
@@ -5173,18 +5162,29 @@ def api_comments_message_delete(message_id: str):
             return jsonify({'ok': False, 'error': 'not_found'}), 404
         if int(msg.get('user_id') or -1) != user_id and not is_admin(user_id):
             return jsonify({'ok': False, 'error': 'forbidden'}), 403
-        # decrement replies_count if this is not the first message in thread
         thr_id = msg.get('thread_id')
+        # קבע אם ההודעה היא הראשונה בשרשור והאם היא היחידה
+        try:
+            total = dbh.comment_messages.count_documents({'thread_id': thr_id})
+        except Exception:
+            total = 1
+        try:
+            first = dbh.comment_messages.find_one({'thread_id': thr_id}, sort=[('created_at', 1)])
+        except Exception:
+            first = None
+        # מחיקת ההודעה
         dbh.comment_messages.delete_one({'_id': msg['_id']})
         try:
-            # First message deletion implies deleting the thread entirely; prevent that
-            first = dbh.comment_messages.find_one({'thread_id': thr_id}, sort=[('created_at', 1)])
-            if not first:
-                # no messages remain; delete thread
+            if total <= 1:
+                # לא נשארו הודעות – מחק את השרשור כולו
                 dbh.comment_threads.delete_one({'_id': thr_id})
             else:
-                # if deleted was not first message, reduce replies_count by 1
-                dbh.comment_threads.update_one({'_id': thr_id}, {'$inc': {'replies_count': -1}})
+                if first and first.get('_id') == msg.get('_id'):
+                    # נמחקה הודעת הפתיחה; replies_count אינו משתנה כי אינו סופר אותה
+                    pass
+                else:
+                    # נמחקה תגובה; הקטן replies_count ב-1
+                    dbh.comment_threads.update_one({'_id': thr_id}, {'$inc': {'replies_count': -1}})
         except Exception:
             pass
         return jsonify({'ok': True})
