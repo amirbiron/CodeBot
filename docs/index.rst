@@ -67,6 +67,8 @@ Code Keeper Bot - תיעוד API
    monitoring
    git-lfs
    user/bookmarks
+   user/sticky_notes
+   user/my_collections
    user/share_code
    user/github_browse
    user/download_repo

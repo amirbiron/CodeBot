@@ -28,6 +28,7 @@ workspace
    github_menu_handler
    github_upload_fix
    handlers
+   http_sync
    i18n
    integrations
    integrations_github_monitor
@@ -46,6 +47,7 @@ workspace
    refactor_handlers
    refactoring_engine
    remediation_manager
+   reminders
    repo_analyzer
    search_engine
    secret_manager
