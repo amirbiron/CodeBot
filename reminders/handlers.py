@@ -344,6 +344,9 @@ def setup_reminder_handlers(application):
     validator = ReminderValidator()
     handlers = ReminderHandlers(db, validator)
 
+    async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        return ConversationHandler.END
+
     conv = ConversationHandler(
         entry_points=[CommandHandler("remind", handlers.remind_command)],
         states={
@@ -351,7 +354,7 @@ def setup_reminder_handlers(application):
             REMINDER_TIME: [CallbackQueryHandler(handlers.receive_time, pattern=r"^time_"), MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.receive_time)],
             REMINDER_DESCRIPTION: [CallbackQueryHandler(handlers.receive_description, pattern=r"^desc_"), MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.receive_description)],
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     application.add_handler(conv)
