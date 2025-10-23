@@ -233,6 +233,12 @@ class BotConfig(BaseSettings):
         default=True, description="Normalize hidden characters before save"
     )
 
+    # Feature flags
+    FEATURE_MY_COLLECTIONS: bool = Field(
+        default=True,
+        description="Enable 'My Collections' feature (API/UI)"
+    )
+
     # Pagination defaults
     SEARCH_PAGE_SIZE: int = Field(
         default=200,

@@ -91,6 +91,10 @@ class DynamicTTL:
         "bookmarks": 120,          # 2 דקות
         "tags": 300,               # 5 דקות
         "settings": 60,            # דקה
+        # Collections (My Collections) – TTL מומלץ לפי המדריך
+        "collections_list": 60,
+        "collections_detail": 30,
+        "collections_items": 30,
     }
 
     @classmethod
