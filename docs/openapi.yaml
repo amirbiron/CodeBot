@@ -247,7 +247,16 @@ components:
           maximum: 1.6
         theme:
           type: string
-          enum: [classic, ocean, forest]
+          enum: [classic, ocean, forest, high-contrast]
+        editor:
+          type: string
+          enum: [simple, codemirror]
+        work_state:
+          type: object
+          properties:
+            last_url: { type: string, description: "Internal path like /files?..." }
+            scroll_y: { type: integer, minimum: 0, maximum: 10000000 }
+            timestamp: { type: string }
     UiPrefsResponse:
       type: object
       properties:
@@ -257,6 +266,10 @@ components:
           type: number
         theme:
           type: string
+        editor:
+          type: string
+        work_state:
+          type: object
 paths:
   /api/bookmarks/{file_id}/toggle:
     post:
@@ -599,7 +612,7 @@ paths:
 
   /api/ui_prefs:
     post:
-      summary: Save UI preferences (font scale, theme)
+      summary: Save UI preferences (font_scale, theme, editor, work_state)
       security:
         - cookieAuth: []
       requestBody:

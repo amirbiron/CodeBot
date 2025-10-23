@@ -879,6 +879,46 @@
     {% if uptime_widget_id and uptime_widget_script_url %}
     <script src="{{ uptime_widget_script_url }}" data-id="{{ uptime_widget_id }}" async></script>
     {% endif %}
+    <script>
+        // Work State persistence: שמירת URL וגלילה לשחזור מצב עבודה
+        (function workStatePersistence(){
+            const STORAGE_KEY = 'work_state';
+            function loadState(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_) { return {}; } }
+            function saveState(s){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s || {})); } catch(_) {} }
+            function postServer(s){ try { fetch('/api/ui_prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_state: s }) }).catch(()=>{}); } catch(_) {}
+            }
+            try {
+                const st = loadState();
+                const current = window.location.pathname + window.location.search + window.location.hash;
+                if (st && typeof st.last_url === 'string' && st.last_url.startsWith('/') && st.last_url !== current) {
+                    window.location.replace(st.last_url);
+                    return;
+                }
+                if (typeof st.scroll_y === 'number' && st.scroll_y > 0) {
+                    window.requestAnimationFrame(() => { try { window.scrollTo({ top: st.scroll_y, behavior: 'instant' }); } catch(_) { window.scrollTo(0, st.scroll_y); } });
+                }
+            } catch(_) {}
+            let lastSent = 0, t;
+            function schedulePersist(){
+                clearTimeout(t);
+                t = setTimeout(() => {
+                    const s = {
+                        last_url: window.location.pathname + window.location.search + window.location.hash,
+                        scroll_y: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
+                        timestamp: new Date().toISOString(),
+                    };
+                    saveState(s);
+                    const now = Date.now();
+                    if (now - lastSent > 3000) { lastSent = now; postServer(s); }
+                }, 250);
+            }
+            window.addEventListener('scroll', schedulePersist, { passive: true });
+            window.addEventListener('popstate', schedulePersist);
+            window.addEventListener('hashchange', schedulePersist);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') schedulePersist(); });
+            document.addEventListener('click', (e) => { try { const a = e.target.closest('a[href]'); if (!a) return; const href = a.getAttribute('href') || ''; if (href.startsWith('/')) schedulePersist(); } catch(_) {} });
+        })();
+    </script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
     {% block extra_js %}{% endblock %}
