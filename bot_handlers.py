@@ -1292,29 +1292,90 @@ class AdvancedBotHandlers:
             if len(args) < 2:
                 await update.message.reply_text("ℹ️ שימוש: /silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]")
                 return
-            pattern = str(args[0])
-            duration_str = str(args[1])
-            reason_tokens = list(args[2:])
-            force = any(t.strip().lower() == "--force" for t in reason_tokens)
-            reason_tokens = [t for t in reason_tokens if t.strip().lower() != "--force"]
+            # Robust parsing to support quoted patterns and flexible token order:
+            # - duration token recognized anywhere by ^\d+[smhd]$
+            # - pattern is tokens before duration (after removing options)
+            # - reason is tokens after duration (excluding options)
+            # - supports pattern with spaces and surrounding quotes
+            import re as _re
+
+            # Identify options first (do not let them leak into pattern/reason)
+            raw_tokens: list[str] = [str(t) for t in args]
+            force = any(t.strip().lower() == "--force" for t in raw_tokens)
             severity = None
-            # extract severity=xxx token if present
-            new_tokens = []
-            for t in reason_tokens:
-                if t.lower().startswith("severity="):
+            for t in raw_tokens:
+                if t.strip().lower().startswith("severity="):
                     severity = t.split("=", 1)[1].strip() or None
-                else:
-                    new_tokens.append(t)
-            reason_tokens = new_tokens
+
+            # Find duration token index by regex (prefer the LAST match to allow reasons that look like durations earlier)
+            dur_idx = -1
+            for i, tok in enumerate(raw_tokens):
+                if _re.fullmatch(r"\s*\d+\s*[smhdSMHD]\s*", tok or ""):
+                    dur_idx = i
+            if dur_idx == -1:
+                await update.message.reply_text("❌ משך זמן לא תקין. השתמש ב-5m/1h/2d וכד'.")
+                return
+
+            # Build pattern from tokens before duration, excluding options
+            pattern_tokens = []
+            for tok in raw_tokens[:dur_idx]:
+                low = tok.strip().lower()
+                if low == "--force" or low.startswith("severity="):
+                    continue
+                pattern_tokens.append(tok)
+            pattern = " ".join(pattern_tokens).strip()
+            # Strip symmetrical quotes around the entire pattern, if present
+            if (pattern.startswith('"') and pattern.endswith('"')) or (pattern.startswith("'") and pattern.endswith("'")):
+                pattern = pattern[1:-1].strip()
+
+            duration_str = str(raw_tokens[dur_idx]).strip()
+
+            # Build reason from tokens after duration, excluding options
+            reason_tokens: list[str] = []
+            for tok in raw_tokens[dur_idx + 1:]:
+                low = tok.strip().lower()
+                if low == "--force" or low.startswith("severity="):
+                    continue
+                reason_tokens.append(tok)
             reason = " ".join(reason_tokens).strip()
 
+            if not pattern:
+                await update.message.reply_text("ℹ️ שימוש: /silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]")
+                return
+
             # duration parse & bounds
+            dur_sec = None
+            max_days_env = 7
+            try:
+                max_days_env = int(os.getenv("SILENCE_MAX_DAYS", "7") or 7)
+            except Exception:
+                max_days_env = 7
+            # Try canonical parser if available
             try:
                 from monitoring.silences import parse_duration_to_seconds  # type: ignore
-                max_days_env = int(os.getenv("SILENCE_MAX_DAYS", "7") or 7)
                 dur_sec = parse_duration_to_seconds(duration_str, max_days=max_days_env)  # type: ignore[arg-type]
             except Exception:
                 dur_sec = None
+            # Fallback local parse to work even if monitoring.silences is monkeypatched
+            if not dur_sec:
+                try:
+                    m = _re.fullmatch(r"\s*(\d+)\s*([smhdSMHD])\s*", duration_str or "")
+                    if m:
+                        num = int(m.group(1))
+                        unit = m.group(2).lower()
+                        if unit == "s":
+                            seconds = num
+                        elif unit == "m":
+                            seconds = num * 60
+                        elif unit == "h":
+                            seconds = num * 3600
+                        else:
+                            seconds = num * 86400
+                        max_seconds = max(1, int(max_days_env or 7)) * 86400
+                        if seconds > 0:
+                            dur_sec = seconds if seconds <= max_seconds else max_seconds
+                except Exception:
+                    dur_sec = None
             if not dur_sec:
                 await update.message.reply_text("❌ משך זמן לא תקין. השתמש ב-5m/1h/2d וכד'.")
                 return
