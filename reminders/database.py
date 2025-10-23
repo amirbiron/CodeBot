@@ -159,6 +159,37 @@ class RemindersDB:
         r = self.reminders_collection.delete_one({"user_id": int(user_id), "reminder_id": reminder_id})
         return bool(getattr(r, "deleted_count", 0) > 0)
 
+    def update_reminder(self, user_id: int, reminder_id: str, updates: Dict[str, Any]) -> bool:
+        """Update allowed fields of a reminder.
+
+        Allowed fields include: title, description, remind_at, recurrence,
+        recurrence_pattern, tags, priority, reminder_type, is_sent.
+
+        Returns True if a document was modified.
+        """
+        if not isinstance(updates, dict) or not updates:
+            return False
+        safe_fields = {
+            "title",
+            "description",
+            "remind_at",
+            "recurrence",
+            "recurrence_pattern",
+            "tags",
+            "priority",
+            "reminder_type",
+            "is_sent",
+        }
+        to_set: Dict[str, Any] = {k: v for k, v in updates.items() if k in safe_fields}
+        if not to_set:
+            return False
+        to_set["updated_at"] = datetime.now(timezone.utc)
+        r = self.reminders_collection.update_one(
+            {"user_id": int(user_id), "reminder_id": reminder_id},
+            {"$set": to_set},
+        )
+        return bool(getattr(r, "modified_count", 0) > 0)
+
     def _update_stats(self, user_id: int | None, action: str) -> None:
         try:
             self.reminders_stats.update_one(
