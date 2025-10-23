@@ -362,15 +362,15 @@ class CollectionsManager:
                     )
             except Exception:
                 continue
-        # עדכון מונים באוסף
+        # עדכון מונים באוסף — תחום למשתמש ולאוסף כדי למנוע פגיעה צולבת
         try:
             agg = list(self.items.aggregate([
-                {"$match": {"collection_id": cid}},
+                {"$match": {"collection_id": cid, "user_id": int(user_id)}},
                 {"$group": {"_id": None, "cnt": {"$sum": 1}, "pinned": {"$sum": {"$cond": ["$pinned", 1, 0]}}}},
             ]))
             items_count = int((agg[0].get("cnt") if agg else 0) or 0)
             pinned_count = int((agg[0].get("pinned") if agg else 0) or 0)
-            self.collections.update_one({"_id": cid}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
+            self.collections.update_one({"_id": cid, "user_id": int(user_id)}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
         except Exception:
             pass
         emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(ok_count))
@@ -396,15 +396,15 @@ class CollectionsManager:
                 deleted += int(getattr(res, "deleted_count", 0) or 0)
             except Exception:
                 continue
-        # עדכון מונים
+        # עדכון מונים — תחום למשתמש
         try:
             agg = list(self.items.aggregate([
-                {"$match": {"collection_id": cid}},
+                {"$match": {"collection_id": cid, "user_id": int(user_id)}},
                 {"$group": {"_id": None, "cnt": {"$sum": 1}, "pinned": {"$sum": {"$cond": ["$pinned", 1, 0]}}}},
             ]))
             items_count = int((agg[0].get("cnt") if agg else 0) or 0)
             pinned_count = int((agg[0].get("pinned") if agg else 0) or 0)
-            self.collections.update_one({"_id": cid}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
+            self.collections.update_one({"_id": cid, "user_id": int(user_id)}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
         except Exception:
             pass
         emit_event("collections_items_remove", user_id=int(user_id), collection_id=str(collection_id), count=int(deleted))
