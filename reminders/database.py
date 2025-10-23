@@ -100,22 +100,28 @@ class RemindersDB:
         return items
 
     def mark_reminder_sent(self, reminder_id: str, success: bool = True, error: str | None = None) -> None:
-        upd: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
+        """Mark delivery attempt metadata.
+
+        Success path now only updates timestamps and preserves PENDING status so that
+        inline action buttons (complete/snooze/delete) remain functional. Completion
+        is performed explicitly by complete_reminder().
+        """
         if success:
-            upd.update({
-                "status": ReminderStatus.COMPLETED.value,
-                "completed_at": datetime.now(timezone.utc),
-            })
-            self.reminders_collection.update_one({"reminder_id": reminder_id}, {"$set": upd})
             try:
-                self._update_stats(None, "completed")
+                self.reminders_collection.update_one(
+                    {"reminder_id": reminder_id},
+                    {"$set": {"updated_at": datetime.now(timezone.utc), "is_sent": True}},
+                )
             except Exception:
                 pass
         else:
-            self.reminders_collection.update_one(
-                {"reminder_id": reminder_id},
-                {"$set": {"last_error": str(error or ""), "is_sent": False}, "$inc": {"retry_count": 1}},
-            )
+            try:
+                self.reminders_collection.update_one(
+                    {"reminder_id": reminder_id},
+                    {"$set": {"last_error": str(error or ""), "is_sent": False, "updated_at": datetime.now(timezone.utc)}, "$inc": {"retry_count": 1}},
+                )
+            except Exception:
+                pass
 
     def complete_reminder(self, user_id: int, reminder_id: str) -> bool:
         r = self.reminders_collection.update_one(

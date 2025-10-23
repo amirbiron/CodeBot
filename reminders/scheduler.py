@@ -79,6 +79,7 @@ class ReminderScheduler:
                 [InlineKeyboardButton("🗑️ מחק", callback_data=f"rem_delete_{reminder['reminder_id']}")],
             ]
             await self.application.bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            # Mark as sent (keep status pending for user interaction)
             self.db.mark_reminder_sent(str(reminder.get("reminder_id")), success=True)
         except Exception as e:
             logger.error(f"Send reminder error: {e}")
@@ -91,6 +92,12 @@ class ReminderScheduler:
         if description:
             msg += f"\n{description}\n"
         return msg
+
+    async def _check_recurring_reminders(self, context):  # pragma: no cover - simple delegation
+        try:
+            self.db.handle_recurring_reminders()
+        except Exception as e:
+            logger.error(f"Recurring reminders check failed: {e}")
 
 
 def setup_reminder_scheduler(application: Application):

@@ -121,36 +121,57 @@ class ReminderHandlers:
         return REMINDER_TIME
 
     async def receive_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        query = update.callback_query
-        await query.answer()
+        # Support both inline button selection (callback_query) and free text message for custom time
         user_tz = self._get_user_timezone(update.effective_user.id)
         now = datetime.now(ZoneInfo(user_tz))
-        if query.data == "time_1h":
-            remind_time = now + timedelta(hours=1)
-        elif query.data == "time_tomorrow_9":
-            remind_time = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-        elif query.data == "time_tomorrow_18":
-            remind_time = (now + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
-        elif query.data == "time_week":
-            remind_time = now + timedelta(weeks=1)
-        elif query.data == "time_custom":
-            await query.edit_message_text(
-                "⏰ הקלד זמן מותאם אישית (e.g. 15:30 / tomorrow 10:00 / 2025-12-25 14:00 / בעוד 3 שעות)"
-            )
-            return REMINDER_TIME
+
+        if update.callback_query:
+            query = update.callback_query
+            await query.answer()
+            data = query.data or ""
+            if data == "time_1h":
+                remind_time = now + timedelta(hours=1)
+            elif data == "time_tomorrow_9":
+                remind_time = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            elif data == "time_tomorrow_18":
+                remind_time = (now + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
+            elif data == "time_week":
+                remind_time = now + timedelta(weeks=1)
+            elif data == "time_custom":
+                await query.edit_message_text(
+                    "⏰ הקלד זמן מותאם אישית (e.g. 15:30 / tomorrow 10:00 / 2025-12-25 14:00 / בעוד 3 שעות)"
+                )
+                return REMINDER_TIME
+            else:
+                return REMINDER_TIME
         else:
-            return REMINDER_TIME
+            # Free-text custom time input
+            text = (update.message.text or "").strip()
+            remind_time = parse_time(text, user_tz)
+            if not remind_time:
+                await update.message.reply_text(
+                    "❌ לא הבנתי את הזמן. נסה שוב:\n(או /cancel לביטול)"
+                )
+                return REMINDER_TIME
 
         context.user_data["reminder_time"] = remind_time.astimezone(timezone.utc)
         keyboard = [
             [InlineKeyboardButton("ללא תיאור", callback_data="desc_skip")],
             [InlineKeyboardButton("הוסף תיאור", callback_data="desc_add")],
         ]
-        await query.edit_message_text(
-            f"📌 **{context.user_data['reminder_title']}**\n⏰ {remind_time.strftime('%d/%m/%Y %H:%M')}\n\nלהוסיף תיאור?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN,
-        )
+        msg_text = f"📌 **{context.user_data['reminder_title']}**\n⏰ {remind_time.strftime('%d/%m/%Y %H:%M')}\n\nלהוסיף תיאור?"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                msg_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await update.message.reply_text(
+                msg_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN,
+            )
         return REMINDER_DESCRIPTION
 
     async def receive_description(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
