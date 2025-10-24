@@ -485,6 +485,7 @@
             transition: all 0.25s ease;
             z-index: 1000;
             display: flex;
+            direction: ltr; /* שמירה על סדר פריטים משמאל לימין גם ב-RTL */
             gap: .25rem;
             padding: .4rem;
             max-width: calc(100vw - 24px); /* אין גלילה אופקית */
@@ -591,6 +592,7 @@
               position: absolute; top: 100%; right: 0; left: auto; transform: none;
               display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem;
               max-width: calc(100vw - 16px);
+              direction: ltr; /* במובייל גם, מניעת היפוך סדר ב-RTL */
             }
         }
 
