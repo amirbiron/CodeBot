@@ -1043,7 +1043,7 @@
         })();
     </script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
+    <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/collections.js') }}" defer></script>
     {% block extra_js %}{% endblock %}
 </body>

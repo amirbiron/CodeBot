@@ -1170,6 +1170,45 @@ def _metrics_after(resp):
     return resp
 
 
+# --- Default CSP for HTML pages (allows CodeMirror ESM + workers) ---
+@app.after_request
+def _add_default_csp(resp):
+    """Set a safe, permissive-enough CSP for HTML pages by default.
+
+    - Allows dynamic ESM imports from common CDNs used by the webapp
+    - Allows blob: for workers required by some CodeMirror features
+    - Keeps frame-ancestors restricted to self
+
+    Note: Route-specific responses that already set CSP (e.g. raw HTML preview)
+    remain authoritative; we only add this header if it's missing.
+    """
+    try:
+        if 'Content-Security-Policy' not in resp.headers:
+            content_type = resp.headers.get('Content-Type', '')
+            if isinstance(content_type, str) and 'text/html' in content_type:
+                resp.headers['Content-Security-Policy'] = (
+                    "default-src 'self'; "
+                    "base-uri 'self'; "
+                    "frame-ancestors 'self'; "
+                    # Scripts: allow our origin, inline (for small in-page helpers), blob workers, and ESM from CDNs
+                    "script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://esm.sh; "
+                    # Workers used by some CM6 language/tooling integrations
+                    "worker-src blob:; "
+                    # Styles: local + inline + Google Fonts CSS
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                    # Fonts: local + Google Fonts + data: (icons)
+                    "font-src 'self' https://fonts.gstatic.com data:; "
+                    # Images: local + data/blob (thumbnails, inline previews)
+                    "img-src 'self' data: blob:; "
+                    # XHR/fetch for ESM modules and assets
+                    "connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://esm.sh;"
+                )
+    except Exception:
+        # Never break responses due to header set failures
+        pass
+    return resp
+
+
 # === Alertmanager Webhook endpoint (optional integration) ===
 # מאפשר להפנות התראות מ-Alertmanager ישירות לבוט/טלגרם דרך alert_forwarder
 @app.route('/alertmanager/webhook', methods=['POST'])
