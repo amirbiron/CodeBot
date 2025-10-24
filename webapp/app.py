@@ -1191,7 +1191,7 @@ def _add_default_csp(resp):
                     "base-uri 'self'; "
                     "frame-ancestors 'self'; "
                     # Scripts: allow our origin, inline (for small in-page helpers), blob workers, and ESM from CDNs
-                    "script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://esm.sh; "
+                    "script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://telegram.org; "
                     # Workers used by some CM6 language/tooling integrations
                     "worker-src blob:; "
                     # Styles: local + inline + Google Fonts CSS
@@ -1199,9 +1199,11 @@ def _add_default_csp(resp):
                     # Fonts: local + Google Fonts + data: (icons)
                     "font-src 'self' https://fonts.gstatic.com data:; "
                     # Images: local + data/blob (thumbnails, inline previews)
-                    "img-src 'self' data: blob:; "
+                    "img-src 'self' data: blob: https://telegram.org; "
                     # XHR/fetch for ESM modules and assets
-                    "connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://esm.sh;"
+                    "connect-src 'self' https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://oauth.telegram.org https://telegram.org; "
+                    # Frames: allow Telegram OAuth widget iframes
+                    "frame-src 'self' https://oauth.telegram.org https://telegram.org;"
                 )
     except Exception:
         # Never break responses due to header set failures
