@@ -269,9 +269,9 @@
             align-items: center;
             gap: 0.5rem;
         }
-        /* כיתוב מפורש בכפתורים; במסכים צרים נסתיר כדי לחסוך מקום */
-        .btn .btn-text { display: inline; }
-        @media (max-width: 480px) { .btn .btn-text { display: none; } }
+        /* כיתוב מפורש בכפתורים – מוסתר כברירת מחדל; יוצג רק ב-fallback */
+        .btn .btn-text { display: none; }
+        .no-fa-icons .btn .btn-text { display: inline; }
         
         .alert {
             padding: 1rem;
