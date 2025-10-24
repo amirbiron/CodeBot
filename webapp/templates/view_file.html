@@ -105,7 +105,7 @@
     margin: 0;
     font-size: 1.5rem; /* גודל שקול ל-section-title */
     line-height: 1.2;
-    white-space: nowrap;
+    white-space: nowrap; /* ברירת מחדל: שורה אחת */
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
@@ -842,7 +842,7 @@ function goBack(ev){
 })();
 </script>
 <script>
-// התאמת גודל הכותרת: מצמצם פונט הדרגתי עד שנכנס במסגרת (עם tooltip)
+// התאמת שם קובץ ארוך: קודם מצמצם פונט, ואם עדיין לא נכנס – מאפשר שבירה עד 2 שורות
 (function(){
     try {
         var el = document.querySelector('.file-title');
@@ -859,6 +859,21 @@ function goBack(ev){
             el.style.fontSize = sizeRem.toFixed(2) + 'rem';
             guard++;
         }
+    // אם עדיין חורג, אפשר שבירה לשתי שורות לכל היותר
+    if (el.scrollWidth > el.clientWidth) {
+      el.style.whiteSpace = 'normal';
+      // ניסיון ראשון: line-clamp סטנדרטי אם נתמך
+      el.style.display = 'block';
+      el.style.overflow = 'hidden';
+      el.style.textOverflow = 'ellipsis';
+      el.style.lineClamp = '2';
+      el.style.webkitLineClamp = '2';
+      el.style.boxOrient = 'vertical';
+      el.style.webkitBoxOrient = 'vertical';
+      // Fallback לא־תומכים: גובה מקסימלי לפי שורה
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || (1.2 * parseFloat(getComputedStyle(el).fontSize));
+      el.style.maxHeight = Math.round(lh * 2) + 'px';
+    }
     } catch(_) {}
 })();
 </script>

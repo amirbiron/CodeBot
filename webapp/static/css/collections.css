@@ -10,14 +10,45 @@
 .sidebar-item .emoji{min-width:1.4rem}
 .sidebar-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-item .count{opacity:.8;font-size:.9rem}
-.collections-content{background:var(--glass);border:1px solid var(--glass-border);border-radius:14px;padding:0.75rem;min-height:240px}
-.collection-item{display:flex;align-items:center;gap:.5rem;border:1px dashed rgba(255,255,255,.2);border-radius:8px;padding:.4rem .6rem;background:rgba(255,255,255,.05)}
+.collections-content{
+  /* החזרת אזור הפריטים לרקע לבן וניגודיות טובה */
+  background:#ffffff;
+  color:#222;
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius:14px;
+  padding:0.75rem;
+  min-height:240px
+}
+.collection-item{
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  border:1px solid #e5e7eb; /* במקום קו מקווקו שקוף */
+  border-radius:8px;
+  padding:.4rem .6rem;
+  background:#ffffff
+}
 .collection-item .drag{cursor:grab;opacity:.7}
 .collection-item.dragging{opacity:.5}
-.collection-item .file{flex:1;overflow:hidden;text-overflow:ellipsis;color:#aad;cursor:pointer;text-decoration:underline}
+/* הסרת קו תחתון והחזרת צבע קישור קריא */
+.collection-item .file{
+  flex:1;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  color:#0366d6;
+  cursor:pointer;
+  text-decoration:none
+}
 .collection-item{cursor:pointer}
 .collection-item .drag{cursor:grab}
 .collection-item .remove{cursor:pointer}
-.collection-item .remove{background:none;border:1px solid var(--glass-border);border-radius:6px;color:#fff;padding:.2rem .5rem;cursor:pointer}
+.collection-item .remove{
+  background:#f8fafc;
+  border:1px solid #e5e7eb;
+  border-radius:6px;
+  color:#374151;
+  padding:.2rem .5rem;
+  cursor:pointer
+}
 .loading,.empty,.error{opacity:.85}
 @media(max-width:900px){.collections-layout{grid-template-columns:1fr}}
