@@ -3,21 +3,13 @@ import pytest
 
 import importlib, sys
 
-print("\n[DEBUG] ---- בדיקת טעינת config ו־Blueprint ----")
+print("\n[DEBUG] ---- בדיקת טעינת config ----")
 
 try:
     from config import config as cfg
     print("[DEBUG] config נטען בהצלחה | FEATURE_MY_COLLECTIONS =", getattr(cfg, "FEATURE_MY_COLLECTIONS", "לא קיים"))
 except Exception as e:
     print("[DEBUG] כשל בייבוא config:", type(e).__name__, str(e))
-
-try:
-    app_mod = importlib.import_module("webapp.app")
-    app = app_mod.app
-    routes = [str(r) for r in app.url_map.iter_rules() if "collections" in str(r)]
-    print("[DEBUG] נתיבים רשומים:", routes)
-except Exception as e:
-    print("[DEBUG] שגיאה בגישה ל־app או ל־routes:", type(e).__name__, str(e))
 
 print("[DEBUG] -------------------------------------------\n")
 
@@ -105,6 +97,14 @@ def app_client(monkeypatch):
         pass
     app_mod = importlib.import_module('webapp.app')
     app = app_mod.app
+    # דיבאג: הדפסת נתיבי collections רק ב-CI או כש-PYTEST_DEBUG_COLLECTIONS=1
+    import os as _os
+    if _os.environ.get("PYTEST_DEBUG_COLLECTIONS") == "1" or _os.environ.get("GITHUB_ACTIONS") == "true":
+        try:
+            routes = [str(r) for r in app.url_map.iter_rules() if "collections" in str(r)]
+            print("[DEBUG] נתיבים רשומים:", routes)
+        except Exception as e:
+            print("[DEBUG] שגיאה בגישה ל־routes:", type(e).__name__, str(e))
     # החלפת get_manager בפייק
     import webapp.collections_api as api
     fake = FakeManager()
