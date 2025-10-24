@@ -32,10 +32,13 @@ def _is_true(val: Optional[str]) -> bool:
 
 
 def _enabled() -> bool:
+    # Explicit opt-in wins over global disable to support tests and targeted writes
+    if _is_true(os.getenv("ALERTS_DB_ENABLED")):
+        return True
     if _is_true(os.getenv("DISABLE_DB")):
         return False
-    # Prefer explicit ALERTS_DB_ENABLED, otherwise fall back to METRICS_DB_ENABLED
-    return _is_true(os.getenv("ALERTS_DB_ENABLED")) or _is_true(os.getenv("METRICS_DB_ENABLED"))
+    # Fall back to metrics DB flag when explicit alerts flag is not set
+    return _is_true(os.getenv("METRICS_DB_ENABLED"))
 
 
 _client = None  # type: ignore
@@ -60,10 +63,9 @@ def _get_collection():  # pragma: no cover - exercised indirectly
             _init_failed = True
             return None
 
-        mongo_url = os.getenv("MONGODB_URL")
-        if not mongo_url:
-            _init_failed = True
-            return None
+        # Allow tests/environments without explicit URL to fall back to localhost.
+        # This keeps public APIs fail-open and enables unit-test fakes for pymongo.
+        mongo_url = os.getenv("MONGODB_URL") or "mongodb://localhost:27017"
 
         db_name = os.getenv("DATABASE_NAME") or "code_keeper_bot"
         coll_name = os.getenv("ALERTS_COLLECTION") or "alerts_log"

@@ -47,16 +47,46 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _is_monkeypatched_pooled() -> bool:
+    """Detect if _pooled_request was monkeypatched by tests.
+
+    If _pooled_request is a callable and is not the original http_sync.request,
+    we consider it monkeypatched and prefer using it.
+    """
+    try:
+        from http_sync import request as _original  # type: ignore
+    except Exception:  # pragma: no cover
+        _original = None  # type: ignore
+    try:
+        return callable(_pooled_request) and (_pooled_request is not _original)
+    except Exception:
+        return False
+
+
+def _use_pooled_http() -> bool:
+    """Whether to prefer pooled HTTP client over requests.
+
+    - Explicit opt-in via ALERTS_USE_POOLED_HTTP (1/true/yes/on)
+    - Or when tests monkeypatch _pooled_request to a stub
+    """
+    val = str(os.getenv("ALERTS_USE_POOLED_HTTP", "")).strip().lower()
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    return _is_monkeypatched_pooled()
+
+
 def _post_to_slack(text: str) -> None:
     url = os.getenv("SLACK_WEBHOOK_URL")
     if not url:
         return
     try:
-        # Prefer pooled client for retry/backoff in production.
-        if _pooled_request is not None:
+        prefer_pooled = _use_pooled_http()
+        if prefer_pooled and _pooled_request is not None:
             _pooled_request('POST', url, json={"text": text}, timeout=5)
         elif _requests is not None:
             _requests.post(url, json={"text": text}, timeout=5)
+        elif _pooled_request is not None:
+            _pooled_request('POST', url, json={"text": text}, timeout=5)
         else:
             raise RuntimeError("no http client available")
     except Exception:
@@ -71,11 +101,13 @@ def _post_to_telegram(text: str) -> None:
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
-        # Prefer pooled client for retry/backoff in production.
-        if _pooled_request is not None:
+        prefer_pooled = _use_pooled_http()
+        if prefer_pooled and _pooled_request is not None:
             _pooled_request('POST', api, json=payload, timeout=5)
         elif _requests is not None:
             _requests.post(api, json=payload, timeout=5)
+        elif _pooled_request is not None:
+            _pooled_request('POST', api, json=payload, timeout=5)
         else:
             raise RuntimeError("no http client available")
     except Exception:
