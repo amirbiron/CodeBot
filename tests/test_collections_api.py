@@ -1,6 +1,26 @@
 import types
 import pytest
 
+import importlib, sys
+
+print("\n[DEBUG] ---- בדיקת טעינת config ו־Blueprint ----")
+
+try:
+    from config import config as cfg
+    print("[DEBUG] config נטען בהצלחה | FEATURE_MY_COLLECTIONS =", getattr(cfg, "FEATURE_MY_COLLECTIONS", "לא קיים"))
+except Exception as e:
+    print("[DEBUG] כשל בייבוא config:", type(e).__name__, str(e))
+
+try:
+    app_mod = importlib.import_module("webapp.app")
+    app = app_mod.app
+    routes = [str(r) for r in app.url_map.iter_rules() if "collections" in str(r)]
+    print("[DEBUG] נתיבים רשומים:", routes)
+except Exception as e:
+    print("[DEBUG] שגיאה בגישה ל־app או ל־routes:", type(e).__name__, str(e))
+
+print("[DEBUG] -------------------------------------------\n")
+
 
 class FakeManager:
     def __init__(self):
