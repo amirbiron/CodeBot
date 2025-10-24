@@ -52,16 +52,16 @@
 
     <div class="preview-actions">
         <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" title="צפה בקוד">
-            <i class="fas fa-code"></i>
-            קוד
+            <i class="fas fa-code" aria-hidden="true"></i>
+            <span class="btn-text">קוד</span>
         </a>
         <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" title="הורד">
-            <i class="fas fa-download"></i>
-            הורד
+            <i class="fas fa-download" aria-hidden="true"></i>
+            <span class="btn-text">הורד</span>
         </a>
         <a href="#" onclick="return goBack(event)" class="btn btn-secondary btn-icon" title="חזור למסך קודם">
-            <i class="fas fa-arrow-right"></i>
-            חזור
+            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+            <span class="btn-text">חזור</span>
         </a>
     </div>
 </div>
@@ -73,12 +73,12 @@
         </label>
         <small style="opacity:.8;">JS ללא <code>connect</code>/<code>form</code>, sandbox פעיל</small>
         <button id="btnFullscreen" class="btn btn-secondary btn-icon" style="margin-inline-start:auto;">
-            <i class="fas fa-expand"></i>
-            מסך מלא
+            <i class="fas fa-expand" aria-hidden="true"></i>
+            <span class="btn-text">מסך מלא</span>
         </button>
         <a id="btnNewWindow" href="/raw_html/{{ file.id }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon">
-            <i class="fas fa-external-link-alt"></i>
-            חלון חדש
+            <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+            <span class="btn-text">חלון חדש</span>
         </a>
     </div>
     <iframe

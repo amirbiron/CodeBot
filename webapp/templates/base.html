@@ -269,6 +269,9 @@
             align-items: center;
             gap: 0.5rem;
         }
+        /* כיתוב מפורש בכפתורים; במסכים צרים נסתיר כדי לחסוך מקום */
+        .btn .btn-text { display: inline; }
+        @media (max-width: 480px) { .btn .btn-text { display: none; } }
         
         .alert {
             padding: 1rem;
@@ -519,6 +522,20 @@
 
         .qa-icon { font-size: 1.1rem; }
         .qa-label { display: none; }
+
+        /* Fallback when Font Awesome fails to load: show text labels instead of icons */
+        .no-fa-icons .btn-icon i[class^="fa"],
+        .no-fa-icons .btn-icon i[class*=" fa-"] {
+            display: none !important;
+        }
+        .no-fa-icons .btn-icon::after {
+            content: attr(title);
+            margin-inline-start: .25rem;
+            font-weight: 600;
+        }
+        /* In quick-access menu, reveal labels and hide emoji/icon when FA missing */
+        .no-fa-icons .quick-access-item .qa-icon { display: none !important; }
+        .no-fa-icons .quick-access-item .qa-label { display: inline !important; }
 
         /* אנימציה לפתיחה */
         @keyframes slideDown {
@@ -904,6 +921,21 @@
                 const params = new URLSearchParams(window.location.search);
                 if (params.get('search') === 'open' && document.getElementById('globalSearchInput')) {
                     document.getElementById('globalSearchInput').focus();
+                }
+                // Detect Font Awesome failure and add 'no-fa-icons' class
+                try {
+                    const hasFA = !!(window.FontAwesome || document.querySelector('link[href*="font-awesome"], link[href*="fontawesome"], link[href*="all.min.css"], style[data-fa]'));
+                    const testIcon = document.createElement('i');
+                    testIcon.className = 'fas fa-test-fa-presence';
+                    testIcon.style.position = 'absolute';
+                    testIcon.style.left = '-9999px';
+                    document.body.appendChild(testIcon);
+                    const computed = getComputedStyle(testIcon);
+                    const isRendered = hasFA && computed && (computed.fontFamily.toLowerCase().includes('font awesome') || computed.getPropertyValue('font-style') === 'normal');
+                    document.body.classList.toggle('no-fa-icons', !isRendered);
+                    testIcon.remove();
+                } catch (_) {
+                    document.body.classList.add('no-fa-icons');
                 }
             } catch (e) {}
         });
