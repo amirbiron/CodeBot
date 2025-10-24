@@ -77,15 +77,14 @@ class FakeManager:
 @pytest.fixture(scope="function")
 def app_client(monkeypatch):
     import importlib
-    app_mod = importlib.import_module('webapp.app')
-    app = app_mod.app
-    # דגל פיצ'ר
+    # דגל פיצ'ר – להגדיר מוקדם לפני ייבוא האפליקציה כדי להבטיח רישום Blueprint
     try:
         from config import config as cfg
-        if hasattr(cfg, 'FEATURE_MY_COLLECTIONS'):
-            setattr(cfg, 'FEATURE_MY_COLLECTIONS', True)
+        setattr(cfg, 'FEATURE_MY_COLLECTIONS', True)
     except Exception:
         pass
+    app_mod = importlib.import_module('webapp.app')
+    app = app_mod.app
     # החלפת get_manager בפייק
     import webapp.collections_api as api
     fake = FakeManager()
