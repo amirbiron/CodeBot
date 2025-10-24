@@ -523,16 +523,9 @@
         .qa-icon { font-size: 1.1rem; }
         .qa-label { display: none; }
 
-        /* Fallback when Font Awesome fails to load: show text labels instead of icons */
+        /* Fallback when Font Awesome fails to load: hide FA <i> and reveal labels */
         .no-fa-icons .btn-icon i[class^="fa"],
-        .no-fa-icons .btn-icon i[class*=" fa-"] {
-            display: none !important;
-        }
-        .no-fa-icons .btn-icon::after {
-            content: attr(title);
-            margin-inline-start: .25rem;
-            font-weight: 600;
-        }
+        .no-fa-icons .btn-icon i[class*=" fa-"] { display: none !important; }
         /* In quick-access menu, reveal labels and hide emoji/icon when FA missing */
         .no-fa-icons .quick-access-item .qa-icon { display: none !important; }
         .no-fa-icons .quick-access-item .qa-label { display: inline !important; }
