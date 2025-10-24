@@ -917,16 +917,23 @@
                 }
                 // Detect Font Awesome failure and add 'no-fa-icons' class
                 try {
-                    const hasFA = !!(window.FontAwesome || document.querySelector('link[href*="font-awesome"], link[href*="fontawesome"], link[href*="all.min.css"], style[data-fa]'));
-                    const testIcon = document.createElement('i');
-                    testIcon.className = 'fas fa-test-fa-presence';
-                    testIcon.style.position = 'absolute';
-                    testIcon.style.left = '-9999px';
-                    document.body.appendChild(testIcon);
-                    const computed = getComputedStyle(testIcon);
-                    const isRendered = hasFA && computed && (computed.fontFamily.toLowerCase().includes('font awesome') || computed.getPropertyValue('font-style') === 'normal');
-                    document.body.classList.toggle('no-fa-icons', !isRendered);
-                    testIcon.remove();
+                    const hasFAHint = !!(
+                        window.FontAwesome ||
+                        document.querySelector('link[href*="font-awesome"], link[href*="fontawesome"], link[href*="all.min.css"], style[data-fa]')
+                    );
+                    // Create a real FA icon and inspect computed font-family and ::before content
+                    const probe = document.createElement('i');
+                    probe.className = 'fas fa-check';
+                    probe.style.position = 'absolute';
+                    probe.style.left = '-9999px';
+                    document.body.appendChild(probe);
+                    const cs = getComputedStyle(probe, '::before');
+                    const family = (getComputedStyle(probe).fontFamily || '').toLowerCase();
+                    const content = cs && (cs.getPropertyValue('content') || '');
+                    const looksLikeFA = (family.includes('font awesome') || family.includes('fontawesome')) && content && content !== 'none' && content !== 'normal' && content !== '""';
+                    const ok = hasFAHint && looksLikeFA;
+                    document.body.classList.toggle('no-fa-icons', !ok);
+                    probe.remove();
                 } catch (_) {
                     document.body.classList.add('no-fa-icons');
                 }
