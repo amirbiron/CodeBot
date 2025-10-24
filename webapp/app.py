@@ -396,6 +396,31 @@ Preference order:
 2) In-memory fallback (per-process; acceptable for local/dev and tests)
 3) Disabled if flask_limiter is unavailable
 """
+def _client_rate_key():
+    """Rate-limit key: prefer user_id; else leftmost X-Forwarded-For; else remote_addr.
+
+    זה מצמצם false-positives בפלטפורמות Proxy (למשל Render/Cloudflare) ומונע הגבלת
+    משתמשים שונים תחת אותו IP פנימי.
+    """
+    try:
+        if 'user_id' in session:
+            return str(session.get('user_id'))
+        # Try the leftmost IP from X-Forwarded-For
+        try:
+            xff = (request.headers.get('X-Forwarded-For') or '').split(',')
+            for raw in xff:
+                ip = (raw or '').strip()
+                if ip:
+                    return ip
+        except Exception:
+            pass
+        return get_remote_address()
+    except Exception:
+        try:
+            return request.remote_addr or ""
+        except Exception:
+            return ""
+
 if _LIMITER_AVAILABLE:
     try:
         # Resolve storage URI: prefer Redis when configured
@@ -411,7 +436,7 @@ if _LIMITER_AVAILABLE:
 
         limiter = Limiter(
             app=app,
-            key_func=(lambda: session.get('user_id') if 'user_id' in session else get_remote_address()),
+            key_func=_client_rate_key,
             default_limits=["200 per day", "50 per hour"],
             storage_uri=_storage_uri,
             strategy=(getattr(_cfg, 'RATE_LIMIT_STRATEGY', 'moving-window') if _cfg else 'moving-window'),
@@ -4615,6 +4640,7 @@ def api_persistent_login():
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 @app.route('/api/ui_prefs', methods=['POST'])
+@_limiter_exempt()
 @login_required
 def api_ui_prefs():
     """שמירת העדפות UI: תומך בעדכונים חלקיים (font_scale/theme/editor/work_state).
@@ -4765,6 +4791,7 @@ def update_user_preferences():
 
 # --- Public statistics for landing/mini web app ---
 @app.route('/api/public_stats')
+@_limiter_exempt()
 def api_public_stats():
     """סטטיסטיקות גלובליות להצגה בעמוד הבית/מיני-ווב ללא התחברות.
 

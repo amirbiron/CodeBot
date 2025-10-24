@@ -987,7 +987,12 @@
                 };
             }
             function postServer(s){
-                try { fetch('/api/ui_prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_state: s }) }).catch(()=>{}); } catch(_) {}
+                try {
+                    // זיהוי התחברות מהשרת (Cookie הסשן הוא HttpOnly ולכן לא זמין ל-JS)
+                    const isAuth = {% if session.user_id %}true{% else %}false{% endif %};
+                    if (!isAuth) return;
+                    fetch('/api/ui_prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_state: s }) }).catch(()=>{});
+                } catch(_) {}
             }
             function persistNow(){ const s = buildState(); saveState(s); /* שליחה לשרת תוגבל ע"י מצבר זמן */ tryThrottlePost(s); }
             let lastSent = 0, t;

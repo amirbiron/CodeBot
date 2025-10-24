@@ -136,7 +136,8 @@
         const activeEl = document.getElementById('activeUsers');
         const snippetsEl = document.getElementById('totalSnippets');
         try {
-            const res = await fetch('/api/public_stats', { credentials: 'same-origin' });
+            const res = await fetch('/api/public_stats', { credentials: 'same-origin', cache: 'no-store' });
+            if (!res.ok) throw new Error('http ' + res.status);
             const data = await res.json();
             if (!data || data.ok === false) throw new Error(data && data.error ? data.error : 'bad response');
             const active = Number(data.active_users_24h || 0);
