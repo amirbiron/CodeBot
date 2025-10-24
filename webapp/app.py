@@ -284,15 +284,30 @@ try:
         _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
         if _bp is not None:
             app.register_blueprint(_bp)
-        # UI route (server-rendered) best-effort
+        else:
+            # Explicit diagnostic for missing blueprint symbol
+            try:
+                logger.warning("collections_api module missing 'bp'/'collections_bp' attributes; blueprint not registered")
+            except Exception:
+                pass
+        # UI route (server-rendered) best-effort; failures are logged, not swallowed silently
         try:
             from webapp.collections_ui import collections_ui  # noqa: E402
             app.register_blueprint(collections_ui)
-        except Exception:
-            pass
-except Exception:
-    # אל תפיל את היישום אם ה-Blueprint אינו זמין
-    pass
+        except Exception as _e:
+            try:
+                logger.info("collections_ui blueprint not registered: %s", _e)
+            except Exception:
+                pass
+except Exception as e:
+    # Do not fail silently; in tests re-raise to surface the root cause
+    try:
+        logger.error("Failed to register collections blueprint: %s", e, exc_info=True)
+    except Exception:
+        pass
+    import os as _os
+    if _os.getenv("PYTEST_CURRENT_TEST"):
+        raise
 
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
