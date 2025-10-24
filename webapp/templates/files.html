@@ -201,12 +201,12 @@
         </div>
         <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap; min-width:0;">
             <a href="/upload" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;">
-                <i class="fas fa-plus"></i>
-                הוסף קובץ חדש
+                <i class="fas fa-plus" aria-hidden="true"></i>
+                <span class="btn-text">הוסף קובץ חדש</span>
             </a>
             <button id="multiSelectToggleBtn" type="button" class="btn btn-secondary btn-icon" title="בחירה מרובה" style="min-width:0;">
-                <i class="fas fa-tasks"></i>
-                בחירה מרובה
+                <i class="fas fa-tasks" aria-hidden="true"></i>
+                <span class="btn-text">בחירה מרובה</span>
             </button>
             
         </div>
@@ -304,14 +304,14 @@
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; flex-shrink:0;">
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                     <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="צפה">
-                        <i class="fas fa-eye"></i>
+                        <i class="fas fa-eye" aria-hidden="true"></i><span class="btn-text"> צפה</span>
                     </a>
                     <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="הורד">
-                        <i class="fas fa-download"></i>
+                        <i class="fas fa-download" aria-hidden="true"></i><span class="btn-text"> הורד</span>
                     </a>
-                    <button class="btn btn-secondary btn-icon" style="padding:0.5rem 1rem;" title="הוסף לאוסף" onclick="openAddToCollectionModal('{{ file.file_name|escape }}')">📁+</button>
+                    <button class="btn btn-secondary btn-icon" style="padding:0.5rem 1rem;" title="הוסף לאוסף" onclick="openAddToCollectionModal('{{ file.file_name|escape }}')">📁+ <span class="btn-text">הוסף לאוסף</span></button>
                 </div>
                 {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
                 <div>
@@ -336,36 +336,36 @@
         </div>
         <div class="toolbar-actions">
             <button class="btn btn-icon" type="button" onclick="bulkAddToFavorites()" title="הוסף למועדפים">
-                <i class="fas fa-star"></i>
-                הוסף למועדפים
+                <i class="fas fa-star" aria-hidden="true"></i>
+                <span class="btn-text">הוסף למועדפים</span>
             </button>
             <button class="btn btn-icon" type="button" onclick="bulkRemoveFromFavorites()" title="הסר ממועדפים">
-                <i class="far fa-star"></i>
-                הסר ממועדפים
+                <i class="far fa-star" aria-hidden="true"></i>
+                <span class="btn-text">הסר ממועדפים</span>
             </button>
             <button class="btn btn-icon" type="button" onclick="showBulkTagDialog()" title="הוסף תגיות">
-                <i class="fas fa-tags"></i>
-                הוסף תגיות
+                <i class="fas fa-tags" aria-hidden="true"></i>
+                <span class="btn-text">הוסף תגיות</span>
             </button>
             <button class="btn btn-icon" type="button" onclick="bulkDownloadZip()" title="הורד ZIP">
-                <i class="fas fa-file-archive"></i>
-                הורד ZIP
+                <i class="fas fa-file-archive" aria-hidden="true"></i>
+                <span class="btn-text">הורד ZIP</span>
             </button>
             <button class="btn btn-icon" type="button" onclick="bulkShareFiles()" title="שתף">
-                <i class="fas fa-share-alt"></i>
-                שתף
+                <i class="fas fa-share-alt" aria-hidden="true"></i>
+                <span class="btn-text">שתף</span>
             </button>
             <button class="btn btn-danger btn-icon" type="button" onclick="bulkDeleteFiles()" title="מחק">
-                <i class="fas fa-trash"></i>
-                מחק
+                <i class="fas fa-trash" aria-hidden="true"></i>
+                <span class="btn-text">מחק</span>
             </button>
             <button class="btn btn-icon" type="button" onclick="window.bulkAddSelectedToCollection && window.bulkAddSelectedToCollection()" title="הוסף לאוסף">
-                <i class="fas fa-folder-plus"></i>
-                הוסף לאוסף
+                <i class="fas fa-folder-plus" aria-hidden="true"></i>
+                <span class="btn-text">הוסף לאוסף</span>
             </button>
             <button class="btn btn-secondary btn-icon" type="button" onclick="clearSelection()" title="נקה בחירה">
-                <i class="fas fa-times"></i>
-                ביטול בחירה
+                <i class="fas fa-times" aria-hidden="true"></i>
+                <span class="btn-text">ביטול בחירה</span>
             </button>
         </div>
     </div>

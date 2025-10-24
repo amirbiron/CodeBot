@@ -1194,10 +1194,10 @@ def _add_default_csp(resp):
                     "script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://telegram.org; "
                     # Workers used by some CM6 language/tooling integrations
                     "worker-src blob:; "
-                    # Styles: local + inline + Google Fonts CSS
-                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-                    # Fonts: local + Google Fonts + data: (icons)
-                    "font-src 'self' https://fonts.gstatic.com data:; "
+                    # Styles: local + inline + Google Fonts CSS + Font Awesome from cdnjs
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+                    # Fonts: local + Google Fonts + Font Awesome webfonts + data: (icons)
+                    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
                     # Images: local + data/blob (thumbnails, inline previews)
                     "img-src 'self' data: blob: https://telegram.org; "
                     # XHR/fetch for ESM modules and assets

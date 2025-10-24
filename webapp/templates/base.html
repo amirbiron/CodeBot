@@ -167,6 +167,11 @@
             align-items: center;
             gap: 0.5rem;
         }
+        /* טקסט ליד אייקון הגדרות – יוסתר במסכים צרים כדי לחסוך מקום */
+        .nav-link .nav-text { opacity: 0.95; }
+        @media (max-width: 480px) {
+            .nav-link .nav-text { display: none; }
+        }
         
         .nav-link:hover {
             opacity: 0.8;
@@ -264,6 +269,9 @@
             align-items: center;
             gap: 0.5rem;
         }
+        /* כיתוב מפורש בכפתורים – מוסתר כברירת מחדל; יוצג רק ב-fallback */
+        .btn .btn-text { display: none; }
+        .no-fa-icons .btn .btn-text { display: inline; }
         
         .alert {
             padding: 1rem;
@@ -515,6 +523,13 @@
         .qa-icon { font-size: 1.1rem; }
         .qa-label { display: none; }
 
+        /* Fallback when Font Awesome fails to load: hide FA <i> and reveal labels */
+        .no-fa-icons .btn-icon i[class^="fa"],
+        .no-fa-icons .btn-icon i[class*=" fa-"] { display: none !important; }
+        /* In quick-access menu, reveal labels and hide emoji/icon when FA missing */
+        .no-fa-icons .quick-access-item .qa-icon { display: none !important; }
+        .no-fa-icons .quick-access-item .qa-label { display: inline !important; }
+
         /* אנימציה לפתיחה */
         @keyframes slideDown {
             from { opacity: 0; transform: translateY(-10px); }
@@ -656,6 +671,10 @@
                             <span class="qa-icon">🕓</span>
                             <span class="qa-label">אחרונים</span>
                         </button>
+                        <a href="/settings" class="quick-access-item" title="הגדרות" aria-label="הגדרות">
+                            <span class="qa-icon">⚙️</span>
+                            <span class="qa-label">הגדרות</span>
+                        </a>
                     </div>
                 </div>
                 {% endif %}
@@ -679,6 +698,7 @@
                             <span>{{ session.user_data.first_name }}</span>
                             <a href="/settings" class="nav-link" title="הגדרות">
                                 <i class="fas fa-cog"></i>
+                                <span class="nav-text" style="display:inline-block">הגדרות</span>
                             </a>
                             <a href="/logout" class="btn btn-secondary btn-icon">
                                 <i class="fas fa-sign-out-alt"></i>
@@ -894,6 +914,28 @@
                 const params = new URLSearchParams(window.location.search);
                 if (params.get('search') === 'open' && document.getElementById('globalSearchInput')) {
                     document.getElementById('globalSearchInput').focus();
+                }
+                // Detect Font Awesome failure and add 'no-fa-icons' class
+                try {
+                    const hasFAHint = !!(
+                        window.FontAwesome ||
+                        document.querySelector('link[href*="font-awesome"], link[href*="fontawesome"], link[href*="all.min.css"], style[data-fa]')
+                    );
+                    // Create a real FA icon and inspect computed font-family and ::before content
+                    const probe = document.createElement('i');
+                    probe.className = 'fas fa-check';
+                    probe.style.position = 'absolute';
+                    probe.style.left = '-9999px';
+                    document.body.appendChild(probe);
+                    const cs = getComputedStyle(probe, '::before');
+                    const family = (getComputedStyle(probe).fontFamily || '').toLowerCase();
+                    const content = cs && (cs.getPropertyValue('content') || '');
+                    const looksLikeFA = (family.includes('font awesome') || family.includes('fontawesome')) && content && content !== 'none' && content !== 'normal' && content !== '""';
+                    const ok = hasFAHint && looksLikeFA;
+                    document.body.classList.toggle('no-fa-icons', !ok);
+                    probe.remove();
+                } catch (_) {
+                    document.body.classList.add('no-fa-icons');
                 }
             } catch (e) {}
         });
