@@ -468,52 +468,54 @@
         }
 
         .quick-access-toggle.active {
-            background: var(--primary);
-            color: white;
+            background: rgba(255, 255, 255, 0.25);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
         }
 
         .quick-access-dropdown {
             position: absolute;
-            top: 100%;
-            right: 0; /* נפתח מתחת לכפתור ולא מכסה את הלוגו */
-            transform: translateY(6px);
+            top: calc(100% + 8px);
+            left: 0;
             background: white;
             border-radius: 12px;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
             opacity: 0;
             visibility: hidden;
             transition: all 0.25s ease;
-            z-index: 1000;
+            z-index: 1050;
             display: flex;
+            flex-direction: row;
             gap: .25rem;
             padding: .4rem;
-            max-width: calc(100vw - 24px); /* אין גלילה אופקית */
-            overflow-x: hidden;
+            width: auto;
+            max-width: min(220px, calc(100vw - 48px));
+            direction: ltr; /* תקין ל-RTL: סדר שמאל-לימין בתוך החלונית */
         }
 
         .quick-access-dropdown.active {
             opacity: 1;
             visibility: visible;
+            animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         .quick-access-item {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 44px;
-            height: 44px;
+            width: 40px;
+            height: 40px;
             padding: 0;
-            border-radius: 10px;
+            border-radius: 8px;
             color: #333;
             text-decoration: none;
             background: none;
             border: 1px solid rgba(0,0,0,0.08);
             cursor: pointer;
             transition: transform .15s ease, background .2s ease;
+            flex-shrink: 0;
         }
 
-        .quick-access-item:first-child { border-radius: 12px 12px 0 0; }
-        .quick-access-item:last-child { border-radius: 0 0 12px 12px; }
+        /* שמירה על radius אחיד לכל הפריטים כדי למנוע שגיאות ב-RTL/עטיפה */
 
         .quick-access-item:hover {
             background: rgba(103, 126, 234, 0.1);
@@ -532,8 +534,8 @@
 
         /* אנימציה לפתיחה */
         @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to   { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: translateY(-8px) scale(0.95); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
         }
 
         /* מודאל קבצים אחרונים */
@@ -588,9 +590,15 @@
         @media (max-width: 768px) {
             .quick-access-menu { order: -1; margin-left: 0; margin-right: 0.5rem; }
             .quick-access-dropdown {
-              position: absolute; top: 100%; right: 0; left: auto; transform: none;
-              display: grid; grid-template-columns: repeat(4, 44px); gap: .25rem; padding: .4rem;
-              max-width: calc(100vw - 16px);
+              position: absolute;
+              top: calc(100% + 8px);
+              left: 0;
+              display: grid;
+              grid-template-columns: repeat(4, 40px);
+              gap: .25rem;
+              padding: .4rem;
+              max-width: calc(100vw - 24px);
+              width: auto;
             }
         }
 
@@ -671,10 +679,7 @@
                             <span class="qa-icon">🕓</span>
                             <span class="qa-label">אחרונים</span>
                         </button>
-                        <a href="/settings" class="quick-access-item" title="הגדרות" aria-label="הגדרות">
-                            <span class="qa-icon">⚙️</span>
-                            <span class="qa-label">הגדרות</span>
-                        </a>
+                        <!-- כפתור ההגדרות הוסר לפי מדריך #1074 -->
                     </div>
                 </div>
                 {% endif %}
