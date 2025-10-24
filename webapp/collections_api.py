@@ -40,6 +40,9 @@ except Exception:  # pragma: no cover
 
 # Blueprint
 collections_bp = Blueprint('collections', __name__, url_prefix='/api/collections')
+# Alias for conventional import style in app registration
+# Some environments expect `collections_api.bp` by convention.
+bp = collections_bp
 
 
 # ==================== Helpers ====================

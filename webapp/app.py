@@ -276,10 +276,14 @@ except Exception:
     _cfg = None
 
 try:
-    enabled = bool(getattr(_cfg, 'FEATURE_MY_COLLECTIONS', False))
+    # Enable by default; allow config flag to disable explicitly when available
+    enabled = True if _cfg is None else bool(getattr(_cfg, 'FEATURE_MY_COLLECTIONS', True))
     if enabled:
-        from webapp.collections_api import collections_bp  # noqa: E402
-        app.register_blueprint(collections_bp)
+        # Prefer module import style and support both `bp` and `collections_bp` symbols
+        from webapp import collections_api as _collections_api  # noqa: E402
+        _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
+        if _bp is not None:
+            app.register_blueprint(_bp)
         # UI route (server-rendered) best-effort
         try:
             from webapp.collections_ui import collections_ui  # noqa: E402
