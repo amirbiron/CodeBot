@@ -74,7 +74,7 @@ class FakeManager:
 
 
 # אפליקציית Flask ו-monkeypatch של get_manager
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def app_client(monkeypatch):
     import importlib
     app_mod = importlib.import_module('webapp.app')
@@ -94,7 +94,8 @@ def app_client(monkeypatch):
     with app.test_client() as c:
         with c.session_transaction() as sess:
             sess['user_id'] = 123
-            sess['user_data'] = types.SimpleNamespace(first_name='Test')
+            # משתמש ב-dict כדי להיות serializable ל-JSON בסשן
+            sess['user_data'] = {'first_name': 'Test'}
         yield c
 
 
