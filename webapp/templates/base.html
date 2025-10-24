@@ -489,6 +489,7 @@
             padding: .4rem;
             width: auto;
             max-width: min(220px, calc(100vw - 48px));
+            direction: ltr; /* תקין ל-RTL: סדר שמאל-לימין בתוך החלונית */
         }
 
         .quick-access-dropdown.active {
@@ -514,8 +515,7 @@
             flex-shrink: 0;
         }
 
-        .quick-access-item:first-child { border-radius: 8px 0 0 8px; }
-        .quick-access-item:last-child { border-radius: 0 8px 8px 0; }
+        /* שמירה על radius אחיד לכל הפריטים כדי למנוע שגיאות ב-RTL/עטיפה */
 
         .quick-access-item:hover {
             background: rgba(103, 126, 234, 0.1);
