@@ -1321,10 +1321,37 @@ class AdvancedBotHandlers:
             # duration parse & bounds
             try:
                 from monitoring.silences import parse_duration_to_seconds  # type: ignore
-                max_days_env = int(os.getenv("SILENCE_MAX_DAYS", "7") or 7)
+                max_days_env = int(_os.getenv("SILENCE_MAX_DAYS", "7") or 7)
                 dur_sec = parse_duration_to_seconds(duration_str, max_days=max_days_env)  # type: ignore[arg-type]
             except Exception:
-                dur_sec = None
+                # Fallback lightweight parser (supports Ns/Nm/Nh/Nd)
+                try:
+                    import re as _re
+                    try:
+                        max_days_env = int(_os.getenv("SILENCE_MAX_DAYS", "7") or 7)
+                    except Exception:
+                        max_days_env = 7
+                    m = _re.fullmatch(r"\s*(\d+)\s*([smhd])\s*", str(duration_str).strip().lower())
+                    if not m:
+                        dur_sec = None
+                    else:
+                        n = int(m.group(1))
+                        unit = m.group(2)
+                        if unit == "s":
+                            seconds = n
+                        elif unit == "m":
+                            seconds = n * 60
+                        elif unit == "h":
+                            seconds = n * 3600
+                        else:
+                            seconds = n * 86400
+                        max_seconds = max(1, int(max_days_env)) * 86400
+                        if seconds <= 0:
+                            dur_sec = None
+                        else:
+                            dur_sec = min(seconds, max_seconds)
+                except Exception:
+                    dur_sec = None
             if not dur_sec:
                 await update.message.reply_text("❌ משך זמן לא תקין. השתמש ב-5m/1h/2d וכד'.")
                 return
@@ -1341,7 +1368,9 @@ class AdvancedBotHandlers:
                     await update.message.reply_text("⛔ תבנית מסוכנת. הוסף --force אם אתה בטוח.")
                     return
 
-            from monitoring import silences as sil  # type: ignore
+            # Dynamically resolve monitoring.silences to respect test monkeypatching
+            import sys as _sys, importlib as _il  # type: ignore
+            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')  # type: ignore
             doc = sil.create_silence(pattern=pattern, duration_seconds=int(dur_sec), created_by=user_id, reason=reason, severity=severity, force=bool(force))
             if not doc:
                 await update.message.reply_text("❌ יצירת השתקה נכשלה (בדוק מגבלות/תבנית/DB)")
@@ -1360,7 +1389,8 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("ℹ️ שימוש: /unsilence <id|pattern>")
                 return
             target = " ".join(args).strip()
-            from monitoring import silences as sil  # type: ignore
+            import sys as _sys, importlib as _il  # type: ignore
+            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')  # type: ignore
             # Heuristic: id is 32-hex (uuid hex); else treat as pattern
             import re as _re
             if _re.fullmatch(r"[0-9a-fA-F]{32}", target):
@@ -1376,7 +1406,8 @@ class AdvancedBotHandlers:
     async def silences_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/silences – list active silences."""
         try:
-            from monitoring import silences as sil  # type: ignore
+            import sys as _sys, importlib as _il  # type: ignore
+            sil = _sys.modules.get('monitoring.silences') or _il.import_module('monitoring.silences')  # type: ignore
             items = sil.list_active_silences(limit=50) or []
             if not items:
                 await update.message.reply_text("ℹ️ אין השתקות פעילות")
@@ -1537,7 +1568,8 @@ class AdvancedBotHandlers:
                 share_url = None
             if share_url:
                 # חלק מלקוחות מרחפים על '_' בהודעות טקסט רגילות. שימוש ב‑Markdown עם קישור מעוגן מונע עיוות מזהה השיתוף.
-                summary_lines.append(f"[דוח מלא]({share_url})")
+                # דרישת הטסט: הטקסט חייב לכלול "דוח מלא:" (עם נקודתיים)
+                summary_lines.append(f"[דוח מלא:]({share_url})")
 
             # קישורי Grafana (2 ראשונים)
             try:
