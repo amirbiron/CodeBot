@@ -862,11 +862,17 @@ function goBack(ev){
     // אם עדיין חורג, אפשר שבירה לשתי שורות לכל היותר
     if (el.scrollWidth > el.clientWidth) {
       el.style.whiteSpace = 'normal';
-      el.style.display = '-webkit-box';
-      el.style.webkitBoxOrient = 'vertical';
-      el.style.webkitLineClamp = '2';
+      // ניסיון ראשון: line-clamp סטנדרטי אם נתמך
+      el.style.display = 'block';
       el.style.overflow = 'hidden';
       el.style.textOverflow = 'ellipsis';
+      el.style.lineClamp = '2';
+      el.style.webkitLineClamp = '2';
+      el.style.boxOrient = 'vertical';
+      el.style.webkitBoxOrient = 'vertical';
+      // Fallback לא־תומכים: גובה מקסימלי לפי שורה
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || (1.2 * parseFloat(getComputedStyle(el).fontSize));
+      el.style.maxHeight = Math.round(lh * 2) + 'px';
     }
     } catch(_) {}
 })();

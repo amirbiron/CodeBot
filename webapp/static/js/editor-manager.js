@@ -45,6 +45,7 @@
       this.textarea = container.querySelector('textarea[name="code"]');
       if (!this.textarea) return;
 
+      let fallback = false;
       if (this.currentEditor === 'codemirror') {
         try {
           await this.initCodeMirror(container, { language, value, theme });
@@ -54,11 +55,21 @@
           this.currentEditor = 'simple';
           this.savePreference('simple');
           this.initSimpleEditor(container, { value });
+          fallback = true;
         }
       } else {
         this.initSimpleEditor(container, { value });
       }
+      // הוסף את כפתור המתג פעם אחת, וטקסט תואם למצב בפועל
       this.addSwitcherButton(container);
+      if (fallback) {
+        try {
+          const btn = container.querySelector('.editor-switcher .btn-switch-editor span');
+          if (btn) btn.textContent = 'עורך מתקדם';
+          const info = container.querySelector('.editor-switcher .editor-info');
+          if (info) info.innerHTML = '<span><i class="fas fa-info-circle"></i> עורך טקסט בסיסי</span>';
+        } catch(_) {}
+      }
     }
 
     initSimpleEditor(container, { value }) {
