@@ -2,11 +2,11 @@
 # מכיל רק את המינימום הנדרש להרצות בסיסיות שאינן תלויות בכל הסטאק
 
 # תלותי בסיס לריצה של חלקי קוד שאינם תלויים ב‑DB/Redis/Flask
-python-telegram-bot[job-queue]==20.7
+python-telegram-bot[job-queue]==22.5
 
 # כלי בדיקות קלים
-pytest==7.4.3
-pytest-asyncio==0.21.1
+pytest==8.4.2
+pytest-asyncio==1.2.0
 
 # כלי עזר כלליים
-click==8.1.7
+click==8.3.0
