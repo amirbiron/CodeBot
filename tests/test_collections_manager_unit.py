@@ -181,9 +181,11 @@ def test_limits_enforced(mgr: CollectionsManager):
     col = mgr.create_collection(2, "HasItems")["collection"]
     add = mgr.add_items(2, col["id"], [{"source": "regular", "file_name": "a.py"}])
     assert add["ok"]
-    # For user 1 should fail
-    col2 = mgr.create_collection(1, "TooMany")["collection"]
-    add2 = mgr.add_items(1, col2["id"], [{"source": "regular", "file_name": "x.py"}])
+    # For user 1 should fail – use an existing collection (limit 100 reached)
+    existing = mgr.list_collections(1, limit=1, skip=0)
+    assert existing["ok"] and existing["collections"], "expected at least one collection for user 1"
+    col2_id = existing["collections"][0]["id"]
+    add2 = mgr.add_items(1, col2_id, [{"source": "regular", "file_name": "x.py"}])
     assert not add2["ok"] and "5000" in add2["error"]
 
 
