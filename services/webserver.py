@@ -146,28 +146,29 @@ def create_app() -> web.Application:
             return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
-            # Emit an event in a way that supports both styles of monkeypatching:
-            # 1) sys.modules['observability'] injection (import inside handler)
-            # 2) module-level ws.emit_event monkeypatch
+            # Emit exactly once: prefer injected sys.modules['observability'] when present; otherwise use module-level emit_event
             try:
                 import sys as _sys
                 import types as _types
+                chosen_emit = None
                 obs = _sys.modules.get("observability")
                 if obs is not None and not isinstance(obs, _types.ModuleType):
-                    _emit = getattr(obs, "emit_event", None)
-                    if callable(_emit):
-                        _emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
-                    else:
-                        raise RuntimeError("emit_event not found on injected observability")
-                else:
-                    emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
-            except Exception:
-                # Final fallback: try importing the real module dynamically
+                    cand = getattr(obs, "emit_event", None)
+                    if callable(cand):
+                        chosen_emit = cand
+                if chosen_emit is None:
+                    chosen_emit = emit_event  # type: ignore
                 try:
-                    from observability import emit_event as _dyn_emit  # type: ignore
-                    _dyn_emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+                    chosen_emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
                 except Exception:
-                    pass
+                    # Fallback: try the real observability module if available
+                    try:
+                        from observability import emit_event as _dyn_emit  # type: ignore
+                        _dyn_emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             try:
                 if errors_total is not None:
                     errors_total.labels(code="E_METRICS_VIEW").inc()
