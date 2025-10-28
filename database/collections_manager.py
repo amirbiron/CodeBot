@@ -288,14 +288,36 @@ class CollectionsManager:
             eff_skip = max(0, int(skip or 0))
         except Exception:
             eff_limit, eff_skip = 100, 0
+
+        flt = {"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+
         try:
-            cur = self.collections.find(
-                {"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
-            ).sort([
-                ("is_favorite", -1), ("sort_order", 1), ("updated_at", -1)
-            ]).skip(eff_skip).limit(eff_limit)
-            rows = list(cur) if not isinstance(cur, list) else cur[eff_skip: eff_skip + eff_limit]
-            total = int(self.collections.count_documents({"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}))
+            found = self.collections.find(flt)
+
+            # כאשר find מחזיר רשימה (בסביבת טסט/דמה) – בצע מיון/דפדוף בפייתון
+            if isinstance(found, list):
+                def _sort_key(d: Dict[str, Any]):
+                    is_fav_rank = 0 if bool(d.get("is_favorite")) else 1  # מועדפים תחילה
+                    sort_order = int(d.get("sort_order") or 0)
+                    upd = d.get("updated_at")
+                    try:
+                        # סדר יורד – שלילי של timestamp
+                        upd_ts = -float(upd.timestamp()) if hasattr(upd, "timestamp") else 0.0
+                    except Exception:
+                        upd_ts = 0.0
+                    return (is_fav_rank, sort_order, upd_ts)
+
+                rows = list(found)
+                rows.sort(key=_sort_key)
+                rows = rows[eff_skip: eff_skip + eff_limit]
+            else:
+                # PyMongo cursor – ניתן להשתמש ב-sort/skip/limit של הנהג
+                cur = found.sort([
+                    ("is_favorite", -1), ("sort_order", 1), ("updated_at", -1)
+                ]).skip(eff_skip).limit(eff_limit)
+                rows = list(cur)
+
+            total = int(self.collections.count_documents(flt))
             return {
                 "ok": True,
                 "collections": [self._public_collection(d) for d in rows],
