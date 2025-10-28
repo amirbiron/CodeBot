@@ -281,6 +281,7 @@ jobs:
           REDIS_URL: redis://redis:6379/0
           GITHUB_TOKEN: ${{ secrets.TEST_GITHUB_TOKEN }}
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
+          FEATURE_MY_COLLECTIONS: '1'
         run: |
           pytest -v -o addopts="" --cov=. --cov-report=xml --cov-report=term \
                  --durations=0 --json-report --json-report-file=unit-durations.json || true
