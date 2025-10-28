@@ -461,7 +461,6 @@ class ReminderHandlers:
             await query.edit_message_text("⏰ הקלד זמן חדש (tomorrow 10:00 / 15:30 / 2025-12-25 14:00):")
         elif data == "rem_list":
             # reload list
-            fake_update = Update(update.update_id, message=None, callback_query=query)
             # Not ideal; simply prompt user to use /reminders
             await query.edit_message_text("📋 השתמש ב-/reminders כדי לראות את הרשימה")
 
