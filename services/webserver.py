@@ -146,20 +146,27 @@ def create_app() -> web.Application:
             return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
-            # Always try module-level emit_event first (supports ws.emit_event monkeypatch)
-            try:
-                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
-            except Exception:
-                pass
-            # Additionally, support sys.modules['observability'] injection used in tests
+            # Emit exactly once: prefer injected sys.modules['observability'] when present; otherwise use module-level emit_event
             try:
                 import sys as _sys
                 import types as _types
+                chosen_emit = None
                 obs = _sys.modules.get("observability")
                 if obs is not None and not isinstance(obs, _types.ModuleType):
-                    _emit = getattr(obs, "emit_event", None)
-                    if callable(_emit):
-                        _emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+                    cand = getattr(obs, "emit_event", None)
+                    if callable(cand):
+                        chosen_emit = cand
+                if chosen_emit is None:
+                    chosen_emit = emit_event  # type: ignore
+                try:
+                    chosen_emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+                except Exception:
+                    # Fallback: try the real observability module if available
+                    try:
+                        from observability import emit_event as _dyn_emit  # type: ignore
+                        _dyn_emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+                    except Exception:
+                        pass
             except Exception:
                 pass
             try:
