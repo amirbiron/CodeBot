@@ -222,7 +222,15 @@ def init_sentry() -> None:
     global _SENTRY_INIT_DONE
     if _SENTRY_INIT_DONE:
         return
+    # Prefer explicit ENV, but fall back to config.SENTRY_DSN when available.
+    # This aligns bot/background processes with the webapp which already reads from config.
     dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        try:
+            from config import config as _cfg  # type: ignore
+            dsn = _cfg.SENTRY_DSN or None  # type: ignore[attr-defined]
+        except Exception:
+            dsn = None
     if not dsn:
         return
     try:
@@ -250,9 +258,18 @@ def init_sentry() -> None:
                 pass
             return event
 
+        # Resolve environment consistently with fallback to config if ENV/ENVIRONMENT not set
+        env_val = os.getenv("ENVIRONMENT") or os.getenv("ENV")
+        if not env_val:
+            try:
+                from config import config as _cfg  # type: ignore
+                env_val = getattr(_cfg, "ENVIRONMENT", "production")  # type: ignore[attr-defined]
+            except Exception:
+                env_val = "production"
+
         sentry_sdk.init(
             dsn=dsn,
-            environment=os.getenv("ENVIRONMENT", os.getenv("ENV", "production")),
+            environment=str(env_val or "production"),
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
