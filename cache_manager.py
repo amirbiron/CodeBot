@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from functools import wraps
-from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast
+from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast, Tuple
 import random
 try:
     import redis
@@ -676,6 +676,9 @@ def dynamic_cache(content_type: str, key_prefix: Optional[str] = None) -> Callab
 # יצירת instance גלובלי
 cache = CacheManager()
 
+# Fallback in-process cache store (used when Redis disabled or on failures)
+_local_cache_store: Dict[str, Tuple[float, Any]] = {}
+
 def cached(expire_seconds: int = 300, key_prefix: str = "default"):
     """דקורטור לcaching פונקציות"""
     def decorator(func):
@@ -684,15 +687,38 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
             # יצירת מפתח cache
             cache_key = cache._make_key(key_prefix, func.__name__, *args, **kwargs)
             
-            # בדיקה ב-cache
+            # בדיקה ב-cache (Redis/remote)
             result = cache.get(cache_key)
             if result is not None:
                 logger.debug(f"Cache hit: {cache_key}")
                 return result
+
+            # בדיקת Fallback בזיכרון מקומי
+            try:
+                entry = _local_cache_store.get(cache_key)
+                if entry is not None:
+                    expires_at, local_value = entry
+                    if float(expires_at) > time.time():
+                        logger.debug(f"Local cache hit: {cache_key}")
+                        return local_value
+            except Exception:
+                # לא חוסם זרימה במקרה של שגיאה בפולבק
+                pass
             
             # הפעלת הפונקציה ושמירה ב-cache
             result = func(*args, **kwargs)
-            cache.set(cache_key, result, expire_seconds)
+            wrote_remote = False
+            try:
+                wrote_remote = bool(cache.set(cache_key, result, expire_seconds))
+            except Exception:
+                wrote_remote = False
+
+            # אם נכשל כתיבה לרימוט — שמור בזיכרון מקומי עם TTL
+            if not wrote_remote:
+                try:
+                    _local_cache_store[cache_key] = (time.time() + float(expire_seconds), result)
+                except Exception:
+                    pass
             logger.debug(f"Cache miss, stored: {cache_key}")
             
             return result
@@ -707,15 +733,36 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
             # יצירת מפתח cache
             cache_key = cache._make_key(key_prefix, func.__name__, *args, **kwargs)
             
-            # בדיקה ב-cache
+            # בדיקה ב-cache (Redis/remote)
             result = cache.get(cache_key)
             if result is not None:
                 logger.debug(f"Cache hit: {cache_key}")
                 return result
+
+            # בדיקת Fallback בזיכרון מקומי
+            try:
+                entry = _local_cache_store.get(cache_key)
+                if entry is not None:
+                    expires_at, local_value = entry
+                    if float(expires_at) > time.time():
+                        logger.debug(f"Local cache hit: {cache_key}")
+                        return local_value
+            except Exception:
+                pass
             
             # הפעלת הפונקציה ושמירה ב-cache
             result = await func(*args, **kwargs)
-            cache.set(cache_key, result, expire_seconds)
+            wrote_remote = False
+            try:
+                wrote_remote = bool(cache.set(cache_key, result, expire_seconds))
+            except Exception:
+                wrote_remote = False
+
+            if not wrote_remote:
+                try:
+                    _local_cache_store[cache_key] = (time.time() + float(expire_seconds), result)
+                except Exception:
+                    pass
             logger.debug(f"Cache miss, stored: {cache_key}")
             
             return result
