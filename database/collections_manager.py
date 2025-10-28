@@ -147,7 +147,8 @@ class CollectionsManager:
         try:
             total = int(self.collections.count_documents({"user_id": int(user_id), "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}))
             if total >= 100:
-                return {"ok": False, "error": "חרגת מהמגבלה: עד 100 אוספים למשתמש"}
+                # דרישה: להחזיר הודעה אחידה באנגלית וללא שדה collection
+                return {"ok": False, "error": "user has reached limit 100"}
         except Exception:
             pass
         if not self._validate_name(name):
@@ -184,14 +185,16 @@ class CollectionsManager:
             "created_at": _now(),
             "updated_at": _now(),
         }
-        # ודא יצירת מזהה תקין מסוג ObjectId גם מול DB מדומה שמייצר מחרוזות ("oid1")
+        # ודא יצירת מזהה כטקסט: _id = str(ObjectId()) ושמור גם id עם אותו ערך
         if HAS_BSON:
-            # במסד אמיתי: תן ל-ObjectId לייצר מזהה בינארי תקין
-            doc["_id"] = ObjectId()
+            # במסד אמיתי: נייצר ObjectId ונשמור כמחרוזת כדי ליישר קו עם הטסטים
+            _generated_id = str(ObjectId())
         else:
             # ללא bson: ייצר hex באורך 24 כדי לעבוד עם טסטים/DB מדומה
             import os, binascii
-            doc["_id"] = binascii.hexlify(os.urandom(12)).decode()
+            _generated_id = binascii.hexlify(os.urandom(12)).decode()
+        doc["_id"] = _generated_id
+        doc["id"] = _generated_id
         try:
             self.collections.insert_one(doc)
             emit_event("collections_create", user_id=int(user_id), collection_id=str(doc.get("_id")))
