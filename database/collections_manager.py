@@ -480,6 +480,8 @@ class CollectionsManager:
 
         # Apply custom_order per item (pos starts at 1) without bulk
         pos = 1
+        had_update_error = False
+        first_error_message: Optional[str] = None
         for it in new_items:
             try:
                 res = self.items.update_one(
@@ -489,7 +491,11 @@ class CollectionsManager:
                 # advance position only if an item was actually matched/updated
                 if int(getattr(res, "matched_count", 0) or 0) > 0:
                     pos += 1
-            except Exception:
+            except Exception as e:
+                # Do not raise – mark error and continue as per requirement
+                had_update_error = True
+                if first_error_message is None:
+                    first_error_message = str(e)
                 continue
 
         # Load and update the collection document's items and items_count
@@ -510,8 +516,25 @@ class CollectionsManager:
             # Best-effort: even if updating the collection doc fails, do not crash
             pass
 
-        emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(len(new_items)))
-        return {"ok": True, "updated": len(new_items), "items": new_items}
+        # If any per-item update failed, log error and report updated=0
+        if had_update_error:
+            emit_event(
+                "collections_reorder_error",
+                severity="error",
+                user_id=int(user_id),
+                collection_id=str(collection_id),
+                count=int(len(new_items)),
+                error=str(first_error_message or "update_one failed"),
+                handled=True,
+            )
+            # Report how many actually succeeded: pos starts at 1 and
+            # increments only on successful matched updates
+            updated_count = max(0, int(pos - 1))
+        else:
+            updated_count = len(new_items)
+
+        emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(updated_count))
+        return {"ok": True, "updated": updated_count, "items": new_items}
 
     def get_collection_items(
         self,
