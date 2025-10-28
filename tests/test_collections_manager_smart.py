@@ -55,11 +55,12 @@ class FakeColl:
                 str(d.get("_id")) == str(flt.get("_id"))
                 and str(d.get("user_id")) == str(flt.get("user_id"))
             ):
+                original = dict(d)
                 if "$set" in upd and isinstance(upd["$set"], dict):
                     for k, v in upd["$set"].items():
                         d[k] = v
-                # החזר עותק מעודכן (כמו במסדי נתונים אמיתיים)
-                return dict(d)
+                # בהתאם להתנהגות MongoDB: כשהדגל False מחזירים את המסמך הישן
+                return dict(d) if return_document else original
         return None
 
 
