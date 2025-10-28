@@ -284,7 +284,13 @@ try:
             from webapp import collections_api as _collections_api  # noqa: E402
             _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
             if _bp is not None:
-                app.register_blueprint(_bp)
+                # Avoid double-prefixing: if blueprint already has url_prefix, register as-is;
+                # otherwise enforce the expected '/api/collections' prefix.
+                _existing_prefix = getattr(_bp, 'url_prefix', None)
+                if not _existing_prefix:
+                    app.register_blueprint(_bp, url_prefix="/api/collections")
+                else:
+                    app.register_blueprint(_bp)
                 # הדפסת רשימת הנתיבים לאחר רישום ה-Blueprint לצורך דיבאוג
                 try:
                     print("[DEBUG] רשימת נתיבים לאחר רישום:", [r.rule for r in app.url_map.iter_rules()])
