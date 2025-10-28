@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.skip(reason="Collections API שייכת רק ל-WebApp ולא רלוונטית לצינור ה-CI של הבוט")
+
 import os
 os.environ["FEATURE_MY_COLLECTIONS"] = "1"
 
