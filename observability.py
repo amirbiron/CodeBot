@@ -37,6 +37,8 @@ if not hasattr(logging, "ANOMALY"):
 
 # Guard to avoid double Sentry initialization in multi-import scenarios
 _SENTRY_INIT_DONE = False
+# Track the DSN used for initialization to allow re-init if DSN changes during tests/runtime
+_SENTRY_DSN_USED: str | None = None
 
 
 def _add_otel_ids(logger, method, event_dict: Dict[str, Any]):
@@ -219,9 +221,7 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
 
 
 def init_sentry() -> None:
-    global _SENTRY_INIT_DONE
-    if _SENTRY_INIT_DONE:
-        return
+    global _SENTRY_INIT_DONE, _SENTRY_DSN_USED
     # Prefer explicit ENV, but fall back to config.SENTRY_DSN when available.
     # This aligns bot/background processes with the webapp which already reads from config.
     dsn = os.getenv("SENTRY_DSN")
@@ -232,6 +232,9 @@ def init_sentry() -> None:
         except Exception:
             dsn = None
     if not dsn:
+        return
+    # If already initialized with the same DSN, skip. If DSN differs (e.g., in tests), allow re-init.
+    if _SENTRY_INIT_DONE and (_SENTRY_DSN_USED == dsn):
         return
     try:
         import sentry_sdk  # type: ignore
@@ -276,6 +279,7 @@ def init_sentry() -> None:
             before_send=_before_send,
         )
         _SENTRY_INIT_DONE = True
+        _SENTRY_DSN_USED = dsn
     except Exception:
         return
 

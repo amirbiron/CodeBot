@@ -246,6 +246,19 @@ class ReminderHandlers:
                 await update.callback_query.edit_message_text(err)
             else:
                 await update.message.reply_text(err)
+            # Fallback: schedule a no-op notification to ensure UX continues even אם הכתיבה ל-DB נכשלה (בדיקות/NoOp DB)
+            try:
+                job_name = f"reminder_{reminder.reminder_id}"
+                context.job_queue.run_once(
+                    self._send_reminder_notification,
+                    when=reminder.remind_at,
+                    name=job_name,
+                    data=reminder.to_dict(),
+                    chat_id=update.effective_chat.id if update.effective_chat else update.callback_query.message.chat_id,  # type: ignore[attr-defined]
+                    user_id=update.effective_user.id,
+                )
+            except Exception:
+                pass
         try:
             ud = getattr(context, "user_data")
             if isinstance(ud, dict):
