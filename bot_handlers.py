@@ -1605,11 +1605,11 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
 
-            import sys, platform, time
-            # Uptime – מבוסס metrics.get_boot_monotonic אם זמין
+            import sys, platform
+            # Uptime – השתמש בפונקציה ייעודית מ-metrics
             try:
-                from metrics import get_boot_monotonic  # type: ignore
-                uptime_sec = max(0.0, float(time.perf_counter() - float(get_boot_monotonic())))
+                from metrics import get_process_uptime_seconds  # type: ignore
+                uptime_sec = float(get_process_uptime_seconds())
             except Exception:
                 uptime_sec = 0.0
 
