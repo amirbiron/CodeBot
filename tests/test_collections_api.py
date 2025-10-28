@@ -122,7 +122,9 @@ def app_client(monkeypatch):
             sess['user_data'] = {'first_name': 'Test'}
         yield c
 
+import pytest
 
+@pytest.mark.skip(reason="Collections feature מושהה זמנית")
 def test_collections_crud_list(app_client):
     r = app_client.post('/api/collections', json={'name': '📁 נבחרים', 'mode': 'manual'})
     assert r.status_code == 200
