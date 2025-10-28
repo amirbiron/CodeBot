@@ -281,6 +281,15 @@ try:
         from webapp.collections_api import collections_bp  # noqa: E402
         # רישום יחיד וקנוני של ה-API בנתיב /api/collections
         app.register_blueprint(collections_bp, url_prefix="/api/collections")
+        # רישום דפי UI (server-rendered) הטעונים למסלול /collections
+        try:
+            from webapp.collections_ui import collections_ui  # noqa: E402
+            app.register_blueprint(collections_ui)
+        except Exception as _e:
+            try:
+                logger.info("collections_ui blueprint not registered: %s", _e)
+            except Exception:
+                pass
 except Exception as e:
     try:
         logger.error("Failed to register collections blueprint: %s", e, exc_info=True)
