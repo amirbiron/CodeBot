@@ -94,8 +94,13 @@ Testing Guide
 
 .. code-block:: python
 
-   import os
-   _is_pytest = bool(os.getenv("PYTEST_CURRENT_TEST"))
+   import os, sys
+   _is_pytest = (
+       bool(os.getenv("PYTEST_CURRENT_TEST"))
+       or ("pytest" in sys.modules)
+       or os.getenv("PYTEST") == "1"
+       or os.getenv("PYTEST_RUNNING") == "1"
+   )
    if _is_pytest:
        enabled = True  # הפיצ'ר נכפה ל-True בזמן טסטים
 
