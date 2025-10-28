@@ -190,15 +190,22 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
             _maybe_alert_single_error(event, fields)
         except Exception:
             pass
-        # שדרוג: העשרת תגים ל-Sentry דרך ה-LoggingIntegration בלבד כדי למנוע כפילות
+        # גשר ישיר ל-Sentry: שליחת הודעה עם תג request_id אם קיים,
+        # כדי להבטיח אירוע גם כאשר ה-LoggingIntegration לא קולט structlog
         try:
-            # אם sentry_sdk קיים, נשתמש ב-before_send ובאינטגרציית הלוגים
-            # כדי להימנע מכפילויות לא נזמן capture_message כאן.
-            import sentry_sdk  # type: ignore  # noqa: F401
-            # ניתן לחבר שדות כ-extra כך שיגיעו ל-Sentry דרך ה-logger
-            # logger.error יקרה מיד אח"כ; כאן לא נבצע פעולה.
+            import sentry_sdk  # type: ignore
+            rid = str(fields.get("request_id") or "")
+            # בחר מסר קריא: error/message/event
+            message_text = str(fields.get("error") or fields.get("message") or event)
+            with sentry_sdk.push_scope() as scope:  # type: ignore[attr-defined]
+                if rid:
+                    try:
+                        scope.set_tag("request_id", rid)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                sentry_sdk.capture_message(message_text, level="error")  # type: ignore[attr-defined]
         except Exception:
-            # אין sentry – נמשיך רגיל
+            # Fail-open אם sentry לא זמין
             pass
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
