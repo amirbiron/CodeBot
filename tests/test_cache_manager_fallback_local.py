@@ -176,3 +176,37 @@ async def test_async_cached_remote_success_uses_remote_not_local(monkeypatch):
     key = cm.cache._make_key('r', 'add', 1, 2)
     assert key in remote
     assert key not in cm._local_cache_store
+
+
+def test_fallback_returns_copy_not_same_object(monkeypatch):
+    cm = _reload_with_disabled_redis(monkeypatch)
+    cm._local_cache_store.clear()
+
+    @cm.cached(expire_seconds=60, key_prefix='copy')
+    def build_obj():
+        return {"a": [1, 2]}
+
+    first = build_obj()
+    # שינוי באובייקט שהוחזר לא צריך להשפיע על הקאש
+    first["a"].append(3)
+
+    second = build_obj()
+    assert second == {"a": [1, 2]}  # עותק נקי
+    assert second is not first
+
+
+@pytest.mark.asyncio
+async def test_async_fallback_returns_copy_not_same_object(monkeypatch):
+    cm = _reload_with_disabled_redis(monkeypatch)
+    cm._local_cache_store.clear()
+
+    @cm.async_cached(expire_seconds=60, key_prefix='copy')
+    async def build_obj():
+        return {"a": [1, 2]}
+
+    first = await build_obj()
+    first["a"].append(3)
+
+    second = await build_obj()
+    assert second == {"a": [1, 2]}
+    assert second is not first
