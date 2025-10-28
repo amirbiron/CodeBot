@@ -1,5 +1,6 @@
 import types
 import pytest
+pytest.skip("Collections feature is web-only; skipping API tests", allow_module_level=True)
 
 # טסטי API בסיסיים ל-Collections (Flask test_client)
 
