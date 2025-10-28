@@ -129,6 +129,15 @@ class AdvancedBotHandlers:
             "triage",
             chat_allowlist_required(admin_required(limit_sensitive("triage")(self.triage_command)))
         ))
+        # מערכת: מידע ומדדים
+        self.application.add_handler(CommandHandler(
+            "system_info",
+            chat_allowlist_required(admin_required(self.system_info_command))
+        ))
+        self.application.add_handler(CommandHandler(
+            "metrics",
+            chat_allowlist_required(admin_required(self.metrics_command))
+        ))
         # Observability v6 – Predictive Health
         self.application.add_handler(CommandHandler("predict", self.predict_command))
         # Observability v7 – Prediction accuracy
@@ -1583,6 +1592,142 @@ class AdvancedBotHandlers:
             await update.message.reply_text("\n".join(summary_lines), parse_mode=ParseMode.MARKDOWN)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/triage: {html.escape(str(e))}")
+
+    async def system_info_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/system_info – תקציר מצב המערכת (CPU/Mem/Uptime/Env) – אדמינים בלבד"""
+        try:
+            # הרשאות: אדמינים בלבד
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            import sys, platform
+            # Uptime – השתמש בפונקציה ייעודית מ-metrics
+            try:
+                from metrics import get_process_uptime_seconds  # type: ignore
+                uptime_sec = float(get_process_uptime_seconds())
+            except Exception:
+                uptime_sec = 0.0
+
+            def _format_duration(seconds: float) -> str:
+                try:
+                    s = int(max(0, seconds))
+                    d, rem = divmod(s, 86400)
+                    h, rem = divmod(rem, 3600)
+                    m, _ = divmod(rem, 60)
+                    parts = []
+                    if d:
+                        parts.append(f"{d}d")
+                    if h or d:
+                        parts.append(f"{h}h")
+                    parts.append(f"{m}m")
+                    return " ".join(parts)
+                except Exception:
+                    return f"{seconds:.0f}s"
+
+            # CPU/load
+            cpu_count = os.cpu_count() or 1
+            try:
+                la1, la5, la15 = os.getloadavg()
+                load_part = f"load {la1:.2f}/{la5:.2f}/{la15:.2f} (CPUs={cpu_count})"
+            except Exception:
+                load_part = f"CPUs={cpu_count}"
+
+            # Memory RSS (best-effort)
+            def _fmt_bytes(n: int) -> str:
+                try:
+                    units = ['B','KB','MB','GB','TB']
+                    val = float(n)
+                    i = 0
+                    while val >= 1024 and i < len(units)-1:
+                        val /= 1024.0
+                        i += 1
+                    return f"{val:.1f} {units[i]}"
+                except Exception:
+                    return str(n)
+
+            mem_part = "unknown"
+            try:
+                try:
+                    import psutil  # type: ignore
+                except Exception:
+                    psutil = None  # type: ignore
+                if psutil is not None:
+                    p = psutil.Process(os.getpid())
+                    mem_part = _fmt_bytes(int(getattr(p.memory_info(), 'rss', 0)))
+                else:
+                    import resource  # type: ignore
+                    rss_kb = int(getattr(resource.getrusage(resource.RUSAGE_SELF), 'ru_maxrss', 0))
+                    mem_part = _fmt_bytes(rss_kb * 1024)
+            except Exception:
+                mem_part = "unknown"
+
+            # סטטוס Sentry (ללא חשיפת סודות)
+            sentry_dsn_set = bool(os.getenv("SENTRY_DSN"))
+            sentry_api_ready = bool(os.getenv("SENTRY_AUTH_TOKEN") and (os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")))
+
+            env_name = os.getenv("ENVIRONMENT") or os.getenv("ENV") or "production"
+            app_ver = os.getenv("APP_VERSION") or getattr(config, 'APP_VERSION', '') or ''
+
+            lines = [
+                "🖥️ System Info",
+                f"• Python: {html.escape(sys.version.split(' ')[0])} ({html.escape(platform.system())} {html.escape(platform.release())})",
+                f"• Uptime: {_format_duration(uptime_sec)}",
+                f"• CPU: {load_part}",
+                f"• Memory RSS: {mem_part}",
+                f"• Env: {html.escape(env_name)} | Version: {html.escape(str(app_ver))}",
+                f"• Sentry DSN: {'configured' if sentry_dsn_set else 'not set'}",
+                f"• Sentry API (token+org): {'configured' if sentry_api_ready else 'not set'}",
+            ]
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/system_info: {html.escape(str(e))}")
+
+    async def metrics_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/metrics – סיכום קצר + קובץ metrics מלא (Prometheus) – אדמינים בלבד"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            from metrics import metrics_endpoint_bytes, get_uptime_percentage  # type: ignore
+            payload: bytes
+            try:
+                payload = metrics_endpoint_bytes() or b""
+            except Exception:
+                payload = b""
+
+            try:
+                uptime_pct = float(get_uptime_percentage())
+                summary = f"📈 Metrics: uptime≈{uptime_pct:.2f}%"
+            except Exception:
+                summary = "📈 Metrics: uptime≈N/A"
+            if payload:
+                try:
+                    fname = f"metrics_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
+                    bio = io.BytesIO(payload)
+                    bio.seek(0)
+                    await update.message.reply_document(InputFile(bio, filename=fname), caption=summary)
+                    return
+                except Exception:
+                    try:
+                        text_preview = payload.decode('utf-8', errors='ignore')[:3500]
+                    except Exception:
+                        text_preview = "(metrics unavailable)"
+                    await update.message.reply_text(summary + "\n\n" + text_preview)
+                    return
+            else:
+                await update.message.reply_text(summary + "\n(metrics unavailable)")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/metrics: {html.escape(str(e))}")
 
     async def rate_limit_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/rate_limit – מצב מגבלת GitHub עם התראה אם שימוש >80%"""

@@ -190,6 +190,16 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
             _maybe_alert_single_error(event, fields)
         except Exception:
             pass
+        # שדרוג: העשרת תגים ל-Sentry דרך ה-LoggingIntegration בלבד כדי למנוע כפילות
+        try:
+            # אם sentry_sdk קיים, נשתמש ב-before_send ובאינטגרציית הלוגים
+            # כדי להימנע מכפילויות לא נזמן capture_message כאן.
+            import sentry_sdk  # type: ignore  # noqa: F401
+            # ניתן לחבר שדות כ-extra כך שיגיעו ל-Sentry דרך ה-logger
+            # logger.error יקרה מיד אח"כ; כאן לא נבצע פעולה.
+        except Exception:
+            # אין sentry – נמשיך רגיל
+            pass
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
         logger.warning(**fields)
@@ -219,6 +229,16 @@ def init_sentry() -> None:
                     if any(s in k.lower() for s in ("token", "password", "secret", "cookie", "authorization")):
                         extra[k] = "[REDACTED]"
                 event["extra"] = extra
+                # אם request_id קיים ב-extra/contexts – קבע כתג לתשאול קל ב-Sentry
+                rid = None
+                try:
+                    rid = extra.get("request_id") or (event.get("contexts", {}).get("request", {}).get("request_id") if isinstance(event.get("contexts"), dict) else None)
+                except Exception:
+                    rid = None
+                if rid:
+                    tags = event.get("tags") or {}
+                    tags.setdefault("request_id", str(rid))
+                    event["tags"] = tags
             except Exception:
                 pass
             return event

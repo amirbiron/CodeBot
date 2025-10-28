@@ -419,6 +419,18 @@ def note_first_request_latency(duration_seconds: float | None = None) -> None:
         return
 
 
+def get_process_uptime_seconds() -> float:
+    """Return approximate process uptime in seconds using perf_counter baseline.
+
+    This is computed as ``perf_counter() - get_boot_monotonic()`` to yield elapsed
+    time since the baseline captured at import. It is best-effort and monotonic.
+    """
+    try:
+        return max(0.0, float(_time.perf_counter() - _BOOT_T0_MONOTONIC))
+    except Exception:
+        return 0.0
+
+
 def record_dependency_init(dependency: str, duration_seconds: float) -> None:
     """Observe initialization time for a named dependency (Histogram)."""
     try:
