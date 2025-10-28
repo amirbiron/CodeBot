@@ -269,63 +269,19 @@ except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
-# Collections (My Collections) behind feature flag
+# Collections (My Collections) API
 try:
     from config import config as _cfg
 except Exception:
     _cfg = None
 
 try:
-    # Enable by default; allow config flag to disable explicitly when available
     enabled = True if _cfg is None else bool(getattr(_cfg, 'FEATURE_MY_COLLECTIONS', True))
     if enabled:
-        # Prefer module import style and support both `bp` and `collections_bp` symbols
-        try:
-            from webapp import collections_api as _collections_api  # noqa: E402
-            _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
-            if _bp is not None:
-                # Enforce canonical '/api/collections' without double-prefixing
-                _existing_prefix = getattr(_bp, 'url_prefix', None)
-                if _existing_prefix != "/api/collections":
-                    app.register_blueprint(_bp, url_prefix="/api/collections")
-                else:
-                    app.register_blueprint(_bp)
-                # הדפסת רשימת הנתיבים לאחר רישום ה-Blueprint לצורך דיבאוג
-                try:
-                    print("[DEBUG] רשימת נתיבים לאחר רישום:", [r.rule for r in app.url_map.iter_rules()])
-                except Exception:
-                    pass
-            else:
-                # Explicit diagnostic for missing blueprint symbol
-                try:
-                    logger.warning("collections_api module missing 'bp'/'collections_bp' attributes; blueprint not registered")
-                except Exception:
-                    pass
-        except Exception as _imp_err:
-            # דיווח מפורש ל-stderr במקרה של כשל בייבוא, מבלי להפיל בדיקות
-            print("[ERROR] כשל בטעינת collections_api:", repr(_imp_err), file=sys.stderr)
-            # לא זורקים חריגה כאן; ניתן לאפליקציה לעלות גם ללא ה-API
-        # UI route (server-rendered) best-effort; failures are logged, not swallowed silently
-        try:
-            from webapp.collections_ui import collections_ui  # noqa: E402
-            app.register_blueprint(collections_ui)
-        except Exception as _e:
-            try:
-                logger.info("collections_ui blueprint not registered: %s", _e)
-            except Exception:
-                pass
-        # Conditional debug aid: print routes only if collections path missing
-        try:
-            has_collections_route = any(str(r).startswith("/api/collections") for r in app.url_map.iter_rules())
-            if not has_collections_route:
-                try:
-                    print("[DEBUG] /api/collections route not found. app.url_map:", [str(r) for r in app.url_map.iter_rules()])
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        from webapp.collections_api import collections_bp  # noqa: E402
+        # רישום יחיד וקנוני של ה-API בנתיב /api/collections
+        app.register_blueprint(collections_bp, url_prefix="/api/collections")
 except Exception as e:
-    # Do not fail silently; in tests re-raise to surface the root cause
     try:
         logger.error("Failed to register collections blueprint: %s", e, exc_info=True)
     except Exception:
