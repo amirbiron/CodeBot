@@ -527,7 +527,9 @@ class CollectionsManager:
                 error=str(first_error_message or "update_one failed"),
                 handled=True,
             )
-            updated_count = 0
+            # Report how many actually succeeded: pos starts at 1 and
+            # increments only on successful matched updates
+            updated_count = max(0, int(pos - 1))
         else:
             updated_count = len(new_items)
 
