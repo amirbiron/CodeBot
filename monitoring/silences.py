@@ -28,9 +28,12 @@ def _is_true(val: Optional[str]) -> bool:
 
 
 def _enabled() -> bool:
+    # Explicit enables override the global disable flag used by the test harness
+    if _is_true(os.getenv("ALERTS_DB_ENABLED")) or _is_true(os.getenv("METRICS_DB_ENABLED")):
+        return True
     if _is_true(os.getenv("DISABLE_DB")):
         return False
-    return _is_true(os.getenv("ALERTS_DB_ENABLED")) or _is_true(os.getenv("METRICS_DB_ENABLED"))
+    return False
 
 
 _client = None  # type: ignore
