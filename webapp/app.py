@@ -299,6 +299,16 @@ try:
                 logger.info("collections_ui blueprint not registered: %s", _e)
             except Exception:
                 pass
+        # Conditional debug aid: print routes only if collections path missing
+        try:
+            has_collections_route = any(str(r).startswith("/api/collections") for r in app.url_map.iter_rules())
+            if not has_collections_route:
+                try:
+                    print("[DEBUG] /api/collections route not found. app.url_map:", [str(r) for r in app.url_map.iter_rules()])
+                except Exception:
+                    pass
+        except Exception:
+            pass
 except Exception as e:
     # Do not fail silently; in tests re-raise to surface the root cause
     try:
