@@ -1764,6 +1764,10 @@ function loadScript(src){
       }
     } catch(_){ }
 
+    // אות שהרינדור הראשוני של ה-Markdown הושלם – מאפשר לרכיבים חיצוניים (כמו פתקים דביקים)
+    // להמתין לסיום הרינדור לפני אתחול, כדי להימנע מחפיפה/קפיצות.
+    try { document.dispatchEvent(new CustomEvent('md:rendered', { detail: { fileId: FILE_ID } })); } catch(_) {}
+
   } catch (e) {
     console.error('Markdown preview failed', e);
     const container = document.getElementById('md-content');
@@ -2407,21 +2411,34 @@ function goBackTwoSteps(ev){
 <link rel="stylesheet" href="{{ url_for('static', filename='css/sticky-notes.css') }}">
 <script src="{{ url_for('static', filename='js/sticky-notes.js') }}"></script>
 <script>
-  // אתחול פתקים דביקים לאחר שהדף נטען לחלוטין
+  // אתחול פתקים דביקים רק לאחר שרינדור ה-Markdown הושלם (או fallback בטוח)
   (function(){
     try{
-      const init = function(){
+      function readyForNotes(){
+        const c = document.getElementById('md-content');
+        return !!(c && c.innerHTML.trim().length > 0);
+      }
+      function doInit(){
+        if (window._stickyNotes) return; // מניעת כפילויות
         if (typeof window.StickyNotesManager !== 'function') return;
         if (!window.FILE_ID) return;
+        if (!readyForNotes()) return;
         // אל תציג למבקרים ציבוריים
         {% if not is_public %}
         window._stickyNotes = new window.StickyNotesManager(window.FILE_ID);
         {% endif %}
+      }
+      // העדפה: המתן לאירוע מותאם של רינדור ה-Markdown
+      document.addEventListener('md:rendered', () => { try { doInit(); } catch(_){} }, { once: true });
+      // Fallback: אם האירוע לא יופעל מסיבה כלשהי, ננסה לאחר DOMContentLoaded ואז בעוד קצת זמן
+      const fallbackInit = () => {
+        if (readyForNotes()) { doInit(); return; }
+        setTimeout(() => { try { doInit(); } catch(_){} }, 500);
       };
       if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', fallbackInit);
       } else {
-        init();
+        fallbackInit();
       }
     } catch(e) { console.warn('sticky notes init failed', e); }
   })();
