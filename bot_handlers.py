@@ -1705,7 +1705,11 @@ class AdvancedBotHandlers:
             except Exception:
                 payload = b""
 
-            summary = f"📈 Metrics: uptime≈{get_uptime_percentage():.2f}%"
+            try:
+                uptime_pct = float(get_uptime_percentage())
+                summary = f"📈 Metrics: uptime≈{uptime_pct:.2f}%"
+            except Exception:
+                summary = "📈 Metrics: uptime≈N/A"
             if payload:
                 try:
                     fname = f"metrics_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
