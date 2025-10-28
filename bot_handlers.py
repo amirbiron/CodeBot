@@ -838,7 +838,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
 
-            args = list(context.args or [])
+            args = list(getattr(context, 'args', []) or [])
             verbose_level = 0
             if any(str(a).strip().lower() == "-vv" for a in args):
                 verbose_level = 2
@@ -989,13 +989,16 @@ class AdvancedBotHandlers:
             from datetime import timedelta
             now_dt = datetime.now(timezone.utc)
             if window == "5m":
-                since_dt = now_dt - timedelta(minutes=5)
+                window_seconds = 5 * 60
+                since_dt = now_dt - timedelta(seconds=window_seconds)
                 window_label = "5m"
             elif window == "1h":
-                since_dt = now_dt - timedelta(hours=1)
+                window_seconds = 60 * 60
+                since_dt = now_dt - timedelta(seconds=window_seconds)
                 window_label = "1h"
             else:
-                since_dt = now_dt - timedelta(hours=24)
+                window_seconds = 24 * 3600
+                since_dt = now_dt - timedelta(seconds=window_seconds)
                 window_label = "24h"
 
             # Alerts – DB
@@ -1019,7 +1022,19 @@ class AdvancedBotHandlers:
                 except Exception:
                     items = []
                 try:
-                    min_ts = since_dt.timestamp()
+                    # בחר בסיס זמן יציב: מקס' ה-ts מהזיכרון (אם קיים), אחרת now
+                    base_ts = None
+                    try:
+                        for a in items:
+                            ts = a.get('ts')
+                            if ts:
+                                t = datetime.fromisoformat(str(ts)).timestamp()
+                                base_ts = max(base_ts or t, t)
+                    except Exception:
+                        base_ts = None
+                    if base_ts is None:
+                        base_ts = since_dt.timestamp()
+                    min_ts = float(base_ts) - float(window_seconds)
                     t_total = 0
                     t_critical = 0
                     for a in items:
@@ -1041,7 +1056,9 @@ class AdvancedBotHandlers:
                 try:
                     from alert_manager import get_dispatch_log  # type: ignore
                     ditems = get_dispatch_log(limit=500) or []
-                    min_ts = since_dt.timestamp()
+                    # סמוך לבסיס הזמן שנקבע לזיכרון כדי לשמר עקביות
+                    min_ts = (base_ts if 'base_ts' in locals() and base_ts is not None else since_dt.timestamp())
+                    min_ts = float(min_ts)
                     seen = set()
                     for di in ditems:
                         try:

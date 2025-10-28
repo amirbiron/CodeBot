@@ -517,7 +517,11 @@ class CollectionsManager:
                     {"$set": {"custom_order": pos, "updated_at": _now()}},
                 )
                 # advance position only if an item was actually matched/updated
-                if int(getattr(res, "matched_count", 0) or 0) > 0:
+                # תמיכה גם במימושי Fake/Stub שמדווחים modified_count אך לא matched_count
+                matched = int(getattr(res, "matched_count", 0) or 0)
+                if matched <= 0:
+                    matched = int(getattr(res, "modified_count", 0) or 0)
+                if matched > 0:
                     pos += 1
             except Exception as e:
                 # Do not raise – mark error and continue as per requirement
@@ -619,9 +623,16 @@ class CollectionsManager:
 
             # מיון בסיסי
             def _sort_key(d: Dict[str, Any]):
+                # ודא שסדר מותאם אישית יילקח גם אם נשמר כמחרוזת ספרתית (למשל ע"י FakeDB)
+                co_raw = d.get("custom_order")
+                try:
+                    # המרה בטוחה ל-int; אם אין ערך/לא מספרי — קבע ערך גדול כדי שימוין לאחרים
+                    co_val = int(co_raw)
+                except Exception:
+                    co_val = 1_000_000
                 return (
                     0 if bool(d.get("pinned")) else 1,
-                    (d.get("custom_order") if isinstance(d.get("custom_order"), int) else 1_000_000),
+                    co_val,
                     str(d.get("file_name") or "").lower(),
                 )
 
