@@ -280,10 +280,20 @@ try:
     enabled = True if _cfg is None else bool(getattr(_cfg, 'FEATURE_MY_COLLECTIONS', True))
     if enabled:
         # Prefer module import style and support both `bp` and `collections_bp` symbols
-        from webapp import collections_api as _collections_api  # noqa: E402
+        try:
+            from webapp import collections_api as _collections_api  # noqa: E402
+        except Exception as _imp_err:
+            # דיווח מפורש ל-stderr במקרה של כשל בייבוא
+            print("[ERROR] כשל בטעינת collections_api:", repr(_imp_err), file=sys.stderr)
+            raise
         _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
         if _bp is not None:
             app.register_blueprint(_bp)
+            # הדפסת רשימת הנתיבים לאחר רישום ה-Blueprint לצורך דיבאוג
+            try:
+                print("[DEBUG] רשימת נתיבים לאחר רישום:", [r.rule for r in app.url_map.iter_rules()])
+            except Exception:
+                pass
         else:
             # Explicit diagnostic for missing blueprint symbol
             try:

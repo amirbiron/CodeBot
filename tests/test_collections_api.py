@@ -1,3 +1,6 @@
+import os
+os.environ["FEATURE_MY_COLLECTIONS"] = "1"
+
 import types
 import pytest
 
