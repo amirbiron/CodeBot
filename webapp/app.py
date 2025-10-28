@@ -141,6 +141,35 @@ Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 
+# --- Static asset version (for cache-busting of PWA manifest/icons) ---
+_MANIFEST_PATH = (Path(__file__).parent / 'static' / 'manifest.json')
+
+def _compute_static_version() -> str:
+    """Return a short version string to bust caches for static assets.
+
+    Preference order:
+    1) ASSET_VERSION env
+    2) APP_VERSION env
+    3) SHA1(first 8) of manifest.json contents
+    4) Hourly rolling timestamp
+    """
+    v = os.getenv("ASSET_VERSION") or os.getenv("APP_VERSION")
+    if v:
+        return str(v)
+    try:
+        p = _MANIFEST_PATH
+        if p.is_file():
+            h = hashlib.sha1(p.read_bytes()).hexdigest()  # nosec - not for security
+            return h[:8]
+    except Exception:
+        pass
+    try:
+        return str(int(_time.time() // 3600))
+    except Exception:
+        return "dev"
+
+_STATIC_VERSION = _compute_static_version()
+
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
@@ -619,6 +648,8 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        # גרסה סטטית לצירוף לסטטיקה (cache-busting)
+        'static_version': _STATIC_VERSION,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
         # External uptime config for templates (non-sensitive only)
