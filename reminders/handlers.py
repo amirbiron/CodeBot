@@ -524,19 +524,10 @@ def setup_reminder_handlers(application):
     application.add_handler(conv, group=-2)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_|edit_)"))
-    # Text handler for edit input; narrow filter to avoid intercepting unrelated messages
-    def _in_edit_flow(message, context):  # type: ignore[no-redef]
-        try:
-            ud = context.user_data  # type: ignore[attr-defined]
-            return isinstance(ud, dict) and ud.get("edit_rid") and ud.get("edit_field")
-        except Exception:
-            return False
-
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             handlers.handle_edit_input,
-            filter_callback=_in_edit_flow,  # processed only when in edit flow
         ),
         group=1,
     )
