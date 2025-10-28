@@ -482,11 +482,13 @@ class CollectionsManager:
         pos = 1
         for it in new_items:
             try:
-                self.items.update_one(
+                res = self.items.update_one(
                     {"collection_id": cid, "user_id": user_id, "source": it["source"], "file_name": it["file_name"]},
                     {"$set": {"custom_order": pos, "updated_at": _now()}},
                 )
-                pos += 1
+                # advance position only if an item was actually matched/updated
+                if int(getattr(res, "matched_count", 0) or 0) > 0:
+                    pos += 1
             except Exception:
                 continue
 
