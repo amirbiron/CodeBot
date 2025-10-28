@@ -185,16 +185,17 @@ class CollectionsManager:
             "created_at": _now(),
             "updated_at": _now(),
         }
-        # ודא יצירת מזהה כטקסט: _id = str(ObjectId()) ושמור גם id עם אותו ערך
+        # מזהה: בפרודקשן נשמור _id כ-ObjectId אמיתי, אך נחזיר/נייצג id כמחרוזת זהה
         if HAS_BSON:
-            # במסד אמיתי: נייצר ObjectId ונשמור כמחרוזת כדי ליישר קו עם הטסטים
-            _generated_id = str(ObjectId())
+            oid = ObjectId()
+            doc["_id"] = oid
+            doc["id"] = str(oid)
         else:
-            # ללא bson: ייצר hex באורך 24 כדי לעבוד עם טסטים/DB מדומה
+            # ללא bson: שמור מזהה hex באורך 24 גם ב-_id וגם ב-id
             import os, binascii
             _generated_id = binascii.hexlify(os.urandom(12)).decode()
-        doc["_id"] = _generated_id
-        doc["id"] = _generated_id
+            doc["_id"] = _generated_id
+            doc["id"] = _generated_id
         try:
             self.collections.insert_one(doc)
             emit_event("collections_create", user_id=int(user_id), collection_id=str(doc.get("_id")))
