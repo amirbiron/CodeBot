@@ -48,6 +48,20 @@ class FakeColl:
                 break
         return SimpleNamespace(modified_count=mod)
 
+    def find_one_and_update(self, flt, upd, return_document=True):
+        # עדכון פשוט בזיכרון על פי _id ו-user_id
+        for d in self.docs:
+            if (
+                str(d.get("_id")) == str(flt.get("_id"))
+                and str(d.get("user_id")) == str(flt.get("user_id"))
+            ):
+                if "$set" in upd and isinstance(upd["$set"], dict):
+                    for k, v in upd["$set"].items():
+                        d[k] = v
+                # החזר עותק מעודכן (כמו במסדי נתונים אמיתיים)
+                return dict(d)
+        return None
+
 
 class FakeItems:
     def __init__(self):
