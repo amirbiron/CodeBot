@@ -3,8 +3,8 @@ import pytest
 
 # טסטי API בסיסיים ל-Collections (Flask test_client)
 
-@pytest.fixture(scope="module")
-def client():
+@pytest.fixture()
+def client(monkeypatch):
     import importlib
     import os as _os
     _os.environ.setdefault("FEATURE_MY_COLLECTIONS", "1")
@@ -17,7 +17,7 @@ def client():
             setattr(cfg, 'FEATURE_MY_COLLECTIONS', True)
     except Exception:
         pass
-    # החלפת get_manager בפייק
+    # החלפת get_manager בפייק (באמצעות monkeypatch להבטחת ניקיון בין טסטים)
     import webapp.collections_api as api
     class _FakeManager:
         def __init__(self):
@@ -66,9 +66,8 @@ def client():
             return {"ok": True, "deleted": len(arr) - len(left)}
         def reorder_items(self, user_id, collection_id, order):
             return {"ok": True, "updated": len(order)}
-    # נעילת get_manager לפייק פשוט ברמת מודול (אובייקט יחיד כדי לשמר state בין קריאות)
     _fake = _FakeManager()
-    api.get_manager = lambda: _fake
+    monkeypatch.setattr(api, 'get_manager', lambda: _fake, raising=True)
     # סשן משתמש
     app.testing = True
     with app.test_client() as c:
