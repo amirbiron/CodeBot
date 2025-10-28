@@ -83,17 +83,12 @@
   max-width: 100%;
   height: auto;
 }
-/* מיקום כפתור "צבע רקע" – התאמות רספונסיביות למניעת חפיפה */
+/* מיקום כפתור "צבע רקע" – העברה לכותרת ומניעת חפיפה */
 #md-search { position: relative; }
-#bgColorSwitcher { position: absolute; top: 8px; left: 8px; z-index: 100; }
+#bgColorSwitcher { position: relative; z-index: 1; margin-inline-end: .5rem; }
 @media (max-width: 600px) {
-  /* במובייל – העבר את הכפתור לשורה נפרדת מתחת לשורת החיפוש */
-  #md-search { padding-left: 0; }
-  #bgColorSwitcher { position: static; order: 99; width: 100%; margin-top: 6px; }
-}
-@media (min-width: 601px) and (max-width: 1024px) {
-  /* בטאבלט – השאר אותו צמוד למעלה אבל השאר מרווח כדי לא לחפוף את כפתורי החיפוש */
-  #md-search { padding-left: 70px; }
+  /* במובייל – אם צריך, ניתן להעביר לשורה שנייה בתוך הכותרת */
+  #bgColorSwitcher { order: 2; width: auto; margin-top: 6px; }
 }
 /* הרחבת הקונטיינר בעמוד Markdown כדי לצמצם את הסגול בצדדים */
 .main-content > .container {
@@ -863,38 +858,40 @@ input.md-task-checkbox {
   </div>
 
   <div class="glass-card" id="mdCard" style="padding:1rem;">
-    <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.5rem;">
-      <h2 class="section-title" style="margin:0;display:flex;align-items:center;gap:.5rem;">
-        <i class="fas fa-file-alt"></i>
-        תצוגת Markdown
-      </h2>
+    <div class="section-header" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.5rem;flex-wrap:wrap;">
+      <div class="section-title-wrap" style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;">
+        <h2 class="section-title" style="margin:0;display:flex;align-items:center;gap:.5rem;">
+          <i class="fas fa-file-alt"></i>
+          תצוגת Markdown
+        </h2>
+        <!-- כפתור החלפת צבעי רקע הועבר לכותרת כדי למנוע חפיפה בטאבלט -->
+        <div id="bgColorSwitcher">
+          <button id="bgColorBtn" class="btn btn-secondary btn-icon" style="background:rgba(255,255,255,0.95);color:#333;border:1px solid #ddd;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:8px 16px;border-radius:8px;font-size:14px;cursor:pointer;transition:all 0.2s ease;" title="החלף צבע רקע">
+            <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#ffffff;border:2px solid #333;vertical-align:middle;margin-left:6px;"></span>
+            צבע רקע
+          </button>
+          <div id="bgColorOptions" style="display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;background:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:10px;white-space:nowrap;">
+            <button class="bg-color-option" data-color="light" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#f7eadb;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#f7eadb;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              חום בהיר
+            </button>
+            <button class="bg-color-option" data-color="medium" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#ecd9bd;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#ecd9bd;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              חום בינוני
+            </button>
+            <button class="bg-color-option" data-color="dark" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#dec4a3;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#dec4a3;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              חום כהה
+            </button>
+          </div>
+        </div>
+      </div>
       <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
         <i class="fas fa-expand"></i>
         מסך מלא
       </button>
     </div>
     <div class="search-bar" id="md-search" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg,#2d4a7c 0%,#3d5a8c 100%);padding:.75rem;border-radius:12px 12px 0 0;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:-16px -16px 0 -16px;position:relative;">
-      <!-- כפתור החלפת צבעי רקע -->
-      <div id="bgColorSwitcher">
-        <button id="bgColorBtn" class="btn btn-secondary btn-icon" style="background:rgba(255,255,255,0.95);color:#333;border:1px solid #ddd;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:8px 16px;border-radius:8px;font-size:14px;cursor:pointer;transition:all 0.2s ease;" title="החלף צבע רקע">
-          <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#ffffff;border:2px solid #333;vertical-align:middle;margin-left:6px;"></span>
-          צבע רקע
-        </button>
-        <div id="bgColorOptions" style="display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;background:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:10px;white-space:nowrap;">
-          <button class="bg-color-option" data-color="light" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#f7eadb;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
-            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#f7eadb;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
-            חום בהיר
-          </button>
-          <button class="bg-color-option" data-color="medium" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#ecd9bd;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
-            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#ecd9bd;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
-            חום בינוני
-          </button>
-          <button class="bg-color-option" data-color="dark" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#dec4a3;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
-            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#dec4a3;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
-            חום כהה
-          </button>
-        </div>
-      </div>
       <input id="mdSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1 1 220px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;">
       <span id="mdSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;flex:0 0 auto;"></span>
       <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
