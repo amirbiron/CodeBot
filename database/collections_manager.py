@@ -13,7 +13,9 @@ import re
 
 try:
     from bson import ObjectId  # type: ignore
+    HAS_BSON: bool = True
 except Exception:  # pragma: no cover
+    HAS_BSON = False
     class ObjectId(str):  # type: ignore
         pass
 
@@ -182,10 +184,17 @@ class CollectionsManager:
             "created_at": _now(),
             "updated_at": _now(),
         }
+        # ודא יצירת מזהה תקין מסוג ObjectId גם מול DB מדומה שמייצר מחרוזות ("oid1")
+        if HAS_BSON:
+            # במסד אמיתי: תן ל-ObjectId לייצר מזהה בינארי תקין
+            doc["_id"] = ObjectId()
+        else:
+            # ללא bson: ייצר hex באורך 24 כדי לעבוד עם טסטים/DB מדומה
+            import os, binascii
+            doc["_id"] = binascii.hexlify(os.urandom(12)).decode()
         try:
-            res = self.collections.insert_one(doc)
-            doc["_id"] = res.inserted_id
-            emit_event("collections_create", user_id=int(user_id), collection_id=str(res.inserted_id))
+            self.collections.insert_one(doc)
+            emit_event("collections_create", user_id=int(user_id), collection_id=str(doc.get("_id")))
             return {"ok": True, "collection": self._public_collection(doc)}
         except Exception as e:
             emit_event("collections_create_error", severity="error", user_id=int(user_id), error=str(e))
