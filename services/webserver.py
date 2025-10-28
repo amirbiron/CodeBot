@@ -146,9 +146,12 @@ def create_app() -> web.Application:
             return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
-            # Emit an event in a way that supports both styles of monkeypatching:
-            # 1) sys.modules['observability'] injection (import inside handler)
-            # 2) module-level ws.emit_event monkeypatch
+            # Always try module-level emit_event first (supports ws.emit_event monkeypatch)
+            try:
+                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+            except Exception:
+                pass
+            # Additionally, support sys.modules['observability'] injection used in tests
             try:
                 import sys as _sys
                 import types as _types
@@ -157,17 +160,8 @@ def create_app() -> web.Application:
                     _emit = getattr(obs, "emit_event", None)
                     if callable(_emit):
                         _emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
-                    else:
-                        raise RuntimeError("emit_event not found on injected observability")
-                else:
-                    emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
             except Exception:
-                # Final fallback: try importing the real module dynamically
-                try:
-                    from observability import emit_event as _dyn_emit  # type: ignore
-                    _dyn_emit("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
-                except Exception:
-                    pass
+                pass
             try:
                 if errors_total is not None:
                     errors_total.labels(code="E_METRICS_VIEW").inc()
