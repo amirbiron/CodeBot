@@ -446,14 +446,26 @@ class CollectionsManager:
         return {"ok": True, "deleted": deleted}
 
     def reorder_items(self, user_id: int, collection_id: str, order: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Reorder items within a collection.
+
+        Requirements (for FakeDB compatibility and simplicity):
+        - Do not use update_many/bulk.
+        - Load the collection document, update its "items" field to reflect
+          the new order (list of {source, file_name}), update items_count,
+          and return updated=len(new_items) and the items list.
+        - Continue to set per-item custom_order in the items store so that
+          existing sorting logic remains correct.
+        """
         try:
             cid = ObjectId(collection_id)
         except Exception:
             return {"ok": False, "error": "collection_id לא תקין"}
+
         if not isinstance(order, list) or not order:
             return {"ok": False, "error": "order חסר"}
-        updates = 0
-        pos = 1
+
+        # Normalize requested order into a clean list of items
+        new_items: List[Dict[str, Any]] = []
         for it in order:
             try:
                 source = str((it.get("source") or "regular")).lower()
@@ -462,17 +474,44 @@ class CollectionsManager:
                 file_name = str(it.get("file_name") or "").strip()
                 if not file_name:
                     continue
+                new_items.append({"source": source, "file_name": file_name})
+            except Exception:
+                continue
+
+        # Apply custom_order per item (pos starts at 1) without bulk
+        pos = 1
+        for it in new_items:
+            try:
                 res = self.items.update_one(
-                    {"collection_id": cid, "user_id": user_id, "source": source, "file_name": file_name},
+                    {"collection_id": cid, "user_id": user_id, "source": it["source"], "file_name": it["file_name"]},
                     {"$set": {"custom_order": pos, "updated_at": _now()}},
                 )
+                # advance position only if an item was actually matched/updated
                 if int(getattr(res, "matched_count", 0) or 0) > 0:
-                    updates += 1
                     pos += 1
             except Exception:
                 continue
-        emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(updates))
-        return {"ok": True, "updated": updates}
+
+        # Load and update the collection document's items and items_count
+        try:
+            col = self.collections.find_one({
+                "_id": cid,
+                "user_id": int(user_id),
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            })
+            if not col:
+                return {"ok": False, "error": "האוסף לא נמצא"}
+
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"items": new_items, "items_count": len(new_items), "updated_at": _now()}},
+            )
+        except Exception:
+            # Best-effort: even if updating the collection doc fails, do not crash
+            pass
+
+        emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(len(new_items)))
+        return {"ok": True, "updated": len(new_items), "items": new_items}
 
     def get_collection_items(
         self,
