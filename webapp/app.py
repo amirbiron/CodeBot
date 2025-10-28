@@ -284,10 +284,9 @@ try:
             from webapp import collections_api as _collections_api  # noqa: E402
             _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
             if _bp is not None:
-                # Avoid double-prefixing: if blueprint already has url_prefix, register as-is;
-                # otherwise enforce the expected '/api/collections' prefix.
+                # Enforce canonical '/api/collections' without double-prefixing
                 _existing_prefix = getattr(_bp, 'url_prefix', None)
-                if not _existing_prefix:
+                if _existing_prefix != "/api/collections":
                     app.register_blueprint(_bp, url_prefix="/api/collections")
                 else:
                     app.register_blueprint(_bp)
