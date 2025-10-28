@@ -525,13 +525,16 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             path = getattr(b, "file_path", None)
             if not path or not str(path).endswith(".zip"):
                 continue
-            # Compute MD5 without loading entire file into memory
+            # Compute MD5 without loading entire file into memory, and capture small content sample for filename stability
             data = None  # type: ignore[assignment]
             md5_local: Optional[str] = None
+            content_sample: Optional[bytes] = None
             try:
                 h = hashlib.md5()
                 with open(path, "rb") as f_md5:
                     for chunk in iter(lambda: f_md5.read(1024 * 1024), b""):
+                        if content_sample is None and chunk:
+                            content_sample = chunk[:1024]
                         h.update(chunk)
                 md5_local = h.hexdigest()
             except Exception:
@@ -583,8 +586,8 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
             except Exception:
                 rating = None
-            # Build friendly filename; if we don't have a sample, it's fine
-            fname = compute_friendly_name(user_id, "zip", entity, rating)
+            # Build friendly filename ONCE using the captured content sample (if any) to keep names consistent across fallbacks
+            fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=content_sample)
             sub_path = compute_subpath("zip")
             # Prefer streaming from file when possible; fall back to bytes if needed
             fid: Optional[str] = None
@@ -595,11 +598,8 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             if not fid:
                 try:
                     with open(path, "rb") as f_bytes:
-                        sample = f_bytes.read(1024)
-                        f_bytes.seek(0)
+                        # Read full data for non-streaming API
                         data_bytes = f_bytes.read()
-                    # Recompute fname with content sample if beneficial
-                    fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=sample)
                     fid = upload_bytes(user_id, filename=fname, data=data_bytes, sub_path=sub_path)
                 except Exception:
                     fid = None
