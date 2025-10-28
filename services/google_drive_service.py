@@ -10,13 +10,14 @@ import requests
 try:
     from googleapiclient.discovery import build  # type: ignore
     from googleapiclient.errors import HttpError  # type: ignore
-    from googleapiclient.http import MediaIoBaseUpload  # type: ignore
+    from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload  # type: ignore
     from google.oauth2.credentials import Credentials  # type: ignore
     from google.auth.transport.requests import Request  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     build = None  # type: ignore[assignment]
     HttpError = Exception  # type: ignore[assignment]
     MediaIoBaseUpload = None  # type: ignore[assignment]
+    MediaFileUpload = None  # type: ignore[assignment]
     Credentials = None  # type: ignore[assignment]
     Request = None  # type: ignore[assignment]
 
@@ -393,13 +394,69 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
         return None
     if MediaIoBaseUpload is None:
         return None
-    media = MediaIoBaseUpload(io.BytesIO(data), mimetype="application/zip", resumable=False)
+    # Use resumable upload with chunks to improve reliability for larger files
+    try:
+        chunksize = 8 * 1024 * 1024  # 8MB
+    except Exception:
+        chunksize = None  # type: ignore[assignment]
+    media = MediaIoBaseUpload(
+        io.BytesIO(data),
+        mimetype="application/zip",
+        resumable=True,
+        chunksize=chunksize if isinstance(chunksize, int) else None,  # type: ignore[arg-type]
+    )
     body: Dict[str, Any] = {"name": filename}
     if folder_id:
         body["parents"] = [folder_id]
     try:
-        file = service.files().create(body=body, media_body=media, fields="id").execute()
-        return file.get("id")
+        request = service.files().create(body=body, media_body=media, fields="id")
+        response = None
+        # Drive SDK: call next_chunk() until the upload completes
+        while response is None:
+            _status, response = request.next_chunk()
+        return response.get("id") if isinstance(response, dict) else None
+    except HttpError:
+        return None
+
+
+def upload_file(
+    user_id: int,
+    filename: str,
+    file_path: str,
+    folder_id: Optional[str] = None,
+    sub_path: Optional[str] = None,
+) -> Optional[str]:
+    """Upload a local file to Drive using a resumable, chunked upload.
+
+    Falls back to None if Drive libraries are unavailable.
+    """
+    service = get_drive_service(user_id)
+    if not service:
+        return None
+    if sub_path:
+        folder_id = ensure_subpath(user_id, sub_path)
+    if not folder_id:
+        folder_id = _get_root_folder(user_id)
+    if not folder_id:
+        return None
+    if MediaFileUpload is None:
+        return None
+    # Chunked, resumable upload
+    try:
+        media = MediaFileUpload(
+            file_path,
+            mimetype="application/zip",
+            resumable=True,
+            chunksize=8 * 1024 * 1024,  # 8MB
+        )
+        body: Dict[str, Any] = {"name": filename}
+        if folder_id:
+            body["parents"] = [folder_id]
+        request = service.files().create(body=body, media_body=media, fields="id")
+        response = None
+        while response is None:
+            _status, response = request.next_chunk()
+        return response.get("id") if isinstance(response, dict) else None
     except HttpError:
         return None
 
@@ -468,11 +525,22 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
             path = getattr(b, "file_path", None)
             if not path or not str(path).endswith(".zip"):
                 continue
-            with open(path, "rb") as f:
-                data = f.read()
+            # Compute MD5 without loading entire file into memory, and capture small content sample for filename stability
+            data = None  # type: ignore[assignment]
+            md5_local: Optional[str] = None
+            content_sample: Optional[bytes] = None
+            try:
+                h = hashlib.md5()
+                with open(path, "rb") as f_md5:
+                    for chunk in iter(lambda: f_md5.read(1024 * 1024), b""):
+                        if content_sample is None and chunk:
+                            content_sample = chunk[:1024]
+                        h.update(chunk)
+                md5_local = h.hexdigest()
+            except Exception:
+                md5_local = None
             # If a file with the same content already exists in Drive, mark as uploaded and skip
             try:
-                md5_local = hashlib.md5(data).hexdigest()
                 if isinstance(existing_md5, set) and md5_local in existing_md5:
                     if b_id:
                         new_uploaded.append(b_id)
@@ -518,9 +586,23 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
                 rating = db.get_backup_rating(user_id, b_id) if b_id else None
             except Exception:
                 rating = None
-            fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=data[:1024])
+            # Build friendly filename ONCE using the captured content sample (if any) to keep names consistent across fallbacks
+            fname = compute_friendly_name(user_id, "zip", entity, rating, content_sample=content_sample)
             sub_path = compute_subpath("zip")
-            fid = upload_bytes(user_id, filename=fname, data=data, sub_path=sub_path)
+            # Prefer streaming from file when possible; fall back to bytes if needed
+            fid: Optional[str] = None
+            try:
+                fid = upload_file(user_id, filename=fname, file_path=path, sub_path=sub_path)
+            except Exception:
+                fid = None
+            if not fid:
+                try:
+                    with open(path, "rb") as f_bytes:
+                        # Read full data for non-streaming API
+                        data_bytes = f_bytes.read()
+                    fid = upload_bytes(user_id, filename=fname, data=data_bytes, sub_path=sub_path)
+                except Exception:
+                    fid = None
             if fid:
                 uploaded += 1
                 ids.append(fid)
@@ -563,7 +645,7 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
     results: List[Tuple[str, str, bytes]] = []
     for repo, docs in repo_to_files.items():
         buf = io.BytesIO()
-        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
             for d in docs:
                 name = d.get('file_name') or f"file_{d.get('_id')}"
                 code = d.get('code') or ''
@@ -583,7 +665,7 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
 
     backup_id = f"backup_{user_id}_{int(time.time())}_{category}"
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         # נדרשים code ו-tags להמשך סינון וכתיבה ל־ZIP
         files = _db.get_user_files(
             user_id,

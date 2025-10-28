@@ -2407,7 +2407,7 @@ class GitHubMenuHandler:
                 total_bytes = 0
                 total_files = 0
                 skipped_large = 0
-                with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split("/")[-1]
 
@@ -2451,7 +2451,7 @@ class GitHubMenuHandler:
                     "repo": repo.full_name,
                     "path": current_path or ""
                 }
-                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     zipf.writestr("metadata.json", json.dumps(metadata, indent=2))
 
                 zip_buffer.seek(0)
