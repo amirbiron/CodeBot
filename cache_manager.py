@@ -202,8 +202,14 @@ class CacheManager:
             except Exception:
                 _cfg = None
 
-            redis_url = (getattr(_cfg, 'REDIS_URL', None) if _cfg is not None else None) or os.getenv('REDIS_URL')
-            if not redis_url or redis_url.strip() == "" or redis_url.startswith("disabled"):
+            # קדימות ל-ENV: אם המשתנה הוגדר (גם אם ריק) זה אות להשבתה מפורשת בטסטים/CI
+            env_url = os.getenv('REDIS_URL')
+            if env_url is not None:
+                redis_url = env_url
+            else:
+                redis_url = getattr(_cfg, 'REDIS_URL', None) if _cfg is not None else None
+
+            if not redis_url or str(redis_url).strip() == "" or str(redis_url).startswith("disabled"):
                 self.is_enabled = False
                 logger.info("Redis אינו מוגדר - Cache מושבת")
                 return
