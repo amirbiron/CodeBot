@@ -284,7 +284,8 @@ try:
             from webapp import collections_api as _collections_api  # noqa: E402
             _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
             if _bp is not None:
-                app.register_blueprint(_bp)
+                # Explicit url_prefix to avoid accidental drops in certain test envs
+                app.register_blueprint(_bp, url_prefix="/api/collections")
                 # הדפסת רשימת הנתיבים לאחר רישום ה-Blueprint לצורך דיבאוג
                 try:
                     print("[DEBUG] רשימת נתיבים לאחר רישום:", [r.rule for r in app.url_map.iter_rules()])
