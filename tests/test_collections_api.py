@@ -90,6 +90,9 @@ class FakeManager:
 def app_client(monkeypatch):
     import importlib
     # דגל פיצ'ר – להגדיר מוקדם לפני ייבוא האפליקציה כדי להבטיח רישום Blueprint
+    # הגדרה גם כ-ENV כדי לכבד קריאה דרך Pydantic Settings במידת הצורך
+    import os as _os
+    _os.environ.setdefault("FEATURE_MY_COLLECTIONS", "1")
     try:
         from config import config as cfg
         setattr(cfg, 'FEATURE_MY_COLLECTIONS', True)
@@ -98,7 +101,6 @@ def app_client(monkeypatch):
     app_mod = importlib.import_module('webapp.app')
     app = app_mod.app
     # דיבאג: הדפסת נתיבי collections רק ב-CI או כש-PYTEST_DEBUG_COLLECTIONS=1
-    import os as _os
     if _os.environ.get("PYTEST_DEBUG_COLLECTIONS") == "1" or _os.environ.get("GITHUB_ACTIONS") == "true":
         try:
             routes = [str(r) for r in app.url_map.iter_rules() if "collections" in str(r)]
