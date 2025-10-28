@@ -76,6 +76,35 @@ Testing Guide
            raise RuntimeError(f"Refusing to delete unsafe path: {p}")
        shutil.rmtree(p)
 
+רישום Blueprint בסביבת טסטים
+------------------------------
+
+במהלך הרצת בדיקות (pytest), האפליקציה מבטיחה שרישום ה‑Blueprint של ``collections_api`` יבוצע תמיד — גם אם הייבוא נכשל או אם הקובץ ``config`` חסר.
+
+מה קורה בפועל:
+
+- אם המודול נטען בהצלחה: ה‑Blueprint נרשם כרגיל תחת ``/api/collections`` באמצעות ``collections_bp`` (או ``bp``).
+- אם הייבוא נכשל או אין ``bp``: נרשם Blueprint דיאגנוסטי שמונע שגיאות 404 ומחזיר JSON עם סטטוס 503, למשל::
+
+    {"ok": false, "error": "collections_api_unavailable", "diagnostic": true}
+
+- בפרודקשן: ההתנהגות לא משתנה — חריגים נרשמים ללוג בלבד, ואין Blueprint דמה.
+
+דוגמה לקוד שמבטיח רישום בסביבת pytest (חלק מ‑``webapp/app.py``):
+
+.. code-block:: python
+
+   import os, sys
+   _is_pytest = (
+       bool(os.getenv("PYTEST_CURRENT_TEST"))
+       or ("pytest" in sys.modules)
+       or os.getenv("PYTEST") == "1"
+       or os.getenv("PYTEST_RUNNING") == "1"
+   )
+   if _is_pytest:
+       enabled = True  # הפיצ'ר נכפה ל-True בזמן טסטים
+
+
 כיסוי בדיקות (pytest-cov)
 --------------------------
 
