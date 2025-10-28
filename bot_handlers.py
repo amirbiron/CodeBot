@@ -1056,9 +1056,11 @@ class AdvancedBotHandlers:
                 try:
                     from alert_manager import get_dispatch_log  # type: ignore
                     ditems = get_dispatch_log(limit=500) or []
-                    # סמוך לבסיס הזמן שנקבע לזיכרון כדי לשמר עקביות
-                    min_ts = (base_ts if 'base_ts' in locals() and base_ts is not None else since_dt.timestamp())
-                    min_ts = float(min_ts)
+                    # סמוך לבסיס הזמן שנקבע לזיכרון כדי לשמר עקביות עם חלון הזמן בפועל
+                    if 'base_ts' in locals() and base_ts is not None:
+                        min_ts = float(base_ts) - float(window_seconds)
+                    else:
+                        min_ts = since_dt.timestamp()
                     seen = set()
                     for di in ditems:
                         try:
