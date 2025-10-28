@@ -362,7 +362,8 @@ class CollectionsManager:
                 return {"ok": False, "error": "חרגת מהמגבלה: עד 5000 פריטים ידניים למשתמש"}
         except Exception:
             pass
-        ok_count = 0
+        added_count = 0
+        updated_count = 0
         now = _now()
         for it in items:
             try:
@@ -372,29 +373,56 @@ class CollectionsManager:
                 file_name = str(it.get("file_name") or "").strip()
                 if not file_name:
                     continue
-                note = str(it.get("note") or "")[:500]
-                pinned = bool(it.get("pinned") or False)
+
+                # נסה קודם לעדכן פריט קיים; אם לא קיים – נכניס חדש
+                query = {
+                    "collection_id": cid,
+                    "user_id": int(user_id),
+                    "source": source,
+                    "file_name": file_name,
+                }
+
+                set_fields: Dict[str, Any] = {"updated_at": now}
+                if "note" in it:
+                    set_fields["note"] = str(it.get("note") or "")[:500]
+                if "pinned" in it:
+                    set_fields["pinned"] = bool(it.get("pinned"))
+                if "custom_order" in it:
+                    set_fields["custom_order"] = it.get("custom_order")
+
+                try:
+                    upd_res = self.items.update_one(query, {"$set": set_fields})
+                    matched = int(getattr(upd_res, "matched_count", 0) or 0)
+                except Exception:
+                    matched = 0
+
+                if matched > 0:
+                    updated_count += 1
+                    continue
+
+                # אם לא עודכן כלום – הוסף כחדש
                 doc = {
                     "collection_id": cid,
                     "user_id": int(user_id),
                     "source": source,
                     "file_name": file_name,
-                    "note": note,
-                    "pinned": pinned,
+                    "note": str(it.get("note") or "")[:500],
+                    "pinned": bool(it.get("pinned") or False),
                     "custom_order": it.get("custom_order"),
                     "added_at": now,
                     "updated_at": now,
                 }
                 try:
                     self.items.insert_one(doc)
-                    ok_count += 1
+                    added_count += 1
                 except Exception:
-                    # ייתכן כפילות – התעלם בשקט
-                    # עדכן שדות עדכניים אם הפריט כבר קיים
-                    self.items.update_one(
-                        {"collection_id": cid, "user_id": user_id, "source": source, "file_name": file_name},
-                        {"$set": {"note": note, "pinned": pinned, "updated_at": now}},
-                    )
+                    # במידה והכנסה נכשלה (למשל כפילות נדירה) – נסה עדכון אחרון
+                    try:
+                        self.items.update_one(query, {"$set": set_fields})
+                        updated_count += 1
+                    except Exception:
+                        # התעלם מפריט בעייתי כדי לא לחסום אחרים
+                        continue
             except Exception:
                 continue
         # עדכון מונים באוסף — תחום למשתמש ולאוסף כדי למנוע פגיעה צולבת
@@ -408,8 +436,8 @@ class CollectionsManager:
             self.collections.update_one({"_id": cid, "user_id": int(user_id)}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
         except Exception:
             pass
-        emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(ok_count))
-        return {"ok": True, "added": ok_count}
+        emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(added_count))
+        return {"ok": True, "added": int(added_count), "updated": int(updated_count)}
 
     def remove_items(self, user_id: int, collection_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:
