@@ -52,13 +52,9 @@ def _get_collection():  # pragma: no cover
             _init_failed = True
             return None
         mongo_url = os.getenv("MONGODB_URL")
-        if not mongo_url:
-            _init_failed = True
-            return None
         db_name = os.getenv("DATABASE_NAME") or "code_keeper_bot"
         coll_name = os.getenv("ALERTS_SILENCES_COLLECTION") or "alerts_silences"
-        _client = MongoClient(
-            mongo_url,
+        client_kwargs = dict(
             maxPoolSize=20,
             minPoolSize=0,
             serverSelectionTimeoutMS=2000,
@@ -68,6 +64,19 @@ def _get_collection():  # pragma: no cover
             retryReads=True,
             tz_aware=True,
         )
+        # Allow operation without explicit MONGODB_URL (useful for tests with stubbed MongoClient)
+        try:
+            if mongo_url:
+                _client = MongoClient(mongo_url, **client_kwargs)
+            else:
+                # Try without URI; fall back to localhost if signature requires a URI
+                try:
+                    _client = MongoClient(**client_kwargs)
+                except TypeError:
+                    _client = MongoClient("mongodb://localhost:27017", **client_kwargs)
+        except Exception:
+            _init_failed = True
+            return None
         db = _client[db_name]
         _collection = db[coll_name]
         try:
