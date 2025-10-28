@@ -190,6 +190,21 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
             _maybe_alert_single_error(event, fields)
         except Exception:
             pass
+        # שדרוג: אם Sentry מאותחל, תעדיף לשלוח חריגה/הודעה עם request_id כתג
+        try:
+            import sentry_sdk  # type: ignore
+            rid = str(fields.get("request_id") or "")
+            with sentry_sdk.push_scope() as scope:  # type: ignore[attr-defined]
+                if rid:
+                    try:
+                        scope.set_tag("request_id", rid)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                # שלח הודעת שגיאה טקסטואלית עשירה; אם יתווספו חריגות אמיתיות – ייתפסו גם הן
+                sentry_sdk.capture_message(str(fields.get("error") or fields.get("message") or event), level="error")  # type: ignore[attr-defined]
+        except Exception:
+            # Fail-open אם sentry לא זמין
+            pass
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
         logger.warning(**fields)
