@@ -5445,6 +5445,15 @@ class GitHubMenuHandler:
         self, context: ContextTypes.DEFAULT_TYPE, user_id: Optional[int] = None, force: bool = False
     ):
         try:
+            # נתב בדיקה יזומה: אם מופעל ENV ובוצעה בקשה יזומה (force=True),
+            # זרוק חריגה מבוקרת כדי לאמת אינטגרציית Sentry מיד, ללא המתנה לאירוע אמיתי.
+            try:
+                _flag = str(os.getenv("SENTRY_TEST_NOTIFICATIONS_JOB", "")).lower() in {"1", "true", "yes", "on"}
+            except Exception:
+                _flag = False
+            if force and _flag:
+                raise RuntimeError("Sentry test: notifications job forced error")
+
             if user_id is None:
                 job = getattr(context, "job", None)
                 if job and getattr(job, "data", None):
