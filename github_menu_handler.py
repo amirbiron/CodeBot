@@ -15,8 +15,25 @@ import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
-from http_sync import request as http_request
+from http_sync import request as _http_sync_request
 import errno
+
+# Shim: expose a 'requests' object for tests and route GETs through it.
+# This allows monkeypatching gh.requests.get in tests while still using
+# our pooled http client under the hood.
+class _RequestsShim:
+    def get(self, url, **kwargs):
+        return _http_sync_request('GET', url, **kwargs)
+
+
+# Expose for tests: monkeypatch sets gh.requests.get
+requests = _RequestsShim()
+
+
+def http_request(method, url, **kwargs):
+    if str(method).upper() == 'GET':
+        return requests.get(url, **kwargs)
+    return _http_sync_request(method, url, **kwargs)
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
