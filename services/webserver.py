@@ -280,7 +280,7 @@ def create_app() -> web.Application:
             logger.error(f"share_view error: {e}")
             try:
                 # דווח אירוע מובנה על שגיאה בהצגת שיתוף
-                from observability import emit_event  # type: ignore
+                # הערה: משתמש ב-emit_event של המודול כדי לאפשר monkeypatch בטסטים
                 emit_event("share_view_error", severity="error", error_code="E_SHARE_VIEW", share_id=str(share_id), error=str(e))
             except Exception:
                 pass
@@ -293,7 +293,7 @@ def create_app() -> web.Application:
         if not data:
             # החזר 404 וגם דווח אירוע מובנה לצורכי ניטור
             try:
-                from observability import emit_event  # type: ignore
+                # הערה: משתמש ב-emit_event של המודול כדי לאפשר monkeypatch בטסטים
                 emit_event("share_view_not_found", severity="warn", share_id=str(share_id))
             except Exception:
                 pass
