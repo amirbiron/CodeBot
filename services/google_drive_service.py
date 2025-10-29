@@ -94,7 +94,8 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     # Include client_secret if configured to satisfy clients that require it
     if getattr(config, "GOOGLE_CLIENT_SECRET", None):
         payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
-    resp = http_request('POST', TOKEN_URL, data=payload, timeout=20)
+    # Use module-level requests so tests can monkeypatch gds.requests.post
+    resp = requests.post(TOKEN_URL, data=payload, timeout=20)
     if resp.status_code >= 400:
         # Try to parse structured OAuth error
         try:
