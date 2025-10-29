@@ -2453,7 +2453,20 @@ class GitHubMenuHandler:
                                     total_bytes += len(data)
                                     total_files += 1
 
-                    await walk_and_zip(current_path, "")
+                    try:
+                        await walk_and_zip(current_path, "")
+                    except RecursionError as cycle_err:
+                        # אל תכשיל את ההורדה כולה – דווח והמשך לכתוב metadata
+                        logger.warning(f"Zip traversal cycle detected: {cycle_err}")
+                        try:
+                            emit_event(
+                                "github_zip_cycle_detected",
+                                severity="warn",
+                                repo=str(getattr(repo, "full_name", "")),
+                                path=str(current_path or ""),
+                            )
+                        except Exception:
+                            pass
                 # הוסף metadata.json
                 metadata = {
                     "backup_id": f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}",
