@@ -5,6 +5,7 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple, List
+import zipfile
 
 import requests
 try:
@@ -624,7 +625,6 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
 def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
     """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes)."""
     from database import db as _db
-    import zipfile
     # נדרש גם tags ו-code לקיבוץ ולכתיבה ל־ZIP
     files = _db.get_user_files(
         user_id,
@@ -661,7 +661,6 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
     """Creates a ZIP of user data by category and returns (filename, bytes)."""
     # Collect content according to category
     from database import db as _db
-    import zipfile
 
     backup_id = f"backup_{user_id}_{int(time.time())}_{category}"
     buf = io.BytesIO()
