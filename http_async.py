@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import asyncio
 from typing import Optional, Any
 
 try:
@@ -56,6 +57,37 @@ def get_session() -> "aiohttp.ClientSession":  # type: ignore[name-defined]
     global _session
     if aiohttp is None:  # pragma: no cover
         raise RuntimeError("aiohttp is not available in this environment")
+    # אם יש סשן קיים אבל הוא שייך ללולאה אחרת/סגורה – נבנה סשן חדש
+    try:
+        current_loop = asyncio.get_event_loop()
+    except Exception:
+        current_loop = None  # type: ignore[assignment]
+    if _session is not None and not getattr(_session, "closed", False):
+        # נסה לחלץ את הלולאה המקורית של הסשן/קונקטור (מאפיין פנימי אך יציב יחסית)
+        session_loop = getattr(_session, "_loop", None)
+        if session_loop is None:
+            connector = getattr(_session, "_connector", None)
+            session_loop = getattr(connector, "_loop", None)
+        try:
+            loop_is_closed = bool(getattr(session_loop, "is_closed", lambda: False)()) if session_loop else False
+        except Exception:
+            loop_is_closed = False
+        if session_loop is not None and (loop_is_closed or (current_loop is not None and session_loop is not current_loop)):
+            # נסה לסגור את הסשן הישן בלולאה שלו (best-effort), ואז ניצור חדש
+            try:
+                is_running = bool(getattr(session_loop, "is_running", lambda: False)())
+            except Exception:
+                is_running = False
+            try:
+                if is_running:
+                    session_loop.create_task(_session.close())  # type: ignore[call-arg]
+                else:
+                    session_loop.run_until_complete(_session.close())  # type: ignore[call-arg]
+            except Exception:
+                # אל תמנע בנייה מחדש גם אם הסגירה נכשלה
+                pass
+            finally:
+                _session = None
     if _session is None or getattr(_session, "closed", False):
         kwargs = _build_session_kwargs()
         _session = aiohttp.ClientSession(**kwargs)
