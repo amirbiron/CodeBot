@@ -150,7 +150,15 @@ def list_notes(file_id: str):
         notes = [
             _as_note_response(doc) for doc in (list(cursor) if cursor is not None else []) if isinstance(doc, dict)
         ]
-        return jsonify({'ok': True, 'notes': notes, 'count': len(notes)})
+        resp = jsonify({'ok': True, 'notes': notes, 'count': len(notes)})
+        # מניעת קאשינג בדפדפן/פרוקסי כדי שלא תוחזר גרסה ישנה של פתקים
+        try:
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+        except Exception:
+            pass
+        return resp
     except Exception as e:
         try:
             emit_event("sticky_notes_list_error", severity="anomaly", file_id=str(file_id), error=str(e))
@@ -202,7 +210,12 @@ def create_note(file_id: str):
             emit_event("sticky_note_created", severity="info", user_id=int(user_id), file_id=str(file_id))
         except Exception:
             pass
-        return jsonify({'ok': True, 'id': nid}), 201
+        resp = jsonify({'ok': True, 'id': nid})
+        try:
+            resp.headers['Cache-Control'] = 'no-store'
+        except Exception:
+            pass
+        return resp, 201
     except Exception as e:
         try:
             emit_event("sticky_notes_create_error", severity="anomaly", file_id=str(file_id), error=str(e))
@@ -289,7 +302,12 @@ def update_note(note_id: str):
             updated_at_iso = updates.get('updated_at').isoformat() if updates.get('updated_at') else None
         except Exception:
             updated_at_iso = None
-        return jsonify({'ok': True, 'updated_at': updated_at_iso})
+        resp = jsonify({'ok': True, 'updated_at': updated_at_iso})
+        try:
+            resp.headers['Cache-Control'] = 'no-store'
+        except Exception:
+            pass
+        return resp
     except Exception as e:
         try:
             emit_event("sticky_notes_update_error", severity="anomaly", note_id=str(note_id), error=str(e))
@@ -317,7 +335,12 @@ def delete_note(note_id: str):
             emit_event("sticky_note_deleted", severity="info", user_id=int(user_id), note_id=str(note_id))
         except Exception:
             pass
-        return jsonify({'ok': True})
+        resp = jsonify({'ok': True})
+        try:
+            resp.headers['Cache-Control'] = 'no-store'
+        except Exception:
+            pass
+        return resp
     except Exception as e:
         try:
             emit_event("sticky_notes_delete_error", severity="anomaly", note_id=str(note_id), error=str(e))

@@ -324,11 +324,23 @@
           });
           let j = null; try { j = await resp.json(); } catch(_) {}
           if (resp.status === 409) {
-            console.warn('sticky note update conflict, changes not applied', id);
-            // אם השרת מחזיר updated_at עדכני – עדכן מקומית כדי לא להיכנס ללופ קונפליקטים
+            console.warn('sticky note update conflict, retrying once with fresh timestamp', id);
+            // עדכן חותמת זמן אחרונה שהשרת החזיר, ונסה עוד פעם אחת
             if (j && j.updated_at) {
               const item = this.notes.get(id);
               if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+              try {
+                const retryPayload = Object.assign({}, data, { prev_updated_at: String(j.updated_at) });
+                const retryResp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+                  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(retryPayload)
+                });
+                let rj = null; try { rj = await retryResp.json(); } catch(_) {}
+                if (retryResp.status === 409) {
+                  console.warn('sticky note update conflict persisted after retry', id);
+                } else if (rj && rj.updated_at) {
+                  if (item && item.el) { try { item.el.dataset.updatedAt = String(rj.updated_at); } catch(_) {} }
+                }
+              } catch(e) { console.warn('sticky note retry failed', id, e); }
             }
             continue;
           }
@@ -351,8 +363,23 @@
         });
         let j = null; try { j = await resp.json(); } catch(_) {}
         if (resp.status === 409) {
-          console.warn('sticky note update conflict (flush), not applied', id);
+          console.warn('sticky note update conflict (flush) – retrying once', id);
           if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+          // נסה מיד עוד פעם אחת עם חותמת זמן מעודכנת
+          try {
+            const retryPayload = Object.assign({}, data, { prev_updated_at: (j && j.updated_at) ? String(j.updated_at) : (el.dataset.updatedAt || undefined) });
+            const retryResp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(retryPayload)
+            });
+            let rj = null; try { rj = await retryResp.json(); } catch(_) {}
+            if (retryResp.status === 409) {
+              console.warn('sticky note update conflict persisted after flush retry', id);
+              return;
+            }
+            if (rj && rj.updated_at) { try { el.dataset.updatedAt = String(rj.updated_at); } catch(_) {} }
+          } catch(e) {
+            console.warn('flush retry failed', id, e);
+          }
           return;
         }
         if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
