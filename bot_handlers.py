@@ -720,10 +720,10 @@ class AdvancedBotHandlers:
                         headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
                     ) as resp:
                         data = await resp.json()
-                            remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
-                            limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
-                            used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
-                            gh_status = f"{remaining}/{limit} ({used_pct}% used)"
+                        remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
+                        limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
+                        used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
+                        gh_status = f"{remaining}/{limit} ({used_pct}% used)"
             except Exception:
                 gh_status = "error"
 
