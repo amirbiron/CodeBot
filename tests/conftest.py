@@ -26,10 +26,12 @@ os.environ.setdefault('MONGODB_URL', 'mongodb://localhost:27017/test')
 try:
     import tests._telegram_stubs  # noqa: F401
 except ModuleNotFoundError:
-    # Prefer the local tests directory on sys.path to avoid external package clashes
+    # Prefer the project root (parent of tests dir) on sys.path to avoid
+    # shadowing by unrelated top-level `tests` packages
     tests_dir = Path(__file__).parent
-    if str(tests_dir) not in sys.path:
-        sys.path.insert(0, str(tests_dir))
+    project_root = tests_dir.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
     try:
         import tests._telegram_stubs  # noqa: F401
     except ModuleNotFoundError:
