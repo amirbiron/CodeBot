@@ -5534,9 +5534,15 @@ class GitHubMenuHandler:
                 await context.bot.send_message(
                     chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True
                 )
-        except Exception:
+        except Exception as e:
             # שלח Stacktrace מלא ליומן (Sentry יקלט דרך LoggingIntegration)
             logger.exception("notifications job error")
+            # וגם נסה לדווח ישירות ל‑Sentry כ‑fallback
+            try:  # pragma: no cover - תלוי בנוכחות sentry_sdk
+                import sentry_sdk  # type: ignore
+                sentry_sdk.capture_exception(e)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     async def show_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
