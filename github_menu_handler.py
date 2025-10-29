@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-import zipfile
+import zipfile as _stdlib_zipfile
 from datetime import datetime, timezone
 import tempfile
 import shutil
@@ -62,6 +62,19 @@ try:
 except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
         return None
+
+# יצירת Proxy ל-zipfile כדי לאפשר monkeypatch בטוח שאינו יוצר רקורסיה
+class _ZipfileProxy:
+    def __init__(self, real_module):
+        self._real = real_module
+
+    def __getattr__(self, name):
+        # העברת תכונות ברירת מחדל למודול האמיתי
+        return getattr(self._real, name)
+
+# שים לב: בתוך מודול זה, השם 'zipfile' מפנה לפרוקסי, כך ש-monkeypatch על
+# zipfile.ZipFile ישפיע רק כאן, בעוד קריאות מחזירות ל-zipfile המקורי בתוך ה-WRAPPER
+zipfile = _ZipfileProxy(_stdlib_zipfile)
 
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
@@ -2420,7 +2433,15 @@ class GitHubMenuHandler:
                         stack: list[tuple[str, str]] = [(start_path, base_prefix)]
                         while stack:
                             path, rel_prefix = stack.pop()
-                            contents = repo.get_contents(path or "")
+                            # הגנה מפני מחזורי תיקיות או API בעייתי שמוביל לרקורסיה
+                            try:
+                                contents = repo.get_contents(path or "")
+                            except RecursionError:
+                                # דלג על הנתיב הבעייתי והמשך לבאים
+                                continue
+                            except Exception:
+                                # במקרה של שגיאה אחרת – דלג על הנתיב הזה בלבד
+                                continue
                             if not isinstance(contents, list):
                                 contents = [contents]
                             for item in contents:
@@ -2433,11 +2454,8 @@ class GitHubMenuHandler:
                                     stack.append((next_path, f"{rel_prefix}{item.name}/"))
                                 elif item.type == "file":
                                     await self.apply_rate_limit_delay(user_id)
-                                    file_obj = repo.get_contents(item.path)
-                                    if isinstance(file_obj, list):
-                                        if not file_obj:
-                                            continue
-                                        file_obj = file_obj[0]
+                                    # אל תבצע קריאת API נוספת – השתמש באובייקט הקיים
+                                    file_obj = item
                                     file_size = getattr(file_obj, "size", 0) or 0
                                     nonlocal total_bytes, total_files, skipped_large
                                     if file_size > MAX_INLINE_FILE_BYTES:
@@ -2537,7 +2555,8 @@ class GitHubMenuHandler:
                 except Exception:
                     pass
             except Exception as e:
-                logger.error(f"Error creating ZIP: {e}")
+                # לוג כולל traceback כדי לאבחן כשלים נדירים (למשל רקורסיה)
+                logger.exception(f"Error creating ZIP: {e}")
                 try:
                     emit_event(
                         "github_zip_create_error",
