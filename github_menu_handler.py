@@ -2414,6 +2414,9 @@ class GitHubMenuHandler:
                     visited_paths: set[str] = set()
 
                     async def walk_and_zip(start_path: str, base_prefix: str) -> None:
+                        # Seed root to avoid cycles that point back to the start
+                        if start_path:
+                            visited_paths.add(start_path)
                         stack: list[tuple[str, str]] = [(start_path, base_prefix)]
                         while stack:
                             path, rel_prefix = stack.pop()
