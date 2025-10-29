@@ -72,6 +72,25 @@ jobs:
           output: trivy-fs.json
         continue-on-error: true
 
+      - name: "🧪 Trivy FS scan (SARIF)"
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          ignore-unfixed: true
+          format: 'sarif'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln,secret,config'
+          output: trivy-fs.sarif
+        continue-on-error: true
+
+      - name: "📊 Upload SARIF (Trivy FS)"
+        if: always() && github.event_name != 'pull_request' && hashFiles('trivy-fs.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
       - name: "🛠️ Build app image (production)"
         if: github.event_name != 'pull_request'
         run: |
@@ -88,6 +107,25 @@ jobs:
           severity: 'CRITICAL,HIGH'
           output: trivy-image.json
         continue-on-error: true
+
+      - name: "🧪 Trivy Image scan (SARIF)"
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: 'app:scan'
+          ignore-unfixed: true
+          format: 'sarif'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+          output: trivy-image.sarif
+        continue-on-error: true
+
+      - name: "📊 Upload SARIF (Trivy Image)"
+        if: always() && github.event_name != 'pull_request' && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
 
       
 
