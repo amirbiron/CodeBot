@@ -10,6 +10,7 @@ import zipfile as _zipfile
 from types import SimpleNamespace as _SimpleNamespace
 
 from http_sync import request as http_request
+import requests  # for precise exception handling
 try:
     from googleapiclient.discovery import build  # type: ignore
     from googleapiclient.errors import HttpError  # type: ignore
@@ -64,7 +65,8 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
             msg = err.get("error_description") or err.get("error") or f"HTTP {response.status_code}"
             raise RuntimeError(f"Device auth start failed: {msg}")
         data = response.json()
-    except Exception as e:
+    except requests.RequestException as e:
+        # Network/HTTP-layer errors only; אל תמסך שגיאות JSON/קוד
         raise RuntimeError("Device auth request error") from e
     # Persist device flow state in memory is handled by caller; tokens saved on success.
     return {

@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Protocol
 
 try:
     from pymongo import MongoClient, IndexModel, ASCENDING, DESCENDING, TEXT
+    from pymongo import monitoring as _pymongo_monitoring
     _PYMONGO_AVAILABLE = True
 except Exception:  # ModuleNotFoundError או כל שגיאה בזמן import
     _PYMONGO_AVAILABLE = False
@@ -109,6 +110,7 @@ except Exception:  # pragma: no cover
         return None
 
 logger = logging.getLogger(__name__)
+_MONGO_MONITORING_REGISTERED = False
 
 
 class DatabaseManager:
@@ -203,6 +205,34 @@ class DatabaseManager:
             return
 
         try:
+            # Register slow command listener once (best-effort)
+            global _MONGO_MONITORING_REGISTERED
+            if not _MONGO_MONITORING_REGISTERED:
+                try:
+                    class _SlowMongoListener(_pymongo_monitoring.CommandListener):  # type: ignore[attr-defined]
+                        def succeeded(self, event):  # type: ignore[override]
+                            try:
+                                dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
+                                slow_ms_env = os.getenv('DB_SLOW_MS', '')
+                                slow_ms = float(slow_ms_env) if slow_ms_env not in (None, '') else 0.0
+                                if slow_ms and dur_ms > slow_ms:
+                                    try:
+                                        logger.warning(
+                                            'slow_mongo',
+                                            extra={
+                                                'cmd': getattr(event, 'command_name', ''),
+                                                'db': getattr(event, 'database_name', ''),
+                                                'ms': round(dur_ms, 1),
+                                            },
+                                        )
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    _pymongo_monitoring.register(_SlowMongoListener())  # type: ignore[attr-defined]
+                    _MONGO_MONITORING_REGISTERED = True
+                except Exception:
+                    pass
             # קריאת ערכים מה-ENV דרך config, עם ברירות מחדל שמרניות
             kwargs = dict(
                 maxPoolSize=getattr(config, "MONGODB_MAX_POOL_SIZE", 50),

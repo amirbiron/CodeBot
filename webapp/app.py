@@ -1242,6 +1242,35 @@ def _metrics_after(resp):
     return resp
 
 
+# --- Slow request logging (server-side) ---
+@app.after_request
+def _log_slow_request(resp):
+    try:
+        start = float(getattr(request, "_metrics_start", 0.0) or 0.0)
+        if not start:
+            return resp
+        dur_ms = ( _time.perf_counter() - start ) * 1000.0
+        try:
+            slow_ms = float(os.getenv("SLOW_MS", "0") or 0)
+        except Exception:
+            slow_ms = 0.0
+        if slow_ms and dur_ms > slow_ms:
+            try:
+                logger.warning(
+                    "slow_request",
+                    extra={
+                        "path": getattr(request, "path", "") or "",
+                        "method": getattr(request, "method", "GET"),
+                        "status": int(getattr(resp, "status_code", 0) or 0),
+                        "ms": round(dur_ms, 1),
+                    },
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return resp
+
 # --- Default CSP for HTML pages (allows CodeMirror ESM + workers) ---
 @app.after_request
 def _add_default_csp(resp):
