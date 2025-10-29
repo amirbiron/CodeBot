@@ -234,6 +234,15 @@
     }
 
     async loadCodeMirror() {
+      // נסה קודם טעינה מקומית (bundle) כדי לעבוד גם ללא CDN
+      try {
+        await this.withTimeout(import('/static/js/codemirror.local.js'), 8000, 'codemirror_local_import');
+        if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
+          this._cdnUrl = null;
+          return;
+        }
+      } catch (_) { /* נמשיך ל-CDN אם אין bundle מקומי */ }
+
       // בוחרים CDN אחד לכלל המודולים כדי למנוע ערבוב מחלקות/סינגלטונים
       const cdnCandidates = [
         { name: 'jsdelivr', url: (pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module` },
@@ -326,6 +335,12 @@
     }
 
     async getLanguageSupport(lang) {
+      // אם bundle מקומי זמין – נשתמש בו
+      try {
+        if (window.CodeMirror6 && typeof window.CodeMirror6.getLanguageSupport === 'function') {
+          return window.CodeMirror6.getLanguageSupport(lang);
+        }
+      } catch(_) {}
       const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
       const pkgMap = {
         python: '@codemirror/lang-python',
@@ -359,6 +374,11 @@
     }
 
     async getTheme(name) {
+      try {
+        if (window.CodeMirror6 && typeof window.CodeMirror6.getTheme === 'function') {
+          return window.CodeMirror6.getTheme(name);
+        }
+      } catch(_) {}
       if (name === 'dark') {
         const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
         try { const mod = await import(gen('@codemirror/theme-one-dark')); return mod.oneDark || []; } catch(err) { console.warn('Theme load failed, using default theme', err); return []; }
