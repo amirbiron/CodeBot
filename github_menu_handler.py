@@ -5534,8 +5534,9 @@ class GitHubMenuHandler:
                 await context.bot.send_message(
                     chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True
                 )
-        except Exception as e:
-            logger.error(f"notifications job error: {e}")
+        except Exception:
+            # שלח Stacktrace מלא ליומן (Sentry יקלט דרך LoggingIntegration)
+            logger.exception("notifications job error")
 
     async def show_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
