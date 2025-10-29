@@ -661,7 +661,11 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
                 zf.writestr(name, code)
         buf.seek(0)
         data_bytes = buf.getvalue()
-        friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024])
+        try:
+            friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024])
+        except Exception:
+            # Fail-open: אם יש תלות ב-db להפקת שם ידידותי, חזור לשם פשוט
+            friendly = f"BKP_by_repo_{repo}.zip"
         results.append((repo, friendly, data_bytes))
     return results
 
