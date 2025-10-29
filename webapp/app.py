@@ -28,7 +28,7 @@ from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
 from bson import ObjectId
 from bson.errors import InvalidId
-import requests
+from http_sync import request as http_request
 from datetime import timedelta
 import re
 import sys
@@ -946,7 +946,7 @@ def _fetch_uptime_from_betteruptime() -> Optional[Dict[str, Any]]:
         # SLA endpoint per issue suggestion
         url = f'https://uptime.betterstack.com/api/v2/monitors/{UPTIME_MONITOR_ID}/sla'
         headers = {'Authorization': f'Bearer {UPTIME_API_KEY}'}
-        resp = requests.get(url, headers=headers, timeout=8)
+        resp = http_request('GET', url, headers=headers, timeout=8)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
@@ -991,7 +991,7 @@ def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
             api_key_is_monitor_specific = False
         if UPTIME_MONITOR_ID and not api_key_is_monitor_specific:
             payload['monitors'] = UPTIME_MONITOR_ID
-        resp = requests.post(url, data=payload, timeout=10)
+        resp = http_request('POST', url, data=payload, timeout=10)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}

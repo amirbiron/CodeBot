@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Tuple, List
 import zipfile as _zipfile
 from types import SimpleNamespace as _SimpleNamespace
 
-import requests
+from http_sync import request as http_request
 try:
     from googleapiclient.discovery import build  # type: ignore
     from googleapiclient.errors import HttpError  # type: ignore
@@ -54,7 +54,7 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
     if getattr(config, "GOOGLE_CLIENT_SECRET", None):
         payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
     try:
-        response = requests.post(DEVICE_CODE_URL, data=payload, timeout=15)
+        response = http_request('POST', DEVICE_CODE_URL, data=payload, timeout=15)
         # If unauthorized/invalid_client, surface clearer message
         if response.status_code >= 400:
             try:
@@ -64,7 +64,7 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
             msg = err.get("error_description") or err.get("error") or f"HTTP {response.status_code}"
             raise RuntimeError(f"Device auth start failed: {msg}")
         data = response.json()
-    except requests.RequestException as e:
+    except Exception as e:
         raise RuntimeError("Device auth request error") from e
     # Persist device flow state in memory is handled by caller; tokens saved on success.
     return {
@@ -92,7 +92,7 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     # Include client_secret if configured to satisfy clients that require it
     if getattr(config, "GOOGLE_CLIENT_SECRET", None):
         payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
-    resp = requests.post(TOKEN_URL, data=payload, timeout=20)
+    resp = http_request('POST', TOKEN_URL, data=payload, timeout=20)
     if resp.status_code >= 400:
         # Try to parse structured OAuth error
         try:

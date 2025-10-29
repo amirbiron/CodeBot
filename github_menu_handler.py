@@ -15,7 +15,7 @@ import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
-import requests
+from http_sync import request as http_request
 import errno
 
 from github import Github, GithubException
@@ -697,7 +697,7 @@ class GitHubMenuHandler:
                 url = repo.get_archive_link("zipball")
             # הורדה במצב זרימה + מניעת דחיסה מיותרת
             _headers = {"Accept-Encoding": "identity"}
-            resp = requests.get(url, headers=_headers, stream=True, timeout=60)
+            resp = http_request('GET', url, headers=_headers, stream=True, timeout=60)
             resp.raise_for_status()
             # עבודה ב-/tmp בלבד
             tmp_dir = tempfile.mkdtemp(prefix="codebot-gh-import-")
@@ -2225,7 +2225,7 @@ class GitHubMenuHandler:
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
                         headers = {"Accept-Encoding": "identity"}
-                        r = requests.get(url, headers=headers, stream=True, timeout=180)
+                        r = http_request('GET', url, headers=headers, stream=True, timeout=180)
                         r.raise_for_status()
                         # בדיקת גודל מראש (אם ידוע)
                         try:
@@ -3102,7 +3102,7 @@ class GitHubMenuHandler:
                     url = repo.get_archive_link("zipball")
                     with tempfile.TemporaryDirectory(prefix="repo_val_") as tmp:
                         zip_path = os.path.join(tmp, "repo.zip")
-                        r = requests.get(url, timeout=60)
+                        r = http_request('GET', url, timeout=60)
                         r.raise_for_status()
                         with open(zip_path, "wb") as f:
                             f.write(r.content)

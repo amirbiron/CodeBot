@@ -24,9 +24,9 @@ import threading
 import uuid
 
 try:  # optional dependency
-    import requests  # type: ignore
+    from http_sync import request as _http_request  # type: ignore
 except Exception:  # pragma: no cover
-    requests = None  # type: ignore
+    _http_request = None  # type: ignore
 
 def _emit_event(event: str, severity: str = "info", **fields) -> None:
     """Dynamic event emitter to honor test-time monkeypatching.
@@ -123,13 +123,13 @@ def _read_incidents(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 def _grafana_annotate(text: str) -> None:
     base = os.getenv("GRAFANA_URL")
     token = os.getenv("GRAFANA_API_TOKEN")
-    if not base or not token or requests is None:
+    if not base or not token or _http_request is None:
         return
     try:
         url = base.rstrip("/") + "/api/annotations"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         payload = {"time": int(datetime.now(timezone.utc).timestamp() * 1000), "tags": ["codebot", "incident"], "text": text}
-        requests.post(url, json=payload, headers=headers, timeout=5)
+        _http_request('POST', url, json=payload, headers=headers, timeout=5)
     except Exception:
         pass
 
