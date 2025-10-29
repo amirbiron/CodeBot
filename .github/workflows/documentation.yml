@@ -65,7 +65,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         # Install only docs dependencies (conf.py mocks heavy imports)
-        pip install -r docs/requirements.txt 2>/dev/null || true
+        pip install -r docs/requirements.txt
     
     - name: 🔍 Check documentation style
       continue-on-error: true
@@ -86,7 +86,7 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         cd docs
-        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going -j auto
+        DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
       env:
         SPHINX_MOCK_IMPORTS: true
         BOT_TOKEN: dummy_token_for_docs
@@ -96,14 +96,14 @@ jobs:
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         cd docs
-        DISABLE_DB=1 sphinx-build -b html . _build/html --keep-going -j auto
+        DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
     
     - name: 📊 Generate documentation coverage report
       if: github.event_name == 'pull_request'
       continue-on-error: true
       run: |
         cd docs
-        sphinx-build -b coverage . _build/coverage
+        python -m sphinx -b coverage . _build/coverage
         echo "### 📊 Documentation Coverage Report" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         cat _build/coverage/python.txt >> $GITHUB_STEP_SUMMARY || echo "No coverage data available" >> $GITHUB_STEP_SUMMARY
@@ -124,7 +124,8 @@ jobs:
         echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Python**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Sphinx**: $(sphinx-build --version 2>&1 | head -1)" >> $GITHUB_STEP_SUMMARY
+        SPHINX_VER=$(python -c 'import sphinx; print("Sphinx " + sphinx.__version__)')
+        echo "- **Sphinx**: ${SPHINX_VER}" >> $GITHUB_STEP_SUMMARY
         echo "- **Build Time**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
         
         # Count documentation files
@@ -256,7 +257,7 @@ jobs:
         continue-on-error: true
         run: |
           cd docs
-          sphinx-build -b linkcheck . _build/linkcheck || true
+          python -m sphinx -b linkcheck . _build/linkcheck || true
           if [ -f "_build/linkcheck/output.txt" ]; then
             echo "### 🔗 Link Check Report (Nightly)" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
