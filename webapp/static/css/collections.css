@@ -38,11 +38,17 @@
 /* הסרת קו תחתון והחזרת צבע קישור קריא */
 .collection-item .file{
   flex:1;
+  min-width:0; /* מאפשר ל-flex item להצטמצם כדי שה-ellipsis יעבוד */
   overflow:hidden;
   text-overflow:ellipsis;
+  white-space:nowrap; /* הצגת שם בקו אחד עם אליפסות */
   color:#0366d6;
   cursor:pointer;
   text-decoration:none
+}
+/* מניעת גלילה אופקית/חיתוך במובייל כאשר יש כפתורים לצד שם ארוך */
+@media(max-width:768px){
+  .collection-item{min-width:0}
 }
 .collection-item{cursor:pointer}
 .collection-item .drag{cursor:grab}
