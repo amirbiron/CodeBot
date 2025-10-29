@@ -634,9 +634,8 @@ zipfile = _SimpleNamespace(
 
 def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
     """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes)."""
-    from database import db as _db
     # נדרש גם tags ו-code לקיבוץ ולכתיבה ל־ZIP
-    files = _db.get_user_files(
+    files = db.get_user_files(
         user_id,
         limit=1000,
         projection={"file_name": 1, "tags": 1, "code": 1, "_id": 1},
@@ -670,13 +669,12 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
 def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[str, bytes]:
     """Creates a ZIP of user data by category and returns (filename, bytes)."""
     # Collect content according to category
-    from database import db as _db
 
     backup_id = f"backup_{user_id}_{int(time.time())}_{category}"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         # נדרשים code ו-tags להמשך סינון וכתיבה ל־ZIP
-        files = _db.get_user_files(
+        files = db.get_user_files(
             user_id,
             limit=1000,
             projection={"file_name": 1, "tags": 1, "code": 1, "_id": 1},
@@ -684,7 +682,7 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
         if category == "by_repo":
             files = [d for d in files if any((t or '').startswith('repo:') for t in (d.get('tags') or []))]
         elif category == "large":
-            large_files, _ = _db.get_user_large_files(user_id, page=1, per_page=10000)
+            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
             for lf in large_files:
                 name = lf.get('file_name') or f"large_{lf.get('_id')}"
                 code = lf.get('code') or ''
