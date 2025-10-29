@@ -6,6 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_pastebin_create_and_get_handle_errors(monkeypatch):
     import integrations as integ
+    import http_async as ha
     importlib.reload(integ)
 
     # Ensure pastebin is available
@@ -35,11 +36,8 @@ async def test_pastebin_create_and_get_handle_errors(monkeypatch):
             # simulate 404 fetch
             return _Resp(status=404, text='not found')
 
-    monkeypatch.setattr(integ, 'aiohttp', types.SimpleNamespace(
-        ClientSession=_Sess,
-        ClientTimeout=lambda *a, **k: None,
-        TCPConnector=lambda *a, **k: None,
-    ))
+    # Use shared session stub
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     out = await integ.pastebin_integration.create_paste('code', 'f.py', 'python')
     assert out is None

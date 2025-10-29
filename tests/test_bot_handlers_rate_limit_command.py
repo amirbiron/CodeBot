@@ -39,7 +39,7 @@ async def test_rate_limit_command_happy_path(monkeypatch):
     import bot_handlers as bh
     importlib.reload(bh)
 
-    # Provide token and stub aiohttp; mark user as admin
+    # Provide token and stub session; mark user as admin
     monkeypatch.setenv('GITHUB_TOKEN', 't')
     monkeypatch.setattr(bh.AdvancedBotHandlers, '_is_admin', lambda self, uid: True)
 
@@ -67,11 +67,8 @@ async def test_rate_limit_command_happy_path(monkeypatch):
                 "resources": {"core": {"limit": 1000, "remaining": 200}}
             })
 
-    monkeypatch.setattr(bh, 'aiohttp', type('A', (), {
-        'ClientSession': _Sess,
-        'ClientTimeout': lambda *a, **k: None,
-        'TCPConnector': lambda *a, **k: None,
-    }))
+    import http_async as ha
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     class _Msg:
         def __init__(self):

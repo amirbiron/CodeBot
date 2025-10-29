@@ -38,23 +38,14 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         return None
     token = os.getenv("SENTRY_AUTH_TOKEN") or ""
     url = f"{_api_base()}/{path.lstrip('/')}"
-    # קרא ברירות מחדל גלובליות אם קיימות, עם fallback שמרני
-    try:
-        from config import config  # type: ignore
-        _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 8))
-        _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
-    except Exception:
-        _total = 8
-        _limit = 50
-    timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
-    connector = aiohttp.TCPConnector(limit=_limit)
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:  # type: ignore[call-arg]
-            async with session.get(url, headers=headers, params=params or {}) as resp:
-                if resp.status != 200:
-                    return None
-                return await resp.json()
+        from http_async import get_session
+        session = get_session()
+        async with session.get(url, headers=headers, params=params or {}) as resp:
+            if resp.status != 200:
+                return None
+            return await resp.json()
     except Exception:
         return None
 

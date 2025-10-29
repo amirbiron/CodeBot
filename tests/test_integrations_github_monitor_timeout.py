@@ -5,6 +5,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_fetch_rate_limit_handles_exception(monkeypatch):
     import integrations_github_monitor as gm
+    import http_async as ha
     importlib.reload(gm)
 
     # Provide token and stub aiohttp that raises
@@ -25,11 +26,7 @@ async def test_fetch_rate_limit_handles_exception(monkeypatch):
                     return False
             return _Resp()
 
-    monkeypatch.setattr(gm, 'aiohttp', type('Y', (), {
-        'ClientSession': _Sess,
-        'ClientTimeout': lambda *a, **k: None,
-        'TCPConnector': lambda *a, **k: None,
-    }))
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     out = await gm.fetch_rate_limit()
     assert out == {}

@@ -6,6 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_sentry_get_recent_issues_returns_empty_on_bad_status(monkeypatch):
     import integrations_sentry as sn
+    import http_async as ha
     importlib.reload(sn)
 
     # Configure env to enable is_configured()
@@ -33,11 +34,7 @@ async def test_sentry_get_recent_issues_returns_empty_on_bad_status(monkeypatch)
         def get(self, *a, **k):
             return _Resp(status=500)
 
-    monkeypatch.setattr(sn, 'aiohttp', type('X', (), {
-        'ClientSession': _Sess,
-        'ClientTimeout': lambda *a, **k: None,
-        'TCPConnector': lambda *a, **k: None,
-    }))
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     out = await sn.get_recent_issues(limit=3)
     assert out == []

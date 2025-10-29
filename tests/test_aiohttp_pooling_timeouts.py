@@ -3,11 +3,11 @@ import types
 
 
 def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
-    # Reload modules
+    import http_async as ha
     import integrations as integ
     importlib.reload(integ)
 
-    # Monkeypatch aiohttp.ClientSession to capture args
+    # Ensure fresh shared session and patch aiohttp classes to capture kwargs
     captured = {}
 
     class _DummyResp:
@@ -28,13 +28,11 @@ def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        # Minimal API used by code
         async def post(self, *a, **k):
             return _DummyResp(status=200, body='https://pastebin.com/abc')
         async def get(self, *a, **k):
             return _DummyResp(status=200, body='ok')
 
-    # Provide a fake TCPConnector and ClientTimeout types for isinstance checks if any
     class _FakeConnector:
         def __init__(self, *a, **k):
             self.limit = k.get('limit')
@@ -43,13 +41,14 @@ def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
         def __init__(self, *a, **k):
             self.total = k.get('total')
 
-    monkeypatch.setattr(integ, 'aiohttp', types.SimpleNamespace(
+    # Reset and patch http_async to use our stubs
+    monkeypatch.setattr(ha, '_session', None, raising=False)
+    monkeypatch.setattr(ha, 'aiohttp', types.SimpleNamespace(
         ClientSession=_DummySession,
         TCPConnector=_FakeConnector,
         ClientTimeout=_FakeTimeout,
-    ))
+    ), raising=False)
 
-    # Call functions that open sessions
     import asyncio
     async def _run():
         svc = integ.PastebinIntegration()
@@ -60,5 +59,4 @@ def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
 
     asyncio.run(_run())
 
-    # Verify that timeout and connector were passed to ClientSession
     assert 'timeout' in captured['kwargs'] and 'connector' in captured['kwargs']

@@ -6,6 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_webhook_trigger_handles_timeouts_and_errors(monkeypatch):
     import integrations as integ
+    import http_async as ha
     importlib.reload(integ)
 
     # Prepare a couple of webhooks (one will timeout, the other raises)
@@ -39,11 +40,7 @@ async def test_webhook_trigger_handles_timeouts_and_errors(monkeypatch):
                     return False
             return _Boom()
 
-    monkeypatch.setattr(integ, 'aiohttp', types.SimpleNamespace(
-        ClientSession=_Sess,
-        ClientTimeout=lambda *a, **k: None,
-        TCPConnector=lambda *a, **k: None,
-    ))
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     await integ.webhook_integration.trigger_webhook(1, 'file_created', {'x': 1})
     # If no exceptions bubble up, handler is resilient as expected

@@ -120,6 +120,31 @@ except Exception:
     # אל תכשיל את האפליקציה אם תצורת observability נכשלה
     pass
 
+# סגירת סשן aiohttp משותף בסיום התהליך (best-effort)
+@atexit.register
+def _shutdown_http_shared_session() -> None:
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        if not loop.is_closed():
+            loop.run_until_complete(close_session())
+    except RuntimeError:
+        # אין event loop פעיל
+        try:
+            import asyncio as _a
+            _loop = _a.new_event_loop()
+            _a.set_event_loop(_loop)
+            _loop.run_until_complete(close_session())
+            _loop.close()
+        except Exception:
+            pass
+    except Exception:
+        # אל תהרוס כיבוי
+        pass
+
 # Optional: Initialize OpenTelemetry for the bot process as well (no Flask app here)
 try:
     from observability_otel import setup_telemetry as _setup_otel

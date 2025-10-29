@@ -177,8 +177,8 @@ async def test_rate_limit_command_with_warning(monkeypatch):
         def get(self, *a, **k):
             return _Resp()
 
-    import bot_handlers as bh
-    monkeypatch.setattr(bh, "aiohttp", types.SimpleNamespace(ClientSession=_Session))
+    import http_async as ha
+    monkeypatch.setattr(ha, "get_session", lambda: _Session(), raising=False)
 
     await adv.rate_limit_command(upd, ctx)
     out = "\n".join(upd.message.texts)
