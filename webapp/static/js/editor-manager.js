@@ -236,12 +236,13 @@
     async loadCodeMirror() {
       // נסה קודם טעינה מקומית (bundle) כדי לעבוד גם ללא CDN
       try {
-        await this.withTimeout(import('/static/js/codemirror.local.js'), 8000, 'codemirror_local_import');
+        const localUrl = new URL('./codemirror.local.js', import.meta.url).href;
+        await this.withTimeout(import(localUrl), 8000, 'codemirror_local_import');
         if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
           return;
         }
-      } catch (_) { /* נמשיך ל-CDN אם אין bundle מקומי */ }
+      } catch (_) { /* נמשיך ל-CDN אם אין bundle מקומי או כשהנתיב המקומי לא זמין */ }
 
       // בוחרים CDN אחד לכלל המודולים כדי למנוע ערבוב מחלקות/סינגלטונים
       const cdnCandidates = [
