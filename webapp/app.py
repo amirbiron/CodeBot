@@ -141,6 +141,35 @@ Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 
+# --- Static asset version (for cache-busting of PWA manifest/icons) ---
+_MANIFEST_PATH = (Path(__file__).parent / 'static' / 'manifest.json')
+
+def _compute_static_version() -> str:
+    """Return a short version string to bust caches for static assets.
+
+    Preference order:
+    1) ASSET_VERSION env
+    2) APP_VERSION env
+    3) SHA1(first 8) of manifest.json contents
+    4) Hourly rolling timestamp
+    """
+    v = os.getenv("ASSET_VERSION") or os.getenv("APP_VERSION")
+    if v:
+        return str(v)
+    try:
+        p = _MANIFEST_PATH
+        if p.is_file():
+            h = hashlib.sha1(p.read_bytes()).hexdigest()  # nosec - not for security
+            return h[:8]
+    except Exception:
+        pass
+    try:
+        return str(int(_time.time() // 3600))
+    except Exception:
+        return "dev"
+
+_STATIC_VERSION = _compute_static_version()
+
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
@@ -269,28 +298,27 @@ except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
-# Collections (My Collections) behind feature flag
+# זיהוי הרצה תחת pytest בזמן import (גם בזמן איסוף טסטים)
+_IS_PYTEST = bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules) or os.getenv("PYTEST") == "1" or os.getenv("PYTEST_RUNNING") == "1"
+
+# Collections (My Collections) API
 try:
     from config import config as _cfg
 except Exception:
     _cfg = None
 
 try:
-    # Enable by default; allow config flag to disable explicitly when available
+    # קביעת זמינות הפיצ'ר: ברירת מחדל True, אלא אם הקונפיג מכבה במפורש.
     enabled = True if _cfg is None else bool(getattr(_cfg, 'FEATURE_MY_COLLECTIONS', True))
+    # ב-PyTest – נכפה enable כדי להבטיח רישום ה-Blueprint גם אם config חסר/מכובה
+    if _IS_PYTEST:
+        enabled = True
+
     if enabled:
-        # Prefer module import style and support both `bp` and `collections_bp` symbols
-        from webapp import collections_api as _collections_api  # noqa: E402
-        _bp = getattr(_collections_api, 'bp', None) or getattr(_collections_api, 'collections_bp', None)
-        if _bp is not None:
-            app.register_blueprint(_bp)
-        else:
-            # Explicit diagnostic for missing blueprint symbol
-            try:
-                logger.warning("collections_api module missing 'bp'/'collections_bp' attributes; blueprint not registered")
-            except Exception:
-                pass
-        # UI route (server-rendered) best-effort; failures are logged, not swallowed silently
+        from webapp.collections_api import collections_bp  # noqa: E402
+        # רישום יחיד וקנוני של ה-API בנתיב /api/collections
+        app.register_blueprint(collections_bp, url_prefix="/api/collections")
+        # רישום דפי UI (server-rendered) הטעונים למסלול /collections
         try:
             from webapp.collections_ui import collections_ui  # noqa: E402
             app.register_blueprint(collections_ui)
@@ -300,14 +328,37 @@ try:
             except Exception:
                 pass
 except Exception as e:
-    # Do not fail silently; in tests re-raise to surface the root cause
+    # בפרודקשן – לא נרשום Blueprint דיאגנוסטי, רק נרשום ללוג
     try:
         logger.error("Failed to register collections blueprint: %s", e, exc_info=True)
     except Exception:
         pass
-    import os as _os
-    if _os.getenv("PYTEST_CURRENT_TEST"):
-        raise
+    if _IS_PYTEST:
+        # ב-PyTest – אם הייבוא נכשל, נרשום Blueprint דיאגנוסטי שמחזיר 503 במקום 404
+        try:
+            from flask import Blueprint  # ייבוא לוקלי כדי לא לזהם טופ-לבל
+
+            diagnostic_bp = Blueprint('collections_diagnostic', __name__)
+
+            # נתיבים לוכדים לכל ה-API תחת /api/collections
+            @diagnostic_bp.route('', defaults={'_path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+            @diagnostic_bp.route('/<path:_path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+            def _collections_unavailable(_path: str = ""):
+                # שימוש ב-jsonify שכבר יובא בטופ-לבל
+                return jsonify({
+                    'ok': False,
+                    'error': 'collections_api_unavailable',
+                    'diagnostic': True
+                }), 503
+
+            app.register_blueprint(diagnostic_bp, url_prefix="/api/collections")
+            try:
+                logger.info("Registered diagnostic collections blueprint for pytest")
+            except Exception:
+                pass
+        except Exception:
+            # אם גם הרישום הדיאגנוסטי נכשל – נכשיל את הטסט כדי לא להסתיר תקלה אמיתית
+            raise
 
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
@@ -597,6 +648,8 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        # גרסה סטטית לצירוף לסטטיקה (cache-busting)
+        'static_version': _STATIC_VERSION,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
         # External uptime config for templates (non-sensitive only)

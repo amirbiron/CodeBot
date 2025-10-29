@@ -352,7 +352,8 @@ class BackupMenuHandler:
             backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
             buf = BytesIO()
             with track_performance("backup_create_full_zip"):
-                with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                # High compression to shrink backup size
+                with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                     # כתיבת תוכן הקבצים
                     for doc in files:
                         name = doc.get('file_name') or f"file_{doc.get('_id')}"

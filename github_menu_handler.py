@@ -2407,7 +2407,7 @@ class GitHubMenuHandler:
                 total_bytes = 0
                 total_files = 0
                 skipped_large = 0
-                with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split("/")[-1]
 
@@ -2423,6 +2423,11 @@ class GitHubMenuHandler:
                             elif item.type == "file":
                                 await self.apply_rate_limit_delay(user_id)
                                 file_obj = repo.get_contents(item.path)
+                                # תמיכה ב־API מדומה שמחזירה רשימה גם עבור קובץ בודד
+                                if isinstance(file_obj, list):
+                                    if not file_obj:
+                                        continue
+                                    file_obj = file_obj[0]
                                 file_size = getattr(file_obj, "size", 0) or 0
                                 nonlocal total_bytes, total_files, skipped_large
                                 if file_size > MAX_INLINE_FILE_BYTES:
@@ -2451,7 +2456,7 @@ class GitHubMenuHandler:
                     "repo": repo.full_name,
                     "path": current_path or ""
                 }
-                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED) as zipf:
+                with zipfile.ZipFile(zip_buffer, 'a', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     zipf.writestr("metadata.json", json.dumps(metadata, indent=2))
 
                 zip_buffer.seek(0)
@@ -3026,7 +3031,7 @@ class GitHubMenuHandler:
                         pass
 
                 progress_task = asyncio.create_task(_progress_updater())
-                import tempfile, zipfile
+                import tempfile
                 token_opt = self.get_user_token(user_id)
                 g = Github(login_or_token=(token_opt or ""))
                 repo_full = session.get("selected_repo")

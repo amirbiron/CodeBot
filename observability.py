@@ -37,6 +37,8 @@ if not hasattr(logging, "ANOMALY"):
 
 # Guard to avoid double Sentry initialization in multi-import scenarios
 _SENTRY_INIT_DONE = False
+# Track the DSN used for initialization to allow re-init if DSN changes during tests/runtime
+_SENTRY_DSN_USED: str | None = None
 
 
 def _add_otel_ids(logger, method, event_dict: Dict[str, Any]):
@@ -190,6 +192,23 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
             _maybe_alert_single_error(event, fields)
         except Exception:
             pass
+        # גשר ישיר ל-Sentry: שליחת הודעה עם תג request_id אם קיים,
+        # כדי להבטיח אירוע גם כאשר ה-LoggingIntegration לא קולט structlog
+        try:
+            import sentry_sdk  # type: ignore
+            rid = str(fields.get("request_id") or "")
+            # בחר מסר קריא: error/message/event
+            message_text = str(fields.get("error") or fields.get("message") or event)
+            with sentry_sdk.push_scope() as scope:  # type: ignore[attr-defined]
+                if rid:
+                    try:
+                        scope.set_tag("request_id", rid)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                sentry_sdk.capture_message(message_text, level="error")  # type: ignore[attr-defined]
+        except Exception:
+            # Fail-open אם sentry לא זמין
+            pass
         logger.error(**fields)
     elif severity in {"warn", "warning"}:
         logger.warning(**fields)
@@ -202,11 +221,20 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
 
 
 def init_sentry() -> None:
-    global _SENTRY_INIT_DONE
-    if _SENTRY_INIT_DONE:
-        return
+    global _SENTRY_INIT_DONE, _SENTRY_DSN_USED
+    # Prefer explicit ENV, but fall back to config.SENTRY_DSN when available.
+    # This aligns bot/background processes with the webapp which already reads from config.
     dsn = os.getenv("SENTRY_DSN")
     if not dsn:
+        try:
+            from config import config as _cfg  # type: ignore
+            dsn = _cfg.SENTRY_DSN or None  # type: ignore[attr-defined]
+        except Exception:
+            dsn = None
+    if not dsn:
+        return
+    # If already initialized with the same DSN, skip. If DSN differs (e.g., in tests), allow re-init.
+    if _SENTRY_INIT_DONE and (_SENTRY_DSN_USED == dsn):
         return
     try:
         import sentry_sdk  # type: ignore
@@ -219,19 +247,39 @@ def init_sentry() -> None:
                     if any(s in k.lower() for s in ("token", "password", "secret", "cookie", "authorization")):
                         extra[k] = "[REDACTED]"
                 event["extra"] = extra
+                # אם request_id קיים ב-extra/contexts – קבע כתג לתשאול קל ב-Sentry
+                rid = None
+                try:
+                    rid = extra.get("request_id") or (event.get("contexts", {}).get("request", {}).get("request_id") if isinstance(event.get("contexts"), dict) else None)
+                except Exception:
+                    rid = None
+                if rid:
+                    tags = event.get("tags") or {}
+                    tags.setdefault("request_id", str(rid))
+                    event["tags"] = tags
             except Exception:
                 pass
             return event
 
+        # Resolve environment consistently with fallback to config if ENV/ENVIRONMENT not set
+        env_val = os.getenv("ENVIRONMENT") or os.getenv("ENV")
+        if not env_val:
+            try:
+                from config import config as _cfg  # type: ignore
+                env_val = getattr(_cfg, "ENVIRONMENT", "production")  # type: ignore[attr-defined]
+            except Exception:
+                env_val = "production"
+
         sentry_sdk.init(
             dsn=dsn,
-            environment=os.getenv("ENVIRONMENT", os.getenv("ENV", "production")),
+            environment=str(env_val or "production"),
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             integrations=[LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
             before_send=_before_send,
         )
         _SENTRY_INIT_DONE = True
+        _SENTRY_DSN_USED = dsn
     except Exception:
         return
 

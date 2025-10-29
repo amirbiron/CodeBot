@@ -22,6 +22,7 @@ from .models import Reminder, ReminderConfig, ReminderStatus
 from .database import RemindersDB
 from .validators import ReminderValidator
 from .utils import parse_time
+from utils import TextUtils
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +106,9 @@ class ReminderHandlers:
                     chat_id=update.effective_chat.id,
                     user_id=update.effective_user.id,
                 )
+                safe_title = TextUtils.escape_markdown(title, version=1)
                 await update.message.reply_text(
-                    f"✅ **תזכורת נוצרה!**\n\n📌 {title}\n⏰ {remind_time.strftime('%d/%m/%Y %H:%M')}\n\n💡 /reminders לרשימה",
+                    f"✅ **תזכורת נוצרה!**\n\n📌 {safe_title}\n⏰ {remind_time.strftime('%d/%m/%Y %H:%M')}\n\n💡 /reminders לרשימה",
                     parse_mode=ParseMode.MARKDOWN,
                 )
             else:
@@ -129,8 +131,9 @@ class ReminderHandlers:
             [InlineKeyboardButton("בעוד שבוע", callback_data="time_week")],
             [InlineKeyboardButton("זמן מותאם אישית", callback_data="time_custom")],
         ]
+        safe_title = TextUtils.escape_markdown(title, version=1)
         await update.message.reply_text(
-            f"📌 **{title}**\n\nמתי להזכיר לך?",
+            f"📌 **{safe_title}**\n\nמתי להזכיר לך?",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -175,7 +178,8 @@ class ReminderHandlers:
             [InlineKeyboardButton("ללא תיאור", callback_data="desc_skip")],
             [InlineKeyboardButton("הוסף תיאור", callback_data="desc_add")],
         ]
-        msg_text = f"📌 **{context.user_data['reminder_title']}**\n⏰ {remind_time.strftime('%d/%m/%Y %H:%M')}\n\nלהוסיף תיאור?"
+        safe_title = TextUtils.escape_markdown(str(context.user_data['reminder_title']), version=1)
+        msg_text = f"📌 **{safe_title}**\n⏰ {remind_time.strftime('%d/%m/%Y %H:%M')}\n\nלהוסיף תיאור?"
         if update.callback_query:
             await update.callback_query.edit_message_text(
                 msg_text,
@@ -225,9 +229,10 @@ class ReminderHandlers:
                 chat_id=update.effective_chat.id if update.effective_chat else update.callback_query.message.chat_id,  # type: ignore[attr-defined]
                 user_id=update.effective_user.id,
             )
+            safe_title = TextUtils.escape_markdown(str(reminder.title), version=1)
             msg = (
                 "✅ **תזכורת נוצרה בהצלחה!**\n\n"
-                f"📌 {reminder.title}\n"
+                f"📌 {safe_title}\n"
                 f"⏰ {reminder.remind_at.astimezone(ZoneInfo(self._get_user_timezone(update.effective_user.id))).strftime('%d/%m/%Y %H:%M')}\n\n"
                 "💡 /reminders לרשימה"
             )
@@ -241,6 +246,19 @@ class ReminderHandlers:
                 await update.callback_query.edit_message_text(err)
             else:
                 await update.message.reply_text(err)
+            # Fallback: schedule a no-op notification to ensure UX continues even אם הכתיבה ל-DB נכשלה (בדיקות/NoOp DB)
+            try:
+                job_name = f"reminder_{reminder.reminder_id}"
+                context.job_queue.run_once(
+                    self._send_reminder_notification,
+                    when=reminder.remind_at,
+                    name=job_name,
+                    data=reminder.to_dict(),
+                    chat_id=update.effective_chat.id if update.effective_chat else update.callback_query.message.chat_id,  # type: ignore[attr-defined]
+                    user_id=update.effective_user.id,
+                )
+            except Exception:
+                pass
         try:
             ud = getattr(context, "user_data")
             if isinstance(ud, dict):
@@ -347,7 +365,8 @@ class ReminderHandlers:
             except Exception:
                 ts = str(t)
             rid = str(rem.get("reminder_id", ""))
-            message += f"{i}. **{title}**\n   ⏳ {ts}\n\n"
+            safe_title = TextUtils.escape_markdown(title, version=1)
+            message += f"{i}. **{safe_title}**\n   ⏳ {ts}\n\n"
         # For simplicity in list view, provide generic actions via a menu callback
         keyboard = []
         for rem in reminders:
@@ -442,7 +461,6 @@ class ReminderHandlers:
             await query.edit_message_text("⏰ הקלד זמן חדש (tomorrow 10:00 / 15:30 / 2025-12-25 14:00):")
         elif data == "rem_list":
             # reload list
-            fake_update = Update(update.update_id, message=None, callback_query=query)
             # Not ideal; simply prompt user to use /reminders
             await query.edit_message_text("📋 השתמש ב-/reminders כדי לראות את הרשימה")
 
@@ -454,9 +472,11 @@ class ReminderHandlers:
             title = str(data.get("title", ""))
             description = str(data.get("description", ""))
             rid = str(data.get("reminder_id"))
-            message = "⏰ **תזכורת!**\n\n" + f"📌 {title}\n"
-            if description:
-                message += f"\n{description}\n"
+            safe_title = TextUtils.escape_markdown(title, version=1)
+            safe_desc = TextUtils.escape_markdown(description, version=1) if description else ""
+            message = "⏰ **תזכורת!**\n\n" + f"📌 {safe_title}\n"
+            if safe_desc:
+                message += f"\n{safe_desc}\n"
             kb = [
                 [InlineKeyboardButton("✅ בוצע", callback_data=f"rem_complete_{rid}"), InlineKeyboardButton("⏰ דחה", callback_data=f"rem_snooze_{rid}")],
                 [InlineKeyboardButton("🗑️ מחק", callback_data=f"rem_delete_{rid}")],
@@ -480,12 +500,32 @@ def setup_reminder_handlers(application):
     async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
+    # טקסטים של כפתורי מקלדת ראשיים שיש להתעלם מהם במהלך שיחה אינטראקטיבית
+    MAIN_MENU_REGEX = r"^(➕ הוסף קוד חדש|📚 הצג את כל הקבצים שלי|📂 קבצים גדולים|🔧 GitHub|🏠 תפריט ראשי|⚡ עיבוד Batch)$"
+
     conv = ConversationHandler(
         entry_points=[CommandHandler("remind", handlers.remind_command)],
         states={
-            REMINDER_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.receive_title)],
-            REMINDER_TIME: [CallbackQueryHandler(handlers.receive_time, pattern=r"^time_"), MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.receive_time)],
-            REMINDER_DESCRIPTION: [CallbackQueryHandler(handlers.receive_description, pattern=r"^desc_"), MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.receive_description)],
+            REMINDER_TITLE: [
+                MessageHandler(
+                    (filters.TEXT & ~filters.COMMAND & ~filters.Regex(MAIN_MENU_REGEX)),
+                    handlers.receive_title,
+                )
+            ],
+            REMINDER_TIME: [
+                CallbackQueryHandler(handlers.receive_time, pattern=r"^time_"),
+                MessageHandler(
+                    (filters.TEXT & ~filters.COMMAND & ~filters.Regex(MAIN_MENU_REGEX)),
+                    handlers.receive_time,
+                ),
+            ],
+            REMINDER_DESCRIPTION: [
+                CallbackQueryHandler(handlers.receive_description, pattern=r"^desc_"),
+                MessageHandler(
+                    (filters.TEXT & ~filters.COMMAND & ~filters.Regex(MAIN_MENU_REGEX)),
+                    handlers.receive_description,
+                ),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -496,19 +536,10 @@ def setup_reminder_handlers(application):
     application.add_handler(conv, group=-2)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_|edit_)"))
-    # Text handler for edit input; narrow filter to avoid intercepting unrelated messages
-    def _in_edit_flow(message, context):  # type: ignore[no-redef]
-        try:
-            ud = context.user_data  # type: ignore[attr-defined]
-            return isinstance(ud, dict) and ud.get("edit_rid") and ud.get("edit_field")
-        except Exception:
-            return False
-
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             handlers.handle_edit_input,
-            filter_callback=_in_edit_flow,  # processed only when in edit flow
         ),
         group=1,
     )

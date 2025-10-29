@@ -13,7 +13,9 @@ import re
 
 try:
     from bson import ObjectId  # type: ignore
+    HAS_BSON: bool = True
 except Exception:  # pragma: no cover
+    HAS_BSON = False
     class ObjectId(str):  # type: ignore
         pass
 
@@ -145,7 +147,8 @@ class CollectionsManager:
         try:
             total = int(self.collections.count_documents({"user_id": int(user_id), "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}))
             if total >= 100:
-                return {"ok": False, "error": "חרגת מהמגבלה: עד 100 אוספים למשתמש"}
+                # דרישה: להחזיר הודעה אחידה באנגלית וללא שדה collection
+                return {"ok": False, "error": "user has reached limit 100"}
         except Exception:
             pass
         if not self._validate_name(name):
@@ -182,10 +185,20 @@ class CollectionsManager:
             "created_at": _now(),
             "updated_at": _now(),
         }
+        # מזהה: בפרודקשן נשמור _id כ-ObjectId אמיתי, אך נחזיר/נייצג id כמחרוזת זהה
+        if HAS_BSON:
+            oid = ObjectId()
+            doc["_id"] = oid
+            doc["id"] = str(oid)
+        else:
+            # ללא bson: שמור מזהה hex באורך 24 גם ב-_id וגם ב-id
+            import os, binascii
+            _generated_id = binascii.hexlify(os.urandom(12)).decode()
+            doc["_id"] = _generated_id
+            doc["id"] = _generated_id
         try:
-            res = self.collections.insert_one(doc)
-            doc["_id"] = res.inserted_id
-            emit_event("collections_create", user_id=int(user_id), collection_id=str(res.inserted_id))
+            self.collections.insert_one(doc)
+            emit_event("collections_create", user_id=int(user_id), collection_id=str(doc.get("_id")))
             return {"ok": True, "collection": self._public_collection(doc)}
         except Exception as e:
             emit_event("collections_create_error", severity="error", user_id=int(user_id), error=str(e))
@@ -279,14 +292,36 @@ class CollectionsManager:
             eff_skip = max(0, int(skip or 0))
         except Exception:
             eff_limit, eff_skip = 100, 0
+
+        flt = {"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+
         try:
-            cur = self.collections.find(
-                {"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
-            ).sort([
-                ("is_favorite", -1), ("sort_order", 1), ("updated_at", -1)
-            ]).skip(eff_skip).limit(eff_limit)
-            rows = list(cur) if not isinstance(cur, list) else cur[eff_skip: eff_skip + eff_limit]
-            total = int(self.collections.count_documents({"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}))
+            found = self.collections.find(flt)
+
+            # כאשר find מחזיר רשימה (בסביבת טסט/דמה) – בצע מיון/דפדוף בפייתון
+            if isinstance(found, list):
+                def _sort_key(d: Dict[str, Any]):
+                    is_fav_rank = 0 if bool(d.get("is_favorite")) else 1  # מועדפים תחילה
+                    sort_order = int(d.get("sort_order") or 0)
+                    upd = d.get("updated_at")
+                    try:
+                        # סדר יורד – שלילי של timestamp
+                        upd_ts = -float(upd.timestamp()) if hasattr(upd, "timestamp") else 0.0
+                    except Exception:
+                        upd_ts = 0.0
+                    return (is_fav_rank, sort_order, upd_ts)
+
+                rows = list(found)
+                rows.sort(key=_sort_key)
+                rows = rows[eff_skip: eff_skip + eff_limit]
+            else:
+                # PyMongo cursor – ניתן להשתמש ב-sort/skip/limit של הנהג
+                cur = found.sort([
+                    ("is_favorite", -1), ("sort_order", 1), ("updated_at", -1)
+                ]).skip(eff_skip).limit(eff_limit)
+                rows = list(cur)
+
+            total = int(self.collections.count_documents(flt))
             return {
                 "ok": True,
                 "collections": [self._public_collection(d) for d in rows],
@@ -327,7 +362,8 @@ class CollectionsManager:
                 return {"ok": False, "error": "חרגת מהמגבלה: עד 5000 פריטים ידניים למשתמש"}
         except Exception:
             pass
-        ok_count = 0
+        added_count = 0
+        updated_count = 0
         now = _now()
         for it in items:
             try:
@@ -337,29 +373,56 @@ class CollectionsManager:
                 file_name = str(it.get("file_name") or "").strip()
                 if not file_name:
                     continue
-                note = str(it.get("note") or "")[:500]
-                pinned = bool(it.get("pinned") or False)
+
+                # נסה קודם לעדכן פריט קיים; אם לא קיים – נכניס חדש
+                query = {
+                    "collection_id": cid,
+                    "user_id": int(user_id),
+                    "source": source,
+                    "file_name": file_name,
+                }
+
+                set_fields: Dict[str, Any] = {"updated_at": now}
+                if "note" in it:
+                    set_fields["note"] = str(it.get("note") or "")[:500]
+                if "pinned" in it:
+                    set_fields["pinned"] = bool(it.get("pinned"))
+                if "custom_order" in it:
+                    set_fields["custom_order"] = it.get("custom_order")
+
+                try:
+                    upd_res = self.items.update_one(query, {"$set": set_fields})
+                    matched = int(getattr(upd_res, "matched_count", 0) or 0)
+                except Exception:
+                    matched = 0
+
+                if matched > 0:
+                    updated_count += 1
+                    continue
+
+                # אם לא עודכן כלום – הוסף כחדש
                 doc = {
                     "collection_id": cid,
                     "user_id": int(user_id),
                     "source": source,
                     "file_name": file_name,
-                    "note": note,
-                    "pinned": pinned,
+                    "note": str(it.get("note") or "")[:500],
+                    "pinned": bool(it.get("pinned") or False),
                     "custom_order": it.get("custom_order"),
                     "added_at": now,
                     "updated_at": now,
                 }
                 try:
                     self.items.insert_one(doc)
-                    ok_count += 1
+                    added_count += 1
                 except Exception:
-                    # ייתכן כפילות – התעלם בשקט
-                    # עדכן שדות עדכניים אם הפריט כבר קיים
-                    self.items.update_one(
-                        {"collection_id": cid, "user_id": user_id, "source": source, "file_name": file_name},
-                        {"$set": {"note": note, "pinned": pinned, "updated_at": now}},
-                    )
+                    # במידה והכנסה נכשלה (למשל כפילות נדירה) – נסה עדכון אחרון
+                    try:
+                        self.items.update_one(query, {"$set": set_fields})
+                        updated_count += 1
+                    except Exception:
+                        # התעלם מפריט בעייתי כדי לא לחסום אחרים
+                        continue
             except Exception:
                 continue
         # עדכון מונים באוסף — תחום למשתמש ולאוסף כדי למנוע פגיעה צולבת
@@ -373,8 +436,8 @@ class CollectionsManager:
             self.collections.update_one({"_id": cid, "user_id": int(user_id)}, {"$set": {"items_count": items_count, "pinned_count": pinned_count, "updated_at": _now()}})
         except Exception:
             pass
-        emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(ok_count))
-        return {"ok": True, "added": ok_count}
+        emit_event("collections_items_add", user_id=int(user_id), collection_id=str(collection_id), count=int(added_count))
+        return {"ok": True, "added": int(added_count), "updated": int(updated_count)}
 
     def remove_items(self, user_id: int, collection_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:
@@ -411,14 +474,26 @@ class CollectionsManager:
         return {"ok": True, "deleted": deleted}
 
     def reorder_items(self, user_id: int, collection_id: str, order: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Reorder items within a collection.
+
+        Requirements (for FakeDB compatibility and simplicity):
+        - Do not use update_many/bulk.
+        - Load the collection document, update its "items" field to reflect
+          the new order (list of {source, file_name}), update items_count,
+          and return updated=len(new_items) and the items list.
+        - Continue to set per-item custom_order in the items store so that
+          existing sorting logic remains correct.
+        """
         try:
             cid = ObjectId(collection_id)
         except Exception:
             return {"ok": False, "error": "collection_id לא תקין"}
+
         if not isinstance(order, list) or not order:
             return {"ok": False, "error": "order חסר"}
-        updates = 0
-        pos = 1
+
+        # Normalize requested order into a clean list of items
+        new_items: List[Dict[str, Any]] = []
         for it in order:
             try:
                 source = str((it.get("source") or "regular")).lower()
@@ -427,17 +502,71 @@ class CollectionsManager:
                 file_name = str(it.get("file_name") or "").strip()
                 if not file_name:
                     continue
-                res = self.items.update_one(
-                    {"collection_id": cid, "user_id": user_id, "source": source, "file_name": file_name},
-                    {"$set": {"custom_order": pos, "updated_at": _now()}},
-                )
-                if int(getattr(res, "matched_count", 0) or 0) > 0:
-                    updates += 1
-                    pos += 1
+                new_items.append({"source": source, "file_name": file_name})
             except Exception:
                 continue
-        emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(updates))
-        return {"ok": True, "updated": updates}
+
+        # Apply custom_order per item (pos starts at 1) without bulk
+        pos = 1
+        had_update_error = False
+        first_error_message: Optional[str] = None
+        for it in new_items:
+            try:
+                res = self.items.update_one(
+                    {"collection_id": cid, "user_id": user_id, "source": it["source"], "file_name": it["file_name"]},
+                    {"$set": {"custom_order": pos, "updated_at": _now()}},
+                )
+                # advance position only if an item was actually matched/updated
+                # תמיכה גם במימושי Fake/Stub שמדווחים modified_count אך לא matched_count
+                matched = int(getattr(res, "matched_count", 0) or 0)
+                if matched <= 0:
+                    matched = int(getattr(res, "modified_count", 0) or 0)
+                if matched > 0:
+                    pos += 1
+            except Exception as e:
+                # Do not raise – mark error and continue as per requirement
+                had_update_error = True
+                if first_error_message is None:
+                    first_error_message = str(e)
+                continue
+
+        # Load and update the collection document's items and items_count
+        try:
+            col = self.collections.find_one({
+                "_id": cid,
+                "user_id": int(user_id),
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            })
+            if not col:
+                return {"ok": False, "error": "האוסף לא נמצא"}
+
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"items": new_items, "items_count": len(new_items), "updated_at": _now()}},
+            )
+        except Exception:
+            # Best-effort: even if updating the collection doc fails, do not crash
+            pass
+
+        # If any per-item update failed, log error and report updated=0
+        if had_update_error:
+            emit_event(
+                "collections_reorder_error",
+                severity="error",
+                user_id=int(user_id),
+                collection_id=str(collection_id),
+                count=int(len(new_items)),
+                error=str(first_error_message or "update_one failed"),
+                handled=True,
+            )
+            # Report how many actually succeeded: pos starts at 1 and
+            # increments only on successful matched updates
+            updated_count = max(0, int(pos - 1))
+        else:
+            updated_count = len(new_items)
+
+        emit_event("collections_reorder", user_id=int(user_id), collection_id=str(collection_id), count=int(updated_count))
+        return {"ok": True, "updated": updated_count, "items": new_items}
 
     def get_collection_items(
         self,
@@ -494,9 +623,16 @@ class CollectionsManager:
 
             # מיון בסיסי
             def _sort_key(d: Dict[str, Any]):
+                # ודא שסדר מותאם אישית יילקח גם אם נשמר כמחרוזת ספרתית (למשל ע"י FakeDB)
+                co_raw = d.get("custom_order")
+                try:
+                    # המרה בטוחה ל-int; אם אין ערך/לא מספרי — קבע ערך גדול כדי שימוין לאחרים
+                    co_val = int(co_raw)
+                except Exception:
+                    co_val = 1_000_000
                 return (
                     0 if bool(d.get("pinned")) else 1,
-                    (d.get("custom_order") if isinstance(d.get("custom_order"), int) else 1_000_000),
+                    co_val,
                     str(d.get("file_name") or "").lower(),
                 )
 

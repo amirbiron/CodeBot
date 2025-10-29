@@ -39,7 +39,8 @@ except Exception:  # pragma: no cover
 
 
 # Blueprint
-collections_bp = Blueprint('collections', __name__, url_prefix='/api/collections')
+# חשוב: אין לקבוע url_prefix כאן; הרישום מתבצע ב-app עם '/api/collections'
+collections_bp = Blueprint('collections', __name__)
 # Alias for conventional import style in app registration
 # Some environments expect `collections_api.bp` by convention.
 bp = collections_bp
