@@ -655,22 +655,22 @@ def _db_runtime():
     """Resolve a DB accessor dynamically to support tests.
 
     Preference order:
-    1) database.db from a runtime import (honors sys.modules monkeypatch)
-    2) module-level db if it exposes get_user_* APIs
+    1) module-level db if it exposes get_user_* APIs (honors gds.db monkeypatch)
+    2) database.db from a runtime import (honors sys.modules monkeypatch)
     """
+    try:
+        if 'db' in globals():  # type: ignore[name-defined]
+            cand = globals().get('db')  # type: ignore[assignment]
+            if hasattr(cand, 'get_user_files'):
+                return cand
+    except Exception:
+        pass
     try:
         import importlib as _importlib
         m = _importlib.import_module('database')
         cand = getattr(m, 'db', None)
         if hasattr(cand, 'get_user_files'):
             return cand
-    except Exception:
-        pass
-    try:
-        if 'db' in globals():  # type: ignore[name-defined]
-            cand = globals().get('db')  # type: ignore[assignment]
-            if hasattr(cand, 'get_user_files'):
-                return cand
     except Exception:
         pass
     return None
