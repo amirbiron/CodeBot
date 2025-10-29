@@ -657,9 +657,9 @@
                         <i class="fas fa-rocket"></i>
                     </button>
                     <div class="quick-access-dropdown" id="quickAccessDropdown">
-                        <a href="/upload" class="quick-access-item" title="הוסף קובץ חדש">
+                        <a href="/upload" class="quick-access-item" title="צור קטע קוד חדש">
                             <span class="qa-icon">➕</span>
-                            <span class="qa-label">קובץ חדש</span>
+                            <span class="qa-label">צור קטע קוד חדש</span>
                         </a>
                         <button class="quick-access-item" onclick="openGlobalSearch()" title="חיפוש בכל הקבצים">
                             <span class="qa-icon">🔍</span>
@@ -671,7 +671,7 @@
                         </a>
                         <button class="quick-access-item" onclick="showRecentFiles()" title="קבצים שנפתחו לאחרונה">
                             <span class="qa-icon">🕓</span>
-                            <span class="qa-label">אחרונים</span>
+                            <span class="qa-label">נפתחו לאחרונה</span>
                         </button>
                         <!-- הוסר: כפתור הגדרות בתוך חלונית קיצורי הדרך -->
                     </div>
@@ -1046,14 +1046,18 @@
                 t = setTimeout(() => { const s = buildState(); saveState(s); tryThrottlePost(s); }, 200);
             }
 
-            // Restore only on reload/back-forward or external entry, once per tab
+            // Restore only on reload/back-forward or generic entry (/, /dashboard) without intent, once per tab
             try {
                 const nav = (performance && performance.getEntriesByType) ? (performance.getEntriesByType('navigation')[0] || null) : null;
                 const navType = (nav && nav.type) || '';
                 const hasRef = !!document.referrer;
                 let sameOriginRef = false;
                 try { sameOriginRef = hasRef && (new URL(document.referrer)).origin === window.location.origin; } catch(_) { sameOriginRef = false; }
-                const allowRestore = !sessionStorage.getItem('ws_restored') && (navType === 'reload' || navType === 'back_forward' || !sameOriginRef);
+                const params = new URLSearchParams(window.location.search || '');
+                const isShortcutIntent = (params.get('entry') === 'shortcut') || (params.get('no_restore') === '1');
+                const isGenericEntry = (window.location.pathname === '/' || window.location.pathname === '/dashboard') && (window.location.search === '' || window.location.search === null) && (!window.location.hash || window.location.hash === '' || window.location.hash === '#');
+                const allowRestoreCandidate = !sessionStorage.getItem('ws_restored') && (navType === 'reload' || navType === 'back_forward' || !sameOriginRef);
+                const allowRestore = allowRestoreCandidate && !isShortcutIntent && isGenericEntry;
                 const st = loadState();
                 const current = window.location.pathname + window.location.search + window.location.hash;
                 if (allowRestore && st && typeof st.last_url === 'string' && st.last_url.startsWith('/') && st.last_url !== current) {
