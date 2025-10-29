@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import threading
 from typing import Optional
+import time
+import logging
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -84,4 +86,25 @@ def get_session() -> requests.Session:
 
 def request(method: str, url: str, **kwargs):
     timeout = kwargs.pop("timeout", _to_float("REQUESTS_TIMEOUT", 8.0))
-    return get_session().request(method=method, url=url, timeout=timeout, **kwargs)
+    slow_ms = _to_float("HTTP_SLOW_MS", 0.0)
+    logger = logging.getLogger(__name__)
+    t0 = time.perf_counter()
+    resp = get_session().request(method=method, url=url, timeout=timeout, **kwargs)
+    try:
+        if slow_ms and slow_ms > 0:
+            dur_ms = (time.perf_counter() - t0) * 1000.0
+            if dur_ms > slow_ms:
+                # לוג מינימלי ללא הדפסת כותרות/טוקנים
+                logger.warning(
+                    "slow_http",
+                    extra={
+                        "method": str(method).upper(),
+                        "url": str(url),
+                        "status": int(getattr(resp, "status_code", 0) or 0),
+                        "ms": round(dur_ms, 1),
+                    },
+                )
+    except Exception:
+        # לעולם לא להפיל את הקריאה בגלל לוג
+        pass
+    return resp
