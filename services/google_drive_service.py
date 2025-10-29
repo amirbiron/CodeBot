@@ -670,34 +670,28 @@ def _db_runtime():
 
     runtime_db = None
     try:
-        import sys as _sys
+        import sys as _sys, types as _types
         m = _sys.modules.get('database')
         runtime_db = getattr(m, 'db', None) if m is not None else None
+        runtime_is_module = isinstance(m, _types.ModuleType)
     except Exception:
         runtime_db = None
+        runtime_is_module = True
 
-    try:
-        # Prefer module-level override if present and differs from runtime DB
-        if (
-            module_db is not None
-            and hasattr(module_db, 'get_user_files')
-            and (runtime_db is None or module_db is not runtime_db)
-        ):
-            return module_db
-    except Exception:
-        pass
+    # Selection:
+    # 1) If sys.modules['database'] is not a real module (likely test stub), prefer its db
+    if not runtime_is_module and hasattr(runtime_db, 'get_user_files'):
+        return runtime_db
 
-    try:
-        if runtime_db is not None and hasattr(runtime_db, 'get_user_files'):
-            return runtime_db
-    except Exception:
-        pass
+    # 2) If module-level db was explicitly overridden (different object than runtime_db), prefer it
+    if module_db is not None and module_db is not runtime_db and hasattr(module_db, 'get_user_files'):
+        return module_db
 
-    try:
-        if module_db is not None and hasattr(module_db, 'get_user_files'):
-            return module_db
-    except Exception:
-        pass
+    # 3) Otherwise prefer runtime db if available, else module db
+    if hasattr(runtime_db, 'get_user_files'):
+        return runtime_db
+    if hasattr(module_db, 'get_user_files'):
+        return module_db
 
     return None
 
