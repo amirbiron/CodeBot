@@ -28,7 +28,6 @@ from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
 from bson import ObjectId
 from bson.errors import InvalidId
-from http_sync import request as http_request
 from datetime import timedelta
 import re
 import sys
@@ -43,6 +42,9 @@ import traceback
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+
+# מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
+from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
