@@ -367,7 +367,7 @@ def _sanitize_drive_filename_component(text: str) -> str:
         if not isinstance(text, str):
             text = str(text)
         # Replace forbidden/suspicious characters with underscore
-        safe = re.sub(r"[\\/<>:\\"|?*\n\r\t]+", "_", text)
+        safe = re.sub(r'[\\/<>:"|?*\n\r\t]+', "_", text)
         # Collapse consecutive underscores and trim spaces
         safe = re.sub(r"_+", "_", safe).strip().strip("._ ")
         return safe or "file"
