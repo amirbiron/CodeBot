@@ -2454,9 +2454,30 @@ class GitHubMenuHandler:
                                     stack.append((next_path, f"{rel_prefix}{item.name}/"))
                                 elif item.type == "file":
                                     await self.apply_rate_limit_delay(user_id)
-                                    # אל תבצע קריאת API נוספת – השתמש באובייקט הקיים
-                                    file_obj = item
-                                    file_size = getattr(file_obj, "size", 0) or 0
+                                    # שלוף אובייקט קובץ מלא מה-API (עם תוכן), ונפילה נעימה לנתונים שכבר קיימים ב-item
+                                    file_obj = None
+                                    try:
+                                        fetched = repo.get_contents(item.path)
+                                        if isinstance(fetched, list):
+                                            fetched = fetched[0] if fetched else None
+                                        file_obj = fetched
+                                    except RecursionError:
+                                        file_obj = None
+                                    except Exception:
+                                        file_obj = None
+
+                                    # קבע גודל ותוכן עם נפילות בטוחות
+                                    data = None
+                                    file_size = 0
+                                    if file_obj is not None:
+                                        file_size = int(getattr(file_obj, "size", 0) or 0)
+                                        data = getattr(file_obj, "decoded_content", None)
+                                    if data is None and hasattr(item, "decoded_content"):
+                                        data = getattr(item, "decoded_content", None)
+                                    if not file_size:
+                                        file_size = int(getattr(item, "size", 0) or 0)
+                                    if not file_size and isinstance(data, (bytes, bytearray)):
+                                        file_size = len(data)
                                     nonlocal total_bytes, total_files, skipped_large
                                     if file_size > MAX_INLINE_FILE_BYTES:
                                         skipped_large += 1
@@ -2465,7 +2486,9 @@ class GitHubMenuHandler:
                                         continue
                                     if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
                                         continue
-                                    data = file_obj.decoded_content
+                                    if data is None:
+                                        # לא הצלחנו להשיג תוכן – דלג על הקובץ בבטחה
+                                        continue
                                     arcname = f"{zip_root}/{rel_prefix}{item.name}"
                                     zipf.writestr(arcname, data)
                                     total_bytes += len(data)
