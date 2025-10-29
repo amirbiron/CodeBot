@@ -4,6 +4,7 @@ import io
 import json
 import time
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any, Dict, Optional, Tuple, List
 import zipfile as _zipfile
 from types import SimpleNamespace as _SimpleNamespace
@@ -356,6 +357,24 @@ def _short_hash(data: Optional[bytes]) -> str:
         return ""
 
 
+def _sanitize_drive_filename_component(text: str) -> str:
+    """Sanitize a filename component for Google Drive.
+
+    Drive rejects '/' in names; we also defensively replace other common illegal
+    characters across filesystems to avoid interop issues.
+    """
+    try:
+        if not isinstance(text, str):
+            text = str(text)
+        # Replace forbidden/suspicious characters with underscore
+        safe = re.sub(r"[\\/<>:\\"|?*\n\r\t]+", "_", text)
+        # Collapse consecutive underscores and trim spaces
+        safe = re.sub(r"_+", "_", safe).strip().strip("._ ")
+        return safe or "file"
+    except Exception:
+        return "file"
+
+
 def compute_friendly_name(user_id: int, category: str, entity_name: str, rating: Optional[str] = None, content_sample: Optional[bytes] = None) -> str:
     """Return a friendly filename per spec using underscores.
 
@@ -691,7 +710,8 @@ def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
             friendly = compute_friendly_name(user_id, "by_repo", repo, content_sample=data_bytes[:1024])
         except Exception:
             # Fail-open: אם יש תלות ב-db להפקת שם ידידותי, חזור לשם פשוט
-            friendly = f"BKP_by_repo_{repo}.zip"
+            safe_repo = _sanitize_drive_filename_component(repo)
+            friendly = f"BKP_by_repo_{safe_repo}.zip"
         results.append((repo, friendly, data_bytes))
     return results
 
