@@ -670,9 +670,9 @@ def _db_runtime():
 
     runtime_db = None
     try:
-        import importlib as _importlib
-        m = _importlib.import_module('database')
-        runtime_db = getattr(m, 'db', None)
+        import sys as _sys
+        m = _sys.modules.get('database')
+        runtime_db = getattr(m, 'db', None) if m is not None else None
     except Exception:
         runtime_db = None
 
