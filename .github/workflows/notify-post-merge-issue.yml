@@ -119,20 +119,25 @@ jobs:
           script: |
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
-            const shortSha = run.head_sha.slice(0, 7);
-            const title = `Post-merge failure: ${run.name} on main @ ${shortSha}`;
-
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', per_page: 100
+            const titlePrefix = `Post-merge failure: ${run.name} on main @`;
+            // fetch open issues labeled as post-merge failures
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100, labels: 'post-merge-failure'
             });
-            const match = issues.find(i => i.title === title);
-            if (!match) {
-              core.info('No matching open issue to close');
-            } else {
-              await github.rest.issues.createComment({ owner, repo, issue_number: match.number, body: `✅ הריצה האחרונה עברה בהצלחה. סוגר את התקלה.` });
-              await github.rest.issues.update({ owner, repo, issue_number: match.number, state: 'closed' });
-              core.info(`Closed issue #${match.number}`);
+            // filter to our workflow's failure issues (exclude PRs)
+            const candidates = openIssues
+              .filter(i => !i.pull_request)
+              .filter(i => i.title && i.title.startsWith(titlePrefix));
+            if (candidates.length === 0) {
+              core.info('No open post-merge failure issues to close for this workflow');
+              return;
             }
+            // close the most recent
+            candidates.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const issue = candidates[0];
+            await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: '✅ הריצה האחרונה על main עברה בהצלחה. סוגר את התקלה האחרונה.' });
+            await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+            core.info(`Closed latest failure issue #${issue.number}`);
 
   test-issue:
     name: Manual test – open/close issue and mention
