@@ -63,6 +63,8 @@
         <div class="sidebar-list" id="collectionsList">${items || '<div class="empty">אין אוספים</div>'}</div>
       `;
       wireSidebarHandlers(root);
+      // התאמת טקסט דינמית לשמות אוספים ארוכים בסיידבר
+      autoFitText('#collectionsSidebar .sidebar-item .name', { minPx: 12, maxPx: 16 });
     } catch (e) {
       root.innerHTML = '<div class="error">שגיאה בטעינת האוספים</div>';
     }
@@ -136,6 +138,9 @@
 
       const itemsContainer = container.querySelector('#collectionItems');
       wireDnd(itemsContainer, cid);
+
+      // התאמת טקסט דינמית לשמות קבצים ארוכים
+      autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
 
       // Header actions
       const renameBtn = container.querySelector('.collection-header .rename');
@@ -261,6 +266,56 @@
   }
 
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+
+  // --- התאמת טקסט דינמית לאורכים משתנים ---
+  function autoFitText(selector, opts){
+    try {
+      const { minPx = 12, maxPx = 16 } = opts || {};
+      const els = document.querySelectorAll(selector);
+      if (!els || !els.length) return;
+      els.forEach(el => {
+        if (!(el instanceof HTMLElement)) return;
+        // שחזור גודל בסיסי אם נשמר, אחרת קבע ושמור
+        let base = Number(el.dataset.baseFontPx || '');
+        if (!base || Number.isNaN(base)) {
+          base = parseFloat(getComputedStyle(el).fontSize) || maxPx;
+          el.dataset.baseFontPx = String(base);
+        }
+        // אפס לגודל בסיס לפני מדידה
+        el.style.fontSize = base + 'px';
+        // כפייה של חישוב פריסה
+        const available = el.clientWidth;
+        const needed = el.scrollWidth;
+        if (available <= 0) return;
+        if (needed <= available) {
+          // תוודא שלא עברנו את maxPx
+          const current = parseFloat(getComputedStyle(el).fontSize) || base;
+          const target = Math.min(Math.max(current, minPx), maxPx);
+          el.style.fontSize = target + 'px';
+          return;
+        }
+        const ratio = Math.max(minPx / base, Math.min(1, available / Math.max(1, needed)));
+        const next = Math.max(minPx, Math.min(maxPx, Math.floor(base * ratio)));
+        el.style.fontSize = next + 'px';
+      });
+    } catch(_e){ /* ignore */ }
+  }
+
+  // תזמון/חסימה של ארועי resize כדי לא להציף חישובים
+  function throttle(fn, wait){
+    let t = null;
+    return function(){
+      if (t) return;
+      t = setTimeout(() => { t = null; try { fn(); } catch(_){} }, wait);
+    }
+  }
+
+  // עדכון אוטומטי בהתאמת חלון
+  const onResize = throttle(() => {
+    autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+    autoFitText('#collectionsSidebar .sidebar-item .name', { minPx: 12, maxPx: 16 });
+  }, 150);
+  window.addEventListener('resize', onResize);
 
   // חשיפת API מינימלי לכפתור "הוסף לאוסף"
   window.CollectionsUI = {
