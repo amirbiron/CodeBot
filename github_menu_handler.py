@@ -2410,6 +2410,8 @@ class GitHubMenuHandler:
                 with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
                     # קבע שם תיקיית השורש בתוך ה-ZIP
                     zip_root = repo.name if not current_path else current_path.split("/")[-1]
+                    # הגנה מפני רקורסיות/לולאות בנתיבים (למשל קישורים/תוכן בעייתי)
+                    visited_paths: set[str] = set()
 
                     async def add_path_to_zip(path: str, rel_prefix: str):
                         # קבל את התוכן עבור הנתיב
@@ -2418,8 +2420,13 @@ class GitHubMenuHandler:
                             contents = [contents]
                         for item in contents:
                             if item.type == "dir":
+                                # הימנע מלולאות: אל תבקר שוב באותו נתיב
+                                next_path = item.path
+                                if next_path in visited_paths:
+                                    continue
+                                visited_paths.add(next_path)
                                 await self.apply_rate_limit_delay(user_id)
-                                await add_path_to_zip(item.path, f"{rel_prefix}{item.name}/")
+                                await add_path_to_zip(next_path, f"{rel_prefix}{item.name}/")
                             elif item.type == "file":
                                 await self.apply_rate_limit_delay(user_id)
                                 file_obj = repo.get_contents(item.path)
