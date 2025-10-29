@@ -1,0 +1,127 @@
+name: Notify on post-merge test failures (Issues)
+
+on:
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  open-issue-on-failure:
+    name: Open issue and mention on failure
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion != 'success'
+    steps:
+      - name: Create/Update failure issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+
+            const shortSha = run.head_sha.slice(0, 7);
+            const title = `Post-merge failure: ${run.name} on main @ ${shortSha}`;
+
+            // Fetch commit message (first line) for context
+            let commitMessage = '';
+            try {
+              const commit = await github.rest.repos.getCommit({ owner, repo, ref: run.head_sha });
+              commitMessage = (commit.data.commit.message || '').split('\n')[0];
+            } catch (e) {
+              commitMessage = '';
+            }
+
+            // List failed jobs with links
+            let failedJobsText = '';
+            try {
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run.id, per_page: 100 });
+              const failed = jobs.data.jobs.filter(j => (j.conclusion || 'unknown') !== 'success');
+              if (failed.length > 0) {
+                failedJobsText = failed.map(j => `- ${j.name}: ${j.html_url}`).join('\n');
+              }
+            } catch (e) {
+              // ignore
+            }
+
+            const bodyLines = [
+              `@amirbiron 🚨 בדיקות post-merge נכשלו.`,
+              `Workflow: ${run.name}`,
+              `Branch: ${run.head_branch}`,
+              `Commit: ${shortSha}${commitMessage ? ` — ${commitMessage}` : ''}`,
+              `[קישור להרצה](${run.html_url})`,
+              failedJobsText ? '\nJobs שנכשלו:\n' + failedJobsText : ''
+            ].filter(Boolean);
+            const body = bodyLines.join('\n');
+
+            // Try to find an existing open issue with the same title
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100
+            });
+            const dup = existing.find(i => i.title === title);
+
+            // Ensure useful labels (best-effort)
+            const desiredLabels = ['post-merge-failure', 'automated'];
+            for (const name of desiredLabels) {
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name, color: name === 'post-merge-failure' ? 'B60205' : '6A737D' });
+              } catch (e) {
+                // 422 if exists - ignore
+              }
+            }
+
+            if (dup) {
+              // Update existing issue with a new comment and ensure labels/assignee
+              await github.rest.issues.createComment({ owner, repo, issue_number: dup.number, body });
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: dup.number, labels: desiredLabels }); } catch (e) {}
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: dup.number, assignees: ['amirbiron'] }); } catch (e) {}
+              core.info(`Updated existing issue #${dup.number}`);
+            } else {
+              // Create new issue
+              const created = await github.rest.issues.create({
+                owner, repo,
+                title,
+                body,
+                assignees: ['amirbiron']
+              });
+              const num = created.data.number;
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: num, labels: desiredLabels }); } catch (e) {}
+              core.info(`Created issue #${num}`);
+            }
+
+  close-issue-on-success:
+    name: Close issue on success
+    runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Close matching failure issue if exists
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const shortSha = run.head_sha.slice(0, 7);
+            const title = `Post-merge failure: ${run.name} on main @ ${shortSha}`;
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100
+            });
+            const match = issues.find(i => i.title === title);
+            if (!match) {
+              core.info('No matching open issue to close');
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: match.number, body: `✅ הריצה האחרונה עברה בהצלחה. סוגר את התקלה.` });
+              await github.rest.issues.update({ owner, repo, issue_number: match.number, state: 'closed' });
+              core.info(`Closed issue #${match.number}`);
+            }
