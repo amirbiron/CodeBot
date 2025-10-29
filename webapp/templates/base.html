@@ -1055,9 +1055,17 @@
                 try { sameOriginRef = hasRef && (new URL(document.referrer)).origin === window.location.origin; } catch(_) { sameOriginRef = false; }
                 const params = new URLSearchParams(window.location.search || '');
                 const isShortcutIntent = (params.get('entry') === 'shortcut') || (params.get('no_restore') === '1');
-                const isGenericEntry = (window.location.pathname === '/' || window.location.pathname === '/dashboard') && (window.location.search === '' || window.location.search === null) && (!window.location.hash || window.location.hash === '' || window.location.hash === '#');
-                const allowRestoreCandidate = !sessionStorage.getItem('ws_restored') && (navType === 'reload' || navType === 'back_forward' || !sameOriginRef);
-                const allowRestore = allowRestoreCandidate && !isShortcutIntent && isGenericEntry;
+                const isReloadOrBack = (navType === 'reload' || navType === 'back_forward');
+                const isExternalEntry = !sameOriginRef;
+                const isGenericEntry = (
+                    window.location.pathname === '/' ||
+                    (window.location.pathname === '/dashboard' && (!window.location.search || window.location.search === '') && (!window.location.hash || window.location.hash === '' || window.location.hash === '#'))
+                );
+                const allowRestoreCandidate = !sessionStorage.getItem('ws_restored');
+                const allowRestore = allowRestoreCandidate && !isShortcutIntent && (
+                    isReloadOrBack ||
+                    (isExternalEntry && isGenericEntry)
+                );
                 const st = loadState();
                 const current = window.location.pathname + window.location.search + window.location.hash;
                 if (allowRestore && st && typeof st.last_url === 'string' && st.last_url.startsWith('/') && st.last_url !== current) {
