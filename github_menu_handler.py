@@ -2413,44 +2413,46 @@ class GitHubMenuHandler:
                     # הגנה מפני רקורסיות/לולאות בנתיבים (למשל קישורים/תוכן בעייתי)
                     visited_paths: set[str] = set()
 
-                    async def add_path_to_zip(path: str, rel_prefix: str):
-                        # קבל את התוכן עבור הנתיב
-                        contents = repo.get_contents(path or "")
-                        if not isinstance(contents, list):
-                            contents = [contents]
-                        for item in contents:
-                            if item.type == "dir":
-                                # הימנע מלולאות: אל תבקר שוב באותו נתיב
-                                next_path = item.path
-                                if next_path in visited_paths:
-                                    continue
-                                visited_paths.add(next_path)
-                                await self.apply_rate_limit_delay(user_id)
-                                await add_path_to_zip(next_path, f"{rel_prefix}{item.name}/")
-                            elif item.type == "file":
-                                await self.apply_rate_limit_delay(user_id)
-                                file_obj = repo.get_contents(item.path)
-                                # תמיכה ב־API מדומה שמחזירה רשימה גם עבור קובץ בודד
-                                if isinstance(file_obj, list):
-                                    if not file_obj:
+                    async def walk_and_zip(start_path: str, base_prefix: str) -> None:
+                        stack: list[tuple[str, str]] = [(start_path, base_prefix)]
+                        while stack:
+                            path, rel_prefix = stack.pop()
+                            # קבל את התוכן עבור הנתיב
+                            contents = repo.get_contents(path or "")
+                            if not isinstance(contents, list):
+                                contents = [contents]
+                            for item in contents:
+                                if item.type == "dir":
+                                    next_path = item.path
+                                    if next_path in visited_paths:
                                         continue
-                                    file_obj = file_obj[0]
-                                file_size = getattr(file_obj, "size", 0) or 0
-                                nonlocal total_bytes, total_files, skipped_large
-                                if file_size > MAX_INLINE_FILE_BYTES:
-                                    skipped_large += 1
-                                    continue
-                                if total_files >= MAX_ZIP_FILES:
-                                    continue
-                                if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
-                                    continue
-                                data = file_obj.decoded_content
-                                arcname = f"{zip_root}/{rel_prefix}{item.name}"
-                                zipf.writestr(arcname, data)
-                                total_bytes += len(data)
-                                total_files += 1
+                                    visited_paths.add(next_path)
+                                    await self.apply_rate_limit_delay(user_id)
+                                    stack.append((next_path, f"{rel_prefix}{item.name}/"))
+                                elif item.type == "file":
+                                    await self.apply_rate_limit_delay(user_id)
+                                    file_obj = repo.get_contents(item.path)
+                                    # תמיכה ב־API מדומה שמחזירה רשימה גם עבור קובץ בודד
+                                    if isinstance(file_obj, list):
+                                        if not file_obj:
+                                            continue
+                                        file_obj = file_obj[0]
+                                    file_size = getattr(file_obj, "size", 0) or 0
+                                    nonlocal total_bytes, total_files, skipped_large
+                                    if file_size > MAX_INLINE_FILE_BYTES:
+                                        skipped_large += 1
+                                        continue
+                                    if total_files >= MAX_ZIP_FILES:
+                                        continue
+                                    if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                        continue
+                                    data = file_obj.decoded_content
+                                    arcname = f"{zip_root}/{rel_prefix}{item.name}"
+                                    zipf.writestr(arcname, data)
+                                    total_bytes += len(data)
+                                    total_files += 1
 
-                    await add_path_to_zip(current_path, "")
+                    await walk_and_zip(current_path, "")
                 # הוסף metadata.json
                 metadata = {
                     "backup_id": f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}",
