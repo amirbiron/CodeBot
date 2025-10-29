@@ -134,6 +134,18 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# הבטחת לולאת asyncio כברירת מחדל (תמיכה ב-Python 3.11 בסביבת טסטים)
+try:
+    # ב-Python 3.11, ייתכן שאין לולאה נוכחית עד שמגדירים אחת מפורשות
+    asyncio.get_event_loop()
+except RuntimeError:
+    try:
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    except Exception:
+        # Fail-open: אין להפיל בזמן import
+        pass
+
 # רשימת קידודים לניסיון קריאת קבצים (ניתנת לדריסה בטסטים)
 ENCODINGS_TO_TRY = [
     'utf-8',
