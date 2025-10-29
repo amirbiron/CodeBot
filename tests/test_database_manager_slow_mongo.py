@@ -16,6 +16,10 @@ def test_db_manager_registers_and_logs_slow_mongo(monkeypatch):
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/db")
     monkeypatch.setenv("DB_SLOW_MS", "0.1")
 
+    # Ensure DB is not disabled
+    monkeypatch.setenv("DISABLE_DB", "0")
+    monkeypatch.setenv("SPHINX_MOCK_IMPORTS", "0")
+
     import database.manager as dm
 
     # Force pymongo available path and inject fake monitoring API
@@ -33,11 +37,28 @@ def test_db_manager_registers_and_logs_slow_mongo(monkeypatch):
     monkeypatch.setattr(dm, "_MONGO_MONITORING_REGISTERED", False, raising=False)
 
     # Stub MongoClient to avoid real connections
+    class _Coll:
+        def create_indexes(self, *a, **k):
+            return None
+        def list_indexes(self, *a, **k):
+            return []
+
+    class _DB:
+        def __init__(self):
+            self.code_snippets = _Coll()
+            self.large_files = _Coll()
+            self.backup_ratings = _Coll()
+            self.internal_shares = _Coll()
+        def __getitem__(self, name):
+            return _Coll()
+        def __getattr__(self, name):
+            return _Coll()
+
     class _Client:
         def __init__(self, *a, **k):
             pass
         def __getitem__(self, name):
-            return types.SimpleNamespace()
+            return _DB()
         @property
         def admin(self):
             class _Admin:
