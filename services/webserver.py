@@ -146,9 +146,26 @@ def create_app() -> web.Application:
             return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
-            # דווח אירוע דרך emit_event של המודול כדי לאפשר monkeypatch בטסטים
+            # העדף emit_event שהוחלף במודול זה (monkeypatch), ואם לא – פתור דינמית את observability.emit_event
             try:
-                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
+                chosen_emit = emit_event  # type: ignore
+                try:
+                    import sys as _sys
+                    obs = _sys.modules.get("observability")
+                    obs_emit = getattr(obs, "emit_event", None) if obs is not None else None
+                except Exception:
+                    obs_emit = None
+                # אם emit_event במודול הזה אינו מגיע מ-observability (סימן ל-monkeypatch) – העדף אותו
+                # אחרת, אפשר להשתמש ב-observability.emit_event בזמן ריצה כדי לכבד monkeypatch שבוצע לאחר import
+                if not callable(chosen_emit) or getattr(chosen_emit, "__module__", "") == "observability":
+                    if callable(obs_emit):
+                        chosen_emit = obs_emit  # type: ignore
+                chosen_emit(
+                    "metrics_view_error",
+                    severity="error",
+                    error_code="E_METRICS_VIEW",
+                    error=str(e),
+                )  # type: ignore
             except Exception:
                 pass
             try:
