@@ -692,6 +692,7 @@ def _db_runtime():
         return runtime_db
     if hasattr(module_db, 'get_user_files'):
         return module_db
+ 
 
     return None
 
