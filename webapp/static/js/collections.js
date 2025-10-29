@@ -8,6 +8,18 @@
       const r = await fetch('/api/collections', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
       return r.json();
     },
+    async getCollection(id){
+      const r = await fetch(`/api/collections/${encodeURIComponent(id)}`);
+      return r.json();
+    },
+    async updateCollection(id, payload){
+      const r = await fetch(`/api/collections/${encodeURIComponent(id)}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
+      return r.json();
+    },
+    async deleteCollection(id){
+      const r = await fetch(`/api/collections/${encodeURIComponent(id)}`, {method:'DELETE'});
+      return r.json();
+    },
     async getItems(id, page=1, perPage=20){
       const r = await fetch(`/api/collections/${encodeURIComponent(id)}/items?page=${page}&per_page=${perPage}&include_computed=true`);
       return r.json();
@@ -94,29 +106,84 @@
     if (!container) return;
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
-      const data = await api.getItems(cid, 1, 200);
-      if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
-      const items = (data.items||[]).map(it => `
+      const [colRes, data] = await Promise.all([
+        api.getCollection(cid),
+        api.getItems(cid, 1, 200),
+      ]);
+      if (!data || !data.ok) throw new Error((data && data.error) || 'שגיאה');
+      if (!colRes || !colRes.ok) throw new Error((colRes && colRes.error) || 'שגיאה');
+      const col = colRes.collection || {};
+
+      const itemsHtml = (data.items||[]).map(it => `
         <div class="collection-item" data-source="${it.source}" data-name="${it.file_name}">
           <span class="drag" draggable="true">⋮⋮</span>
           <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
+          <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
           <button class="remove" title="הסר">✕</button>
         </div>
       `).join('');
-      container.innerHTML = items || '<div class="empty">אין פריטים</div>';
-      wireDnd(container, cid);
-      container.addEventListener('click', async (ev) => {
-        const rm = ev.target.closest('.remove');
+
+      container.innerHTML = `
+        <div class="collection-header">
+          <div class="title">${escapeHtml(col.name || 'ללא שם')}</div>
+          <div class="actions">
+            <button class="btn btn-secondary rename">שנה שם</button>
+            <button class="btn btn-danger delete">מחק</button>
+          </div>
+        </div>
+        <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
+      `;
+
+      const itemsContainer = container.querySelector('#collectionItems');
+      wireDnd(itemsContainer, cid);
+
+      // Header actions
+      const renameBtn = container.querySelector('.collection-header .rename');
+      const deleteBtn = container.querySelector('.collection-header .delete');
+      if (renameBtn) renameBtn.addEventListener('click', async () => {
+        const current = String(col.name || '');
+        const name = prompt('שם חדש לאוסף:', current);
+        if (!name) return;
+        const res = await api.updateCollection(cid, { name: name.slice(0, 80) });
+        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
+        ensureCollectionsSidebar();
+        await renderCollectionItems(cid);
+      });
+      if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+        if (!confirm('למחוק את האוסף? פעולה זו תסיר גם את הפריטים המשויכים.')) return;
+        const res = await api.deleteCollection(cid);
+        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
+        ensureCollectionsSidebar();
+        container.innerHTML = '<div class="empty">האוסף נמחק</div>';
+      });
+
+      // Items actions (remove, open, pin)
+      itemsContainer.addEventListener('click', async (ev) => {
         const row = ev.target.closest('.collection-item');
-        if (rm && row) {
-          const source = row.getAttribute('data-source')||'regular';
-          const name = row.getAttribute('data-name')||'';
+        if (!row) return;
+        const source = row.getAttribute('data-source')||'regular';
+        const name = row.getAttribute('data-name')||'';
+
+        // Remove item
+        const rm = ev.target.closest('.remove');
+        if (rm) {
           const res = await api.removeItems(cid, [{source, file_name: name}]);
-          if (!res || !res.ok) return alert(res && res.error || 'שגיאה במחיקה');
+          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
           row.remove();
           return;
         }
-        // פתיחת קובץ בלחיצה על שם הקובץ
+
+        // Pin/unpin
+        const pinBtn = ev.target.closest('.pin');
+        if (pinBtn) {
+          const nextPinned = !pinBtn.classList.contains('pinned');
+          const res = await api.addItems(cid, [{source, file_name: name, pinned: nextPinned}]);
+          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון הצמדה');
+          await renderCollectionItems(cid);
+          return;
+        }
+
+        // Open file by clicking the name or row (except drag handle and buttons)
         const link = ev.target.closest('a.file[data-open]');
         if (link) {
           ev.preventDefault();
@@ -124,9 +191,8 @@
           await openFileByName(fname);
           return;
         }
-        // פתיחת קובץ בלחיצה על כל השורה (מלבד כפתור הסרה/ידית גרירה)
-        if (row && !ev.target.closest('.drag')) {
-          const fname = row.getAttribute('data-name') || '';
+        if (!ev.target.closest('.drag') && !ev.target.closest('button')) {
+          const fname = name;
           await openFileByName(fname);
         }
       });
