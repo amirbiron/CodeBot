@@ -135,16 +135,43 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 # הבטחת לולאת asyncio כברירת מחדל (תמיכה ב-Python 3.11 בסביבת טסטים)
+# מתקין Policy חסין שמייצר לולאה חדשה אם אין אחת זמינה, גם אם asyncio.run() ניקה את הלולאה.
 try:
-    # ב-Python 3.11, ייתכן שאין לולאה נוכחית עד שמגדירים אחת מפורשות
-    asyncio.get_event_loop()
-except RuntimeError:
+    class _ResilientEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+        def get_event_loop(self):  # type: ignore[override]
+            try:
+                return super().get_event_loop()
+            except RuntimeError:
+                loop = self.new_event_loop()
+                self.set_event_loop(loop)
+                return loop
+
+    # התקנה חד-פעמית של ה-Policy. אם כבר הותקן Policy חיצוני (כגון uvloop) לא ננסה להחליף בכוח.
     try:
-        _loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_loop)
+        current_policy = asyncio.get_event_loop_policy()
+        # נתקין רק אם זו ה-DefaultPolicy כדי לא לשבור קונפיג קיים
+        if isinstance(current_policy, asyncio.DefaultEventLoopPolicy):
+            asyncio.set_event_loop_policy(_ResilientEventLoopPolicy())
     except Exception:
-        # Fail-open: אין להפיל בזמן import
-        pass
+        # במידה והקריאה get_event_loop_policy עצמה נכשלת, ננסה להתקין ישירות
+        try:
+            asyncio.set_event_loop_policy(_ResilientEventLoopPolicy())
+        except Exception:
+            pass
+
+    # fail-safe: נסה לוודא שיש לולאה נוכחית גם כעת
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        try:
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
+        except Exception:
+            # Fail-open: אין להפיל בזמן import
+            pass
+except Exception:
+    # לא נכשיל את ה-import אם יש בעיה במדיניות הלולאה
+    pass
 
 # רשימת קידודים לניסיון קריאת קבצים (ניתנת לדריסה בטסטים)
 ENCODINGS_TO_TRY = [
