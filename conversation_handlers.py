@@ -1702,7 +1702,8 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
 async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הורדת קובץ"""
     query = update.callback_query
-    await query.answer()
+    # שימוש במענה בטוח כדי להתעלם מ-"Query is too old" כשגורם חיצוני מעכב את הטיפול
+    await TelegramUtils.safe_answer(query)
     
     try:
         data = query.data
