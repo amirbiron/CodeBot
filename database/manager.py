@@ -210,6 +210,10 @@ class DatabaseManager:
             if not _MONGO_MONITORING_REGISTERED:
                 try:
                     class _SlowMongoListener(_pymongo_monitoring.CommandListener):  # type: ignore[attr-defined]
+                        def started(self, event):  # type: ignore[override]
+                            # מאזין חובה ב-PyMongo; לא נדרש לנו כלום בשלב ההתחלה
+                            return None
+
                         def succeeded(self, event):  # type: ignore[override]
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
@@ -229,6 +233,10 @@ class DatabaseManager:
                                         pass
                             except Exception:
                                 pass
+
+                        def failed(self, event):  # type: ignore[override]
+                            # מאזין חובה ב-PyMongo; איננו מדווחים כאן כדי להימנע מספאם לוגים
+                            return None
                     _pymongo_monitoring.register(_SlowMongoListener())  # type: ignore[attr-defined]
                     _MONGO_MONITORING_REGISTERED = True
                 except Exception:
