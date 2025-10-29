@@ -4,6 +4,12 @@ on:
   workflow_run:
     workflows: ["CI/CD Pipeline"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "open or close a TEST issue notification"
+        required: false
+        default: "open"
 
 permissions:
   contents: read
@@ -15,6 +21,7 @@ jobs:
     name: Open issue and mention on failure
     runs-on: ubuntu-latest
     if: >
+      github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion != 'success'
@@ -100,6 +107,7 @@ jobs:
     name: Close issue on success
     runs-on: ubuntu-latest
     if: >
+      github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success'
@@ -124,4 +132,53 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: match.number, body: `✅ הריצה האחרונה עברה בהצלחה. סוגר את התקלה.` });
               await github.rest.issues.update({ owner, repo, issue_number: match.number, state: 'closed' });
               core.info(`Closed issue #${match.number}`);
+            }
+
+  test-issue:
+    name: Manual test – open/close issue and mention
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Open/Close TEST issue
+        uses: actions/github-script@v7
+        env:
+          ACTION: ${{ github.event.inputs.action }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const action = (process.env.ACTION || 'open').toLowerCase();
+            const title = '[TEST] Post-merge failure notification check';
+            const labels = ['automated', 'notify-test'];
+
+            // ensure labels exist
+            for (const name of labels) {
+              try { await github.rest.issues.createLabel({ owner, repo, name, color: name === 'notify-test' ? '0366D6' : '6A737D' }); } catch {}
+            }
+
+            // find existing test issue
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+            const existing = openIssues.find(i => i.title === title);
+
+            if (action === 'close') {
+              if (existing) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: '✅ בדיקת פושים: סוגר את אישוז המבחן.' });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+                core.info(`Closed TEST issue #${existing.number}`);
+              } else {
+                core.info('No TEST issue to close');
+              }
+              return;
+            }
+
+            // default: open
+            if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: '@amirbiron 🔔 בדיקת פושים – אזכור מבחן' });
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: existing.number, assignees: ['amirbiron'] }); } catch {}
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: existing.number, labels }); } catch {}
+              core.info(`Updated TEST issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body: '@amirbiron 🔔 בדיקת פושים – זהו אישוז מבחן', assignees: ['amirbiron'] });
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: created.data.number, labels }); } catch {}
+              core.info(`Created TEST issue #${created.data.number}`);
             }
