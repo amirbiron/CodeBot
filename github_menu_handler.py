@@ -3042,6 +3042,8 @@ class GitHubMenuHandler:
             await self.set_notifications_interval(update, context)
         elif query.data == "notifications_check_now":
             await self.notifications_check_now(update, context)
+        elif query.data == "notifications_sentry_test":
+            await self.notifications_sentry_test(update, context)
 
         elif query.data == "pr_menu":
             await self.show_pr_menu(update, context)
@@ -5344,6 +5346,13 @@ class GitHubMenuHandler:
             ],
             [InlineKeyboardButton("בדוק עכשיו", callback_data="notifications_check_now")],
         ]
+        # כפתור בדיקת Sentry לאדמינים בלבד
+        try:
+            is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
+        except Exception:
+            is_admin = False
+        if is_admin:
+            keyboard.append([InlineKeyboardButton("🧪 שלח אירוע בדיקה ל‑Sentry", callback_data="notifications_sentry_test")])
         text = (
             f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
             f"מצב: {'פעיל' if enabled else 'כבוי'} | ⏱ {freq_display}\n"
@@ -5435,6 +5444,42 @@ class GitHubMenuHandler:
         except Exception:
             pass
         await self._notifications_job(context, user_id=query.from_user.id, force=True)
+        try:
+            await self.show_notifications_menu(update, context)
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
+
+    async def notifications_sentry_test(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """שולח אירוע בדיקה ל‑Sentry (אדמינים בלבד)."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        # הרשאה: רק אדמין
+        try:
+            is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
+        except Exception:
+            is_admin = False
+        if not is_admin:
+            try:
+                await query.answer("אין הרשאה", show_alert=True)
+            except Exception:
+                pass
+            return
+        # צור חריגה יזומה ושלח לסנטרי עם Stacktrace
+        try:
+            raise RuntimeError("Sentry test: manual button")
+        except Exception as e:
+            logger.exception("sentry test button")
+            try:  # pragma: no cover - תלוי בנוכחות sentry_sdk
+                import sentry_sdk  # type: ignore
+                sentry_sdk.capture_exception(e)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        try:
+            await query.answer("נשלח אירוע בדיקה ל‑Sentry", show_alert=True)
+        except Exception:
+            pass
+        # רענן תפריט
         try:
             await self.show_notifications_menu(update, context)
         except BadRequest as e:
