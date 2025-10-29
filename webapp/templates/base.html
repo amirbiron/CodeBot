@@ -609,11 +609,11 @@
     </style>
     
     {% block extra_css %}{% endblock %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
 </head>
 <body>
     <script>
@@ -1083,9 +1083,9 @@
             });
         })();
     </script>
-    <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
-    <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/collections.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
+    <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}?v={{ static_version }}" defer></script>
+    <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>
