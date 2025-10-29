@@ -2,8 +2,8 @@
 # =========================
 # Dependencies needed for building the documentation
 
-# Core Sphinx
-sphinx<8,>=7.4.0
+# Core Sphinx (align with autodoc-typehints >=8.2.3 requirement)
+sphinx>=8.2.3,<9
 sphinx-rtd-theme==3.0.2
 
 # Sphinx Extensions
