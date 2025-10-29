@@ -28,6 +28,13 @@ try:  # optional dependency
 except Exception:  # pragma: no cover
     _http_request = None  # type: ignore
 
+# Prefer a module-level 'requests' attribute so tests can monkeypatch it easily.
+# Import is optional; tests can override 'requests' on this module regardless.
+try:  # optional dependency in runtime; present in project requirements
+    import requests  # type: ignore
+except Exception:  # pragma: no cover
+    requests = None  # type: ignore
+
 def _emit_event(event: str, severity: str = "info", **fields) -> None:
     """Dynamic event emitter to honor test-time monkeypatching.
 
@@ -123,14 +130,34 @@ def _read_incidents(limit: Optional[int] = None) -> List[Dict[str, Any]]:
 def _grafana_annotate(text: str) -> None:
     base = os.getenv("GRAFANA_URL")
     token = os.getenv("GRAFANA_API_TOKEN")
-    if not base or not token or _http_request is None:
+    if not base or not token:
         return
+    url = base.rstrip("/") + "/api/annotations"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
+        "time": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "tags": ["codebot", "incident"],
+        "text": text,
+    }
+
+    # Best-effort: prefer module-level 'requests' so tests can stub it easily.
     try:
-        url = base.rstrip("/") + "/api/annotations"
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        payload = {"time": int(datetime.now(timezone.utc).timestamp() * 1000), "tags": ["codebot", "incident"], "text": text}
-        _http_request('POST', url, json=payload, headers=headers, timeout=5)
+        req = globals().get("requests", None)
+        if req is not None and hasattr(req, "post"):
+            try:
+                req.post(url, json=payload, headers=headers, timeout=5)
+                return
+            except Exception:
+                # Fall back to http_sync on failure
+                pass
+        # Fallback to pooled http client if available
+        if _http_request is not None:
+            try:
+                _http_request('POST', url, json=payload, headers=headers, timeout=5)
+            except Exception:
+                pass
     except Exception:
+        # Never raise from annotation path
         pass
 
 
