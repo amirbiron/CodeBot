@@ -146,24 +146,9 @@ def create_app() -> web.Application:
             return web.Response(body=payload, headers={"Content-Type": metrics_content_type()})
         except Exception as e:
             logger.error(f"metrics_view error: {e}")
-            # Emit a structured event that tests can monkeypatch easily while
-            # still honoring dynamic replacement of observability.emit_event
+            # דווח אירוע דרך emit_event של המודול כדי לאפשר monkeypatch בטסטים
             try:
-                import sys as _sys
-                chosen_emit = None
-                obs = _sys.modules.get("observability")
-                if obs is not None:
-                    cand = getattr(obs, "emit_event", None)
-                    if callable(cand):
-                        chosen_emit = cand
-                if chosen_emit is None:
-                    chosen_emit = emit_event  # type: ignore
-                chosen_emit(
-                    "metrics_view_error",
-                    severity="error",
-                    error_code="E_METRICS_VIEW",
-                    error=str(e),
-                )  # type: ignore
+                emit_event("metrics_view_error", severity="error", error_code="E_METRICS_VIEW", error=str(e))  # type: ignore
             except Exception:
                 pass
             try:
