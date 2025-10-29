@@ -28,6 +28,7 @@ workspace
    github_menu_handler
    github_upload_fix
    handlers
+   http_async
    http_sync
    i18n
    integrations

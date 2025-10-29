@@ -26,6 +26,25 @@ HTTP Clients
 - Async (``aiohttp``): ``AIOHTTP_POOL_LIMIT`` / ``AIOHTTP_LIMIT_PER_HOST`` / ``AIOHTTP_TIMEOUT_TOTAL``
 - Sync (``requests`` via ``http_sync``): ``REQUESTS_POOL_CONNECTIONS`` / ``REQUESTS_POOL_MAXSIZE`` / ``REQUESTS_TIMEOUT`` / ``REQUESTS_RETRIES`` / ``REQUESTS_RETRY_BACKOFF``
 
+שימוש ב‑http_async (Async HTTP)
+-------------------------------
+
+בעת ביצוע קריאות א-סינכרוניות השתמשו ב‑``http_async`` המספק ``aiohttp.ClientSession`` משותף עם הגדרות מ‑ENV.
+
+הנחיות:
+
+- אל תפתחו ``aiohttp.ClientSession`` ישירות; קבלו אותו דרך ``http_async.get_session()``.
+- סגירה מתבצעת אוטומטית ב‑atexit; לסגירה ידנית (למשל בטסטים/teardown) השתמשו ב‑``await http_async.close_session()``.
+- פרמטרים: ``AIOHTTP_TIMEOUT_TOTAL`` (ברירת מחדל 10s), ``AIOHTTP_POOL_LIMIT`` (50), ``AIOHTTP_LIMIT_PER_HOST`` (0=ללא מגבלה per‑host).
+- בבדיקות/ריסטארטים חמים: אם מופיעה השגיאה "attached to a different loop" — סגרו את הסשן ואז קבלו חדש.
+
+דוגמה קצרה::
+
+   from http_async import get_session
+   session = get_session()
+   async with session.get("https://api.example.com/data") as resp:
+       data = await resp.json()
+
 שימוש ב‑http_sync (Sync HTTP)
 -----------------------------
 
