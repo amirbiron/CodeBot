@@ -632,14 +632,40 @@ zipfile = _SimpleNamespace(
 )
 
 
+def _db_runtime():
+    """Resolve a DB accessor dynamically to support tests.
+
+    Preference order:
+    1) module-level db if it exposes get_user_* APIs
+    2) database.db from a runtime import (honors sys.modules monkeypatch)
+    """
+    try:
+        if 'db' in globals():  # type: ignore[name-defined]
+            cand = globals().get('db')  # type: ignore[assignment]
+            if hasattr(cand, 'get_user_files'):
+                return cand
+    except Exception:
+        pass
+    try:
+        import importlib as _importlib
+        m = _importlib.import_module('database')
+        cand = getattr(m, 'db', None)
+        if hasattr(cand, 'get_user_files'):
+            return cand
+    except Exception:
+        pass
+    return None
+
+
 def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
     """Return zips grouped by repo: (repo_name, suggested_name, zip_bytes)."""
     # נדרש גם tags ו-code לקיבוץ ולכתיבה ל־ZIP
-    files = db.get_user_files(
+    _db = _db_runtime()
+    files = (_db.get_user_files(
         user_id,
         limit=1000,
         projection={"file_name": 1, "tags": 1, "code": 1, "_id": 1},
-    ) or []
+    ) if _db else []) or []
     repo_to_files: Dict[str, List[Dict[str, Any]]] = {}
     for doc in files:
         tags = doc.get('tags') or []
@@ -678,15 +704,19 @@ def create_full_backup_zip_bytes(user_id: int, category: str = "all") -> Tuple[s
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         # נדרשים code ו-tags להמשך סינון וכתיבה ל־ZIP
-        files = db.get_user_files(
+        _db = _db_runtime()
+        files = (_db.get_user_files(
             user_id,
             limit=1000,
             projection={"file_name": 1, "tags": 1, "code": 1, "_id": 1},
-        ) or []
+        ) if _db else []) or []
         if category == "by_repo":
             files = [d for d in files if any((t or '').startswith('repo:') for t in (d.get('tags') or []))]
         elif category == "large":
-            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            try:
+                large_files, _ = _db.get_user_large_files(user_id, page=1, per_page=10000) if _db else ([], None)
+            except Exception:
+                large_files = []
             for lf in large_files:
                 name = lf.get('file_name') or f"large_{lf.get('_id')}"
                 code = lf.get('code') or ''
