@@ -5,7 +5,8 @@ import json
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple, List
-import zipfile
+import zipfile as _zipfile
+from types import SimpleNamespace as _SimpleNamespace
 
 import requests
 try:
@@ -620,6 +621,15 @@ def upload_all_saved_zip_backups(user_id: int) -> Tuple[int, List[str]]:
         except Exception:
             pass
     return uploaded, ids
+
+
+# Expose a local proxy for zipfile so tests can safely monkeypatch
+# without altering the global zipfile module (avoids recursion in wrappers)
+zipfile = _SimpleNamespace(
+    ZipFile=_zipfile.ZipFile,
+    ZIP_DEFLATED=_zipfile.ZIP_DEFLATED,
+    ZIP_STORED=getattr(_zipfile, "ZIP_STORED", 0),
+)
 
 
 def create_repo_grouped_zip_bytes(user_id: int) -> List[Tuple[str, str, bytes]]:
