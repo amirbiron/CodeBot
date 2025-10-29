@@ -654,25 +654,51 @@ zipfile = _SimpleNamespace(
 def _db_runtime():
     """Resolve a DB accessor dynamically to support tests.
 
-    Preference order:
-    1) module-level db if it exposes get_user_* APIs (honors gds.db monkeypatch)
-    2) database.db from a runtime import (honors sys.modules monkeypatch)
+    Selection rules (to honor both monkeypatch styles):
+    - If a runtime `database.db` exists and differs from module-level `gds.db`, prefer it
+      (covers tests that monkeypatch `sys.modules['database']`).
+    - Otherwise, if module-level `gds.db` exposes the APIs, use it
+      (covers tests that monkeypatch `services.google_drive_service.db`).
+    - Fallback to whichever of the two is available with the expected APIs.
     """
+    module_db = None
     try:
         if 'db' in globals():  # type: ignore[name-defined]
-            cand = globals().get('db')  # type: ignore[assignment]
-            if hasattr(cand, 'get_user_files'):
-                return cand
+            module_db = globals().get('db')  # type: ignore[assignment]
     except Exception:
-        pass
+        module_db = None
+
+    runtime_db = None
     try:
-        import importlib as _importlib
-        m = _importlib.import_module('database')
-        cand = getattr(m, 'db', None)
-        if hasattr(cand, 'get_user_files'):
-            return cand
+        import sys as _sys
+        m = _sys.modules.get('database')
+        runtime_db = getattr(m, 'db', None) if m is not None else None
+    except Exception:
+        runtime_db = None
+
+    try:
+        # Prefer module-level override if present and differs from runtime DB
+        if (
+            module_db is not None
+            and hasattr(module_db, 'get_user_files')
+            and (runtime_db is None or module_db is not runtime_db)
+        ):
+            return module_db
     except Exception:
         pass
+
+    try:
+        if runtime_db is not None and hasattr(runtime_db, 'get_user_files'):
+            return runtime_db
+    except Exception:
+        pass
+
+    try:
+        if module_db is not None and hasattr(module_db, 'get_user_files'):
+            return module_db
+    except Exception:
+        pass
+
     return None
 
 
