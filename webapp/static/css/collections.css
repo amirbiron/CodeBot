@@ -1,4 +1,4 @@
-.collections-layout{display:grid;grid-template-columns:280px 1fr;gap:1rem}
+.collections-layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:1rem}
 .collections-sidebar{background:var(--glass);border:1px solid var(--glass-border);border-radius:14px;padding:0.75rem;backdrop-filter:blur(20px)}
 .sidebar-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
 .sidebar-header .title{font-weight:700}
@@ -17,8 +17,12 @@
   border:1px solid rgba(0,0,0,0.08);
   border-radius:14px;
   padding:0.75rem;
-  min-height:240px
+  min-height:240px;
+  /* מאפשר לתא הגריד להצטמצם ללא גלילה אופקית/חיתוך */
+  min-width:0;
+  overflow-x:hidden
 }
+.collection-items{display:flex;flex-direction:column;gap:.5rem;min-width:0}
 .collection-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
 .collection-header .title{font-weight:700;font-size:1rem}
 .collection-header .actions{display:flex;gap:.5rem}
@@ -31,7 +35,9 @@
   border:1px solid #e5e7eb; /* במקום קו מקווקו שקוף */
   border-radius:8px;
   padding:.4rem .6rem;
-  background:#ffffff
+  background:#ffffff;
+  /* מאפשר לשם הקובץ לבצע ellipsis בלי להרחיב את השורה */
+  min-width:0
 }
 .collection-item .drag{cursor:grab;opacity:.7}
 .collection-item.dragging{opacity:.5}
@@ -42,6 +48,7 @@
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap; /* הצגת שם בקו אחד עם אליפסות */
+  display:block; /* הבטחת ellipsis עקבי בתוך flex */
   color:#0366d6;
   cursor:pointer;
   text-decoration:none
