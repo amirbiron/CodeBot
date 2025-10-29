@@ -677,14 +677,12 @@ def _db_runtime():
         runtime_db = None
 
     try:
-        # Prefer runtime DB if it's a different object (likely monkeypatched) and exposes APIs
-        if runtime_db is not None and runtime_db is not module_db and hasattr(runtime_db, 'get_user_files'):
-            return runtime_db
-    except Exception:
-        pass
-
-    try:
-        if module_db is not None and hasattr(module_db, 'get_user_files'):
+        # Prefer module-level override if present and differs from runtime DB
+        if (
+            module_db is not None
+            and hasattr(module_db, 'get_user_files')
+            and (runtime_db is None or module_db is not runtime_db)
+        ):
             return module_db
     except Exception:
         pass
@@ -692,6 +690,12 @@ def _db_runtime():
     try:
         if runtime_db is not None and hasattr(runtime_db, 'get_user_files'):
             return runtime_db
+    except Exception:
+        pass
+
+    try:
+        if module_db is not None and hasattr(module_db, 'get_user_files'):
+            return module_db
     except Exception:
         pass
 
