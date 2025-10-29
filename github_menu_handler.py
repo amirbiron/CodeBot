@@ -2417,7 +2417,6 @@ class GitHubMenuHandler:
                         stack: list[tuple[str, str]] = [(start_path, base_prefix)]
                         while stack:
                             path, rel_prefix = stack.pop()
-                            # קבל את התוכן עבור הנתיב
                             contents = repo.get_contents(path or "")
                             if not isinstance(contents, list):
                                 contents = [contents]
@@ -2432,7 +2431,6 @@ class GitHubMenuHandler:
                                 elif item.type == "file":
                                     await self.apply_rate_limit_delay(user_id)
                                     file_obj = repo.get_contents(item.path)
-                                    # תמיכה ב־API מדומה שמחזירה רשימה גם עבור קובץ בודד
                                     if isinstance(file_obj, list):
                                         if not file_obj:
                                             continue
