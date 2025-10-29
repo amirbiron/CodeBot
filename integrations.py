@@ -13,7 +13,6 @@ from datetime import datetime, timezone, timedelta
 import os
 from typing import Any, Dict, List, Optional
 
-import aiohttp
 import requests
 from github import Github, InputFileContent
 from github.GithubException import GithubException
@@ -266,20 +265,9 @@ class PastebinIntegration:
         }
         
         try:
-            # שמור תאימות לאחור: ברירת מחדל 15s ל-Pastebin, ניתן לדרוס ב-ENV/Config
-            try:
-                env_total = os.getenv("AIOHTTP_TIMEOUT_TOTAL")
-                _total = int(env_total) if env_total not in (None, "") else 15
-            except Exception:
-                _total = 15
-            try:
-                _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
-            except Exception:
-                _limit = 50
-            timeout = aiohttp.ClientTimeout(total=_total)
-            connector = aiohttp.TCPConnector(limit=_limit)
-            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
+            from http_async import get_session  # lazy import להימנע מתלויות מעגליות
+            session = get_session()
+            async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
                     result = await response.text()
                     
                     if response.status == 200 and result.startswith('https://pastebin.com/'):
@@ -310,10 +298,9 @@ class PastebinIntegration:
         
         try:
             raw_url = f"https://pastebin.com/raw/{paste_id}"
-            timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10)))
-            connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
-            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                async with session.get(raw_url) as response:
+            from http_async import get_session
+            session = get_session()
+            async with session.get(raw_url) as response:
                     if response.status == 200:
                         content = await response.text()
                         logger.info(f"נשלף תוכן מ-Pastebin: {paste_id}")
@@ -608,35 +595,23 @@ class WebhookIntegration:
             "data": data
         }
         
-        try:
-            _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10))
-        except Exception:
-            _total = 10
-        try:
-            _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
-        except Exception:
-            _limit = 50
-        timeout = aiohttp.ClientTimeout(total=_total)
-        connector = aiohttp.TCPConnector(limit=_limit)
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            for webhook in relevant_webhooks:
-                try:
-                    async with session.post(
-                        webhook["url"],
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
-                        timeout=timeout
-                    ) as response:
-                        
-                        if response.status == 200:
-                            logger.info(f"Webhook נשלח בהצלחה: {webhook['url']}")
-                        else:
-                            logger.warning(f"Webhook החזיר שגיאה {response.status}: {webhook['url']}")
-                            
-                except asyncio.TimeoutError:
-                    logger.warning(f"Webhook timeout: {webhook['url']}")
-                except Exception as e:
-                    logger.error(f"שגיאה בשליחת webhook: {e}")
+        from http_async import get_session
+        session = get_session()
+        for webhook in relevant_webhooks:
+            try:
+                async with session.post(
+                    webhook["url"],
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    if response.status == 200:
+                        logger.info(f"Webhook נשלח בהצלחה: {webhook['url']}")
+                    else:
+                        logger.warning(f"Webhook החזיר שגיאה {response.status}: {webhook['url']}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Webhook timeout: {webhook['url']}")
+            except Exception as e:
+                logger.error(f"שגיאה בשליחת webhook: {e}")
 
 # יצירת אינסטנסים גלובליים
 gist_integration = GitHubGistIntegration()

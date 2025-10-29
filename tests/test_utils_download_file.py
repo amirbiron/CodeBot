@@ -5,6 +5,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_download_file_rejects_large_content(monkeypatch):
     import utils as ut
+    import http_async as ha
     importlib.reload(ut)
 
     class _Resp:
@@ -33,11 +34,7 @@ async def test_download_file_rejects_large_content(monkeypatch):
             # Return 2MB body while max_size will be set to 1MB
             return _Resp(body=b'a'*(2*1024*1024))
 
-    monkeypatch.setattr(ut, 'aiohttp', type('B', (), {
-        'ClientSession': _Sess,
-        'ClientTimeout': lambda *a, **k: None,
-        'TCPConnector': lambda *a, **k: None,
-    }))
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     out = await ut.FileUtils.download_file('http://x', max_size=1*1024*1024)
     assert out is None
@@ -46,6 +43,7 @@ async def test_download_file_rejects_large_content(monkeypatch):
 @pytest.mark.asyncio
 async def test_download_file_handles_http_error(monkeypatch):
     import utils as ut
+    import http_async as ha
     importlib.reload(ut)
 
     class _Resp:
@@ -67,11 +65,7 @@ async def test_download_file_handles_http_error(monkeypatch):
         def get(self, *a, **k):
             return _Resp()
 
-    monkeypatch.setattr(ut, 'aiohttp', type('C', (), {
-        'ClientSession': _Sess,
-        'ClientTimeout': lambda *a, **k: None,
-        'TCPConnector': lambda *a, **k: None,
-    }))
+    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
 
     out = await ut.FileUtils.download_file('http://x')
     assert out is None

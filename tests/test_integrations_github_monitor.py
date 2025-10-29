@@ -2,6 +2,7 @@ import types
 import pytest
 
 import integrations_github_monitor as mon
+import http_async as ha
 
 
 @pytest.mark.asyncio
@@ -25,7 +26,7 @@ async def test_summarize_rate_limit_and_fetch(monkeypatch):
         def get(self, *a, **k):
             return _Resp()
 
-    monkeypatch.setattr(mon, "aiohttp", types.SimpleNamespace(ClientSession=_Session), raising=False)
+    monkeypatch.setattr(ha, "get_session", lambda: _Session(), raising=False)
 
     data = await mon.fetch_rate_limit(token="t")
     s = mon.summarize_rate_limit(data)

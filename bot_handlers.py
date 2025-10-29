@@ -712,36 +712,18 @@ class AdvancedBotHandlers:
             # GitHub API rate limit (optional)
             gh_status = "unknown"
             try:
-                if aiohttp is not None and os.getenv("GITHUB_TOKEN"):
-                    try:
-                        from config import config as _cfg  # type: ignore
-                        _total = int(getattr(_cfg, "AIOHTTP_TIMEOUT_TOTAL", 10))
-                        _limit = int(getattr(_cfg, "AIOHTTP_POOL_LIMIT", 50))
-                    except Exception:
-                        _total = 10
-                        _limit = 50
-                    # תואם מוקים: מאפייני ClientTimeout/TCPConnector עשויים לא להיות זמינים
-                    session_kwargs = {}
-                    try:
-                        timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
-                        session_kwargs["timeout"] = timeout
-                    except Exception:
-                        pass
-                    try:
-                        connector = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
-                        session_kwargs["connector"] = connector
-                    except Exception:
-                        pass
-                    async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[call-arg]
-                        async with session.get(
-                            "https://api.github.com/rate_limit",
-                            headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
-                        ) as resp:
-                            data = await resp.json()
-                            remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
-                            limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
-                            used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
-                            gh_status = f"{remaining}/{limit} ({used_pct}% used)"
+                if os.getenv("GITHUB_TOKEN"):
+                    from http_async import get_session
+                    session = get_session()
+                    async with session.get(
+                        "https://api.github.com/rate_limit",
+                        headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+                    ) as resp:
+                        data = await resp.json()
+                        remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
+                        limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
+                        used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
+                        gh_status = f"{remaining}/{limit} ({used_pct}% used)"
             except Exception:
                 gh_status = "error"
 
@@ -1759,31 +1741,16 @@ class AdvancedBotHandlers:
             if not self._is_admin(user_id):
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
-            if aiohttp is None or not os.getenv("GITHUB_TOKEN"):
+            if not os.getenv("GITHUB_TOKEN"):
                 await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
                 return
-            try:
-                from config import config as _cfg  # type: ignore
-                _total = int(getattr(_cfg, "AIOHTTP_TIMEOUT_TOTAL", 10))
-                _limit = int(getattr(_cfg, "AIOHTTP_POOL_LIMIT", 50))
-            except Exception:
-                _total = 10
-                _limit = 50
-            # תואם מוקים: מאפייני ClientTimeout/TCPConnector עשויים לא להיות זמינים
-            session_kwargs = {}
-            try:
-                timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
-                session_kwargs["timeout"] = timeout
-            except Exception:
-                pass
-            try:
-                connector = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
-                session_kwargs["connector"] = connector
-            except Exception:
-                pass
-            async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[call-arg]
-                async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
-                    data = await resp.json()
+            from http_async import get_session
+            session = get_session()
+            async with session.get(
+                "https://api.github.com/rate_limit",
+                headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+            ) as resp:
+                data = await resp.json()
             core = data.get("resources", {}).get("core", {})
             remaining = int(core.get("remaining", 0))
             limit = int(core.get("limit", 0))
