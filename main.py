@@ -134,9 +134,9 @@ def _shutdown_http_shared_session() -> None:
     except RuntimeError:
         # אין event loop פעיל
         try:
-            import asyncio as _a
-            _loop = _a.new_event_loop()
-            _a.set_event_loop(_loop)
+            # חשוב להשתמש באותו מודול asyncio של המודול (ניתן ל-monkeypatch בטסטים)
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
             _loop.run_until_complete(close_session())
             _loop.close()
         except Exception:

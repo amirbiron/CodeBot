@@ -1742,7 +1742,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             if not os.getenv("GITHUB_TOKEN"):
-                await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
+                await update.message.reply_text("ℹ️ אין GITHUB_TOKEN – מידע לא זמין")
                 return
             from http_async import get_session
             session = get_session()
