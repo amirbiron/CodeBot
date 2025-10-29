@@ -32,6 +32,24 @@ except ModuleNotFoundError:
     project_root = tests_dir.parent
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+
+    # If a conflicting top-level `tests` package is already imported from a
+    # different location, clear it so imports will resolve against our local
+    # namespace package at project_root/tests.
+    existing = sys.modules.get('tests')
+    if existing is not None:
+        tests_dir_str = str(tests_dir)
+        module_paths = []
+        pkg_path = getattr(existing, '__path__', None)
+        if pkg_path is not None:
+            try:
+                module_paths = [str(p) for p in pkg_path]
+            except Exception:
+                module_paths = []
+        module_file = getattr(existing, '__file__', None)
+        # If our local tests directory is not among the package paths, it's a conflict
+        if (tests_dir_str not in module_paths) and (not module_file or tests_dir_str not in module_file):
+            sys.modules.pop('tests', None)
     try:
         import tests._telegram_stubs  # noqa: F401
     except ModuleNotFoundError:
