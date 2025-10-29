@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Any, Dict, Optional
+import zipfile
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
@@ -344,7 +345,7 @@ class BackupMenuHandler:
             except Exception:
                 pass
             from io import BytesIO
-            import zipfile, json
+            import json
             from database import db
             # אסוף את הקבצים של המשתמש
             # לשם יצירת גיבוי: מספיק לקרוא את הגרסאות האחרונות; תכולה תישלף בהמשך
