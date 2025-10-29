@@ -547,6 +547,8 @@ body.high-contrast .file-card.expanded {
 
 #### 2. הוספת כפתור "הצץ" לכל כרטיס
 
+**הערה חשובה:** ה-`data-file-id` attribute **כבר קיים** בקוד על `<div class="glass-card file-card">` (שורה 260), אין צורך להוסיף אותו.
+
 מצא את הסקציה שבה מוצגים הכפתורים בכרטיס (שורות ~307-321), והוסף **לפני** כפתור "צפה":
 
 ```html
@@ -567,6 +569,12 @@ body.high-contrast .file-card.expanded {
     <!-- ... שאר הכפתורים ... -->
 </div>
 ```
+
+**לתשומת לבך:** הקוד הקיים ב-`files.html` כבר מכיל:
+```html
+<div class="glass-card file-card" data-file-id="{{ file.id }}">
+```
+זה נחוץ עבור קיצורי המקלדת והפיצ'רים האופציונליים.
 
 #### 3. טעינת הסקריפט (בסוף `{% block extra_js %}`)
 
@@ -711,16 +719,22 @@ async function expandCard(fileId, cardElement) {
 // בסוף card-preview.js
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault();
+        
         // מצא את הכרטיס שמעליו העכבר
         const hoveredCard = document.querySelector('.file-card:hover');
         if (hoveredCard) {
-            e.preventDefault();
-            const fileId = hoveredCard.dataset.fileId;
-            expandCard(fileId, hoveredCard);
+            // שימוש ב-data-file-id attribute (כבר קיים בתבנית)
+            const fileId = hoveredCard.getAttribute('data-file-id');
+            if (fileId) {
+                expandCard(fileId, hoveredCard);
+            }
         }
     }
 });
 ```
+
+**הערה:** ה-attribute `data-file-id` כבר קיים על כל `.file-card` בתבנית files.html (שורה 260).
 
 ### 3. אנליטיקס
 
@@ -773,6 +787,22 @@ function setCachedPreview(fileId, content) {
     } catch {
         // Ignore quota errors
     }
+}
+
+// שימוש:
+async function expandCard(fileId, cardElement) {
+    // בדוק cache קודם
+    const cached = getCachedPreview(fileId);
+    if (cached) {
+        // הצג מהמטמון מיד
+        displayPreview(cached, cardElement);
+        return;
+    }
+    
+    // ... שאר הלוגיקה של fetch ...
+    
+    // שמור בcache לאחר קבלה מהשרת
+    setCachedPreview(fileId, data);
 }
 ```
 
@@ -889,9 +919,11 @@ def file_preview(file_id):
 לפני merge, וודא:
 
 - [ ] כל הקבצים נוצרו/נערכו לפי המדריך
+- [ ] ה-`data-file-id` attribute קיים על `.file-card` (כבר קיים בשורה 260 של files.html - אין צורך להוסיף)
 - [ ] הטסטים עוברים בהצלחה
 - [ ] בדיקה ידנית במספר דפדפנים (Chrome, Firefox, Safari)
 - [ ] בדיקה במובייל (responsive)
+- [ ] בדיקת קיצורי מקלדת (Ctrl+E) – אם הוספת
 - [ ] אין שגיאות בקונסול
 - [ ] הקוד עובר lint (flake8, pylint)
 - [ ] התיעוד עודכן (README, docs)
@@ -918,6 +950,41 @@ def file_preview(file_id):
 
 ---
 
+## 🔧 Troubleshooting
+
+### קיצורי מקלדת לא עובדים
+
+**תסמין:** לחיצה על `Ctrl+E` לא מרחיבה את הכרטיס.
+
+**סיבה:** ה-attribute `data-file-id` חסר על `.file-card`.
+
+**פתרון:** ודא שבשורה 260 של `files.html` יש:
+```html
+<div class="glass-card file-card" data-file-id="{{ file.id }}">
+```
+
+זה כבר קיים בקוד המקורי, אז לא צריך לשנות כלום. אם זה חסר, הוסף אותו.
+
+### תצוגה מקדימה ריקה
+
+**תסמין:** הכרטיס מתרחב אבל לא מציג קוד.
+
+**סיבה אפשרית:**
+1. ה-API מחזיר שגיאה (בדוק בקונסול)
+2. ה-CSS של Pygments לא נטען
+
+**פתרון:**
+1. פתח Developer Tools → Network → בדוק את התגובה מ-`/api/file/<id>/preview`
+2. ודא שיש `<style id="preview-syntax-css">` ב-`<head>`
+
+### הכרטיס לא מתקפל
+
+**תסמין:** לחיצה על "סגור" לא מקפלת את הכרטיס.
+
+**פתרון:** ודא שהפונקציה `window.cardPreview.collapse` מוגדרת ונגישה.
+
+---
+
 ## 💬 שאלות נפוצות
 
 **ש: למה לא להשתמש ב-iframe?**  
@@ -928,6 +995,9 @@ def file_preview(file_id):
 
 **ש: איך זה משפיע על ביצועים?**  
 ת: טעינה lazy (רק בלחיצה) + cache בשרת = השפעה מינימלית.
+
+**ש: ה-`data-file-id` attribute חסר, מה לעשות?**  
+ת: הוא כבר קיים בקוד המקורי (שורה 260). אם למסיבה כלשהי הוא נמחק, פשוט הוסף `data-file-id="{{ file.id }}"` ל-`<div class="glass-card file-card">`.
 
 ---
 
